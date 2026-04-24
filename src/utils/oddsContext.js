@@ -1,4 +1,4 @@
-import { buildBettingEntityLabel } from './OddsEngine'
+import { buildBettingEntityLabel } from './oddsEngine'
 import { getPlayerSkillProfile } from './teamIdentity'
 import { inningsAsDecimal } from './statsCalculator'
 

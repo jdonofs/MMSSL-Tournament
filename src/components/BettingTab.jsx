@@ -15,7 +15,7 @@ import {
   computeRunLineCoverProb,
   generateGameOdds,
   mergeOddsWithExistingRows,
-} from '../utils/OddsEngine'
+} from '../utils/oddsEngine'
 import { buildOddsGenerationContext } from '../utils/oddsContext'
 import { buildAppliedStadiumModel } from '../utils/stadiumOdds'
 import {

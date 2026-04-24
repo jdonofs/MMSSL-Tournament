@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient'
-import { adjustWeights, computeBrierScore } from './OddsEngine'
+import { adjustWeights, computeBrierScore } from './oddsEngine'
 
 const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR'])
 const PROP_TYPES = new Set(['hr_prop', 'hit_prop', 'k_prop'])

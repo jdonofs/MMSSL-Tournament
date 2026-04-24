@@ -9,7 +9,7 @@ import { calculateOutsForPa, getCreditedRbiForPa, inningsPitchedFromOuts, summar
 import CharacterPortrait from '../components/CharacterPortrait'
 import PlayerTag from '../components/PlayerTag'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
-import { buildBettingEntityLabel, generateGameOdds, mergeOddsWithExistingRows, recalculateOdds } from '../utils/OddsEngine'
+import { buildBettingEntityLabel, generateGameOdds, mergeOddsWithExistingRows, recalculateOdds } from '../utils/oddsEngine'
 import { buildOddsGenerationContext as buildSharedOddsGenerationContext } from '../utils/oddsContext'
 import { resolveFirstInningNoRun, resolveGameBets, resolveOnPA } from '../utils/betResolution'
 import { advanceBracketOnGameComplete } from '../utils/bracketProgression'
