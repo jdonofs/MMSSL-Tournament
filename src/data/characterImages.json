@@ -1,0 +1,578 @@
+[
+  {
+    "name": "Daisy",
+    "fileName": "daisy.jpg",
+    "publicPath": "/characters/daisy.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Daisy_MSS_artwork.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/5/55/Daisy_MSS_artwork.jpg/300px-Daisy_MSS_artwork.jpg"
+  },
+  {
+    "name": "Luigi",
+    "fileName": "luigi.jpg",
+    "publicPath": "/characters/luigi.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Luigi_MSS.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/3/38/Luigi_MSS.jpg/300px-Luigi_MSS.jpg"
+  },
+  {
+    "name": "Mario",
+    "fileName": "mario.jpg",
+    "publicPath": "/characters/mario.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Mario_Mario_Super_Sluggers.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/4/49/Mario_Mario_Super_Sluggers.jpg/300px-Mario_Mario_Super_Sluggers.jpg"
+  },
+  {
+    "name": "Peach",
+    "fileName": "peach.jpg",
+    "publicPath": "/characters/peach.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Peach_MSS.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/2/23/Peach_MSS.jpg/250px-Peach_MSS.jpg"
+  },
+  {
+    "name": "Waluigi",
+    "fileName": "waluigi.jpg",
+    "publicPath": "/characters/waluigi.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Waluigi_MSS_artwork.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/c/c9/Waluigi_MSS_artwork.jpg/250px-Waluigi_MSS_artwork.jpg"
+  },
+  {
+    "name": "Birdo",
+    "fileName": "birdo.jpg",
+    "publicPath": "/characters/birdo.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Birdo_MSS_artwork.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/d/db/Birdo_MSS_artwork.jpg/250px-Birdo_MSS_artwork.jpg"
+  },
+  {
+    "name": "Mii",
+    "fileName": "mii.png",
+    "publicPath": "/characters/mii.png",
+    "sourcePage": "https://www.mariowiki.com/Mii",
+    "sourceFilePage": "https://www.mariowiki.com/Mii",
+    "downloadUrl": "https://mario.wiki.gallery/images/6/66/PlayNintendoMiis.png"
+  },
+  {
+    "name": "Bowser Jr.",
+    "fileName": "bowser-jr.jpg",
+    "publicPath": "/characters/bowser-jr.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Bowser_Jr_MSS.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/6/6b/Bowser_Jr_MSS.jpg/300px-Bowser_Jr_MSS.jpg"
+  },
+  {
+    "name": "Diddy Kong",
+    "fileName": "diddy-kong.jpg",
+    "publicPath": "/characters/diddy-kong.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:DiddyKong_MSS.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/a/ae/DiddyKong_MSS.jpg/300px-DiddyKong_MSS.jpg"
+  },
+  {
+    "name": "Yoshi",
+    "fileName": "yoshi.jpg",
+    "publicPath": "/characters/yoshi.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Yoshi_MSS_artwork.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/9/95/Yoshi_MSS_artwork.jpg/250px-Yoshi_MSS_artwork.jpg"
+  },
+  {
+    "name": "Tiny Kong",
+    "fileName": "tiny-kong.png",
+    "publicPath": "/characters/tiny-kong.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Tiny_Kong_MSS_art.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/8/81/Tiny_Kong_MSS_art.png/200px-Tiny_Kong_MSS_art.png"
+  },
+  {
+    "name": "Baby DK",
+    "fileName": "baby-dk.png",
+    "publicPath": "/characters/baby-dk.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:BDKSluggers.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/e/e5/BDKSluggers.png"
+  },
+  {
+    "name": "Baby Daisy",
+    "fileName": "baby-daisy.png",
+    "publicPath": "/characters/baby-daisy.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Babydaisysimple.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/6/65/Babydaisysimple.png/200px-Babydaisysimple.png"
+  },
+  {
+    "name": "Baby Peach",
+    "fileName": "baby-peach.png",
+    "publicPath": "/characters/baby-peach.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Babypeachsimple.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/2/20/Babypeachsimple.png/200px-Babypeachsimple.png"
+  },
+  {
+    "name": "Blooper",
+    "fileName": "blooper.png",
+    "publicPath": "/characters/blooper.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MP8_Blooper.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/e/e1/MP8_Blooper.png/200px-MP8_Blooper.png"
+  },
+  {
+    "name": "Blue Kritter",
+    "fileName": "blue-kritter.png",
+    "publicPath": "/characters/blue-kritter.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:KritterBlue-MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/5/5c/KritterBlue-MSS.png"
+  },
+  {
+    "name": "Bowser",
+    "fileName": "bowser.jpg",
+    "publicPath": "/characters/bowser.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Bowser_MSS.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/d/d1/Bowser_MSS.jpg/300px-Bowser_MSS.jpg"
+  },
+  {
+    "name": "Brown Kritter",
+    "fileName": "brown-kritter.png",
+    "publicPath": "/characters/brown-kritter.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:KritterBrown-MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/7/7d/KritterBrown-MSS.png"
+  },
+  {
+    "name": "Dark Bones",
+    "fileName": "dark-bones.png",
+    "publicPath": "/characters/dark-bones.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:DarkBones-MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/d/d6/DarkBones-MSS.png"
+  },
+  {
+    "name": "Funky Kong",
+    "fileName": "funky-kong.png",
+    "publicPath": "/characters/funky-kong.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Funky_Kong_-_DK_Jungle_Climber.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/7/70/Funky_Kong_-_DK_Jungle_Climber.png/200px-Funky_Kong_-_DK_Jungle_Climber.png"
+  },
+  {
+    "name": "King Boo",
+    "fileName": "king-boo.png",
+    "publicPath": "/characters/king-boo.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:King_Boo_Artwork_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/a/a9/King_Boo_Artwork_MSS.png/200px-King_Boo_Artwork_MSS.png"
+  },
+  {
+    "name": "Kritter",
+    "fileName": "kritter.png",
+    "publicPath": "/characters/kritter.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Kritter_Mario_Super_Sluggers.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/d/d1/Kritter_Mario_Super_Sluggers.png"
+  },
+  {
+    "name": "Paragoomba",
+    "fileName": "paragoomba.png",
+    "publicPath": "/characters/paragoomba.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MSSParagomba.PNG",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/f/f0/MSSParagomba.PNG/200px-MSSParagomba.PNG"
+  },
+  {
+    "name": "Petey Piranha",
+    "fileName": "petey-piranha.png",
+    "publicPath": "/characters/petey-piranha.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:PeteySluggers.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/e/e8/PeteySluggers.png/250px-PeteySluggers.png"
+  },
+  {
+    "name": "Red Kritter",
+    "fileName": "red-kritter.png",
+    "publicPath": "/characters/red-kritter.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:KritterRed-MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/0/01/KritterRed-MSS.png"
+  },
+  {
+    "name": "Wiggler",
+    "fileName": "wiggler.jpg",
+    "publicPath": "/characters/wiggler.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Wiggler-MSS.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/8/84/Wiggler-MSS.jpg/200px-Wiggler-MSS.jpg"
+  },
+  {
+    "name": "Baby Luigi",
+    "fileName": "baby-luigi.png",
+    "publicPath": "/characters/baby-luigi.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Baby_Luigi_MSS_artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/d/d7/Baby_Luigi_MSS_artwork.png/200px-Baby_Luigi_MSS_artwork.png"
+  },
+  {
+    "name": "Baby Mario",
+    "fileName": "baby-mario.png",
+    "publicPath": "/characters/baby-mario.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:BabyMarioSluggers.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/5/58/BabyMarioSluggers.png/200px-BabyMarioSluggers.png"
+  },
+  {
+    "name": "Blue Dry Bones",
+    "fileName": "blue-dry-bones.png",
+    "publicPath": "/characters/blue-dry-bones.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:DryBonesBlue-MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/e/e5/DryBonesBlue-MSS.png"
+  },
+  {
+    "name": "Blue Noki",
+    "fileName": "blue-noki.png",
+    "publicPath": "/characters/blue-noki.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MSS_Blue_Noki_Artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/3/32/MSS_Blue_Noki_Artwork.png/250px-MSS_Blue_Noki_Artwork.png"
+  },
+  {
+    "name": "Blue Shy Guy",
+    "fileName": "blue-shy-guy.png",
+    "publicPath": "/characters/blue-shy-guy.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:ShyGuyBlue_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/9/93/ShyGuyBlue_MSS.png"
+  },
+  {
+    "name": "Blue Toad",
+    "fileName": "blue-toad.png",
+    "publicPath": "/characters/blue-toad.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:ToadBlue_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/4/45/ToadBlue_MSS.png"
+  },
+  {
+    "name": "Blue Yoshi",
+    "fileName": "blue-yoshi.png",
+    "publicPath": "/characters/blue-yoshi.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:YoshiBlue_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/0/0b/YoshiBlue_MSS.png"
+  },
+  {
+    "name": "Boo",
+    "fileName": "boo.png",
+    "publicPath": "/characters/boo.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:BooMP8Official.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/c/c7/BooMP8Official.png/200px-BooMP8Official.png"
+  },
+  {
+    "name": "Boomerang Bro",
+    "fileName": "boomerang-bro.png",
+    "publicPath": "/characters/boomerang-bro.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:BoomerangBro_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/e/e0/BoomerangBro_MSS.png"
+  },
+  {
+    "name": "Donkey Kong",
+    "fileName": "donkey-kong.jpg",
+    "publicPath": "/characters/donkey-kong.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:DK_MSS_artwork.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/5/5b/DK_MSS_artwork.jpg/300px-DK_MSS_artwork.jpg"
+  },
+  {
+    "name": "Dry Bones",
+    "fileName": "dry-bones.png",
+    "publicPath": "/characters/dry-bones.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MP8_DryBones.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/9/94/MP8_DryBones.png/200px-MP8_DryBones.png"
+  },
+  {
+    "name": "Fire Bro",
+    "fileName": "fire-bro.png",
+    "publicPath": "/characters/fire-bro.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:FireBro_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/d/da/FireBro_MSS.png"
+  },
+  {
+    "name": "Gray Shy Guy",
+    "fileName": "gray-shy-guy.png",
+    "publicPath": "/characters/gray-shy-guy.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:ShyGuyGray_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/1/15/ShyGuyGray_MSS.png"
+  },
+  {
+    "name": "Green Dry Bones",
+    "fileName": "green-dry-bones.png",
+    "publicPath": "/characters/green-dry-bones.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:DryBonesGreen-MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/a/a8/DryBonesGreen-MSS.png"
+  },
+  {
+    "name": "Green Noki",
+    "fileName": "green-noki.png",
+    "publicPath": "/characters/green-noki.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:NokiGreen_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/e/e8/NokiGreen_MSS.png"
+  },
+  {
+    "name": "Green Paratroopa",
+    "fileName": "green-paratroopa.png",
+    "publicPath": "/characters/green-paratroopa.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:ParatroopaGreen_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/1/1c/ParatroopaGreen_MSS.png"
+  },
+  {
+    "name": "Green Shy Guy",
+    "fileName": "green-shy-guy.png",
+    "publicPath": "/characters/green-shy-guy.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:ShyGuyGreen_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/d/dd/ShyGuyGreen_MSS.png"
+  },
+  {
+    "name": "Green Toad",
+    "fileName": "green-toad.png",
+    "publicPath": "/characters/green-toad.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:ToadGreen_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/5/56/ToadGreen_MSS.png"
+  },
+  {
+    "name": "Hammer Bro",
+    "fileName": "hammer-bro.png",
+    "publicPath": "/characters/hammer-bro.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MP8_Hammer_Bro_Artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/4/4c/MP8_Hammer_Bro_Artwork.png/200px-MP8_Hammer_Bro_Artwork.png"
+  },
+  {
+    "name": "Light-Blue Yoshi",
+    "fileName": "light-blue-yoshi.png",
+    "publicPath": "/characters/light-blue-yoshi.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:YoshiLightBlue_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/f/f1/YoshiLightBlue_MSS.png"
+  },
+  {
+    "name": "Magikoopa",
+    "fileName": "magikoopa.png",
+    "publicPath": "/characters/magikoopa.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Magikoopa_Artwork_-_Super_Mario_Galaxy.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/9/96/Magikoopa_Artwork_-_Super_Mario_Galaxy.png/250px-Magikoopa_Artwork_-_Super_Mario_Galaxy.png"
+  },
+  {
+    "name": "Monty Mole",
+    "fileName": "monty-mole.png",
+    "publicPath": "/characters/monty-mole.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Monty_Mole_Super_Sluggers.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/4/4b/Monty_Mole_Super_Sluggers.png/250px-Monty_Mole_Super_Sluggers.png"
+  },
+  {
+    "name": "Paratroopa",
+    "fileName": "paratroopa.png",
+    "publicPath": "/characters/paratroopa.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Paratroopa_NSMB_artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/8/86/Paratroopa_NSMB_artwork.png/200px-Paratroopa_NSMB_artwork.png"
+  },
+  {
+    "name": "Pink Yoshi",
+    "fileName": "pink-yoshi.png",
+    "publicPath": "/characters/pink-yoshi.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:YoshiPink_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/b/be/YoshiPink_MSS.png"
+  },
+  {
+    "name": "Purple Toad",
+    "fileName": "purple-toad.png",
+    "publicPath": "/characters/purple-toad.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:ToadPurple_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/1/1c/ToadPurple_MSS.png"
+  },
+  {
+    "name": "Red Magikoopa",
+    "fileName": "red-magikoopa.png",
+    "publicPath": "/characters/red-magikoopa.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MagikoopaRed_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/a/a1/MagikoopaRed_MSS.png/250px-MagikoopaRed_MSS.png"
+  },
+  {
+    "name": "Red Noki",
+    "fileName": "red-noki.png",
+    "publicPath": "/characters/red-noki.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:NokiRed_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/1/17/NokiRed_MSS.png"
+  },
+  {
+    "name": "Red Toad",
+    "fileName": "red-toad.png",
+    "publicPath": "/characters/red-toad.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Red_Toad_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/3/31/Red_Toad_MSS.png/200px-Red_Toad_MSS.png"
+  },
+  {
+    "name": "Shy Guy",
+    "fileName": "shy-guy.png",
+    "publicPath": "/characters/shy-guy.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MSS_Red_Shy_Guy_Artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/3/33/MSS_Red_Shy_Guy_Artwork.png/200px-MSS_Red_Shy_Guy_Artwork.png"
+  },
+  {
+    "name": "Toadette",
+    "fileName": "toadette.png",
+    "publicPath": "/characters/toadette.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Toadette111.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/d/da/Toadette111.png/200px-Toadette111.png"
+  },
+  {
+    "name": "Toadsworth",
+    "fileName": "toadsworth.png",
+    "publicPath": "/characters/toadsworth.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:SMS_Toadsworth_Artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/5/5b/SMS_Toadsworth_Artwork.png/200px-SMS_Toadsworth_Artwork.png"
+  },
+  {
+    "name": "Wario",
+    "fileName": "wario.jpg",
+    "publicPath": "/characters/wario.jpg",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Wario_MSS_artwork.jpg",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/f/f0/Wario_MSS_artwork.jpg/300px-Wario_MSS_artwork.jpg"
+  },
+  {
+    "name": "Yellow Magikoopa",
+    "fileName": "yellow-magikoopa.png",
+    "publicPath": "/characters/yellow-magikoopa.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MagikoopaYellow_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/b/b4/MagikoopaYellow_MSS.png/250px-MagikoopaYellow_MSS.png"
+  },
+  {
+    "name": "Yellow Shy Guy",
+    "fileName": "yellow-shy-guy.png",
+    "publicPath": "/characters/yellow-shy-guy.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:ShyGuyYellow_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/a/ae/ShyGuyYellow_MSS.png"
+  },
+  {
+    "name": "Yellow Toad",
+    "fileName": "yellow-toad.png",
+    "publicPath": "/characters/yellow-toad.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:ToadYellow_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/9/92/ToadYellow_MSS.png"
+  },
+  {
+    "name": "Yellow Yoshi",
+    "fileName": "yellow-yoshi.png",
+    "publicPath": "/characters/yellow-yoshi.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:YoshiYellow_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/b/b3/YoshiYellow_MSS.png"
+  },
+  {
+    "name": "Blue Pianta",
+    "fileName": "blue-pianta.png",
+    "publicPath": "/characters/blue-pianta.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MSS_Pianta_Artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/7/71/MSS_Pianta_Artwork.png/250px-MSS_Pianta_Artwork.png"
+  },
+  {
+    "name": "Dixie Kong",
+    "fileName": "dixie-kong.png",
+    "publicPath": "/characters/dixie-kong.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:Dixie_Kong_DKJC_artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/0/0f/Dixie_Kong_DKJC_artwork.png/200px-Dixie_Kong_DKJC_artwork.png"
+  },
+  {
+    "name": "Goomba",
+    "fileName": "goomba.png",
+    "publicPath": "/characters/goomba.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:NSMBDS_Goomba_Artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/8/86/NSMBDS_Goomba_Artwork.png/200px-NSMBDS_Goomba_Artwork.png"
+  },
+  {
+    "name": "Green Magikoopa",
+    "fileName": "green-magikoopa.png",
+    "publicPath": "/characters/green-magikoopa.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MagikoopaGreen_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/a/ab/MagikoopaGreen_MSS.png/250px-MagikoopaGreen_MSS.png"
+  },
+  {
+    "name": "King K. Rool",
+    "fileName": "king-k-rool.png",
+    "publicPath": "/characters/king-k-rool.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:MSS_King_K_Rool_Artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/f/f2/MSS_King_K_Rool_Artwork.png"
+  },
+  {
+    "name": "Koopa",
+    "fileName": "koopa.png",
+    "publicPath": "/characters/koopa.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:NSMB_Green_Koopa_Troopa_Artwork.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/e/ee/NSMB_Green_Koopa_Troopa_Artwork.png/200px-NSMB_Green_Koopa_Troopa_Artwork.png"
+  },
+  {
+    "name": "Red Koopa",
+    "fileName": "red-koopa.png",
+    "publicPath": "/characters/red-koopa.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:KoopaRed_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/b/b5/KoopaRed_MSS.png"
+  },
+  {
+    "name": "Red Yoshi",
+    "fileName": "red-yoshi.png",
+    "publicPath": "/characters/red-yoshi.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:YoshiRed_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/2/24/YoshiRed_MSS.png"
+  },
+  {
+    "name": "Red Pianta",
+    "fileName": "red-pianta.png",
+    "publicPath": "/characters/red-pianta.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:PiantaPink_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/0/09/PiantaPink_MSS.png/250px-PiantaPink_MSS.png"
+  },
+  {
+    "name": "Yellow Pianta",
+    "fileName": "yellow-pianta.png",
+    "publicPath": "/characters/yellow-pianta.png",
+    "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
+    "sourceFilePage": "https://www.mariowiki.com/File:PiantaYellow_MSS.png",
+    "downloadUrl": "https://mario.wiki.gallery/images/thumb/5/56/PiantaYellow_MSS.png/250px-PiantaYellow_MSS.png"
+  }
+]
