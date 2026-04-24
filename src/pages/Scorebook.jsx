@@ -1645,17 +1645,57 @@ export default function Scorebook() {
             <span style={{ color: teamBColor, fontWeight: 800 }}>{teamBName} {scores.b}</span>
           </div>
         </div>
-        <div style={{ padding: '12px 12px 0' }}>
+        {/* ── Lineups + Diamond ── */}
+        <div style={{ padding: '8px 10px 0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '58px 1fr 58px', gap: 6, marginBottom: 10, alignItems: 'start' }}>
+            <LineupColumn
+              lineup={currentLineup}
+              currentIdx={effectiveBatterIdx}
+              teamColor={battingColor}
+              label="BAT"
+              draggable={false}
+              charactersById={charactersById}
+            />
+            <Diamond
+              runners={previewRunners}
+              pitcherChar={currentPitcherChar}
+              outs={outsInHalf}
+              previewHomeRunners={previewHomeRunners}
+              previewOuts={previewOuts}
+              isScorekeeper={false}
+              charactersById={charactersById}
+              selectedPitcher={null}
+            />
+            <LineupColumn
+              lineup={defensiveLineup}
+              currentIdx={-1}
+              currentPitcherCharId={currentPitcherChar?.id}
+              teamColor={pitchingColor}
+              label="PIT"
+              draggable={false}
+              charactersById={charactersById}
+            />
+          </div>
+
+          {/* Current batter strip */}
           {currentBatter && (
-            <div style={{ background: C.card, borderRadius: 12, padding: 16, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
-              <Avatar name={charactersById[currentBatter.character_id]?.name} size={64} />
-              <div>
+            <div style={{ background: C.card, borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Avatar name={charactersById[currentBatter.character_id]?.name} size={48} />
+              <div style={{ flex: 1 }}>
                 <div style={{ color: playersById[currentBatter.player_id]?.color, fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>{playersById[currentBatter.player_id]?.name}</div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>{charactersById[currentBatter.character_id]?.name}</div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>{charactersById[currentBatter.character_id]?.name}</div>
                 <div style={{ color: C.muted, fontSize: 12 }}>Now Batting</div>
               </div>
+              {onDeckBatter && (
+                <div style={{ textAlign: 'center', opacity: 0.6 }}>
+                  <Avatar name={charactersById[onDeckBatter.character_id]?.name} size={32} />
+                  <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>on deck</div>
+                </div>
+              )}
             </div>
           )}
+
+          {/* Recent PAs */}
           <div style={{ color: C.muted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Recent PAs</div>
           {[...gamePAs].reverse().slice(0, 10).map(pa => (
             <div key={pa.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.border}22` }}>
