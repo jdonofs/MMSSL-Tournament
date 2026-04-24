@@ -647,6 +647,7 @@ export default function Scorebook() {
   const [editingPa, setEditingPa] = useState(null)
   const [showAddGame, setShowAddGame] = useState(false)
   const [addGameForm, setAddGameForm] = useState({ teamA: '', teamB: '', stage: '', stadiumId: '', isNight: false })
+  const [showAccessModal, setShowAccessModal] = useState(false)
 
   // ── Runner state ───────────────────────────────────────────────────────────
   // Each slot: { characterId, playerId } | null
@@ -941,10 +942,7 @@ export default function Scorebook() {
   }, [selectedGameId, currentHalfIdx, runnerStateLoadedScope, runners, runnersHistory])
 
   const isCommissioner = player?.is_commissioner === true
-  const isScorekeeper  = Boolean(
-    player && selectedGame &&
-    (player.id === selectedGame.team_a_player_id || player.id === selectedGame.team_b_player_id || player.is_commissioner),
-  )
+  const isScorekeeper  = Boolean(player && (player.is_commissioner || player.scorebook_access))
   const canRecordOutcome = Boolean(currentPitcherStint)
 
   const displayedPAs = useMemo(() => {
@@ -1326,6 +1324,14 @@ export default function Scorebook() {
   }, [outsRecorded, selectedGame, scores, checkGameEnd, regulationInnings, pushToast, resetRunners])
 
   // ── Undo last PA ───────────────────────────────────────────────────────────
+  const toggleScorebookAccess = useCallback(async (targetPlayer) => {
+    const newValue = !targetPlayer.scorebook_access
+    const { error } = await supabase.from('players').update({ scorebook_access: newValue }).eq('id', targetPlayer.id)
+    if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
+    setPlayers(prev => prev.map(p => p.id === targetPlayer.id ? { ...p, scorebook_access: newValue } : p))
+    pushToast({ title: newValue ? 'Access granted' : 'Access revoked', message: `${targetPlayer.name} ${newValue ? 'can now edit' : 'can no longer edit'} the scorebook.`, type: 'success' })
+  }, [pushToast])
+
   const undoLastPA = useCallback(async () => {
     if (!gamePAs.length || !selectedGame) return
     const last = [...gamePAs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
@@ -1603,10 +1609,16 @@ export default function Scorebook() {
             </button>
           )
         })}
-        {(isScorekeeper || isCommissioner) && (
+        {isCommissioner && (
           <button onClick={() => setShowAddGame(true)}
             style={{ background: 'none', border: `1.5px dashed ${C.border}`, borderRadius: 20, padding: '6px 14px', cursor: 'pointer', color: C.muted, fontSize: 13 }}>
             + Add Game
+          </button>
+        )}
+        {isCommissioner && (
+          <button onClick={() => setShowAccessModal(true)}
+            style={{ background: 'none', border: `1.5px dashed ${C.border}`, borderRadius: 20, padding: '6px 14px', cursor: 'pointer', color: C.muted, fontSize: 13 }}>
+            🔑 Scorebook Access
           </button>
         )}
       </div>
@@ -1963,6 +1975,31 @@ export default function Scorebook() {
 
       {/* ── Add Game Modal ── */}
       {showAddGame && <AddGameModal players={players} stadiums={stadiums} addGameForm={addGameForm} setAddGameForm={setAddGameForm} onAdd={addGame} onClose={() => setShowAddGame(false)} />}
+
+      {/* ── Scorebook Access Modal ── */}
+      {showAccessModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: C.card, borderRadius: 16, padding: 24, width: 340, maxWidth: '90vw', boxShadow: '0 8px 32px #0008' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Scorebook Access</h3>
+              <button onClick={() => setShowAccessModal(false)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
+            </div>
+            <p style={{ color: C.muted, fontSize: 12, marginBottom: 16 }}>Grant players the ability to edit the scorebook. Commissioners always have access.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {players.filter(p => !p.is_commissioner).map(p => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: C.bg, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                  <span style={{ fontWeight: 600, color: p.color || C.text }}>{p.name}</span>
+                  <button
+                    onClick={() => toggleScorebookAccess(p)}
+                    style={{ background: p.scorebook_access ? '#22C55E22' : C.card, color: p.scorebook_access ? '#22C55E' : C.muted, border: `1px solid ${p.scorebook_access ? '#22C55E' : C.border}`, borderRadius: 20, padding: '4px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                    {p.scorebook_access ? 'Editor ✓' : 'Viewer'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── End Game Confirmation Modal ── */}
       {showEndGameConfirm && (

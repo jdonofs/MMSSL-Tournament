@@ -35,6 +35,7 @@ export function AuthProvider({ children }) {
       name: data.name,
       color: data.color,
       is_commissioner: data.is_commissioner || false,
+      scorebook_access: data.scorebook_access || false,
     }
 
     setAuthState({
