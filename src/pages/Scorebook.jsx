@@ -440,6 +440,50 @@ function hasAnyActiveRunners(runners = {}) {
   return Boolean(runners.first || runners.second || runners.third)
 }
 
+function normalizeLiveRunner(runner = null) {
+  if (!runner || runner.characterId == null || runner.playerId == null) return null
+  return {
+    characterId: Number(runner.characterId),
+    playerId: Number(runner.playerId),
+  }
+}
+
+function normalizeLiveRunners(runners = {}) {
+  return {
+    first: normalizeLiveRunner(runners.first),
+    second: normalizeLiveRunner(runners.second),
+    third: normalizeLiveRunner(runners.third),
+  }
+}
+
+function normalizeLiveState(liveState = null) {
+  if (!liveState || typeof liveState !== 'object') return null
+  return {
+    inning: Number(liveState.inning || 1),
+    isTop: Boolean(liveState.isTop ?? liveState.is_top),
+    outsInHalf: Number((liveState.outsInHalf ?? liveState.outs_in_half) || 0),
+    balls: Number(liveState.balls || 0),
+    strikes: Number(liveState.strikes || 0),
+    pitchNumber: Number((liveState.pitchNumber ?? liveState.pitch_number) || 0),
+    paNumber: Number((liveState.paNumber ?? liveState.pa_number) || 0),
+    batterCharacterId: liveState.batterCharacterId ?? liveState.batter_character_id ?? null,
+    batterPlayerId: liveState.batterPlayerId ?? liveState.batter_player_id ?? null,
+    onDeckCharacterId: liveState.onDeckCharacterId ?? liveState.on_deck_character_id ?? null,
+    onDeckPlayerId: liveState.onDeckPlayerId ?? liveState.on_deck_player_id ?? null,
+    runners: normalizeLiveRunners(liveState.runners),
+    updatedAt: liveState.updatedAt ?? liveState.updated_at ?? null,
+  }
+}
+
+function serializeLiveStateForComparison(liveState = null) {
+  const normalized = normalizeLiveState(liveState)
+  if (!normalized) return ''
+  return JSON.stringify({
+    ...normalized,
+    updatedAt: null,
+  })
+}
+
 function getNextBase(baseKey) {
   if (baseKey === 'first') return 'second'
   if (baseKey === 'second') return 'third'
@@ -1610,6 +1654,8 @@ export default function Scorebook() {
   const tournament = viewedTournament || currentTournament
   const { player } = useAuth()
   const { identitiesByPlayerId } = useTournamentTeamIdentity(tournament?.id)
+  const isCommissioner = player?.is_commissioner === true
+  const isScorekeeper = Boolean(player && (player.is_commissioner || player.scorebook_access))
 
   // ── Data state ─────────────────────────────────────────────────────────────
   const [games, setGames] = useState([])
@@ -1669,6 +1715,7 @@ export default function Scorebook() {
 
   const outsRef = useRef(0)
   const lastSanitizedBatterRef = useRef(null)
+  const lastPublishedLiveStateRef = useRef('')
   const isSavingRef = useRef(false)
   const isSyncingLineupsRef = useRef(false)
 
@@ -1842,6 +1889,12 @@ export default function Scorebook() {
     [games, gameSession?.sourceId],
   )
   const selectedGame  = filteredGames.find(g => String(g.id) === String(selectedGameId))
+  const isGameComplete = selectedGame?.status === 'complete' || selectedGame?.status === 'completed'
+  const canEditScorebook = Boolean(isScorekeeper && selectedGame && !isGameComplete)
+  const selectedGameLiveState = useMemo(
+    () => normalizeLiveState(selectedGame?.live_state),
+    [selectedGame?.live_state],
+  )
   const playersById   = useMemo(() => Object.fromEntries(players.map(p => [p.id, p])), [players])
   const charactersById = useMemo(() => Object.fromEntries(characters.map(c => [c.id, c])), [characters])
   const stadiumsById = useMemo(() => Object.fromEntries(stadiums.map((stadium) => [stadium.id, stadium])), [stadiums])
@@ -2235,18 +2288,36 @@ export default function Scorebook() {
     }, [])
   }, [selectedGame, gamePAs, runsByPaId, charactersById])
 
+  const effectiveGameStatus = useMemo(() => {
+    if (!selectedGame) return 'pending'
+    if (isGameComplete) return 'complete'
+    if (selectedGame.status === 'active') return 'active'
+    if (selectedGameLiveState || gamePAs.length > 0) return 'active'
+    return selectedGame.status || 'pending'
+  }, [selectedGame, isGameComplete, selectedGameLiveState, gamePAs.length])
+
+  const displayBalls = canEditScorebook ? balls : Number(selectedGameLiveState?.balls || 0)
+  const displayStrikes = canEditScorebook ? strikes : Number(selectedGameLiveState?.strikes || 0)
+  const displayPitchNumber = canEditScorebook
+    ? pitchNumber
+    : Number(selectedGameLiveState?.pitchNumber ?? currentPitcherPitchRows.length)
+  const displayOutsInHalf = canEditScorebook ? outsInHalf : Number(selectedGameLiveState?.outsInHalf ?? outsInHalf)
+  const displayRunners = canEditScorebook
+    ? runners
+    : (selectedGameLiveState?.runners || { first: null, second: null, third: null })
+
   const currentWinProbability = useMemo(() => estimateHomeWinProbability({
     homeScore: scores.b,
     awayScore: scores.a,
     currentInning,
     isTop: offense?.isTop !== false,
-    outsInHalf,
+    outsInHalf: displayOutsInHalf,
     regulationInnings,
-    runnersOccupied: [runners.first, runners.second, runners.third].filter(Boolean).length,
-    balls,
-    strikes,
-    status: selectedGame?.status || 'pending',
-  }), [scores.b, scores.a, currentInning, offense?.isTop, outsInHalf, regulationInnings, runners.first, runners.second, runners.third, balls, strikes, selectedGame?.status])
+    runnersOccupied: [displayRunners.first, displayRunners.second, displayRunners.third].filter(Boolean).length,
+    balls: displayBalls,
+    strikes: displayStrikes,
+    status: effectiveGameStatus,
+  }), [scores.b, scores.a, currentInning, offense?.isTop, displayOutsInHalf, regulationInnings, displayRunners.first, displayRunners.second, displayRunners.third, displayBalls, displayStrikes, effectiveGameStatus])
 
   const winProbabilityPoints = useMemo(() => {
     if (!selectedGame) return []
@@ -2281,13 +2352,13 @@ export default function Scorebook() {
     })
 
     points.push({
-      label: selectedGame.status === 'complete' ? 'Final' : (offense?.halfLabel || 'Live'),
+      label: effectiveGameStatus === 'complete' ? 'Final' : (offense?.halfLabel || 'Live'),
       probability: currentWinProbability,
-      description: selectedGame.status === 'complete' ? 'Game complete' : 'Current game state',
+      description: effectiveGameStatus === 'complete' ? 'Game complete' : 'Current game state',
       score: `${teamAAbbreviation} ${scores.a} - ${teamBAbbreviation} ${scores.b}`,
     })
     return points
-  }, [selectedGame, gamePAs, regulationInnings, offense?.halfLabel, currentWinProbability, runsByPaId, charactersById, teamAAbbreviation, teamBAbbreviation, scores.a, scores.b])
+  }, [selectedGame, gamePAs, regulationInnings, offense?.halfLabel, currentWinProbability, runsByPaId, charactersById, teamAAbbreviation, teamBAbbreviation, scores.a, scores.b, effectiveGameStatus])
 
   const teamAPitching = useMemo(
     () => dedupePitchingStints(
@@ -2387,6 +2458,9 @@ export default function Scorebook() {
     try {
       const raw = sessionStorage.getItem(storageKey)
       const parsed = raw ? JSON.parse(raw) : null
+      const shouldHydrateFromLiveState = selectedGameLiveState
+        && (!selectedGameLiveState.batterPlayerId || String(selectedGameLiveState.batterPlayerId) === String(currentBatter?.player_id))
+        && (!selectedGameLiveState.batterCharacterId || String(selectedGameLiveState.batterCharacterId) === String(currentBatter?.character_id))
       if (parsed?.scope === currentActivePaScope) {
         const shouldReuseStoredPitchCount = String(parsed.pitcherKey || '') === String(currentPitcherStorageKey)
         setStarPitchActive(Boolean(parsed.starPitchActive))
@@ -2415,8 +2489,16 @@ export default function Scorebook() {
         setStarHitUsed(false)
         setStarHitPending(false)
         setStarHitConnected(false)
-        resetPitchCount()
-        sessionStorage.removeItem(storageKey)
+        restorePitchState({
+          balls: shouldHydrateFromLiveState ? Number(selectedGameLiveState.balls || 0) : 0,
+          strikes: shouldHydrateFromLiveState ? Number(selectedGameLiveState.strikes || 0) : 0,
+          pitchNumber: shouldHydrateFromLiveState
+            ? Number(selectedGameLiveState.pitchNumber ?? currentPitcherPitchRows.length)
+            : Number(currentPitcherPitchRows.length),
+        })
+        if (!shouldHydrateFromLiveState) {
+          sessionStorage.removeItem(storageKey)
+        }
       }
     } catch {
       setStarPitchActive(false)
@@ -2428,10 +2510,14 @@ export default function Scorebook() {
       setStarHitUsed(false)
       setStarHitPending(false)
       setStarHitConnected(false)
-      resetPitchCount()
+      restorePitchState({
+        balls: 0,
+        strikes: 0,
+        pitchNumber: Number(currentPitcherPitchRows.length),
+      })
     }
     setActivePaLoadedScope(currentActivePaScope)
-  }, [selectedGameId, currentActivePaScope, currentPitcherPitchRows.length, currentPitcherStorageKey, resetPitchCount, restorePitchState])
+  }, [selectedGameId, currentActivePaScope, currentPitcherPitchRows.length, currentPitcherStorageKey, restorePitchState, selectedGameLiveState, currentBatter?.player_id, currentBatter?.character_id])
 
   useEffect(() => {
     if (!selectedGameId || !currentActivePaScope) return
@@ -2559,8 +2645,15 @@ export default function Scorebook() {
       }
       const shouldTrustStoredRunners = !storedBattingPlayerId || String(storedBattingPlayerId) === String(offense?.battingPlayerId)
       const shouldTrustStoredHistory = !historyBattingPlayerId || String(historyBattingPlayerId) === String(offense?.battingPlayerId)
+      const shouldTrustLiveStateRunners = selectedGameLiveState
+        && (!selectedGameLiveState.batterPlayerId || String(selectedGameLiveState.batterPlayerId) === String(offense?.battingPlayerId))
+      const fallbackRunners = shouldTrustLiveStateRunners
+        ? normalizeLiveRunners(selectedGameLiveState.runners)
+        : { first: null, second: null, third: null }
       setRunners(sanitizeRunnersForOffense(
-        shouldTrustStoredRunners ? normalizedRunners : { first: null, second: null, third: null },
+        shouldTrustStoredRunners && stored
+          ? normalizedRunners
+          : fallbackRunners,
         offense,
       ))
       setRunnersHistory(
@@ -2573,7 +2666,7 @@ export default function Scorebook() {
       setRunnersHistory([])
     }
     setRunnerStateLoadedScope(`${selectedGameId}:${currentHalfIdx}`)
-  }, [selectedGameId, currentHalfIdx, offense])
+  }, [selectedGameId, currentHalfIdx, offense, selectedGameLiveState])
 
   useEffect(() => {
     if (!selectedGameId || runnerStateLoadedScope !== `${selectedGameId}:${currentHalfIdx}`) return
@@ -2591,16 +2684,135 @@ export default function Scorebook() {
     } catch {}
   }, [selectedGameId, currentHalfIdx, runnerStateLoadedScope, runners, runnersHistory, offense])
 
-  const isCommissioner = player?.is_commissioner === true
-  const isScorekeeper  = Boolean(player && (player.is_commissioner || player.scorebook_access))
   const [isSaving, setIsSaving] = useState(false)
-  const canRecordOutcome = Boolean(currentPitcherStint) && !isSaving
+  const canRecordOutcome = Boolean(currentPitcherStint) && !isSaving && canEditScorebook
+
+  useEffect(() => {
+    lastPublishedLiveStateRef.current = serializeLiveStateForComparison(selectedGame?.live_state)
+  }, [selectedGame?.id, selectedGame?.live_state])
+
+  useEffect(() => {
+    if (!selectedGame || !canEditScorebook || isGameComplete || !offense || !currentBatter) return undefined
+
+    const normalizedRunners = sanitizeRunnersForOffense(
+      sanitizeRunnersForBatter(normalizeLiveRunners(runners), currentBatter),
+      offense,
+    )
+    const hasLiveContext = hasAnyActiveRunners(normalizedRunners)
+      || balls > 0
+      || strikes > 0
+      || paPitchRows.length > 0
+      || Boolean(pendingPA)
+      || Boolean(pitchActionSheet)
+      || Boolean(pendingPitchEvent)
+      || Boolean(inPlayState)
+      || Boolean(rbiOverlay)
+      || starPitchActive
+      || starHitPending
+      || starHitConnected
+    const nextLiveState = hasLiveContext
+      ? {
+          inning: offense.inning,
+          isTop: offense.isTop,
+          outsInHalf,
+          balls,
+          strikes,
+          pitchNumber,
+          paNumber: activePaNumber,
+          batterCharacterId: currentBatter.character_id,
+          batterPlayerId: currentBatter.player_id,
+          onDeckCharacterId: onDeckBatter?.character_id ?? null,
+          onDeckPlayerId: onDeckBatter?.player_id ?? null,
+          runners: normalizedRunners,
+          updatedAt: new Date().toISOString(),
+        }
+      : null
+    const nextSerialized = serializeLiveStateForComparison(nextLiveState)
+    const targetStatus = isSeasonGame ? 'in_progress' : 'active'
+    const shouldPromoteStatus = ['pending', 'scheduled'].includes(String(selectedGame.status || '')) && (hasLiveContext || gamePAs.length > 0)
+    const shouldClearLiveState = !hasLiveContext && Boolean(selectedGame?.live_state)
+
+    if (nextSerialized === lastPublishedLiveStateRef.current && !shouldPromoteStatus && !shouldClearLiveState) {
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      const updatePayload = {}
+      if (nextSerialized !== lastPublishedLiveStateRef.current || shouldClearLiveState) {
+        updatePayload.live_state = nextLiveState
+      }
+      if (shouldPromoteStatus) {
+        updatePayload.status = targetStatus
+      }
+      if (!Object.keys(updatePayload).length) return
+      lastPublishedLiveStateRef.current = nextSerialized
+      const { error } = await supabase.from(scorebookTables.games).update(updatePayload).eq('id', selectedGame.id)
+      if (error) {
+        lastPublishedLiveStateRef.current = serializeLiveStateForComparison(selectedGame?.live_state)
+      }
+    }, 120)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    selectedGame,
+    canEditScorebook,
+    isGameComplete,
+    offense,
+    currentBatter,
+    onDeckBatter,
+    runners,
+    balls,
+    strikes,
+    pitchNumber,
+    paPitchRows.length,
+    pendingPA,
+    pitchActionSheet,
+    pendingPitchEvent,
+    inPlayState,
+    rbiOverlay,
+    starPitchActive,
+    starHitPending,
+    starHitConnected,
+    activePaNumber,
+    outsInHalf,
+    gamePAs.length,
+    isSeasonGame,
+    scorebookTables.games,
+    selectedGame?.live_state,
+  ])
 
   useEffect(() => {
     if (!isScorekeeper) {
       setViewMode('game')
     }
   }, [isScorekeeper])
+
+  useEffect(() => {
+    if (!isGameComplete) return
+    setEditingPa(null)
+    setPendingPA(null)
+    setShowOutsBanner(false)
+    setGameEndBanner(null)
+    setSelectedPitcher(null)
+    setIsDragOverMound(false)
+    setOverrideBatterIdx(null)
+    setStarPitchActive(false)
+    setStarHitUsed(false)
+    setStarHitPending(false)
+    setStarHitConnected(false)
+    setPitchActionSheet(null)
+    setPendingPitchEvent(null)
+    setPaPitchRows([])
+    setInPlayState(null)
+    setRbiOverlay(null)
+    setShowEndGameConfirm(false)
+    resetPitchCount()
+    if (selectedGame?.id) {
+      try { sessionStorage.removeItem(getActivePaStorageKey(selectedGame.id)) } catch {}
+    }
+  }, [isGameComplete, selectedGame?.id, resetPitchCount])
 
   const completedHalfCount = Math.floor(outsRecorded / 3)
 
@@ -2906,7 +3118,7 @@ export default function Scorebook() {
   }, [selectedGame, gamePitching, gameRuns])
 
   const savePA = useCallback(async (result, rbi, runScored) => {
-    if (!selectedGame || !offense || !currentBatter) return
+    if (!selectedGame || !offense || !currentBatter || isGameComplete) return
 
     const paPayload = {
       game_id: selectedGame.id,
@@ -2967,11 +3179,11 @@ export default function Scorebook() {
     if (navigator.vibrate) navigator.vibrate(50)
     setEditingPa(null)
     setOverrideBatterIdx(null)
-  }, [selectedGame, offense, currentBatter, editingPa, gamePAs, charactersById, playersById, pushToast, upsertChangedOdds, ensureLiveOdds, gamePitching, recomputePitchingStatsForGame, clearRedoAction])
+  }, [selectedGame, offense, currentBatter, editingPa, gamePAs, charactersById, playersById, pushToast, upsertChangedOdds, ensureLiveOdds, gamePitching, recomputePitchingStatsForGame, clearRedoAction, isGameComplete])
 
   // ── Handle outcome button ──────────────────────────────────────────────────
   const handleOutcome = useCallback((result) => {
-    if (!currentBatter || !offense) return
+    if (!canEditScorebook || !currentBatter || !offense) return
     if (!currentPitcherStint) {
       pushToast({ title: 'Select a pitcher', message: 'Choose the active pitcher on the mound before recording an outcome.', type: 'error' })
       return
@@ -3027,7 +3239,7 @@ export default function Scorebook() {
     // All other outs (K, GO, FO, LO, DP, FC)
     savePA(result, 0, false)
     pushRunners(computeImmediateNextRunners(result, runners, batter))
-  }, [currentBatter, offense, editingPa, runners, savePA, pushRunners, currentPitcherStint, pushToast, selectionOutsInHalf])
+  }, [canEditScorebook, currentBatter, offense, editingPa, runners, savePA, pushRunners, currentPitcherStint, pushToast, selectionOutsInHalf])
 
   // ── Runner resolution toggles ──────────────────────────────────────────────
   const handleSetRunnerDestination = useCallback((assignmentId, destination) => {
@@ -3070,7 +3282,7 @@ export default function Scorebook() {
   // Shared by the confirm button (user-reviewed) and the auto-skip path
   // (bases empty, nothing to decide) so both commit identically.
   const commitPendingPA = useCallback(async (pending) => {
-    if (!pending || !currentBatter) return false
+    if (!pending || !currentBatter || !canEditScorebook) return false
     const resolvedResult = derivePendingResult(pending)
     const outAssignments = getOutAssignments(pending)
     const occupiedBases = pending.assignments
@@ -3105,7 +3317,7 @@ export default function Scorebook() {
     })
     pushRunners(extractNextRunners(pending))
     return true
-  }, [currentBatter, paPitchRows, buildRunEvent, saveEnhancedPA, pushRunners, pushToast])
+  }, [canEditScorebook, currentBatter, paPitchRows, buildRunEvent, saveEnhancedPA, pushRunners, pushToast])
 
   const confirmPendingPA = useCallback(async () => {
     if (!pendingPA) return
@@ -3136,6 +3348,7 @@ export default function Scorebook() {
   }, [clearRedoAction, currentPitcherChar?.name, currentPitcherStint?.character_id, currentPitcherStint?.player_id, playersById])
 
   const handlePitchBall = useCallback(() => {
+    if (!canEditScorebook) return
     if (starHitUsed) return
     const pitchEvent = appendPitchEvent(recordBall(starPitchActive))
     if (!pitchEvent.completedPa) return
@@ -3155,9 +3368,10 @@ export default function Scorebook() {
       runEvents,
     })
     pushRunners(extractNextRunners(pending))
-  }, [recordBall, starPitchActive, appendPitchEvent, buildBatterRunner, runners, paPitchRows, saveEnhancedPA, pushRunners, starHitUsed, buildRunEvent])
+  }, [canEditScorebook, recordBall, starPitchActive, appendPitchEvent, buildBatterRunner, runners, paPitchRows, saveEnhancedPA, pushRunners, starHitUsed, buildRunEvent])
 
   const handlePitchFoul = useCallback(() => {
+    if (!canEditScorebook) return
     const usedStarHitOnPitch = starHitUsed
     appendPitchEvent(recordFoul(starPitchActive))
     if (usedStarHitOnPitch) {
@@ -3165,9 +3379,10 @@ export default function Scorebook() {
       setStarHitConnected(true)
       setStarHitUsed(false)
     }
-  }, [recordFoul, starPitchActive, appendPitchEvent, starHitUsed])
+  }, [canEditScorebook, recordFoul, starPitchActive, appendPitchEvent, starHitUsed])
 
   const handlePitchHbp = useCallback(() => {
+    if (!canEditScorebook) return
     if (starHitUsed) return
     const pitchEvent = appendPitchEvent(recordHbp(starPitchActive))
     const batterRunner = buildBatterRunner(false)
@@ -3185,9 +3400,10 @@ export default function Scorebook() {
       runEvents,
     })
     pushRunners(extractNextRunners(pending))
-  }, [recordHbp, starPitchActive, appendPitchEvent, buildBatterRunner, runners, paPitchRows, saveEnhancedPA, pushRunners, starHitUsed, buildRunEvent])
+  }, [canEditScorebook, recordHbp, starPitchActive, appendPitchEvent, buildBatterRunner, runners, paPitchRows, saveEnhancedPA, pushRunners, starHitUsed, buildRunEvent])
 
   const handleStrikeChoice = useCallback((type) => {
+    if (!canEditScorebook) return
     const usedStarHitOnPitch = starHitUsed
     const pitchEvent = appendPitchEvent(recordStrike(type, starPitchActive))
     if (usedStarHitOnPitch) {
@@ -3203,9 +3419,10 @@ export default function Scorebook() {
       starPitchUsed: starPitchActive,
       starHitResult: usedStarHitOnPitch || starHitPending ? 'Out' : null,
     })
-  }, [recordStrike, starPitchActive, appendPitchEvent, paPitchRows, saveEnhancedPA, starHitPending, starHitUsed])
+  }, [canEditScorebook, recordStrike, starPitchActive, appendPitchEvent, paPitchRows, saveEnhancedPA, starHitPending, starHitUsed])
 
   const handlePitchInPlay = useCallback(() => {
+    if (!canEditScorebook) return
     // "In play" ends the pitch immediately, but the scorer may still back out of
     // the provisional result picker. Keep a pre-pitch snapshot so backing out
     // restores count + pitch history instead of leaking phantom pitches.
@@ -3230,10 +3447,10 @@ export default function Scorebook() {
       fielderChain: [],
       rollbackSnapshot,
     })
-  }, [buildActivePaSnapshot, recordInPlay, starPitchActive, appendPitchEvent, paPitchRows, starHitPending, starHitUsed])
+  }, [canEditScorebook, buildActivePaSnapshot, recordInPlay, starPitchActive, appendPitchEvent, paPitchRows, starHitPending, starHitUsed])
 
   const finalizeInPlay = useCallback(async (state) => {
-    if (!canFinalizeInPlaySelection(state)) return
+    if (!canEditScorebook || !canFinalizeInPlaySelection(state)) return
     const usedStarHit = Boolean(state.usedStarHit || starHitPending || starHitUsed)
     const fielderChain = state.fielderChain || []
     const primaryPosition = state.result === 'HR'
@@ -3363,10 +3580,11 @@ export default function Scorebook() {
       starHitResult: usedStarHit ? 'Out' : null,
     })
     pushRunners(nextRunners)
-  }, [inferDirectionFromPosition, buildBatterRunner, runners, saveEnhancedPA, pushRunners, activeDefensiveFielders, buildRunEvent, starHitPending, starHitUsed, commitPendingPA])
+  }, [canEditScorebook, inferDirectionFromPosition, buildBatterRunner, runners, saveEnhancedPA, pushRunners, activeDefensiveFielders, buildRunEvent, starHitPending, starHitUsed, commitPendingPA])
 
   // ── Next half-inning ───────────────────────────────────────────────────────
   const handleNextHalfInning = useCallback(async () => {
+    if (!canEditScorebook || !selectedGame) return
     const newHalfIdx = Math.floor(outsRecorded / 3)
     if (selectedGame && newHalfIdx >= 2 && scores.a + scores.b === 0) {
       try {
@@ -3403,7 +3621,7 @@ export default function Scorebook() {
     setPendingPA(null)
     setSelectedPitcher(null)
     resetRunners(false)
-  }, [outsRecorded, selectedGame, scores, checkGameEnd, regulationInnings, pushToast, resetRunners])
+  }, [canEditScorebook, outsRecorded, selectedGame, scores, checkGameEnd, regulationInnings, pushToast, resetRunners])
 
   // ── Undo last PA ───────────────────────────────────────────────────────────
 
@@ -3430,7 +3648,7 @@ export default function Scorebook() {
     pitchRows = [],
     runEvents = [],
   }) {
-    if (!selectedGame || !offense || !currentBatter || !currentPitcherStint) return
+    if (!selectedGame || !offense || !currentBatter || !currentPitcherStint || isGameComplete) return
     if (isSavingRef.current) return
     isSavingRef.current = true
     setIsSaving(true)
@@ -3615,7 +3833,7 @@ export default function Scorebook() {
   }), [currentPitcherStint])
 
   const undoLastPA = useCallback(async () => {
-    if (!gamePAs.length || !selectedGame) return
+    if (isGameComplete || !gamePAs.length || !selectedGame) return
     const last = [...gamePAs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
     const redoSnapshot = {
       type: 'pa',
@@ -3661,10 +3879,10 @@ export default function Scorebook() {
     popRunners()
     try { sessionStorage.removeItem(getActivePaStorageKey(selectedGame.id)) } catch {}
     if (navigator.vibrate) navigator.vibrate(30)
-  }, [gamePAs, selectedGame, gamePitches, gameRuns, runners, pushToast, popRunners, recomputePitchingStatsForGame, gamePitching])
+  }, [isGameComplete, gamePAs, selectedGame, gamePitches, gameRuns, runners, pushToast, popRunners, recomputePitchingStatsForGame, gamePitching])
 
   const undoLastPitch = useCallback(() => {
-    if (!paPitchRows.length) return
+    if (isGameComplete || !paPitchRows.length) return
     const removedPitch = paPitchRows[paPitchRows.length - 1]
     setRedoAction({
       type: 'pitch',
@@ -3699,7 +3917,7 @@ export default function Scorebook() {
       setStarHitConnected(false)
     }
     if (navigator.vibrate) navigator.vibrate(20)
-  }, [balls, strikes, pitchNumber, paPitchRows, pendingPA, pitchActionSheet, pendingPitchEvent, inPlayState, rbiOverlay, starPitchActive, starHitUsed, starHitPending, starHitConnected, currentActivePaScope, undoPitch])
+  }, [isGameComplete, balls, strikes, pitchNumber, paPitchRows, pendingPA, pitchActionSheet, pendingPitchEvent, inPlayState, rbiOverlay, starPitchActive, starHitUsed, starHitPending, starHitConnected, currentActivePaScope, undoPitch])
 
   const canRedoAction = Boolean(
     redoAction
@@ -3710,7 +3928,7 @@ export default function Scorebook() {
   )
 
   const handleRedoAction = useCallback(async () => {
-    if (!redoAction) return
+    if (isGameComplete || !redoAction) return
 
     if (redoAction.type === 'pitch') {
       if (redoAction.scope !== currentActivePaScope) return
@@ -3785,19 +4003,20 @@ export default function Scorebook() {
     try { sessionStorage.removeItem(getActivePaStorageKey(selectedGame.id)) } catch {}
     clearRedoAction()
     if (navigator.vibrate) navigator.vibrate(30)
-  }, [redoAction, currentActivePaScope, selectedGame, restoreActivePaSnapshot, clearRedoAction, pushToast, recomputePitchingStatsForGame, gamePitching, pushRunners])
+  }, [isGameComplete, redoAction, currentActivePaScope, selectedGame, restoreActivePaSnapshot, clearRedoAction, pushToast, recomputePitchingStatsForGame, gamePitching, pushRunners])
 
   const handleUndoAction = useCallback(() => {
+    if (!canEditScorebook) return
     if (paPitchRows.length) {
       undoLastPitch()
       return
     }
     undoLastPA()
-  }, [paPitchRows.length, undoLastPitch, undoLastPA])
+  }, [canEditScorebook, paPitchRows.length, undoLastPitch, undoLastPA])
 
   // ── Auto-seed lineups ──────────────────────────────────────────────────────
   const syncGameLineupsFromRoster = useCallback(async () => {
-    if (!selectedGame) return
+    if (!selectedGame || isGameComplete) return
     if (gamePAs.length > 0) return
     if (isSyncingLineupsRef.current) return
     isSyncingLineupsRef.current = true
@@ -3880,7 +4099,7 @@ export default function Scorebook() {
     } finally {
       isSyncingLineupsRef.current = false
     }
-  }, [selectedGame, gamePAs.length, gameLineups, teamRosters, gameSession, addSourceFields, playersById, charactersById, scorebookTables.lineups, scorebookTables.gameFielders, pushToast, isSeasonGame])
+  }, [selectedGame, isGameComplete, gamePAs.length, gameLineups, teamRosters, gameSession, addSourceFields, playersById, charactersById, scorebookTables.lineups, scorebookTables.gameFielders, pushToast, isSeasonGame])
 
   useEffect(() => {
     if (!selectedGame) return
@@ -3890,7 +4109,7 @@ export default function Scorebook() {
   }, [selectedGame?.id, teamRosters.teamA.length, teamRosters.teamB.length, gameLineups.length, gamePAs.length, syncGameLineupsFromRoster])
 
   useEffect(() => {
-    if (!selectedGame || !gameLineups.length || gameFielderRows.length) return
+    if (!selectedGame || isGameComplete || !gameLineups.length || gameFielderRows.length) return
     const positions = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     const payload = gameLineups.map((row, index) => ({
       game_id: selectedGame.id,
@@ -3904,7 +4123,7 @@ export default function Scorebook() {
     supabase.from(scorebookTables.gameFielders).insert(payload.map(addSourceFields)).then(({ error }) => {
       if (!error) setGameFielders((current) => [...current, ...payload])
     })
-  }, [selectedGame, gameLineups, gameFielderRows.length, playersById, charactersById, isSeasonGame, gameSession.teamIdByPlayerId])
+  }, [selectedGame, isGameComplete, gameLineups, gameFielderRows.length, playersById, charactersById, isSeasonGame, gameSession.teamIdByPlayerId])
 
   // ── Mark game complete ─────────────────────────────────────────────────────
   const markGameComplete = useCallback(async (winnerId, finalInning, isExtra) => {
@@ -3913,6 +4132,7 @@ export default function Scorebook() {
     const completionUpdate = isSeasonGame
       ? {
           status: 'completed',
+          live_state: null,
           winner_team_id: resolved ? gameSession.teamIdByPlayerId?.[resolved] || null : null,
           away_score: scores.a,
           home_score: scores.b,
@@ -3921,6 +4141,7 @@ export default function Scorebook() {
         }
       : {
           status: 'complete',
+          live_state: null,
           winner_player_id: resolved,
           team_a_runs: scores.a,
           team_b_runs: scores.b,
@@ -3937,6 +4158,7 @@ export default function Scorebook() {
       team_b_runs: scores.b,
       final_inning: finalInning || currentInning,
       is_extra_innings: isExtra || false,
+      live_state: null,
     }
     setGames(cur => cur.map(g => g.id === selectedGame.id ? completedGame : g))
     setGameEndBanner(null)
@@ -4025,7 +4247,7 @@ export default function Scorebook() {
 
   // ── Pitcher change (drag to mound or double-tap) ──────────────────────────
   const changePitcher = useCallback(async (playerId, characterId) => {
-    if (!selectedGame) return
+    if (!selectedGame || !canEditScorebook) return
     const newStint = {
       game_id: selectedGame.id, player_id: playerId, character_id: characterId,
       innings_pitched: 0, hits_allowed: 0, runs_allowed: 0, earned_runs: 0, walks: 0, strikeouts: 0, hr_allowed: 0,
@@ -4047,11 +4269,12 @@ export default function Scorebook() {
       pushToast({ title: 'Odds refresh failed', message: bettingError.message, type: 'error' })
     }
     pushToast({ title: `Pitcher → ${charactersById[characterId]?.name}`, type: 'success' })
-  }, [selectedGame, charactersById, pushToast, gamePitching, buildOddsGenerationContext, gamePAs, upsertChangedOdds, ensureLiveOdds, scorebookTables.pitchingStints, addSourceFields])
+  }, [selectedGame, canEditScorebook, charactersById, pushToast, gamePitching, buildOddsGenerationContext, gamePAs, upsertChangedOdds, ensureLiveOdds, scorebookTables.pitchingStints, addSourceFields])
 
   const handleMoundDragOver = useCallback((e) => { e.preventDefault(); setIsDragOverMound(true) }, [])
   const handleMoundDragLeave = useCallback(() => setIsDragOverMound(false), [])
   const handleMoundDrop = useCallback(async (e) => {
+    if (!canEditScorebook) return
     e.preventDefault()
     setIsDragOverMound(false)
     const charId   = parseInt(e.dataTransfer.getData('pitcherCharId'), 10)
@@ -4063,7 +4286,7 @@ export default function Scorebook() {
     }
     if (charId === currentPitcherStint?.character_id) return
     await changePitcher(playerId, charId)
-  }, [offense, currentPitcherStint, changePitcher, pushToast])
+  }, [canEditScorebook, offense, currentPitcherStint, changePitcher, pushToast])
 
   const handlePitcherDragStart = useCallback((charId, playerId) => (e) => {
     e.dataTransfer.effectAllowed = 'move'
@@ -4073,6 +4296,7 @@ export default function Scorebook() {
 
   // Tap-to-select pitcher: first tap selects (purple), second tap confirms change
   const handlePitcherItemClick = useCallback(async (charId, playerId) => {
+    if (!canEditScorebook) return
     if (charId === currentPitcherStint?.character_id) return // already pitching
     if (selectedPitcher?.charId === charId) {
       // Second tap — confirm
@@ -4082,10 +4306,11 @@ export default function Scorebook() {
       // First tap — select
       setSelectedPitcher({ charId, playerId })
     }
-  }, [currentPitcherStint, selectedPitcher, changePitcher])
+  }, [canEditScorebook, currentPitcherStint, selectedPitcher, changePitcher])
 
   // Mound click still works as an alternative confirm
   const handleMoundClick = useCallback(async () => {
+    if (!canEditScorebook) return
     if (!selectedPitcher) return
     if (selectedPitcher.playerId !== offense?.pitchingPlayerId) {
       pushToast({ title: 'Wrong team', message: 'Only the pitching team can be assigned to the mound.', type: 'error' })
@@ -4094,10 +4319,10 @@ export default function Scorebook() {
     }
     await changePitcher(selectedPitcher.playerId, selectedPitcher.charId)
     setSelectedPitcher(null)
-  }, [selectedPitcher, offense, changePitcher, pushToast])
+  }, [canEditScorebook, selectedPitcher, offense, changePitcher, pushToast])
 
   useEffect(() => {
-    if (!selectedGame || !offense?.pitchingPlayerId || currentPitcherStint || !defensiveLineup.length) return
+    if (!selectedGame || isGameComplete || !offense?.pitchingPlayerId || currentPitcherStint || !defensiveLineup.length) return
 
     const fieldingStorageKey = isSeasonGame
       ? `season-fielding-${gameSession?.sourceId}-${offense.pitchingPlayerId}`
@@ -4117,7 +4342,7 @@ export default function Scorebook() {
     if (!pitcherToUse?.character_id) return
 
     changePitcher(offense.pitchingPlayerId, pitcherToUse.character_id)
-  }, [selectedGame?.id, offense?.pitchingPlayerId, currentPitcherStint?.id, defensiveLineup, isSeasonGame, gameSession?.sourceId, changePitcher])
+  }, [selectedGame?.id, isGameComplete, offense?.pitchingPlayerId, currentPitcherStint?.id, defensiveLineup, isSeasonGame, gameSession?.sourceId, changePitcher])
 
   // ── Add game ───────────────────────────────────────────────────────────────
   const addGame = useCallback(async () => {
@@ -4227,12 +4452,12 @@ export default function Scorebook() {
           title={selectedGame.stage ? normalizeStageLabel(selectedGame.stage) : ''}
           right={(
             <div style={{ textAlign: 'right' }}>
-              <div style={{ color: selectedGame.status === 'complete' ? C.green : selectedGame.status === 'active' ? C.accent : '#93C5FD', fontSize: 12, fontWeight: 800, textTransform: 'uppercase' }}>
-                {formatGameStatusLabel(selectedGame.status, offense?.halfLabel)}
+              <div style={{ color: effectiveGameStatus === 'complete' ? C.green : effectiveGameStatus === 'active' ? C.accent : '#93C5FD', fontSize: 12, fontWeight: 800, textTransform: 'uppercase' }}>
+                {formatGameStatusLabel(effectiveGameStatus, offense?.halfLabel)}
               </div>
-              {selectedGame.status === 'active' ? (
+              {effectiveGameStatus === 'active' ? (
                 <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>
-                  {`Count ${balls}-${strikes} / ${outsInHalf} out${outsInHalf === 1 ? '' : 's'}`}
+                  {`Count ${displayBalls}-${displayStrikes} / ${displayOutsInHalf} out${displayOutsInHalf === 1 ? '' : 's'}`}
                 </div>
               ) : null}
             </div>
@@ -4259,7 +4484,7 @@ export default function Scorebook() {
                 </div>
               ))}
             </div>
-            {selectedGame.status === 'complete' ? (
+            {effectiveGameStatus === 'complete' ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                 {[
                   { label: 'Winning Pitcher', tone: C.green, stint: pitcherDecisionSummary.winning },
@@ -4294,14 +4519,14 @@ export default function Scorebook() {
                     </div>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ color: '#F8FAFC', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{charactersById[currentBatter?.character_id]?.name || 'Waiting on lineup'}</div>
-                      <div style={{ color: C.muted, fontSize: 12 }}>{currentBatter ? `AVG ${formatBaseballAverage(lineupStatsByEntryKey[currentEntryKey]?.source || {})} / ${balls}-${strikes}` : 'No batter yet'}</div>
+                      <div style={{ color: C.muted, fontSize: 12 }}>{currentBatter ? `AVG ${formatBaseballAverage(lineupStatsByEntryKey[currentEntryKey]?.source || {})} / ${displayBalls}-${displayStrikes}` : 'No batter yet'}</div>
                     </div>
                   </div>
                 </div>
                 <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', padding: 12, display: 'grid', justifyItems: 'center', gap: 8 }}>
                   <div style={{ color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>{offense?.halfLabel || 'Top 1'}</div>
-                  <BaseStateDiamond runners={runners} charactersById={charactersById} />
-                  <div style={{ color: '#CBD5E1', fontSize: 12, fontWeight: 700 }}>{outsInHalf} out{outsInHalf === 1 ? '' : 's'} / Pitch {pitchNumber}</div>
+                  <BaseStateDiamond runners={displayRunners} charactersById={charactersById} />
+                  <div style={{ color: '#CBD5E1', fontSize: 12, fontWeight: 700 }}>{displayOutsInHalf} out{displayOutsInHalf === 1 ? '' : 's'} / Pitch {displayPitchNumber}</div>
                 </div>
                 <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', padding: 12 }}>
                   <div style={{ color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>Current Pitcher</div>
@@ -4475,20 +4700,20 @@ export default function Scorebook() {
                 </svg>
                 {/* 2B — top */}
                 <div style={{ position: 'absolute', left: '50%', top: 0, transform: 'translate(-50%,0)' }}>
-                  {runners.second
-                    ? <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}` }}><Avatar name={charactersById[runners.second.characterId]?.name} size={22} /></div>
+                  {displayRunners.second
+                    ? <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}` }}><Avatar name={charactersById[displayRunners.second.characterId]?.name} size={22} /></div>
                     : <div style={{ width: 10, height: 10, background: C.border, transform: 'rotate(45deg)', borderRadius: 1 }} />}
                 </div>
                 {/* 1B — right */}
                 <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translate(0,-50%)' }}>
-                  {runners.first
-                    ? <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}` }}><Avatar name={charactersById[runners.first.characterId]?.name} size={22} /></div>
+                  {displayRunners.first
+                    ? <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}` }}><Avatar name={charactersById[displayRunners.first.characterId]?.name} size={22} /></div>
                     : <div style={{ width: 10, height: 10, background: C.border, transform: 'rotate(45deg)', borderRadius: 1 }} />}
                 </div>
                 {/* 3B — left */}
                 <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translate(0,-50%)' }}>
-                  {runners.third
-                    ? <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}` }}><Avatar name={charactersById[runners.third.characterId]?.name} size={22} /></div>
+                  {displayRunners.third
+                    ? <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}` }}><Avatar name={charactersById[displayRunners.third.characterId]?.name} size={22} /></div>
                     : <div style={{ width: 10, height: 10, background: C.border, transform: 'rotate(45deg)', borderRadius: 1 }} />}
                 </div>
                 {/* Home — bottom */}
@@ -4509,7 +4734,7 @@ export default function Scorebook() {
                   <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>ER {currentPitcherGameLine.er ?? 0}</span>
                   <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>BB {currentPitcherGameLine.bb ?? 0}</span>
                   <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>K {currentPitcherGameLine.k ?? 0}</span>
-                  <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>P {pitchNumber}</span>
+                  <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>P {displayPitchNumber}</span>
                 </div>
               </div>
               <div style={{ width: 48, height: 48, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${pitchingColor}`, flexShrink: 0 }}>
@@ -4557,9 +4782,9 @@ export default function Scorebook() {
               </div>
             </div>
             <div style={{ marginLeft: 10, padding: '8px 10px', borderRadius: 12, border: `1px solid ${C.border}`, background: `${C.card}DD`, display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'center' }}>
-              <CountDotRow label="B" count={Math.min(balls, 3)} total={3} activeColor={C.green} inactiveColor={C.border} />
-              <CountDotRow label="S" count={Math.min(strikes, 2)} total={2} activeColor={C.accent} inactiveColor={C.border} />
-              <CountDotRow label="O" count={Math.min(outsInHalf, 2)} total={2} activeColor={C.red} inactiveColor={C.border} />
+              <CountDotRow label="B" count={Math.min(displayBalls, 3)} total={3} activeColor={C.green} inactiveColor={C.border} />
+              <CountDotRow label="S" count={Math.min(displayStrikes, 2)} total={2} activeColor={C.accent} inactiveColor={C.border} />
+              <CountDotRow label="O" count={Math.min(displayOutsInHalf, 2)} total={2} activeColor={C.red} inactiveColor={C.border} />
             </div>
           </div>
         </div>
@@ -4603,18 +4828,23 @@ export default function Scorebook() {
             pendingPitcherCharId={selectedPitcher?.charId}
             teamColor={pitchingColor}
             stat="pitching"
-            draggable={isScorekeeper}
+            draggable={canEditScorebook}
             onDragStart={handlePitcherDragStart}
-            onItemClick={isScorekeeper ? handlePitcherItemClick : undefined}
+            onItemClick={canEditScorebook ? handlePitcherItemClick : undefined}
             charactersById={charactersById}
             orientation="horizontal"
           />
         </div>
 
         {selectedGame && !gameLineups.length && <div style={{ background: C.card, borderRadius: 10, padding: 16, textAlign: 'center', marginBottom: 10, color: C.muted }}>No lineup set.</div>}
+        {isGameComplete && (
+          <div style={{ background: `${C.green}18`, border: `1px solid ${C.green}44`, borderRadius: 10, padding: '10px 14px', marginBottom: 10, color: C.green, fontWeight: 700, fontSize: 13 }}>
+            Game complete. The scorebook is locked for viewing only.
+          </div>
+        )}
 
         {/* ── Runner resolution panel ── */}
-        {pendingPA && !showOutsBanner && !gameEndBanner && (
+        {canEditScorebook && pendingPA && !showOutsBanner && !gameEndBanner && (
           <RunnerAssignmentsPanel
             pendingPA={pendingPA}
             onSetDestination={handleSetRunnerDestination}
@@ -4625,7 +4855,7 @@ export default function Scorebook() {
         )}
 
         {/* ── 3-outs banner ── */}
-        {showOutsBanner && !gameEndBanner && (
+        {canEditScorebook && showOutsBanner && !gameEndBanner && (
           <div style={{ background: `${C.accent}18`, border: `2px solid ${C.accent}`, borderRadius: 14, padding: 16, marginBottom: 10, textAlign: 'center' }}>
             <div style={{ fontSize: 18, fontWeight: 800, color: C.accent, marginBottom: 12 }}>3 OUTS — Switch sides?</div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
@@ -4666,7 +4896,7 @@ export default function Scorebook() {
           </div>
         )}
 
-        {!pendingPA && !pitchActionSheet && !inPlayState && !showOutsBanner && !gameEndBanner && currentBatter && (
+        {canEditScorebook && !pendingPA && !pitchActionSheet && !inPlayState && !showOutsBanner && !gameEndBanner && currentBatter && (
           <div style={{ position: 'sticky', bottom: 0, zIndex: 22, marginBottom: 10 }}>
             {editingPa && (
               <div style={{ background: `${C.blue}18`, border: `1px solid ${C.blue}44`, borderRadius: 8, padding: '7px 12px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -4701,7 +4931,7 @@ export default function Scorebook() {
         )}
 
 
-        {inPlayState && !showOutsBanner && !gameEndBanner && (
+        {canEditScorebook && inPlayState && !showOutsBanner && !gameEndBanner && (
           <div style={{ background: 'rgba(15,23,42,0.98)', border: `1px solid ${C.border}`, borderRadius: 18, padding: 14, marginBottom: 10 }}>
             {buildInPlaySelectionSummary(inPlayState).length > 0 && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -4794,16 +5024,16 @@ export default function Scorebook() {
         )}
         {/* ── Undo + End game ── */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <button onClick={handleUndoAction} disabled={!gamePAs.length && !paPitchRows.length}
-            style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: gamePAs.length || paPitchRows.length ? C.text : C.muted, borderRadius: 8, padding: '10px 0', fontWeight: 600, cursor: gamePAs.length || paPitchRows.length ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13 }}>
+          <button onClick={handleUndoAction} disabled={!canEditScorebook || (!gamePAs.length && !paPitchRows.length)}
+            style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: canEditScorebook && (gamePAs.length || paPitchRows.length) ? C.text : C.muted, borderRadius: 8, padding: '10px 0', fontWeight: 600, cursor: canEditScorebook && (gamePAs.length || paPitchRows.length) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13 }}>
             <RotateCcw size={14} /> Undo
           </button>
-          <button onClick={handleRedoAction} disabled={!canRedoAction}
-            style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: canRedoAction ? C.text : C.muted, borderRadius: 8, padding: '10px 0', fontWeight: 600, cursor: canRedoAction ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13 }}>
+          <button onClick={handleRedoAction} disabled={!canEditScorebook || !canRedoAction}
+            style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: canEditScorebook && canRedoAction ? C.text : C.muted, borderRadius: 8, padding: '10px 0', fontWeight: 600, cursor: canEditScorebook && canRedoAction ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13 }}>
             <RotateCw size={14} /> Redo
           </button>
-          <button onClick={() => setShowEndGameConfirm(true)} disabled={selectedGame?.status === 'complete'}
-            style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: selectedGame?.status === 'complete' ? C.muted : C.text, borderRadius: 8, padding: '10px 0', fontWeight: 600, cursor: selectedGame?.status === 'complete' ? 'not-allowed' : 'pointer', fontSize: 13 }}>
+          <button onClick={() => setShowEndGameConfirm(true)} disabled={isGameComplete}
+            style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: isGameComplete ? C.muted : C.text, borderRadius: 8, padding: '10px 0', fontWeight: 600, cursor: isGameComplete ? 'not-allowed' : 'pointer', fontSize: 13 }}>
             End Game
           </button>
         </div>
@@ -4835,12 +5065,12 @@ export default function Scorebook() {
                 {isExpanded && (
                   <div style={{ padding: '0 12px' }}>
                     {group.pas.map(pa => (
-                      <div key={pa.id} onClick={() => {
+                      <div key={pa.id} onClick={canEditScorebook ? () => {
                         const batter = gameLineups.find(l => l.character_id === pa.character_id && l.player_id === pa.player_id)
                         setEditingPa(pa)
                         if (batter) { const idx = currentLineup.findIndex(l => l.id === batter.id); if (idx >= 0) setOverrideBatterIdx(idx) }
-                      }}
-                        style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.border}22`, cursor: 'pointer' }}>
+                      } : undefined}
+                        style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.border}22`, cursor: canEditScorebook ? 'pointer' : 'default' }}>
                         <Avatar name={charactersById[pa.character_id]?.name} size={30} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <span style={{ fontWeight: 600, fontSize: 14 }}>{charactersById[pa.character_id]?.name}</span>

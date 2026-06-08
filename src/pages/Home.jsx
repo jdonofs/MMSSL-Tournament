@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
 import CompetitionOverviewTables from '../components/CompetitionOverviewTables'
@@ -24,6 +25,7 @@ function emptyRankingData() {
 }
 
 export default function Home() {
+  const { player } = useAuth()
   const { pushToast } = useToast()
   const { currentTournament, refreshTournaments } = useTournament()
   const { identitiesByPlayerId } = useTournamentTeamIdentity(currentTournament?.id)
@@ -233,6 +235,14 @@ export default function Home() {
   }), [tournamentTeams, standings, rankingData])
 
   const handleImportTournamentOne = async () => {
+    if (!player?.is_commissioner) {
+      pushToast({
+        title: 'Not authorized',
+        message: 'Only commissioners can import historical tournament data.',
+        type: 'error',
+      })
+      return
+    }
     setImporting(true)
     try {
       const tournament = await importTournamentOneWorkbook()
@@ -259,7 +269,7 @@ export default function Home() {
     <div className="page-stack">
       <div className="page-head">
         <div className="inline-actions">
-          <button className="ghost-button" disabled={importing} onClick={handleImportTournamentOne} type="button">
+          <button className="ghost-button" disabled={importing || !player?.is_commissioner} onClick={handleImportTournamentOne} type="button">
             <Download size={16} />
             {importing ? 'Importing...' : 'Import Tournament 1'}
           </button>

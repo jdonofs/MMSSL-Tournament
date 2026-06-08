@@ -78,14 +78,21 @@ export default function Navbar() {
   }, [mobileMenuOpen])
 
   useEffect(() => {
+    let active = true
+
     async function loadPendingTrades() {
       if (mode !== 'season' || !currentSeason?.id || !player?.id) {
-        setPendingTradeCount(0)
+        if (active) setPendingTradeCount(0)
         return
       }
-      const myTeam = (await supabase.from('season_teams').select('id').eq('season_id', currentSeason.id).eq('player_id', player.id).maybeSingle()).data
-      if (!myTeam?.id) {
-        setPendingTradeCount(0)
+      const { data: myTeam } = await supabase
+        .from('season_teams')
+        .select('id')
+        .eq('season_id', currentSeason.id)
+        .eq('player_id', player.id)
+        .maybeSingle()
+      if (!active || !myTeam?.id) {
+        if (active) setPendingTradeCount(0)
         return
       }
       const { data } = await supabase
@@ -115,10 +122,31 @@ export default function Navbar() {
         modernCount = (pendingProposals || []).length
       }
 
-      setPendingTradeCount(legacyCount + modernCount)
+      if (active) {
+        setPendingTradeCount(legacyCount + modernCount)
+      }
     }
 
     loadPendingTrades()
+
+    if (mode !== 'season' || !currentSeason?.id || !player?.id) {
+      return () => {
+        active = false
+      }
+    }
+
+    const channel = supabase
+      .channel(`nav-season-trades-${currentSeason.id}-${player.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams', filter: `season_id=eq.${currentSeason.id}` }, loadPendingTrades)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trades', filter: `season_id=eq.${currentSeason.id}` }, loadPendingTrades)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposals', filter: `season_id=eq.${currentSeason.id}` }, loadPendingTrades)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposal_teams', filter: `season_id=eq.${currentSeason.id}` }, loadPendingTrades)
+      .subscribe()
+
+    return () => {
+      active = false
+      supabase.removeChannel(channel)
+    }
   }, [mode, currentSeason?.id, player?.id])
 
   const handleTournamentChange = (e) => {
@@ -143,9 +171,11 @@ export default function Navbar() {
     navigate('/')
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setMobileMenuOpen(false)
-    logout()
+    try {
+      await logout()
+    } catch {}
     navigate('/login')
   }
 

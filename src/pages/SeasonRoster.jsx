@@ -107,6 +107,16 @@ function buildModernTradeSummary(proposals, proposalTeams, proposalMoves) {
   }))
 }
 
+function isMissingSupabaseTable(error, tableNames) {
+  const names = Array.isArray(tableNames) ? tableNames : [tableNames]
+  const message = String(error?.message || '')
+  return names.some((tableName) => (
+    message.includes(`Could not find the table 'public.${tableName}' in the schema cache`)
+    || message.includes(`relation "public.${tableName}" does not exist`)
+    || message.includes(`table "public.${tableName}" does not exist`)
+  ))
+}
+
 function TeamCountCard({ label, value, muted = false }) {
   return (
     <div style={{ padding: 10, borderRadius: 12, background: muted ? 'rgba(15,23,42,0.45)' : 'rgba(30,41,59,0.7)', border: '1px solid rgba(71,85,105,0.6)', display: 'grid', gap: 4 }}>
@@ -829,6 +839,7 @@ export default function SeasonRoster() {
   const [tradeProposals, setTradeProposals] = useState([])
   const [tradeProposalTeams, setTradeProposalTeams] = useState([])
   const [tradeProposalMoves, setTradeProposalMoves] = useState([])
+  const [supportsModernTradeSchema, setSupportsModernTradeSchema] = useState(true)
   const [activeTab, setActiveTab] = useState(TABS[0])
   const [viewedTeamId, setViewedTeamId] = useState('')
   const [tradeBuilderStep, setTradeBuilderStep] = useState('teams')
@@ -847,16 +858,16 @@ export default function SeasonRoster() {
   const loadRosterData = useCallback(async () => {
     if (!currentSeason?.id) return
     const [
-      { data: playersData },
-      { data: charactersData },
-      { data: rosterData },
-      { data: waiversData },
-      { data: waiverClaimsData },
-      { data: legacyTradesData },
-      { data: legacyTradePlayersData },
-      { data: modernTradesData },
-      { data: modernTradeTeamsData },
-      { data: modernTradeMovesData },
+      playersResponse,
+      charactersResponse,
+      rosterResponse,
+      waiversResponse,
+      waiverClaimsResponse,
+      legacyTradesResponse,
+      legacyTradePlayersResponse,
+      modernTradesResponse,
+      modernTradeTeamsResponse,
+      modernTradeMovesResponse,
     ] = await Promise.all([
       supabase.from('players').select('*'),
       supabase.from('characters').select('*').order('name'),
@@ -869,16 +880,28 @@ export default function SeasonRoster() {
       supabase.from('season_trade_proposal_teams').select('*').eq('season_id', currentSeason.id).order('created_at'),
       supabase.from('season_trade_proposal_moves').select('*').eq('season_id', currentSeason.id).order('created_at'),
     ])
-    setPlayers(playersData || [])
-    setCharacters(charactersData || [])
-    setRoster(rosterData || [])
-    setWaivers(waiversData || [])
-    setWaiverClaims(waiverClaimsData || [])
-    setLegacyTrades(legacyTradesData || [])
-    setLegacyTradePlayers(legacyTradePlayersData || [])
-    setTradeProposals(modernTradesData || [])
-    setTradeProposalTeams(modernTradeTeamsData || [])
-    setTradeProposalMoves(modernTradeMovesData || [])
+
+    const modernTradeSchemaMissing = [
+      modernTradesResponse.error,
+      modernTradeTeamsResponse.error,
+      modernTradeMovesResponse.error,
+    ].some((error) => isMissingSupabaseTable(error, [
+      'season_trade_proposals',
+      'season_trade_proposal_teams',
+      'season_trade_proposal_moves',
+    ]))
+
+    setSupportsModernTradeSchema(!modernTradeSchemaMissing)
+    setPlayers(playersResponse.data || [])
+    setCharacters(charactersResponse.data || [])
+    setRoster(rosterResponse.data || [])
+    setWaivers(waiversResponse.data || [])
+    setWaiverClaims(waiverClaimsResponse.data || [])
+    setLegacyTrades(legacyTradesResponse.data || [])
+    setLegacyTradePlayers(legacyTradePlayersResponse.data || [])
+    setTradeProposals(modernTradeSchemaMissing ? [] : (modernTradesResponse.data || []))
+    setTradeProposalTeams(modernTradeSchemaMissing ? [] : (modernTradeTeamsResponse.data || []))
+    setTradeProposalMoves(modernTradeSchemaMissing ? [] : (modernTradeMovesResponse.data || []))
   }, [currentSeason?.id])
 
   useEffect(() => {
@@ -1005,19 +1028,22 @@ export default function SeasonRoster() {
 
   useEffect(() => {
     if (!currentSeason?.id) return undefined
-    const channel = supabase
+    let channel = supabase
       .channel(`season-roster-${currentSeason.id}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_waivers', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_waiver_claims', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trades', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_players' }, loadRosterData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposals', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposal_teams', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposal_moves', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
-      .subscribe()
+    if (supportsModernTradeSchema) {
+      channel = channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposals', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposal_teams', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposal_moves', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
+    }
+    channel = channel.subscribe()
     return () => supabase.removeChannel(channel)
-  }, [currentSeason?.id, loadRosterData])
+  }, [currentSeason?.id, loadRosterData, supportsModernTradeSchema])
 
   const playersById = useMemo(() => Object.fromEntries(players.map((entry) => [entry.id, entry])), [players])
   const charactersById = useMemo(() => Object.fromEntries(characters.map((entry) => [entry.id, entry])), [characters])
@@ -1474,6 +1500,58 @@ export default function SeasonRoster() {
     }
   }, [activeRosterByTeamId, createDroppedPlayerWaiver, currentSeason?.id, loadRosterData, reverseStandings, waiverClaims, waivers])
 
+  const submitLegacyTradeProposal = useCallback(async (participantTeamIds) => {
+    const normalizedParticipantTeamIds = Array.from(new Set((participantTeamIds || []).map(String).filter(Boolean)))
+
+    if (!normalizedParticipantTeamIds.includes(String(myTeam?.id || '')) || normalizedParticipantTeamIds.length !== 2) {
+      pushToast({
+        title: 'Trade schema unavailable',
+        message: normalizedParticipantTeamIds.length > 2
+          ? 'This database only supports two-team trades. Apply the multi-team trade migration to use larger deals.'
+          : 'This database only supports direct trades between two teams.',
+        type: 'error',
+      })
+      return false
+    }
+
+    const counterpartTeamId = normalizedParticipantTeamIds.find((teamId) => String(teamId) !== String(myTeam.id))
+    if (!counterpartTeamId) {
+      pushToast({ title: 'Trade needs two teams', message: 'Add one other team to the deal.', type: 'error' })
+      return false
+    }
+
+    const { data: trade, error: tradeError } = await supabase.from('season_trades').insert({
+      season_id: currentSeason.id,
+      proposing_team_id: myTeam.id,
+      receiving_team_id: Number(counterpartTeamId),
+      status: 'pending',
+    }).select().single()
+
+    if (tradeError) {
+      pushToast({ title: 'Trade failed', message: tradeError.message, type: 'error' })
+      return false
+    }
+
+    const movePayload = tradeDraft.assets.map((entry) => ({
+      trade_id: trade.id,
+      character_name: entry.character_name,
+      from_team_id: Number(entry.from_team_id),
+      to_team_id: Number(entry.to_team_id),
+    }))
+
+    const { error: moveError } = await supabase.from('season_trade_players').insert(movePayload)
+    if (moveError) {
+      await supabase.from('season_trades').delete().eq('id', trade.id)
+      pushToast({ title: 'Trade detail failed', message: moveError.message, type: 'error' })
+      return false
+    }
+
+    pushToast({ title: 'Trade proposed', message: 'The other team can now review the proposal.', type: 'success' })
+    closeTradeBuilder()
+    loadRosterData().catch(() => {})
+    return true
+  }, [closeTradeBuilder, currentSeason?.id, loadRosterData, myTeam?.id, pushToast, tradeDraft.assets])
+
   const submitTradeProposal = async () => {
     if (!currentSeason?.id || !myTeam?.id) {
       pushToast({ title: 'Trade unavailable', message: 'Join a season team first.', type: 'error' })
@@ -1522,6 +1600,11 @@ export default function SeasonRoster() {
       return
     }
 
+    if (!supportsModernTradeSchema) {
+      await submitLegacyTradeProposal(participantTeamIds)
+      return
+    }
+
     const { data: proposal, error: proposalError } = await supabase.from('season_trade_proposals').insert({
       season_id: currentSeason.id,
       created_by_player_id: player?.id,
@@ -1530,6 +1613,11 @@ export default function SeasonRoster() {
     }).select().single()
 
     if (proposalError) {
+      if (isMissingSupabaseTable(proposalError, 'season_trade_proposals')) {
+        setSupportsModernTradeSchema(false)
+        await submitLegacyTradeProposal(participantTeamIds)
+        return
+      }
       pushToast({ title: 'Trade failed', message: proposalError.message, type: 'error' })
       return
     }
@@ -1557,6 +1645,15 @@ export default function SeasonRoster() {
     ])
 
     if (participantError || moveError) {
+      if (
+        isMissingSupabaseTable(participantError, 'season_trade_proposal_teams')
+        || isMissingSupabaseTable(moveError, 'season_trade_proposal_moves')
+      ) {
+        setSupportsModernTradeSchema(false)
+        await supabase.from('season_trade_proposals').delete().eq('id', proposal.id)
+        await submitLegacyTradeProposal(participantTeamIds)
+        return
+      }
       pushToast({ title: 'Trade detail failed', message: participantError?.message || moveError?.message, type: 'error' })
       return
     }

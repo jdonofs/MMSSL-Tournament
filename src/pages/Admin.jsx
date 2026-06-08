@@ -8,6 +8,11 @@ import { useToast } from '../context/ToastContext'
 import LogoUpload from '../components/LogoUpload'
 import EyeDropperButton from '../components/EyeDropperButton'
 
+function normalizeDiscordUserId(value) {
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
 async function propagateToActiveSeasons(playerId, teamName, teamLocation, teamMascot, teamAbbreviation, primaryColor, secondaryColor, logoChanged, logoUrl) {
   const { data: activeSeasons } = await supabase
     .from('seasons')
@@ -78,6 +83,7 @@ function ConfirmButton({ label, confirmLabel, onConfirm, danger = false, disable
 }
 
 function PlayerTeamRow({ player: p, onSave, onError }) {
+  const [discordUserId, setDiscordUserId] = useState(p.auth_user_id || '')
   const [teamLocation, setTeamLocation] = useState(p.team_location || '')
   const [teamMascot, setTeamMascot] = useState(p.team_mascot || '')
   const [teamAbbreviation, setTeamAbbreviation] = useState(p.team_abbreviation || '')
@@ -87,6 +93,7 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
   const [saving, setSaving] = useState(false)
 
   const originalLocation = p.team_location || ''
+  const originalDiscordUserId = p.auth_user_id || ''
   const originalMascot = p.team_mascot || ''
   const originalAbbreviation = p.team_abbreviation || ''
   const originalPrimaryColor = p.team_primary_color || p.color || '#38BDF8'
@@ -95,11 +102,22 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
 
   const teamName = [teamLocation, teamMascot].filter(Boolean).join(' ')
   const isDirty = teamLocation !== originalLocation
+    || discordUserId !== originalDiscordUserId
     || teamMascot !== originalMascot
     || teamAbbreviation !== originalAbbreviation
     || primaryColor !== originalPrimaryColor
     || secondaryColor !== originalSecondaryColor
     || logoUrl !== originalLogo
+
+  useEffect(() => {
+    setDiscordUserId(p.auth_user_id || '')
+    setTeamLocation(p.team_location || '')
+    setTeamMascot(p.team_mascot || '')
+    setTeamAbbreviation(p.team_abbreviation || '')
+    setPrimaryColor(p.team_primary_color || p.color || '#38BDF8')
+    setSecondaryColor(p.team_secondary_color || '#0F172A')
+    setLogoUrl(p.team_logo_url || null)
+  }, [p])
 
   const inputStyle = {
     background: '#1E293B',
@@ -118,6 +136,7 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
     const logoChanged = logoUrl !== originalLogo
     const fullTeamName = teamName || null
     const playerUpdate = {
+      auth_user_id: normalizeDiscordUserId(discordUserId),
       team_name: fullTeamName,
       team_location: teamLocation || null,
       team_mascot: teamMascot || null,
@@ -134,7 +153,7 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
       return
     }
     await propagateToActiveSeasons(p.id, fullTeamName, teamLocation || null, teamMascot || null, teamAbbreviation || null, primaryColor || null, secondaryColor || null, logoChanged, logoUrl || null)
-    onSave(p.id, fullTeamName, teamLocation || null, teamMascot || null, teamAbbreviation || null, primaryColor || null, secondaryColor || null, logoUrl)
+    onSave(p.id, normalizeDiscordUserId(discordUserId), fullTeamName, teamLocation || null, teamMascot || null, teamAbbreviation || null, primaryColor || null, secondaryColor || null, logoUrl)
     setSaving(false)
   }
 
@@ -161,6 +180,13 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+        <input
+          type="text"
+          value={discordUserId}
+          onChange={(e) => setDiscordUserId(e.target.value)}
+          placeholder="Discord User ID"
+          style={inputStyle}
+        />
         <input
           type="text"
           value={teamLocation}
@@ -240,7 +266,21 @@ export default function Admin() {
 
   useEffect(() => {
     if (!isCommissioner) return
-    supabase.from('players').select('*').order('name').then(({ data }) => setPlayers(data || []))
+    const loadPlayers = async () => {
+      const { data } = await supabase.from('players').select('*').order('name')
+      setPlayers(data || [])
+    }
+
+    loadPlayers()
+
+    const channel = supabase
+      .channel(`admin-players-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, loadPlayers)
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [isCommissioner])
 
   const activeSeason = viewedSeason || currentSeason
@@ -319,9 +359,9 @@ export default function Admin() {
     setTogglingId(null)
   }
 
-  const handlePlayerTeamSave = (playerId, teamName, teamLocation, teamMascot, teamAbbreviation, primaryColor, secondaryColor, logoUrl) => {
+  const handlePlayerTeamSave = (playerId, authUserId, teamName, teamLocation, teamMascot, teamAbbreviation, primaryColor, secondaryColor, logoUrl) => {
     setPlayers((prev) => prev.map((p) => p.id === playerId
-      ? { ...p, team_name: teamName, team_location: teamLocation, team_mascot: teamMascot, team_abbreviation: teamAbbreviation, team_primary_color: primaryColor, team_secondary_color: secondaryColor, team_logo_url: logoUrl }
+      ? { ...p, auth_user_id: authUserId, team_name: teamName, team_location: teamLocation, team_mascot: teamMascot, team_abbreviation: teamAbbreviation, team_primary_color: primaryColor, team_secondary_color: secondaryColor, team_logo_url: logoUrl }
       : p))
     pushToast({ title: 'Team updated', type: 'success' })
   }
@@ -343,7 +383,7 @@ export default function Admin() {
 
         <Section title="Team Editor">
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            Set each player's team name and logo. Changes apply to all current and future seasons and tournaments — completed ones keep their recorded identity.
+            Set each player's team name and logo. Paste a Discord user ID to link an existing player to a signed-in Discord account. Changes apply to all current and future seasons and tournaments — completed ones keep their recorded identity.
           </p>
           <div style={{ display: 'grid', gap: 8 }}>
             {players.map((p) => (

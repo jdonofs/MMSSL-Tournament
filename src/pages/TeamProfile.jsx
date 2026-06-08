@@ -6,35 +6,8 @@ import LogoUpload from '../components/LogoUpload'
 import TeamLogo from '../components/TeamLogo'
 import EyeDropperButton from '../components/EyeDropperButton'
 
-async function propagateToActiveSeasons(playerId, teamName, teamLocation, teamMascot, teamAbbreviation, primaryColor, secondaryColor, logoUrl) {
-  const { data: activeSeasons } = await supabase
-    .from('seasons')
-    .select('id')
-    .neq('status', 'completed')
-
-  if (!activeSeasons?.length) return
-
-  const seasonIds = activeSeasons.map((s) => s.id)
-  const updates = {}
-  if (teamName !== undefined) updates.team_name = teamName
-  if (teamLocation !== undefined) updates.team_location = teamLocation
-  if (teamMascot !== undefined) updates.team_mascot = teamMascot
-  if (teamAbbreviation !== undefined) updates.team_abbreviation = teamAbbreviation
-  if (primaryColor !== undefined) updates.team_primary_color = primaryColor
-  if (secondaryColor !== undefined) updates.team_secondary_color = secondaryColor
-  if (logoUrl !== undefined) updates.logo_url = logoUrl
-
-  if (Object.keys(updates).length) {
-    await supabase
-      .from('season_teams')
-      .update(updates)
-      .eq('player_id', playerId)
-      .in('season_id', seasonIds)
-  }
-}
-
 export default function TeamProfile() {
-  const { player, refreshPlayer } = useAuth()
+  const { authUser, player, refreshPlayer } = useAuth()
   const { pushToast } = useToast()
   const [teamLocation, setTeamLocation] = useState(player?.team_location || '')
   const [teamMascot, setTeamMascot] = useState(player?.team_mascot || '')
@@ -47,7 +20,7 @@ export default function TeamProfile() {
   // Pull the latest team fields from the database — the cached auth player can be stale
   useEffect(() => {
     refreshPlayer()
-  }, [])
+  }, [refreshPlayer])
 
   const initialRef = useRef({
     teamLocation: player?.team_location || '',
@@ -74,7 +47,16 @@ export default function TeamProfile() {
       secondaryColor: player?.team_secondary_color || '#0F172A',
       logoUrl: player?.team_logo_url || null,
     }
-  }, [player?.id])
+  }, [
+    player?.id,
+    player?.team_location,
+    player?.team_mascot,
+    player?.team_abbreviation,
+    player?.team_primary_color,
+    player?.team_secondary_color,
+    player?.team_logo_url,
+    player?.color,
+  ])
 
   const isDirty = teamLocation !== initialRef.current.teamLocation
     || teamMascot !== initialRef.current.teamMascot
@@ -91,21 +73,14 @@ export default function TeamProfile() {
     if (!player?.id) return
     setSaving(true)
 
-    const fullTeamName = [teamLocation, teamMascot].filter(Boolean).join(' ') || null
-    const playerUpdate = {
-      team_name: fullTeamName,
-      team_location: teamLocation || null,
-      team_mascot: teamMascot || null,
-      team_abbreviation: teamAbbreviation || null,
-      team_primary_color: primaryColor || null,
-      team_secondary_color: secondaryColor || null,
-    }
-    if (logoUrl !== initialRef.current.logoUrl) playerUpdate.team_logo_url = logoUrl || null
-
-    const { error } = await supabase
-      .from('players')
-      .update(playerUpdate)
-      .eq('id', player.id)
+    const { data, error } = await supabase.rpc('update_my_player_profile', {
+      team_location_in: teamLocation || null,
+      team_mascot_in: teamMascot || null,
+      team_abbreviation_in: teamAbbreviation || null,
+      primary_color_in: primaryColor || null,
+      secondary_color_in: secondaryColor || null,
+      logo_url_in: logoUrl || null,
+    })
 
     if (error) {
       pushToast({ title: 'Error', message: error.message, type: 'error' })
@@ -113,20 +88,16 @@ export default function TeamProfile() {
       return
     }
 
-    const logoChanged = logoUrl !== initialRef.current.logoUrl
-    await propagateToActiveSeasons(
-      player.id,
-      fullTeamName,
-      teamLocation || null,
-      teamMascot || null,
-      teamAbbreviation || null,
-      primaryColor || null,
-      secondaryColor || null,
-      logoChanged ? logoUrl || null : undefined,
-    )
     await refreshPlayer()
 
-    initialRef.current = { teamLocation, teamMascot, teamAbbreviation, primaryColor, secondaryColor, logoUrl }
+    initialRef.current = {
+      teamLocation: data?.team_location || teamLocation,
+      teamMascot: data?.team_mascot || teamMascot,
+      teamAbbreviation: data?.team_abbreviation || teamAbbreviation,
+      primaryColor: data?.team_primary_color || primaryColor,
+      secondaryColor: data?.team_secondary_color || secondaryColor,
+      logoUrl: data?.team_logo_url ?? logoUrl,
+    }
     pushToast({ title: 'Team updated', message: 'Your team identity has been saved.', type: 'success' })
     setSaving(false)
   }
@@ -139,6 +110,20 @@ export default function TeamProfile() {
       </div>
 
       <div style={{ display: 'grid', gap: 16, maxWidth: 480 }}>
+        <section className="panel" style={{ padding: 20, display: 'grid', gap: 8 }}>
+          <div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Connected Account</div>
+            <div style={{ fontWeight: 700 }}>
+              {authUser?.user_metadata?.full_name || authUser?.user_metadata?.preferred_username || authUser?.user_metadata?.user_name || 'Discord'}
+            </div>
+          </div>
+          {authUser?.id ? (
+            <div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Discord User ID</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 13, wordBreak: 'break-all' }}>{authUser.id}</div>
+            </div>
+          ) : null}
+        </section>
 
         <section className="panel" style={{ padding: 24, display: 'grid', gap: 20 }}>
 
