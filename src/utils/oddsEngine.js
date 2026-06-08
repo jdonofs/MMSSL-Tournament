@@ -1,8 +1,10 @@
 import { getPlayerSkillProfile } from './teamIdentity'
 import { buildAppliedStadiumModel } from './stadiumOdds'
 
-const MIN_PROBABILITY = 0.03
+const MIN_PROBABILITY = 0.07
 const MAX_PROBABILITY = 0.97
+const MAX_UNDERDOG_ODDS = 900
+const MAX_FAVORITE_ODDS = -900
 
 const BET_TYPE_ORDER = [
   'moneyline',
@@ -23,6 +25,20 @@ function roundToHalf(value) {
   return Math.round(value * 2) / 2
 }
 
+function roundToHook(value, min = 0.5) {
+  const numeric = Number(value || 0)
+  if (numeric <= min) return min
+  return Math.floor(numeric) + 0.5
+}
+
+function roundToNearestHook(value, min = 0.5) {
+  const numeric = Number(value || 0)
+  if (numeric <= min) return min
+  const lower = Math.floor(numeric) + 0.5
+  const upper = Math.ceil(numeric) + 0.5
+  return Math.abs(numeric - lower) <= Math.abs(upper - numeric) ? lower : upper
+}
+
 function average(values, fallback = 0) {
   if (!values.length) return fallback
   return values.reduce((sum, value) => sum + Number(value || 0), 0) / values.length
@@ -39,6 +55,11 @@ function normalizeEdge(value, scale = 1) {
 function applyVarianceToProbability(probability, varianceMultiplier = 1) {
   if (!varianceMultiplier || varianceMultiplier <= 1) return clamp(probability, MIN_PROBABILITY, MAX_PROBABILITY)
   return clamp(0.5 + ((probability - 0.5) / varianceMultiplier), MIN_PROBABILITY, MAX_PROBABILITY)
+}
+
+function probabilityFromProjectionGap(gap, stdDev = 1.5, tilt = 0) {
+  const scale = Math.max(0.75, Number(stdDev || 0))
+  return clamp(logistic((Number(gap || 0) / scale) * 3 + tilt), MIN_PROBABILITY, MAX_PROBABILITY)
 }
 
 function buildWeights(weights = {}) {
@@ -97,6 +118,8 @@ function getLiveState(game = {}, playerProps = {}) {
   return {
     inning: Number(gameState.inning ?? game.current_inning ?? 1),
     scoreDiff: Number(gameState.scoreDiff ?? (Number(game.team_b_runs || 0) - Number(game.team_a_runs || 0))),
+    homeRuns: Number(gameState.homeRuns ?? game.team_b_runs ?? 0),
+    awayRuns: Number(gameState.awayRuns ?? game.team_a_runs ?? 0),
     runsThisHalf: Number(gameState.runsThisHalf ?? 0),
     paCount: Number(gameState.paCount ?? playerProps.paCount ?? 0),
     homePitcherId: gameState.homePitcherId ?? playerProps.homePitcherId ?? null,
@@ -190,37 +213,69 @@ function buildMoneylineSources(homeRoster, awayRoster, homeHistorical, awayHisto
   }
 }
 
-function buildRunExpectation(homeRoster, awayRoster, liveState, playerProps = {}) {
+function buildProjectedScore(homeRoster, awayRoster, liveState, playerProps = {}) {
   const homeProfile = getRosterAverages(homeRoster)
   const awayProfile = getRosterAverages(awayRoster)
   const historicalTotals = playerProps.historicalTotals || {}
+  const headToHead = playerProps.headToHead || {}
+  const scoringFactor = Number(playerProps.stadiumModifiers?.scoringFactor || 1)
 
+  const baseHomeRuns = ((homeProfile.bat / 10) * (1 - awayProfile.pitch / 20) * 9)
+  const baseAwayRuns = ((awayProfile.bat / 10) * (1 - homeProfile.pitch / 20) * 9)
   const estimatedTotal =
-    ((homeProfile.bat / 10) * (1 - awayProfile.pitch / 20) * 9) +
-    ((awayProfile.bat / 10) * (1 - homeProfile.pitch / 20) * 9)
+    baseHomeRuns +
+    baseAwayRuns
 
   const skillAdjustment = ((homeProfile.skill + awayProfile.skill) / 2) * Number(historicalTotals.stdDev || 0) * 0.3
   const historicalWeight = clamp(Number(playerProps.weights?.historical_weight ?? 0.333), 0, 1)
   const charWeight = clamp(Number(playerProps.weights?.char_stats_weight ?? 0.333), 0, 1)
   const historySample = Number(historicalTotals.sampleSize || 0)
-  const line = historySample < 5
+  const blendedTotal = historySample < 5
     ? estimatedTotal
     : (historicalWeight * Number(historicalTotals.average || 0)) + (charWeight * estimatedTotal) + skillAdjustment
+  const adjustedTotal = Math.max(0.5, blendedTotal * scoringFactor)
+  const totalScale = adjustedTotal / Math.max(0.5, estimatedTotal)
+
+  let projectedHomeRuns = baseHomeRuns * totalScale
+  let projectedAwayRuns = baseAwayRuns * totalScale
+
+  const historyReliability = clamp(Number(headToHead.gamesPlayed || 0) / 8, 0, 1)
+  const homeShareBias =
+    ((homeProfile.skill - awayProfile.skill) * 0.4) +
+    (((Number(headToHead.homeWinRate ?? 0.5) - 0.5) * 2) * historyReliability * 0.35)
+  const shareShift = clamp(homeShareBias * adjustedTotal * 0.08, -adjustedTotal * 0.18, adjustedTotal * 0.18)
+  projectedHomeRuns = Math.max(0.25, projectedHomeRuns + shareShift)
+  projectedAwayRuns = Math.max(0.25, projectedAwayRuns - shareShift)
 
   const matchupAdvantage =
     ((homeProfile.bat * homeProfile.skill) + (awayProfile.bat * awayProfile.skill)) / 2 -
     ((homeProfile.pitch * homeProfile.skill) + (awayProfile.pitch * awayProfile.skill)) / 2
 
-  const liveRuns = Number(liveState.inning || 1) > 1
-    ? ((Number(liveState.inning || 1) - 1) * 0.48) + Math.abs(Number(liveState.scoreDiff || 0)) * 0.18
-    : 0
+  const inning = Number(liveState.inning || 1)
+  const currentHomeRuns = Math.max(0, Number(liveState.homeRuns || 0))
+  const currentAwayRuns = Math.max(0, Number(liveState.awayRuns || 0))
+  const currentTotalRuns = currentHomeRuns + currentAwayRuns
+  const completedInnings = clamp(inning - 1, 0, 9)
+
+  if (currentTotalRuns > 0 || inning > 1) {
+    const remainingFactor = clamp((9 - completedInnings) / 9, 0, 1)
+    projectedHomeRuns = currentHomeRuns + Math.max(0, projectedHomeRuns * remainingFactor)
+    projectedAwayRuns = currentAwayRuns + Math.max(0, projectedAwayRuns * remainingFactor)
+  }
 
   return {
-    line: Math.max(0.5, line + liveRuns),
+    homeRuns: projectedHomeRuns,
+    awayRuns: projectedAwayRuns,
+    line: Math.max(0.5, projectedHomeRuns + projectedAwayRuns),
+    margin: projectedHomeRuns - projectedAwayRuns,
     estimatedTotal,
     matchupAdvantage,
     historicalTotals,
   }
+}
+
+function buildRunExpectation(homeRoster, awayRoster, liveState, playerProps = {}) {
+  return buildProjectedScore(homeRoster, awayRoster, liveState, playerProps)
 }
 
 function buildFirstInningSources(homeRoster, awayRoster, homeHistorical, awayHistorical, liveState) {
@@ -250,21 +305,21 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
   const liveWeight = liveState.inning > 1 || Number(entry.paSoFar || 0) > 0 ? 0.12 : 0.05
 
   const hrPerPA = clamp(
-    (character.bat * 0.028 * charWeight) +
-      (historical.hrRate * 0.95 * historyWeight) +
-      (hitterSkill * 0.055 * skillWeight) -
-      ((pitcher.pitch * pitcherSkill) * 0.018),
-    0.005,
-    0.22,
+    (character.bat * 0.036 * charWeight) +
+      (historical.hrRate * 1.08 * historyWeight) +
+      (hitterSkill * 0.068 * skillWeight) -
+      ((pitcher.pitch * pitcherSkill) * 0.014),
+    0.012,
+    0.32,
   )
   const hitPerPA = clamp(
-    (character.bat * 0.17 * charWeight) +
-      (character.speed * 0.05 * charWeight) +
-      (historical.hitRate * 0.72 * historyWeight) +
-      (hitterSkill * 0.14 * skillWeight) -
-      ((pitcher.pitch * pitcherSkill) * 0.06),
-    0.04,
-    0.72,
+    (character.bat * 0.19 * charWeight) +
+      (character.speed * 0.06 * charWeight) +
+      (historical.hitRate * 0.82 * historyWeight) +
+      (hitterSkill * 0.16 * skillWeight) -
+      ((pitcher.pitch * pitcherSkill) * 0.05),
+    0.08,
+    0.78,
   )
   const liveSkillPressure = Math.max(0, liveState.inning - 1) * 0.015
   const kPerInning = clamp(
@@ -279,13 +334,13 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
 
   return {
     hr: {
-      char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.028) + (hitterSkill * 0.025), 0.008, 0.18), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
-      historical: clamp(1 - Math.pow(1 - clamp(historical.hrRate * (0.85 + hitterSkill * 0.3), 0.008, 0.2), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+      char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.036) + (hitterSkill * 0.03), 0.015, 0.24), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+      historical: clamp(1 - Math.pow(1 - clamp(historical.hrRate * (1 + hitterSkill * 0.35), 0.015, 0.28), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
       live: clamp(1 - Math.pow(1 - hrPerPA, Math.max(expectedPAs - (entry.paSoFar || 0), 1)) + liveWeight * 0.04, MIN_PROBABILITY, MAX_PROBABILITY),
     },
     hit: {
-      char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.14) + (character.speed * 0.03) + (hitterSkill * 0.08), 0.06, 0.48), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
-      historical: clamp(1 - Math.pow(1 - clamp(historical.hitRate * (0.85 + hitterSkill * 0.25), 0.08, 0.55), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+      char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.17) + (character.speed * 0.04) + (hitterSkill * 0.09), 0.1, 0.58), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+      historical: clamp(1 - Math.pow(1 - clamp(historical.hitRate * (0.95 + hitterSkill * 0.25), 0.1, 0.68), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
       live: clamp(1 - Math.pow(1 - hitPerPA, Math.max(expectedPAs - (entry.paSoFar || 0), 1)) + liveWeight * 0.03, MIN_PROBABILITY, MAX_PROBABILITY),
     },
     strikeouts: {
@@ -316,12 +371,15 @@ const STANDARD_JUICE = 0.023
 
 export function americanOddsFromProbability(probability, juice = STANDARD_JUICE) {
   const fairProbability = clamp(Number(probability || 0) + Number(juice || 0), MIN_PROBABILITY, MAX_PROBABILITY)
+  let odds
 
   if (fairProbability >= 0.5) {
-    return Math.round(-((fairProbability / (1 - fairProbability)) * 100))
+    odds = Math.round(-((fairProbability / (1 - fairProbability)) * 100))
+  } else {
+    odds = Math.round(((1 - fairProbability) / fairProbability) * 100)
   }
 
-  return Math.round(((1 - fairProbability) / fairProbability) * 100)
+  return clamp(odds, MAX_FAVORITE_ODDS, MAX_UNDERDOG_ODDS)
 }
 
 export function calculatePayout(wagerSips, americanOdds) {
@@ -376,19 +434,28 @@ export function generateGameOdds(
   })
 
   // ── Run line ───────────────────────────────────────────────────────────────
+  const scoreProjection = buildRunExpectation(homeRoster, awayRoster, liveState, {
+    ...playerProps,
+    weights,
+    stadiumModifiers,
+  })
+
   const rlData = playerProps.runLineData || {}
-  const rlMargins = rlData.margins || []
-  const oneRunRate = Number(rlData.oneRunGameRate ?? 0.28)
   const histAvgMargin = Number(rlData.historicalAvgMargin ?? 3.5)
-  const homeAvgSkill = getRosterAverages(homeRoster).skill
-  const awayAvgSkill = getRosterAverages(awayRoster).skill
-  const skillGap = Math.abs(homeAvgSkill - awayAvgSkill)
-  const defaultSpread = Math.min(5.5, Math.max(1.5, roundToHalf(histAvgMargin * (1 + skillGap))))
+  const marginStdDev = Math.max(1, Number(rlData.stdDev || histAvgMargin || 2.5))
+  const projectedMargin = Math.abs(Number(scoreProjection.margin || 0))
   const homeIsFav = moneylineProbability >= 0.5
   const favWinProb = homeIsFav ? moneylineProbability : 1 - moneylineProbability
-  const baseCoverProb = computeRunLineCoverProb(defaultSpread, rlMargins)
+  const coverTilt = (favWinProb - 0.5) * 0.25
+  const fairSpread = projectedMargin + ((coverTilt * marginStdDev) / 3)
+  const defaultSpread = roundToNearestHook(fairSpread, 0.5)
+  const baseCoverProb = probabilityFromProjectionGap(
+    projectedMargin - defaultSpread,
+    marginStdDev,
+    coverTilt,
+  )
   const favCoverProb = applyVarianceToProbability(
-    clamp(baseCoverProb + (favWinProb - 0.5) * 0.15, MIN_PROBABILITY, MAX_PROBABILITY),
+    baseCoverProb,
     stadiumModifiers.varianceMultiplier,
   )
   const dogCoverProb = clamp(1 - favCoverProb, MIN_PROBABILITY, MAX_PROBABILITY)
@@ -405,12 +472,11 @@ export function generateGameOdds(
     updated_at: new Date().toISOString(),
   })
 
-  const totalRunSources = buildRunExpectation(homeRoster, awayRoster, liveState, { ...playerProps, weights })
-  const totalLine = roundToHalf(totalRunSources.line * stadiumModifiers.scoringFactor)
-  const totalEdge = normalizeEdge(totalRunSources.matchupAdvantage, 1.8)
-  // Line is set to expected total so over/under are close to 50/50; edge gives slight lean
+  const totalRunSources = scoreProjection
+  const totalLine = roundToHook(totalRunSources.line, 0.5)
+  const totalStdDev = Math.max(1, Number(totalRunSources.historicalTotals?.stdDev || 2.5))
   const overProbability = applyVarianceToProbability(
-    clamp(0.5 + totalEdge * 0.06, MIN_PROBABILITY, MAX_PROBABILITY),
+    probabilityFromProjectionGap(totalRunSources.line - totalLine, totalStdDev),
     stadiumModifiers.varianceMultiplier,
   )
 
@@ -449,16 +515,18 @@ export function generateGameOdds(
   const awayPitcher = awayRoster.find((entry) => entry.isPitcher || entry.isActivePitcher || entry.id === liveState.awayPitcherId) || awayRoster[0]
   const homePitcher = homeRoster.find((entry) => entry.isPitcher || entry.isActivePitcher || entry.id === liveState.homePitcherId) || homeRoster[0]
   const playerHistorical = playerProps.historicalByEntity || {}
+  const stadiumHrBoost = clamp(stadiumModifiers.hrFactor, 0.82, 1.28)
+  const stadiumHitBoost = clamp((stadiumModifiers.scoringFactor * 0.6) + (stadiumModifiers.hrFactor * 0.4), 0.88, 1.22)
 
   homeRoster.forEach((entry) => {
     const label = getEntityLabel(entry)
     const sources = buildPlayerPropSources(entry, playerHistorical[label] || playerHistorical[entry.id] || {}, awayPitcher, liveState)
     const hrProbability = applyVarianceToProbability(
-      clamp(blendSources(sources.hr, normalizedWeights) * stadiumModifiers.hrFactor, MIN_PROBABILITY, MAX_PROBABILITY),
+      clamp(blendSources(sources.hr, normalizedWeights) * stadiumHrBoost, MIN_PROBABILITY, MAX_PROBABILITY),
       stadiumModifiers.varianceMultiplier,
     )
     const hitProbability = applyVarianceToProbability(
-      blendSources(sources.hit, normalizedWeights),
+      clamp(blendSources(sources.hit, normalizedWeights) * stadiumHitBoost, MIN_PROBABILITY, MAX_PROBABILITY),
       stadiumModifiers.varianceMultiplier,
     )
 
@@ -491,11 +559,11 @@ export function generateGameOdds(
     const label = getEntityLabel(entry)
     const sources = buildPlayerPropSources(entry, playerHistorical[label] || playerHistorical[entry.id] || {}, homePitcher, liveState)
     const hrProbability = applyVarianceToProbability(
-      clamp(blendSources(sources.hr, normalizedWeights) * stadiumModifiers.hrFactor, MIN_PROBABILITY, MAX_PROBABILITY),
+      clamp(blendSources(sources.hr, normalizedWeights) * stadiumHrBoost, MIN_PROBABILITY, MAX_PROBABILITY),
       stadiumModifiers.varianceMultiplier,
     )
     const hitProbability = applyVarianceToProbability(
-      blendSources(sources.hit, normalizedWeights),
+      clamp(blendSources(sources.hit, normalizedWeights) * stadiumHitBoost, MIN_PROBABILITY, MAX_PROBABILITY),
       stadiumModifiers.varianceMultiplier,
     )
 

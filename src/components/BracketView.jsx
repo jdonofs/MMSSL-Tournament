@@ -33,8 +33,6 @@ export default function BracketView({ games, playersById, identitiesByPlayerId =
   }, {})
 
   const renderGame = (game) => {
-    const teamA = playersById[game.team_a_player_id]?.name || 'TBD'
-    const teamB = playersById[game.team_b_player_id]?.name || 'TBD'
     const teamAColor =
       game.status === 'complete'
         ? game.winner_player_id === game.team_a_player_id ? '#4ade80' : '#fb7185'

@@ -1,34 +1,58 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { BarChart3, BookOpenText, GanttChartSquare, House, LogOut, Plus, ScrollText, Trash2, Trophy, Users2 } from 'lucide-react'
+import { BarChart3, BookOpenText, GanttChartSquare, House, LogOut, ScrollText, Settings, Trophy, Users2 } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { useSeason } from '../context/SeasonContext'
 import { useTournament } from '../context/TournamentContext'
-import { useToast } from '../context/ToastContext'
+import { getModeStorageValue, setModeStorageValue } from '../utils/season'
 
-const navItems = [
+const tournamentNavItems = [
   { to: '/', label: 'Home', icon: House },
   { to: '/draft', label: 'Draft', icon: ScrollText },
   { to: '/roster', label: 'Roster', icon: Users2 },
-  { to: '/scorebook', label: 'Scorebook', icon: BookOpenText },
   { to: '/betting', label: 'Betting', icon: Trophy },
   { to: '/stats', label: 'Stats', icon: BarChart3 },
   { to: '/bracket', label: 'Bracket', icon: GanttChartSquare },
 ]
 
+const seasonNavItems = [
+  { to: '/season', label: 'Standings', icon: House },
+  { to: '/season/schedule', label: 'Schedule', icon: BookOpenText },
+  { to: '/season/draft', label: 'Draft', icon: ScrollText },
+  { to: '/season/roster', label: 'Roster', icon: Users2 },
+  { to: '/season/bets', label: 'Bets', icon: Trophy },
+  { to: '/season/stats', label: 'Stats', icon: BarChart3 },
+  { to: '/season/bracket', label: 'Bracket', icon: GanttChartSquare },
+]
+
+const adminNavItem = { to: '/admin', label: 'Admin', icon: Settings }
+
+function isExactNavMatch(pathname, target) {
+  if (target === '/' || target === '/season') {
+    return pathname === target
+  }
+  return pathname === target || pathname.startsWith(`${target}/`)
+}
+
 export default function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { player, logout } = useAuth()
-  const { allTournaments, viewedTournament, setViewedTournament, refreshTournaments } = useTournament()
-  const { pushToast } = useToast()
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const { currentSeason, allSeasons, viewedSeason, setViewedSeason } = useSeason()
+  const { allTournaments, viewedTournament, setViewedTournament } = useTournament()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [mode, setMode] = useState(() => getModeStorageValue())
+  const [pendingTradeCount, setPendingTradeCount] = useState(0)
 
   const activeTournaments = allTournaments.filter(t => !t.archived)
   const archivedTournaments = allTournaments.filter(t => t.archived)
   const isCommissioner = player?.is_commissioner === true
-  const tournamentLabel = viewedTournament ? `Tournament ${viewedTournament.tournament_number}` : 'No Tournament'
+  const baseNavItems = mode === 'season' ? seasonNavItems : tournamentNavItems
+  const navItems = isCommissioner ? [...baseNavItems, adminNavItem] : baseNavItems
+  const tournamentLabel = mode === 'season'
+    ? (viewedSeason ? viewedSeason.name : currentSeason?.name || 'No Season')
+    : (viewedTournament ? `Tournament ${viewedTournament.tournament_number}` : 'No Tournament')
 
   useEffect(() => {
     setMobileMenuOpen(false)
@@ -53,27 +77,70 @@ export default function Navbar() {
     }
   }, [mobileMenuOpen])
 
+  useEffect(() => {
+    async function loadPendingTrades() {
+      if (mode !== 'season' || !currentSeason?.id || !player?.id) {
+        setPendingTradeCount(0)
+        return
+      }
+      const myTeam = (await supabase.from('season_teams').select('id').eq('season_id', currentSeason.id).eq('player_id', player.id).maybeSingle()).data
+      if (!myTeam?.id) {
+        setPendingTradeCount(0)
+        return
+      }
+      const { data } = await supabase
+        .from('season_trades')
+        .select('id')
+        .eq('season_id', currentSeason.id)
+        .eq('receiving_team_id', myTeam.id)
+        .eq('status', 'pending')
+      const legacyCount = (data || []).length
+
+      const { data: pendingDecisionRows } = await supabase
+        .from('season_trade_proposal_teams')
+        .select('proposal_id')
+        .eq('season_id', currentSeason.id)
+        .eq('team_id', myTeam.id)
+        .eq('decision_status', 'pending')
+
+      const pendingProposalIds = [...new Set((pendingDecisionRows || []).map((entry) => entry.proposal_id).filter(Boolean))]
+      let modernCount = 0
+      if (pendingProposalIds.length) {
+        const { data: pendingProposals } = await supabase
+          .from('season_trade_proposals')
+          .select('id')
+          .eq('season_id', currentSeason.id)
+          .eq('status', 'pending')
+          .in('id', pendingProposalIds)
+        modernCount = (pendingProposals || []).length
+      }
+
+      setPendingTradeCount(legacyCount + modernCount)
+    }
+
+    loadPendingTrades()
+  }, [mode, currentSeason?.id, player?.id])
+
   const handleTournamentChange = (e) => {
     const id = e.target.value
     const tournament = allTournaments.find(x => String(x.id) === id)
     if (tournament) setViewedTournament(tournament)
   }
 
-  const handleDeleteTournament = async () => {
-    if (!viewedTournament) return
-    const { error } = await supabase.from('tournaments').delete().eq('id', viewedTournament.id)
-    setConfirmDelete(false)
-    setMobileMenuOpen(false)
-    if (error) {
-      pushToast({ title: 'Error', message: error.message, type: 'error' })
+  const handleSeasonChange = (e) => {
+    const id = e.target.value
+    const season = allSeasons.find((entry) => String(entry.id) === id)
+    if (season) setViewedSeason(season)
+  }
+
+  const handleModeChange = (nextMode) => {
+    setMode(nextMode)
+    setModeStorageValue(nextMode)
+    if (nextMode === 'season') {
+      navigate('/season')
       return
     }
-    pushToast({
-      title: 'Tournament deleted',
-      message: `Tournament ${viewedTournament.tournament_number} has been deleted.`,
-      type: 'success',
-    })
-    await refreshTournaments()
+    navigate('/')
   }
 
   const handleLogout = () => {
@@ -101,10 +168,10 @@ export default function Navbar() {
           <span className="brand-kicker">Sluggers</span>
           <strong>{tournamentLabel}</strong>
         </div>
-        <div className="player-pill mobile-player-pill" style={{ borderColor: player?.color }}>
+        <NavLink to="/team" className="player-pill mobile-player-pill" style={{ borderColor: player?.color, textDecoration: 'none' }}>
           <span className="player-dot" style={{ backgroundColor: player?.color }} />
           <span>{player?.name}</span>
-        </div>
+        </NavLink>
       </header>
 
       <div
@@ -123,61 +190,52 @@ export default function Navbar() {
             <span className="brand-kicker">Sluggers</span>
             <strong>{tournamentLabel}</strong>
           </div>
-          <div className="player-pill mobile-drawer-player" style={{ borderColor: player?.color }}>
+          <NavLink to="/team" onClick={() => setMobileMenuOpen(false)} className="player-pill mobile-drawer-player" style={{ borderColor: player?.color, textDecoration: 'none' }}>
             <span className="player-dot" style={{ backgroundColor: player?.color }} />
             <span>{player?.name}</span>
-          </div>
+          </NavLink>
         </div>
 
-        {allTournaments.length ? (
+        {allTournaments.length || allSeasons.length ? (
           <div className="mobile-drawer-tournament">
-            <select
-              className="nav-select mobile-nav-select"
-              onChange={handleTournamentChange}
-              value={viewedTournament ? String(viewedTournament.id) : ''}
-            >
-              {activeTournaments.map(tournament => (
-                <option key={tournament.id} value={tournament.id}>
-                  Tournament {tournament.tournament_number}
-                </option>
-              ))}
-              {archivedTournaments.length > 0 && (
-                <optgroup label="Archived">
-                  {archivedTournaments.map(tournament => (
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className={`tab-button ${mode === 'tournament' ? 'tab-button-active' : ''}`} onClick={() => handleModeChange('tournament')} type="button">Tournament</button>
+                <button className={`tab-button ${mode === 'season' ? 'tab-button-active' : ''}`} onClick={() => handleModeChange('season')} type="button">Season</button>
+              </div>
+              {mode === 'season' ? (
+                <select
+                  className="nav-select mobile-nav-select"
+                  onChange={handleSeasonChange}
+                  value={viewedSeason ? String(viewedSeason.id) : ''}
+                >
+                  {allSeasons.map((season) => (
+                    <option key={season.id} value={season.id}>{season.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  className="nav-select mobile-nav-select"
+                  onChange={handleTournamentChange}
+                  value={viewedTournament ? String(viewedTournament.id) : ''}
+                >
+                  {activeTournaments.map(tournament => (
                     <option key={tournament.id} value={tournament.id}>
-                      Tournament {tournament.tournament_number} [archived]
+                      Tournament {tournament.tournament_number}
                     </option>
                   ))}
-                </optgroup>
+                  {archivedTournaments.length > 0 && (
+                    <optgroup label="Archived">
+                      {archivedTournaments.map(tournament => (
+                        <option key={tournament.id} value={tournament.id}>
+                          Tournament {tournament.tournament_number} [archived]
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
               )}
-            </select>
-            {isCommissioner && (
-              <div className="mobile-drawer-actions">
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false)
-                    navigate('/tournament/create')
-                  }}
-                  title="New Tournament"
-                  type="button"
-                  className="mobile-admin-button mobile-admin-button-primary"
-                >
-                  <Plus size={16} />
-                  <span>New Tournament</span>
-                </button>
-                {viewedTournament && (
-                  <button
-                    onClick={() => setConfirmDelete(true)}
-                    title="Delete Tournament"
-                    type="button"
-                    className="mobile-admin-button mobile-admin-button-danger"
-                  >
-                    <Trash2 size={14} />
-                    <span>Delete Tournament</span>
-                  </button>
-                )}
-              </div>
-            )}
+            </div>
           </div>
         ) : null}
 
@@ -186,11 +244,13 @@ export default function Navbar() {
             <NavLink
               key={to}
               to={to}
+              end={to === '/' || to === '/season'}
               onClick={() => setMobileMenuOpen(false)}
-              className={({ isActive }) => `mobile-drawer-link ${isActive ? 'mobile-drawer-link-active' : ''}`}
+              className={() => `mobile-drawer-link ${isExactNavMatch(location.pathname, to) ? 'mobile-drawer-link-active' : ''}`}
             >
               <Icon size={18} />
               <span>{label}</span>
+              {to === '/season/roster' && pendingTradeCount > 0 ? <span className="status-pill availability-open">{pendingTradeCount}</span> : null}
             </NavLink>
           ))}
         </nav>
@@ -210,95 +270,64 @@ export default function Navbar() {
       <header className="top-nav">
         <div className="brand-block">
           <span className="brand-kicker">Sluggers</span>
-          <strong>Tournament Tracker</strong>
+          <strong>{mode === 'season' ? 'Season Mode' : 'Tournament Tracker'}</strong>
         </div>
         <nav className="nav-links">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
-              className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`}
+              end={to === '/' || to === '/season'}
+              className={() => `nav-link ${isExactNavMatch(location.pathname, to) ? 'nav-link-active' : ''}`}
             >
               <Icon size={16} />
               <span>{label}</span>
+              {to === '/season/roster' && pendingTradeCount > 0 ? <span className="status-pill availability-open">{pendingTradeCount}</span> : null}
             </NavLink>
           ))}
         </nav>
         <div className="nav-user">
-          {allTournaments.length ? (
+          {allTournaments.length || allSeasons.length ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <select
-                className="nav-select"
-                onChange={handleTournamentChange}
-                value={viewedTournament ? String(viewedTournament.id) : ''}
-              >
-                {activeTournaments.map(tournament => (
-                  <option key={tournament.id} value={tournament.id}>
-                    Tournament {tournament.tournament_number}
-                  </option>
-                ))}
-                {archivedTournaments.length > 0 && (
-                  <optgroup label="Archived">
-                    {archivedTournaments.map(tournament => (
-                      <option key={tournament.id} value={tournament.id}>
-                        Tournament {tournament.tournament_number} [archived]
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-              {isCommissioner && (
-                <>
-                  <button
-                    onClick={() => navigate('/tournament/create')}
-                    title="New Tournament"
-                    type="button"
-                    style={{
-                      background: '#EAB308',
-                      border: 'none',
-                      borderRadius: 6,
-                      width: 28,
-                      height: 28,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Plus size={16} color="#000" />
-                  </button>
-                  {viewedTournament && (
-                    <button
-                      onClick={() => setConfirmDelete(true)}
-                      title="Delete Tournament"
-                      type="button"
-                      style={{
-                        background: 'transparent',
-                        border: '1px solid #ef4444',
-                        borderRadius: 6,
-                        width: 28,
-                        height: 28,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                        color: '#ef4444',
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className={`tab-button ${mode === 'tournament' ? 'tab-button-active' : ''}`} onClick={() => handleModeChange('tournament')} type="button">Tournament</button>
+                <button className={`tab-button ${mode === 'season' ? 'tab-button-active' : ''}`} onClick={() => handleModeChange('season')} type="button">Season</button>
+              </div>
+              {mode === 'season' ? (
+                <select className="nav-select" onChange={handleSeasonChange} value={viewedSeason ? String(viewedSeason.id) : ''}>
+                  {allSeasons.map((season) => (
+                    <option key={season.id} value={season.id}>{season.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  className="nav-select"
+                  onChange={handleTournamentChange}
+                  value={viewedTournament ? String(viewedTournament.id) : ''}
+                >
+                  {activeTournaments.map(tournament => (
+                    <option key={tournament.id} value={tournament.id}>
+                      Tournament {tournament.tournament_number}
+                    </option>
+                  ))}
+                  {archivedTournaments.length > 0 && (
+                    <optgroup label="Archived">
+                      {archivedTournaments.map(tournament => (
+                        <option key={tournament.id} value={tournament.id}>
+                          Tournament {tournament.tournament_number} [archived]
+                        </option>
+                      ))}
+                    </optgroup>
                   )}
-                </>
+                </select>
               )}
             </div>
           ) : null}
 
-          <div className="player-pill" style={{ borderColor: player?.color }}>
+          <NavLink to="/team" className="player-pill" style={{ borderColor: player?.color, textDecoration: 'none' }}>
             <span className="player-dot" style={{ backgroundColor: player?.color }} />
             <span>{player?.name}</span>
-          </div>
+          </NavLink>
           <button
             className="ghost-button"
             onClick={handleLogout}
@@ -310,34 +339,6 @@ export default function Navbar() {
         </div>
       </header>
 
-      {confirmDelete && (
-        <div className="modal-backdrop">
-          <div className="modal-card">
-            <div className="section-head">
-              <h2>Delete Tournament {viewedTournament?.tournament_number}?</h2>
-              <span className="muted">This will permanently delete all games and draft picks for this tournament.</span>
-            </div>
-            <div className="modal-actions">
-              <button className="ghost-button" onClick={() => setConfirmDelete(false)} type="button">Cancel</button>
-              <button
-                onClick={handleDeleteTournament}
-                type="button"
-                style={{
-                  background: '#ef4444',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 8,
-                  padding: '0.5rem 1.25rem',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }

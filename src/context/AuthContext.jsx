@@ -4,6 +4,23 @@ import { supabase } from '../supabaseClient'
 const AuthContext = createContext(null)
 const STORAGE_KEY = 'sluggers-auth'
 
+function extractPlayer(data) {
+  return {
+    id: data.id,
+    name: data.name,
+    color: data.color,
+    is_commissioner: data.is_commissioner || false,
+    scorebook_access: data.scorebook_access || false,
+    team_name: data.team_name || null,
+    team_location: data.team_location || null,
+    team_mascot: data.team_mascot || null,
+    team_abbreviation: data.team_abbreviation || null,
+    team_primary_color: data.team_primary_color || null,
+    team_secondary_color: data.team_secondary_color || null,
+    team_logo_url: data.team_logo_url || null,
+  }
+}
+
 export function AuthProvider({ children }) {
   const [authState, setAuthState] = useState(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
@@ -30,13 +47,7 @@ export function AuthProvider({ children }) {
       throw new Error(error.message)
     }
 
-    const player = {
-      id: data.id,
-      name: data.name,
-      color: data.color,
-      is_commissioner: data.is_commissioner || false,
-      scorebook_access: data.scorebook_access || false,
-    }
+    const player = extractPlayer(data)
 
     setAuthState({
       player,
@@ -44,6 +55,18 @@ export function AuthProvider({ children }) {
     })
 
     return player
+  }
+
+  const refreshPlayer = async () => {
+    const currentId = authState.player?.id
+    if (!currentId) return
+    const { data, error } = await supabase
+      .from('players')
+      .select('*')
+      .eq('id', currentId)
+      .single()
+    if (error || !data) return
+    setAuthState((prev) => ({ ...prev, player: extractPlayer(data) }))
   }
 
   const logout = () => {
@@ -57,6 +80,7 @@ export function AuthProvider({ children }) {
     () => ({
       ...authState,
       loginAsPlayer,
+      refreshPlayer,
       logout
     }),
     [authState]

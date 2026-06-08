@@ -46,15 +46,15 @@ if (gamesError) throw gamesError
 const gameIds = (games || []).map((game) => game.id)
 const { data: pas, error: pasError } = await supabase
   .from('plate_appearances')
-  .select('game_id, player_id, rbi, run_scored')
+  .select('game_id, player_id, rbi')
   .in('game_id', gameIds)
 
 if (pasError) throw pasError
 
-const scoreMap = {}
+const rbiMap = {}
 for (const pa of pas || []) {
   const key = `${pa.game_id}:${pa.player_id}`
-  scoreMap[key] = (scoreMap[key] || 0) + Number(pa.rbi || 0) + (pa.run_scored ? 1 : 0)
+  rbiMap[key] = (rbiMap[key] || 0) + Number(pa.rbi || 0)
 }
 
 const summary = (games || []).map((game) => ({
@@ -64,7 +64,7 @@ const summary = (games || []).map((game) => ({
   team_b: playerMap[game.team_b_player_id] || null,
   winner: playerMap[game.winner_player_id] || null,
   stored_score: `${game.team_a_runs}-${game.team_b_runs}`,
-  pa_score: `${scoreMap[`${game.id}:${game.team_a_player_id}`] || 0}-${scoreMap[`${game.id}:${game.team_b_player_id}`] || 0}`,
+  rbi_total: `${rbiMap[`${game.id}:${game.team_a_player_id}`] || 0}-${rbiMap[`${game.id}:${game.team_b_player_id}`] || 0}`,
 }))
 
 console.log(JSON.stringify(summary, null, 2))

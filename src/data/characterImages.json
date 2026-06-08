@@ -1,48 +1,48 @@
 [
   {
     "name": "Daisy",
-    "fileName": "daisy.jpg",
-    "publicPath": "/characters/daisy.jpg",
+    "fileName": "daisy.png",
+    "publicPath": "/characters/daisy.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Daisy_MSS_artwork.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/5/55/Daisy_MSS_artwork.jpg/300px-Daisy_MSS_artwork.jpg"
   },
   {
     "name": "Luigi",
-    "fileName": "luigi.jpg",
-    "publicPath": "/characters/luigi.jpg",
+    "fileName": "luigi.png",
+    "publicPath": "/characters/luigi.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Luigi_MSS.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/3/38/Luigi_MSS.jpg/300px-Luigi_MSS.jpg"
   },
   {
     "name": "Mario",
-    "fileName": "mario.jpg",
-    "publicPath": "/characters/mario.jpg",
+    "fileName": "mario.png",
+    "publicPath": "/characters/mario.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Mario_Mario_Super_Sluggers.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/4/49/Mario_Mario_Super_Sluggers.jpg/300px-Mario_Mario_Super_Sluggers.jpg"
   },
   {
     "name": "Peach",
-    "fileName": "peach.jpg",
-    "publicPath": "/characters/peach.jpg",
+    "fileName": "peach.png",
+    "publicPath": "/characters/peach.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Peach_MSS.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/2/23/Peach_MSS.jpg/250px-Peach_MSS.jpg"
   },
   {
     "name": "Waluigi",
-    "fileName": "waluigi.jpg",
-    "publicPath": "/characters/waluigi.jpg",
+    "fileName": "waluigi.png",
+    "publicPath": "/characters/waluigi.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Waluigi_MSS_artwork.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/c/c9/Waluigi_MSS_artwork.jpg/250px-Waluigi_MSS_artwork.jpg"
   },
   {
     "name": "Birdo",
-    "fileName": "birdo.jpg",
-    "publicPath": "/characters/birdo.jpg",
+    "fileName": "birdo.png",
+    "publicPath": "/characters/birdo.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Birdo_MSS_artwork.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/d/db/Birdo_MSS_artwork.jpg/250px-Birdo_MSS_artwork.jpg"
@@ -57,24 +57,24 @@
   },
   {
     "name": "Bowser Jr.",
-    "fileName": "bowser-jr.jpg",
-    "publicPath": "/characters/bowser-jr.jpg",
+    "fileName": "bowser-jr.png",
+    "publicPath": "/characters/bowser-jr.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Bowser_Jr_MSS.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/6/6b/Bowser_Jr_MSS.jpg/300px-Bowser_Jr_MSS.jpg"
   },
   {
     "name": "Diddy Kong",
-    "fileName": "diddy-kong.jpg",
-    "publicPath": "/characters/diddy-kong.jpg",
+    "fileName": "diddy-kong.png",
+    "publicPath": "/characters/diddy-kong.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:DiddyKong_MSS.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/a/ae/DiddyKong_MSS.jpg/300px-DiddyKong_MSS.jpg"
   },
   {
     "name": "Yoshi",
-    "fileName": "yoshi.jpg",
-    "publicPath": "/characters/yoshi.jpg",
+    "fileName": "yoshi.png",
+    "publicPath": "/characters/yoshi.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Yoshi_MSS_artwork.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/9/95/Yoshi_MSS_artwork.jpg/250px-Yoshi_MSS_artwork.jpg"
@@ -129,8 +129,8 @@
   },
   {
     "name": "Bowser",
-    "fileName": "bowser.jpg",
-    "publicPath": "/characters/bowser.jpg",
+    "fileName": "bowser.png",
+    "publicPath": "/characters/bowser.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Bowser_MSS.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/d/d1/Bowser_MSS.jpg/300px-Bowser_MSS.jpg"
@@ -201,8 +201,8 @@
   },
   {
     "name": "Wiggler",
-    "fileName": "wiggler.jpg",
-    "publicPath": "/characters/wiggler.jpg",
+    "fileName": "wiggler.png",
+    "publicPath": "/characters/wiggler.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Wiggler-MSS.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/8/84/Wiggler-MSS.jpg/200px-Wiggler-MSS.jpg"
@@ -281,8 +281,8 @@
   },
   {
     "name": "Donkey Kong",
-    "fileName": "donkey-kong.jpg",
-    "publicPath": "/characters/donkey-kong.jpg",
+    "fileName": "donkey-kong.png",
+    "publicPath": "/characters/donkey-kong.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:DK_MSS_artwork.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/5/5b/DK_MSS_artwork.jpg/300px-DK_MSS_artwork.jpg"
@@ -457,8 +457,8 @@
   },
   {
     "name": "Wario",
-    "fileName": "wario.jpg",
-    "publicPath": "/characters/wario.jpg",
+    "fileName": "wario.png",
+    "publicPath": "/characters/wario.png",
     "sourcePage": "https://www.mariowiki.com/Mario_Super_Sluggers",
     "sourceFilePage": "https://www.mariowiki.com/File:Wario_MSS_artwork.jpg",
     "downloadUrl": "https://mario.wiki.gallery/images/thumb/f/f0/Wario_MSS_artwork.jpg/300px-Wario_MSS_artwork.jpg"

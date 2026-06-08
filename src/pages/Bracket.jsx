@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Crown, Pencil, Trash2 } from 'lucide-react'
+import { Crown, Moon, Pencil, Sun, Trash2, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
 import { useAuth } from '../context/AuthContext'
-import BracketView from '../components/BracketView'
+import BracketContainer from '../components/BracketContainer'
 import PlayerTag from '../components/PlayerTag'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import { buildDoubleElimBracket, generateSingleElimBracket, getRoundRobinSchedule } from '../utils/bracketTemplates'
 import { syncBracketStructure } from '../utils/bracketProgression'
+import { buildScorebookPath } from '../utils/scorebookRouting'
+import { getTeamShortName } from '../utils/teamIdentity'
+import { getOrderedStadiums, getStadiumTimeLabel, normalizeIsNightForStadium, stadiumTimeToggleDisabled } from '../utils/stadiums'
 
 function normalizeStageLabel(stage = '') {
   if (stage.includes('CG-2')) return 'Championship Reset'
@@ -24,22 +27,28 @@ export default function Bracket() {
   const { viewedTournament, currentTournament, refreshTournaments } = useTournament()
   const { player } = useAuth()
   const isCommissioner = player?.is_commissioner === true
+  const isScorekeeper = Boolean(player && (player.is_commissioner || player.scorebook_access))
 
   const tournament = viewedTournament || currentTournament
   const { identitiesByPlayerId } = useTournamentTeamIdentity(tournament?.id)
 
   const [games, setGames] = useState([])
   const [players, setPlayers] = useState([])
+  const [stadiums, setStadiums] = useState([])
   const [editingGame, setEditingGame] = useState(null)
   const [form, setForm] = useState({ teamA: '', teamB: '' })
   const [showAddGame, setShowAddGame] = useState(false)
   const [addGameForm, setAddGameForm] = useState({ teamA: '', teamB: '', stage: '' })
+  const [stadiumSetupGame, setStadiumSetupGame] = useState(null)
+  const [stadiumSetupForm, setStadiumSetupForm] = useState({ stadiumId: '', isNight: false })
+  const [stadiumSavePending, setStadiumSavePending] = useState(false)
 
   useEffect(() => {
     const loadBracket = async () => {
-      const [{ data: gamesData }, { data: playersData }] = await Promise.all([
+      const [{ data: gamesData }, { data: playersData }, { data: stadiumsData }] = await Promise.all([
         supabase.from('games').select('*').order('id'),
         supabase.from('players').select('*'),
+        supabase.from('stadiums').select('*'),
       ])
       let nextGames = gamesData || []
       if (tournament?.bracket_format === 'double') {
@@ -53,6 +62,7 @@ export default function Bracket() {
       }
       setGames(nextGames)
       setPlayers(playersData || [])
+      setStadiums(getOrderedStadiums(stadiumsData || []))
     }
     loadBracket()
     const channel = supabase
@@ -65,6 +75,7 @@ export default function Bracket() {
   }, [tournament?.id, tournament?.bracket_format])
 
   const playersById = useMemo(() => Object.fromEntries(players.map(p => [p.id, p])), [players])
+  const stadiumsById = useMemo(() => Object.fromEntries(stadiums.map((stadium) => [stadium.id, stadium])), [stadiums])
   const filteredGames = games.filter(g => !tournament || g.tournament_id === tournament.id)
   const champion = players.find(p => p.id === tournament?.champion_player_id)
   const bracketFormat = tournament?.bracket_format || 'double'
@@ -206,12 +217,80 @@ export default function Bracket() {
     await refreshTournaments(tournament.id)
     pushToast({
       title: 'Tournament ended',
-      message: `${playersById[tournamentDeciderGame.winner_player_id]?.name || 'Winner'} is now the champion.`,
+      message: `${getTeamShortName(identitiesByPlayerId[tournamentDeciderGame.winner_player_id]) || playersById[tournamentDeciderGame.winner_player_id]?.name || 'Winner'} is now the champion.`,
       type: 'success',
     })
   }
 
   const formatLabel = bracketFormat === 'round_robin' ? 'Round Robin' : bracketFormat === 'single' ? 'Single Elimination' : 'Double Elimination'
+
+  const openStadiumSetup = useCallback((game) => {
+    const fallbackStadium = (game?.stadium_id && stadiumsById[game.stadium_id]) || stadiums[0] || null
+    if (!fallbackStadium) {
+      pushToast({
+        title: 'No stadiums found',
+        message: 'Add at least one stadium before opening the scorebook.',
+        type: 'error',
+      })
+      return
+    }
+    setStadiumSetupForm({
+      stadiumId: fallbackStadium.id,
+      isNight: normalizeIsNightForStadium(fallbackStadium, game?.is_night),
+    })
+    setStadiumSetupGame(game)
+  }, [stadiums, stadiumsById, pushToast])
+
+  const handleOpenScorebook = useCallback((game) => {
+    if (!game) return
+    if (game.stadium_id) {
+      navigate(buildScorebookPath({ gameId: game.id }))
+      return
+    }
+    if (!isScorekeeper) {
+      pushToast({
+        title: 'Stadium required',
+        message: 'A scorekeeper must choose the stadium before the scorebook can be opened.',
+        type: 'error',
+      })
+      return
+    }
+    openStadiumSetup(game)
+  }, [navigate, isScorekeeper, pushToast, openStadiumSetup])
+
+  const saveTournamentStadiumAndOpen = useCallback(async () => {
+    if (!stadiumSetupGame) return
+    const stadium = stadiumsById[stadiumSetupForm.stadiumId] || null
+    if (!stadium) return
+    const nextIsNight = normalizeIsNightForStadium(stadium, stadiumSetupForm.isNight)
+
+    setStadiumSavePending(true)
+    try {
+      const { error } = await supabase
+        .from('games')
+        .update({ stadium_id: stadium.id, is_night: nextIsNight })
+        .eq('id', stadiumSetupGame.id)
+      if (error) throw error
+
+      setGames((current) => current.map((game) => (
+        game.id === stadiumSetupGame.id
+          ? { ...game, stadium_id: stadium.id, is_night: nextIsNight }
+          : game
+      )))
+      setStadiumSetupGame(null)
+      pushToast({ title: 'Stadium set', message: `${stadium.name} selected for ${stadiumSetupGame.game_code}.`, type: 'success' })
+      navigate(buildScorebookPath({ gameId: stadiumSetupGame.id }))
+    } catch (error) {
+      pushToast({ title: 'Unable to save stadium', message: error.message, type: 'error' })
+    } finally {
+      setStadiumSavePending(false)
+    }
+  }, [stadiumSetupGame, stadiumsById, stadiumSetupForm, pushToast, navigate])
+
+  const selectedSetupStadium = useMemo(
+    () => stadiums.find((stadium) => String(stadium.id) === String(stadiumSetupForm.stadiumId)) || stadiums[0] || null,
+    [stadiums, stadiumSetupForm.stadiumId],
+  )
 
   return (
     <div className="page-stack">
@@ -275,7 +354,7 @@ export default function Bracket() {
             <div className="feed-list">
               {filteredGames.map(game => (
                 <div className="lineup-row" key={game.id}>
-                  <button className="ghost-button" onClick={() => navigate(`/scorebook?game=${game.id}`)} type="button">
+                  <button className="ghost-button" onClick={() => handleOpenScorebook(game)} type="button">
                     <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 11, background: game.status === 'complete' ? '#22C55E' : game.status === 'active' ? '#EAB308' : '#334155', color: '#000' }}>
                       {game.status === 'complete' ? '✓' : game.status === 'active' ? '●' : '○'}
                     </span>
@@ -336,7 +415,19 @@ export default function Bracket() {
               <h2>Bracket Board</h2>
               <span className="muted">Winner's side left, loser's side right</span>
             </div>
-            <BracketView games={filteredGames} identitiesByPlayerId={identitiesByPlayerId} onSelectGame={game => navigate(`/scorebook?game=${game.id}`)} playersById={playersById} />
+            <BracketContainer
+              bracketFormat={bracketFormat === 'single' ? 'single_elimination' : 'double_elimination'}
+              games={filteredGames}
+              identitiesByPlayerId={identitiesByPlayerId}
+              onChampionDeclared={async (winnerId) => {
+                if (!tournament || !winnerId) return
+                await supabase.from('tournaments').update({ champion_player_id: winnerId, status: 'complete' }).eq('id', tournament.id)
+                await refreshTournaments(tournament.id)
+              }}
+              onSelectGame={handleOpenScorebook}
+              playersById={playersById}
+              seeding={seeding}
+            />
           </section>
           <section className="panel">
             <div className="section-head">
@@ -429,6 +520,84 @@ export default function Bracket() {
             <div className="modal-actions">
               <button className="ghost-button" onClick={() => setShowAddGame(false)} type="button">Cancel</button>
               <button className="solid-button" onClick={addManualGame} type="button">Add Game</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {stadiumSetupGame && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ width: 'min(640px, calc(100vw - 32px))' }}>
+            <div className="section-head">
+              <div>
+                <span className="brand-kicker">Stadium Setup</span>
+                <h2>{stadiumSetupGame.game_code}</h2>
+              </div>
+              <button
+                onClick={() => setStadiumSetupGame(null)}
+                type="button"
+                style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="page-stack" style={{ gap: '0.75rem' }}>
+              <div className="muted">
+                {normalizeStageLabel(stadiumSetupGame.stage || 'Exhibition')}
+              </div>
+              <div>
+                <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={stadiumSetupGame.team_a_player_id} playersById={playersById} />
+                {' vs '}
+                <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={stadiumSetupGame.team_b_player_id} playersById={playersById} />
+              </div>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="muted">Stadium</span>
+                <select
+                  value={stadiumSetupForm.stadiumId}
+                  onChange={(event) => {
+                    const stadium = stadiumsById[event.target.value]
+                    if (!stadium) return
+                    setStadiumSetupForm((current) => ({
+                      ...current,
+                      stadiumId: stadium.id,
+                      isNight: normalizeIsNightForStadium(stadium, current.isNight),
+                    }))
+                  }}
+                  disabled={stadiumSavePending}
+                >
+                  {stadiums.map((stadium) => (
+                    <option key={stadium.id} value={stadium.id}>{stadium.name}</option>
+                  ))}
+                </select>
+              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <button
+                  className="ghost-button"
+                  onClick={() => {
+                    if (!selectedSetupStadium || stadiumTimeToggleDisabled(selectedSetupStadium)) return
+                    setStadiumSetupForm((current) => ({
+                      ...current,
+                      isNight: !normalizeIsNightForStadium(selectedSetupStadium, current.isNight),
+                    }))
+                  }}
+                  type="button"
+                  disabled={stadiumSavePending || !selectedSetupStadium || stadiumTimeToggleDisabled(selectedSetupStadium)}
+                >
+                  {selectedSetupStadium && normalizeIsNightForStadium(selectedSetupStadium, stadiumSetupForm.isNight) ? <Moon size={16} /> : <Sun size={16} />}
+                  <span>{selectedSetupStadium ? getStadiumTimeLabel(selectedSetupStadium, stadiumSetupForm.isNight) : 'Day'}</span>
+                </button>
+                {selectedSetupStadium && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {selectedSetupStadium.night_only ? 'This stadium is night-only.' : selectedSetupStadium.day_only ? 'This stadium is day-only.' : 'Day or night available.'}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="ghost-button" onClick={() => setStadiumSetupGame(null)} type="button">Cancel</button>
+              <button className="solid-button" disabled={stadiumSavePending || !selectedSetupStadium} onClick={saveTournamentStadiumAndOpen} type="button">
+                Save Stadium and Open
+              </button>
             </div>
           </div>
         </div>

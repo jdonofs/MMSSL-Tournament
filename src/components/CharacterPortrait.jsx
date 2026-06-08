@@ -1,6 +1,8 @@
 import { getCharacterImage } from '../utils/characterImages'
 import { getCharacterSpriteMeta } from '../utils/characterSprites'
 
+const PORTRAIT_ASSET_VERSION = 'mss-select-icons-2026-05-11'
+
 const CUSTOM_IMAGE_OVERRIDES = {
   Mii: '/characters/mii-custom.png',
 }
@@ -10,6 +12,12 @@ const PORTRAIT_FALLBACKS = {
   'Pianta': 'Blue Pianta',
   'Noki':   'Blue Noki',
   'Toad':   'Red Toad',
+}
+
+function withAssetVersion(src) {
+  if (!src) return src
+  const separator = src.includes('?') ? '&' : '?'
+  return `${src}${separator}v=${PORTRAIT_ASSET_VERSION}`
 }
 
 export default function CharacterPortrait({
@@ -23,13 +31,12 @@ export default function CharacterPortrait({
 }) {
   const overrideSrc = CUSTOM_IMAGE_OVERRIDES[name] || (name?.endsWith?.(' Mii') ? CUSTOM_IMAGE_OVERRIDES.Mii : null)
   const resolvedName = PORTRAIT_FALLBACKS[name] || name
-  const sprite = getCharacterSpriteMeta(resolvedName)
   const fallbackLabel = fallbackText || name?.[0] || '?'
 
   if (overrideSrc) {
     return (
       <img
-        src={overrideSrc}
+        src={withAssetVersion(overrideSrc)}
         alt={name}
         draggable={draggable}
         style={{
@@ -45,6 +52,27 @@ export default function CharacterPortrait({
     )
   }
 
+  const src = getCharacterImage(resolvedName)
+  if (src) {
+    return (
+      <img
+        src={withAssetVersion(src)}
+        alt={name}
+        draggable={draggable}
+        style={{
+          width: size,
+          height: size,
+          borderRadius,
+          objectFit,
+          objectPosition: 'center',
+          flexShrink: 0,
+          ...style,
+        }}
+      />
+    )
+  }
+
+  const sprite = getCharacterSpriteMeta(resolvedName)
   if (sprite) {
     const scaleX = size / sprite.sourceWidth
     const scaleY = size / sprite.sourceHeight
@@ -63,7 +91,7 @@ export default function CharacterPortrait({
         }}
       >
         <img
-          src={sprite.sheetPath}
+          src={withAssetVersion(sprite.sheetPath)}
           alt={name}
           draggable={draggable}
           style={{
@@ -78,26 +106,6 @@ export default function CharacterPortrait({
           }}
         />
       </div>
-    )
-  }
-
-  const src = getCharacterImage(resolvedName)
-  if (src) {
-    return (
-      <img
-        src={src}
-        alt={name}
-        draggable={draggable}
-        style={{
-          width: size,
-          height: size,
-          borderRadius,
-          objectFit,
-          objectPosition: 'center',
-          flexShrink: 0,
-          ...style,
-        }}
-      />
     )
   }
 

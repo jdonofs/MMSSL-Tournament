@@ -1,7 +1,7 @@
 import { supabase } from '../supabaseClient'
 import { adjustWeights, computeBrierScore } from './oddsEngine'
 
-const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR'])
+const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const PROP_TYPES = new Set(['hr_prop', 'hit_prop', 'k_prop'])
 
 function mean(values = [], fallback = 0) {
@@ -22,9 +22,27 @@ function buildUpsertPayload(bet, isCorrect) {
   }
 }
 
-async function loadGameEntities(gameId) {
+function buildResolutionConfig(config = {}) {
+  return {
+    betsTable: 'bets',
+    gameOddsTable: 'game_odds',
+    oddsCalibrationTable: 'odds_calibration_log',
+    weightsTable: 'odds_engine_weights',
+    ledgerTable: 'points_ledger',
+    wagerField: 'wager_sips',
+    payoutField: 'potential_payout_sips',
+    ledgerChangeField: 'points_change',
+    sourceIdField: 'tournament_id',
+    sourceIdValue: null,
+    gameOddsIdField: 'game_odds_id',
+    ...config,
+  }
+}
+
+async function loadGameEntities(gameId, config = {}) {
+  const resolvedConfig = buildResolutionConfig(config)
   const [{ data: openBets }, { data: players }, { data: characters }] = await Promise.all([
-    supabase.from('bets').select('*').eq('game_id', gameId).eq('status', 'open'),
+    supabase.from(resolvedConfig.betsTable).select('*').eq('game_id', gameId).in('status', ['open', 'pending']),
     supabase.from('players').select('id, name'),
     supabase.from('characters').select('id, name'),
   ])
@@ -49,15 +67,49 @@ function buildEntityCandidates(pa, playersById, charactersById) {
   return candidates
 }
 
-async function updateBets(bets) {
+async function updateBets(bets, config = {}) {
+  const resolvedConfig = buildResolutionConfig(config)
   if (!bets.length) return
-  const { error } = await supabase.from('bets').upsert(bets)
+  const { error } = await supabase.from(resolvedConfig.betsTable).upsert(bets)
   if (error) throw error
 }
 
-async function lockOdds(gameId, betType, targetEntity = null) {
+async function syncLedger(bets, config = {}) {
+  const resolvedConfig = buildResolutionConfig(config)
+  const resolvedBets = bets.filter((bet) => ['won', 'lost'].includes(bet.status))
+  if (!resolvedBets.length) return
+
+  const betIds = resolvedBets.map((bet) => bet.id)
+  await supabase.from(resolvedConfig.ledgerTable).delete().in('bet_id', betIds)
+
+  const ledgerRows = resolvedBets.map((bet) => {
+    const payout = Number(bet[resolvedConfig.payoutField] || 0)
+    const wager = Number(bet[resolvedConfig.wagerField] || 0)
+    const delta = bet.status === 'won' ? payout : -wager
+    const payload = {
+      player_id: bet.player_id,
+      game_id: bet.game_id,
+      bet_id: bet.id,
+      reason: `${bet.bet_type}:${bet.chosen_side}`,
+      [resolvedConfig.ledgerChangeField]: Math.round(delta),
+    }
+    if (resolvedConfig.sourceIdField && resolvedConfig.sourceIdValue != null) {
+      payload[resolvedConfig.sourceIdField] = resolvedConfig.sourceIdValue
+    } else if (resolvedConfig.sourceIdField && bet[resolvedConfig.sourceIdField] != null) {
+      payload[resolvedConfig.sourceIdField] = bet[resolvedConfig.sourceIdField]
+    }
+    return payload
+  })
+
+  if (!ledgerRows.length) return
+  const { error } = await supabase.from(resolvedConfig.ledgerTable).insert(ledgerRows)
+  if (error) throw error
+}
+
+async function lockOdds(gameId, betType, targetEntity = null, config = {}) {
+  const resolvedConfig = buildResolutionConfig(config)
   let query = supabase
-    .from('game_odds')
+    .from(resolvedConfig.gameOddsTable)
     .update({ is_locked: true, updated_at: new Date().toISOString() })
     .eq('game_id', gameId)
     .eq('bet_type', betType)
@@ -67,16 +119,17 @@ async function lockOdds(gameId, betType, targetEntity = null) {
   if (error) throw error
 }
 
-export async function resolveOnPA(gameId, pa) {
-  const { openBets, playersById, charactersById } = await loadGameEntities(gameId)
+export async function resolveOnPA(gameId, pa, config = {}) {
+  const resolvedConfig = buildResolutionConfig(config)
+  const { openBets, playersById, charactersById } = await loadGameEntities(gameId, resolvedConfig)
   const entityCandidates = buildEntityCandidates(pa, playersById, charactersById)
   const updates = []
 
-  if (pa.result === 'HR') {
+  if (pa.result === 'HR' || pa.result === 'IPHR') {
     openBets
       .filter((bet) => bet.bet_type === 'hr_prop' && entityCandidates.has(bet.target_entity))
       .forEach((bet) => updates.push(buildUpsertPayload(bet, bet.chosen_side === 'yes')))
-    if (updates.length) await lockOdds(gameId, 'hr_prop', [...entityCandidates][0])
+    if (updates.length) await lockOdds(gameId, 'hr_prop', [...entityCandidates][0], resolvedConfig)
   }
 
   if (HIT_RESULTS.has(pa.result)) {
@@ -84,7 +137,7 @@ export async function resolveOnPA(gameId, pa) {
       .filter((bet) => bet.bet_type === 'hit_prop' && entityCandidates.has(bet.target_entity))
       .forEach((bet) => updates.push(buildUpsertPayload(bet, bet.chosen_side === 'yes')))
     if (updates.some((bet) => openBets.find((entry) => entry.id === bet.id)?.bet_type === 'hit_prop')) {
-      await lockOdds(gameId, 'hit_prop', [...entityCandidates][0])
+      await lockOdds(gameId, 'hit_prop', [...entityCandidates][0], resolvedConfig)
     }
   }
 
@@ -92,38 +145,47 @@ export async function resolveOnPA(gameId, pa) {
     openBets
       .filter((bet) => bet.bet_type === 'first_inning_run')
       .forEach((bet) => updates.push(buildUpsertPayload(bet, bet.chosen_side === 'yes')))
-    await lockOdds(gameId, 'first_inning_run', null)
+    await lockOdds(gameId, 'first_inning_run', null, resolvedConfig)
   }
 
   if (updates.length) {
-    await updateBets(updates)
+    await updateBets(updates, resolvedConfig)
+    await syncLedger(
+      openBets
+        .filter((bet) => updates.some((update) => update.id === bet.id))
+        .map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) })),
+      resolvedConfig,
+    )
   }
 
   return updates
 }
 
-export async function resolveFirstInningNoRun(gameId) {
+export async function resolveFirstInningNoRun(gameId, config = {}) {
+  const resolvedConfig = buildResolutionConfig(config)
   const { data: openBets, error } = await supabase
-    .from('bets')
+    .from(resolvedConfig.betsTable)
     .select('*')
     .eq('game_id', gameId)
     .eq('bet_type', 'first_inning_run')
-    .eq('status', 'open')
+    .in('status', ['open', 'pending'])
 
   if (error) throw error
 
   const updates = (openBets || []).map((bet) => buildUpsertPayload(bet, bet.chosen_side === 'no'))
-  await updateBets(updates)
-  await lockOdds(gameId, 'first_inning_run', null)
+  await updateBets(updates, resolvedConfig)
+  await syncLedger((openBets || []).map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) })), resolvedConfig)
+  await lockOdds(gameId, 'first_inning_run', null, resolvedConfig)
   return updates
 }
 
-export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTotals = {}, margin = 0) {
+export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTotals = {}, margin = 0, config = {}) {
+  const resolvedConfig = buildResolutionConfig(config)
   const { data: openBets, error } = await supabase
-    .from('bets')
+    .from(resolvedConfig.betsTable)
     .select('*')
     .eq('game_id', gameId)
-    .eq('status', 'open')
+    .in('status', ['open', 'pending'])
 
   if (error) throw error
 
@@ -165,20 +227,22 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
     })
   })
 
-  await updateBets(updates)
-  await runPostGameCalibration(gameId)
+  await updateBets(updates, resolvedConfig)
+  await syncLedger((openBets || []).map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) })), resolvedConfig)
+  await runPostGameCalibration(gameId, resolvedConfig)
   return updates
 }
 
-export async function runPostGameCalibration(gameId) {
+export async function runPostGameCalibration(gameId, config = {}) {
+  const resolvedConfig = buildResolutionConfig(config)
   const [{ data: resolvedBets, error: betsError }, { data: weightsRows, error: weightsError }] = await Promise.all([
     supabase
-      .from('bets')
+      .from(resolvedConfig.betsTable)
       .select('*')
       .eq('game_id', gameId)
       .in('status', ['won', 'lost']),
     supabase
-      .from('odds_engine_weights')
+      .from(resolvedConfig.weightsTable)
       .select('*')
       .eq('id', 1)
       .maybeSingle(),
@@ -198,7 +262,7 @@ export async function runPostGameCalibration(gameId) {
     .filter((bet) => bet.predicted_probability != null)
     .map((bet) => ({
       game_id: gameId,
-      game_odds_id: bet.game_odds_id,
+      game_odds_id: bet[resolvedConfig.gameOddsIdField],
       bet_type: bet.bet_type,
       target_entity: bet.target_entity,
       predicted_probability: Number(bet.predicted_probability),
@@ -209,7 +273,7 @@ export async function runPostGameCalibration(gameId) {
     }))
 
   if (calibrationRows.length) {
-    const { error } = await supabase.from('odds_calibration_log').insert(calibrationRows)
+    const { error } = await supabase.from(resolvedConfig.oddsCalibrationTable).insert(calibrationRows)
     if (error) throw error
   }
 
@@ -228,7 +292,7 @@ export async function runPostGameCalibration(gameId) {
     live: mean(liveScores, gameBrier),
   })
 
-  const { error: upsertError } = await supabase.from('odds_engine_weights').upsert({
+  const { error: upsertError } = await supabase.from(resolvedConfig.weightsTable).upsert({
     id: 1,
     ...adjusted,
     games_evaluated: Number(weightsRows?.games_evaluated || 0) + 1,

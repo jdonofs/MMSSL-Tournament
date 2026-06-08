@@ -2,7 +2,7 @@ import { buildBettingEntityLabel } from './oddsEngine'
 import { getPlayerSkillProfile } from './teamIdentity'
 import { inningsAsDecimal } from './statsCalculator'
 
-const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR'])
+const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 
 function average(values, fallback = 0) {
   if (!values.length) return fallback
@@ -20,18 +20,37 @@ function buildPlayerHistoricalSummary({
   completedGames,
   completedPAs,
   completedPitching,
-  playerId,
+  playerId = null,
   characterId = null,
+  stadiumId = null,
+  isNight = null,
 }) {
+  const scopedGameIds = new Set(
+    completedGames
+      .filter((game) => {
+        if (stadiumId != null && String(game.stadium_id) !== String(stadiumId)) return false
+        if (isNight != null && Boolean(game.is_night) !== Boolean(isNight)) return false
+        return true
+      })
+      .map((game) => game.id),
+  )
   const relevantGames = completedGames.filter(
-    (game) => game.team_a_player_id === playerId || game.team_b_player_id === playerId,
+    (game) => {
+      if (stadiumId != null || isNight != null) {
+        if (!scopedGameIds.has(game.id)) return false
+      }
+      if (!playerId) return true
+      return game.team_a_player_id === playerId || game.team_b_player_id === playerId
+    },
   )
   const relevantPAs = completedPAs.filter((entry) => {
-    if (entry.player_id !== playerId) return false
+    if ((stadiumId != null || isNight != null) && !scopedGameIds.has(entry.game_id)) return false
+    if (playerId && entry.player_id !== playerId) return false
     return characterId ? entry.character_id === characterId : true
   })
   const relevantPitching = completedPitching.filter((entry) => {
-    if (entry.player_id !== playerId) return false
+    if ((stadiumId != null || isNight != null) && !scopedGameIds.has(entry.game_id)) return false
+    if (playerId && entry.player_id !== playerId) return false
     return characterId ? entry.character_id === characterId : true
   })
 
@@ -44,11 +63,66 @@ function buildPlayerHistoricalSummary({
     winRate: relevantGames.length ? relevantGames.filter((game) => game.winner_player_id === playerId).length / relevantGames.length : 0.5,
     avg: relevantPAs.filter((entry) => HIT_RESULTS.has(entry.result)).length / totalPas,
     hitRate: relevantPAs.filter((entry) => HIT_RESULTS.has(entry.result)).length / totalPas,
-    hrRate: relevantPAs.filter((entry) => entry.result === 'HR').length / totalPas,
+    hrRate: relevantPAs.filter((entry) => entry.result === 'HR' || entry.result === 'IPHR').length / totalPas,
     kRate: relevantPAs.filter((entry) => entry.result === 'K').length / totalPas,
     strikeoutsPerInning: totalInnings > 0 ? strikeouts / totalInnings : 0,
     strikeoutsPerGame: relevantPitching.length ? strikeouts / relevantPitching.length : 0,
     plateAppearances: relevantPAs.length,
+  }
+}
+
+function blendHistoricalSummaries(parts = []) {
+  const totalWeight = parts.reduce((sum, part) => sum + Number(part.weight || 0), 0) || 1
+  const blend = (key, fallback = 0) => parts.reduce((sum, part) => sum + Number(part.summary?.[key] ?? fallback) * Number(part.weight || 0), 0) / totalWeight
+  const maxOf = (key) => Math.max(0, ...parts.map((part) => Number(part.summary?.[key] || 0)))
+  return {
+    gamesPlayed: Math.round(blend('gamesPlayed')),
+    winRate: blend('winRate', 0.5),
+    avg: blend('avg', 0.25),
+    hitRate: blend('hitRate', 0.25),
+    hrRate: blend('hrRate', 0.03),
+    kRate: blend('kRate', 0.2),
+    strikeoutsPerInning: blend('strikeoutsPerInning', 0),
+    strikeoutsPerGame: blend('strikeoutsPerGame', 0),
+    plateAppearances: Math.round(blend('plateAppearances')),
+    samplePlateAppearances: maxOf('plateAppearances'),
+    sampleGamesPlayed: maxOf('gamesPlayed'),
+  }
+}
+
+function buildEntityHistoricalProfile({
+  completedGames,
+  completedPAs,
+  completedPitching,
+  playerId,
+  characterId,
+  stadiumId,
+  isNight,
+}) {
+  const playerCharacter = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, playerId, characterId })
+  const playerOnly = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, playerId })
+  const characterOnly = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, characterId })
+  const stadiumPlayerCharacter = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, playerId, characterId, stadiumId, isNight })
+  const stadiumPlayerOnly = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, playerId, stadiumId, isNight })
+  const stadiumCharacterOnly = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, characterId, stadiumId, isNight })
+
+  const weights = [
+    { summary: playerCharacter, weight: 0.42 + Math.min(playerCharacter.plateAppearances / 60, 0.28) },
+    { summary: characterOnly, weight: 0.22 + Math.min(characterOnly.plateAppearances / 120, 0.18) },
+    { summary: playerOnly, weight: 0.18 + Math.min(playerOnly.plateAppearances / 120, 0.14) },
+    { summary: stadiumPlayerCharacter, weight: Math.min(stadiumPlayerCharacter.plateAppearances / 16, 0.28) },
+    { summary: stadiumCharacterOnly, weight: Math.min(stadiumCharacterOnly.plateAppearances / 32, 0.18) },
+    { summary: stadiumPlayerOnly, weight: Math.min(stadiumPlayerOnly.plateAppearances / 32, 0.14) },
+  ].filter((part) => part.weight > 0)
+
+  return {
+    ...blendHistoricalSummaries(weights),
+    playerCharacter,
+    playerOnly,
+    characterOnly,
+    stadiumPlayerCharacter,
+    stadiumPlayerOnly,
+    stadiumCharacterOnly,
   }
 }
 
@@ -105,6 +179,7 @@ export function buildOddsGenerationContext({
     margins,
     historicalAvgMargin: margins.length ? margins.reduce((s, v) => s + v, 0) / margins.length : 3.5,
     oneRunGameRate: margins.length ? margins.filter((m) => m === 1).length / margins.length : 0.28,
+    stdDev: standardDeviation(margins),
   }
 
   const latestPitcherFor = (playerId) =>
@@ -168,12 +243,14 @@ export function buildOddsGenerationContext({
   }
 
   ;[...homeRoster, ...awayRoster].forEach((entry) => {
-    playerProps.historicalByEntity[entry.entityLabel] = buildPlayerHistoricalSummary({
+    playerProps.historicalByEntity[entry.entityLabel] = buildEntityHistoricalProfile({
       completedGames,
       completedPAs,
       completedPitching,
       playerId: entry.playerId,
       characterId: entry.id,
+      stadiumId: game.stadium_id,
+      isNight,
     })
   })
 

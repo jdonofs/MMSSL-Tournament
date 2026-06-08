@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
-import { ChevronLeft, Music, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, ArrowRightLeft, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
-import { buildCharacterTournamentHistory, MIN_PA_THRESHOLD } from '../utils/statsCalculator'
+import SharedCharacterDetailModal from '../components/CharacterDetailModal'
+import { buildCharacterTournamentHistory, MIN_PA_THRESHOLD, summarizeBatting, summarizePitching } from '../utils/statsCalculator'
+import { analyzeCharacterTalent } from '../utils/characterAnalysis'
 import CharacterPortrait from '../components/CharacterPortrait'
+import StatIcon from '../components/StatIcon'
 import { getChemistry, chemScore } from '../data/chemistry'
+import { buildChemistryHighlightSet, CHEMISTRY_NOTE_SRC } from '../utils/chemistryHighlights'
 import { formatCharacterDisplayName, getCharacterChemistryName } from '../utils/mii'
+import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
+import { getTeamShortName } from '../utils/teamIdentity'
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 function baseScore(c) {
@@ -39,11 +45,25 @@ function trendSymbol(history) {
 }
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
-function Portrait({ name, size = 36, style = {}, showMusic = false }) {
+function Portrait({ name, size = 36, style = {}, showChemistryNote = false, highlighted = false }) {
+  const shadowLayers = []
+  if (highlighted) {
+    shadowLayers.push('0 0 0 3px #FACC15', '0 0 0 6px rgba(250,204,21,0.25)')
+  }
+  if (style.boxShadow) shadowLayers.push(style.boxShadow)
+  const portraitStyle = shadowLayers.length ? { ...style, boxShadow: shadowLayers.join(', ') } : style
+
   return (
     <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
-      <CharacterPortrait name={name} size={size} draggable={false} style={style} />
-      {showMusic && <Music size={size * 0.4} style={{ position: 'absolute', bottom: -4, right: -4, color: '#EAB308', fill: '#EAB308' }} />}
+      <CharacterPortrait name={name} size={size} draggable={false} style={portraitStyle} />
+      {showChemistryNote ? (
+        <img
+          src={CHEMISTRY_NOTE_SRC}
+          alt=""
+          aria-hidden="true"
+          style={{ position: 'absolute', right: -5, bottom: -5, width: size * 0.34, height: size * 0.34, objectFit: 'contain', pointerEvents: 'none' }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -51,7 +71,9 @@ function Portrait({ name, size = 36, style = {}, showMusic = false }) {
 function StatBar({ label, value, color = '#EAB308' }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ width: 12, fontSize: 11, color: '#94A3B8', fontWeight: 700 }}>{label}</span>
+      <span style={{ width: 14, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+        <StatIcon stat={label} size={14} />
+      </span>
       <div style={{ flex: 1, height: 6, background: '#0F172A', borderRadius: 3, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${value * 10}%`, background: color, borderRadius: 3 }} />
       </div>
@@ -102,10 +124,10 @@ function CharacterCard({ characterId, charactersById, rosterCharacterMetaById, t
 
         {/* Stat bars */}
         <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <StatBar label="P" value={c.pitching} color="#EF4444" />
-          <StatBar label="B" value={c.batting} color="#22C55E" />
-          <StatBar label="F" value={c.fielding} color="#EAB308" />
-          <StatBar label="S" value={c.speed} color="#3B82F6" />
+          <StatBar label="pitching" value={c.pitching} color="#EF4444" />
+          <StatBar label="batting" value={c.batting} color="#22C55E" />
+          <StatBar label="fielding" value={c.fielding} color="#EAB308" />
+          <StatBar label="speed" value={c.speed} color="#3B82F6" />
         </div>
 
         {/* Value score breakdown */}
@@ -203,43 +225,107 @@ function CharacterCard({ characterId, charactersById, rosterCharacterMetaById, t
   )
 }
 
-// ─── Draggable Roster Item ────────────────────────────────────────────────────
-function DraggableRosterItem({ character, onDragStart, rosterNames, onClick, showMusic = false }) {
-  const net = chemScore(character.chemistryName || character.name, rosterNames)
+// ─── Draggable Roster Item — identical to SeasonRoster.jsx ───────────────────
+function DraggableRosterItem({
+  character,
+  onDragStart,
+  rosterNames,
+  onOpenCard,
+  onTrade,
+  showChemistryNote = false,
+  highlighted = false,
+  showTrade = false,
+  disabled = false,
+  selected = false,
+  compact = false,
+  lineupNumber = null,
+  onLineupNumberClick,
+  lineupNumberSelected = false,
+  lineupNumberTitle,
+  lineupNumberAriaLabel,
+  lineupNumberDisabled = false,
+}) {
   return (
     <div
-      draggable
-      onDragStart={onDragStart}
-      onClick={onClick}
-      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#1E293B', borderRadius: 8, cursor: 'move', border: '1px solid #334155' }}
+      draggable={!disabled}
+      onDragStart={disabled ? undefined : onDragStart}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: compact ? 10 : 12,
+        padding: compact ? '10px 14px' : '14px 16px',
+        minHeight: compact ? 64 : 80,
+        background: selected ? '#FACC1533' : '#1E293B',
+        borderRadius: 10,
+        border: `1px solid ${selected ? '#FACC15' : '#334155'}`,
+      }}
     >
-      <Portrait name={character.name} size={40} showMusic={showMusic} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{character.displayName || character.name}</div>
-        {net !== null && <div style={{ fontSize: 10, color: net > 0 ? '#22C55E' : net < 0 ? '#F87171' : '#64748B', fontWeight: 700 }}>{net > 0 ? `+${net}` : net === 0 ? '±0' : net} chem</div>}
-      </div>
+      {lineupNumber !== null ? (
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); onLineupNumberClick?.(event) }}
+          disabled={lineupNumberDisabled}
+          aria-label={lineupNumberAriaLabel}
+          title={lineupNumberTitle}
+          style={{
+            width: compact ? 26 : 32,
+            height: compact ? 26 : 32,
+            borderRadius: '50%',
+            border: `2px solid ${lineupNumberSelected ? '#FACC15' : '#DBEAFE'}`,
+            background: lineupNumberSelected ? '#FACC15' : '#DBEAFE',
+            color: '#0F172A',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: compact ? 10 : 11,
+            fontWeight: 900,
+            cursor: lineupNumberDisabled ? 'default' : 'pointer',
+            flexShrink: 0,
+            padding: 0,
+          }}
+        >
+          {lineupNumber}
+        </button>
+      ) : null}
+      <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+        <Portrait name={character.name} size={compact ? 36 : 48} showChemistryNote={showChemistryNote} highlighted={highlighted} />
+      </button>
+      <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer' }}>
+        <div style={{ fontWeight: 700, fontSize: compact ? 13 : 15, lineHeight: 1.2, whiteSpace: 'normal', wordBreak: 'break-word' }}>{character.displayName || character.name}</div>
+      </button>
+      {showTrade ? (
+        <button className="ghost-button" onClick={(event) => { event.stopPropagation(); onTrade?.() }} type="button" disabled={disabled} aria-label="Trade player" title="Trade player" style={{ minWidth: 42, minHeight: 42, padding: 0, justifyContent: 'center' }}>
+          <ArrowRightLeft size={15} />
+        </button>
+      ) : null}
     </div>
   )
 }
 
 // ─── Baseball Field Positions ─────────────────────────────────────────────────
 const FIELD_POSITIONS = [
-  { id: 'pitcher', label: 'P', x: 50, y: 54 },
-  { id: 'catcher', label: 'C', x: 50, y: 76 },
-  { id: 'firstBase', label: '1B', x: 64, y: 59 },
-  { id: 'secondBase', label: '2B', x: 57, y: 42 },
-  { id: 'thirdBase', label: '3B', x: 36, y: 59 },
-  { id: 'shortStop', label: 'SS', x: 43, y: 42 },
-  { id: 'leftField', label: 'LF', x: 28, y: 24 },
-  { id: 'centerField', label: 'CF', x: 50, y: 16 },
-  { id: 'rightField', label: 'RF', x: 72, y: 24 },
+  { id: 'pitcher', label: 'P', x: 50, y: 56 },
+  { id: 'catcher', label: 'C', x: 50, y: 80 },
+  { id: 'firstBase', label: '1B', x: 71, y: 56 },
+  { id: 'secondBase', label: '2B', x: 59, y: 38 },
+  { id: 'thirdBase', label: '3B', x: 29, y: 56 },
+  { id: 'shortStop', label: 'SS', x: 41, y: 38 },
+  { id: 'leftField', label: 'LF', x: 25, y: 20 },
+  { id: 'centerField', label: 'CF', x: 50, y: 12 },
+  { id: 'rightField', label: 'RF', x: 75, y: 20 },
 ]
 
-function FieldingView({ roster, charactersById, rosterNames, fieldingPositions, setFieldingPositions, selectedPlayer, setSelectedPlayer, onCharacterClick, tournHistories, fieldingAssignMode, selectedForFielding, onAssignPosition }) {
-  const handleDragOver = (e) => {
-    e.preventDefault()
-  }
-
+function FieldingView({
+  charactersById,
+  fieldingPositions,
+  setFieldingPositions,
+  selectedPlayer,
+  setSelectedPlayer,
+  fieldingAssignMode,
+  selectedForFielding,
+  onAssignPosition,
+  chemistryHighlightIds,
+}) {
   const assignCharToPos = useCallback((posId, characterId) => {
     setFieldingPositions(prev => {
       const next = { ...prev }
@@ -262,17 +348,6 @@ function FieldingView({ roster, charactersById, rosterNames, fieldingPositions, 
     })
   }, [setFieldingPositions])
 
-  const handleDropOnPosition = (posId) => (e) => {
-    e.preventDefault()
-    const characterId = parseInt(e.dataTransfer.getData('characterId'), 10)
-    if (characterId) assignCharToPos(posId, characterId)
-  }
-
-  const handleDragStartPosition = (characterId) => (e) => {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('characterId', String(characterId))
-  }
-
   const handlePositionClick = (posId) => {
     if (fieldingAssignMode && selectedForFielding) {
       assignCharToPos(posId, selectedForFielding)
@@ -280,33 +355,34 @@ function FieldingView({ roster, charactersById, rosterNames, fieldingPositions, 
       return
     }
     const charId = fieldingPositions[posId]
-    if (charId) setSelectedPlayer(charId)
+    if (selectedPlayer) {
+      if (selectedPlayer === charId) {
+        setSelectedPlayer(null)
+        return
+      }
+      assignCharToPos(posId, selectedPlayer)
+      setSelectedPlayer(null)
+      return
+    }
+    if (charId) {
+      setSelectedPlayer((current) => (current === charId ? null : charId))
+    }
   }
 
   return (
-    <div style={{ background: 'linear-gradient(180deg, #1D4ED8 0%, #0F172A 100%)', borderRadius: 18, padding: 18, marginBottom: 20, border: `2px solid ${fieldingAssignMode ? '#A78BFA' : '#60A5FA'}`, boxShadow: 'inset 0 1px 0 #93C5FD40', transition: 'border-color 0.2s' }}>
+    <div style={{ display: 'grid', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <h3 style={{ fontSize: 14, fontWeight: 800, color: '#EFF6FF', letterSpacing: '.04em', textTransform: 'uppercase' }}>Fielding Positions</h3>
         <div style={{ fontSize: 11, fontWeight: 700, color: fieldingAssignMode ? '#A78BFA' : '#DBEAFE', background: '#0F172A55', padding: '4px 8px', borderRadius: 999 }}>
           {fieldingAssignMode
-            ? (selectedForFielding ? '📍 Tap position to place' : 'Tap roster player first')
-            : 'Drag or tap-select to swap'}
+            ? (selectedForFielding ? 'Tap position to place' : 'Tap roster player first')
+            : (selectedPlayer ? 'Tap position to move selected player' : 'Tap player, then tap position to swap')}
         </div>
       </div>
-      <div style={{ position: 'relative', width: '100%', maxWidth: 420, aspectRatio: '1/1.08', background: 'radial-gradient(circle at 50% 18%, #86EFAC 0%, #4ADE80 22%, #2E8B57 52%, #24553A 100%)', borderRadius: 22, border: '4px solid #BFDBFE', margin: '0 auto', overflow: 'hidden', boxShadow: 'inset 0 10px 30px #00000030' }}>
-        <div style={{ position: 'absolute', inset: '10% 14% 8%', borderRadius: '50% 50% 22% 22%', background: 'radial-gradient(circle at 50% 35%, #7CFC8A 0%, #4CAF50 45%, #2B6B3F 100%)', opacity: 0.85 }} />
-        <div style={{ position: 'absolute', left: '50%', top: '53%', width: '34%', height: '34%', background: '#C8A873', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 16, boxShadow: 'inset 0 0 0 3px #FDE68A80' }} />
-        <div style={{ position: 'absolute', left: '50%', top: '53%', width: '23%', height: '23%', border: '3px solid #FFF7ED', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 12, opacity: 0.95 }} />
-        <div style={{ position: 'absolute', left: '50%', top: '56%', width: '12%', height: '12%', background: '#D6B38C', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 8 }} />
-        <div style={{ position: 'absolute', left: '50%', top: '58%', width: 34, height: 34, background: '#E5E7EB', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 8, boxShadow: '0 0 0 2px #FFFFFF80' }} />
-        {[
-          { left: '50%', top: '41%' },
-          { left: '62%', top: '53%' },
-          { left: '50%', top: '65%' },
-          { left: '38%', top: '53%' },
-        ].map((base, index) => (
-          <div key={index} style={{ position: 'absolute', left: base.left, top: base.top, width: 14, height: 14, background: '#FFFFFF', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 3, boxShadow: '0 0 0 2px #E2E8F0' }} />
-        ))}
+      <div style={{ position: 'relative', width: '100%', maxWidth: 460, aspectRatio: '1/1.02', background: 'radial-gradient(circle at 50% 18%, #86EFAC 0%, #4ADE80 22%, #2E8B57 52%, #24553A 100%)', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: 'inset 0 10px 30px #00000030' }}>
+        <div style={{ position: 'absolute', inset: '8% 12% 7%', borderRadius: '50% 50% 22% 22%', background: 'radial-gradient(circle at 50% 35%, #7CFC8A 0%, #4CAF50 45%, #2B6B3F 100%)', opacity: 0.85 }} />
+        <div style={{ position: 'absolute', left: '50%', top: '54%', width: '42%', height: '42%', background: '#C8A873', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 20, boxShadow: 'inset 0 0 0 3px #FDE68A80' }} />
+        <div style={{ position: 'absolute', left: '50%', top: '54%', width: '29%', height: '29%', border: '3px solid #FFF7ED', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 14, opacity: 0.95 }} />
         {FIELD_POSITIONS.map(pos => {
           const charId = fieldingPositions[pos.id]
           const character = charId ? charactersById[charId] : null
@@ -314,19 +390,21 @@ function FieldingView({ roster, charactersById, rosterNames, fieldingPositions, 
             <div
               key={pos.id}
               onClick={() => handlePositionClick(pos.id)}
-              draggable={Boolean(character)}
-              onDragStart={character ? handleDragStartPosition(charId) : undefined}
-              onDragOver={handleDragOver}
-              onDrop={handleDropOnPosition(pos.id)}
-              style={{ position: 'absolute', left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)', width: 76, height: 76, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: character ? 'pointer' : 'move' }}
+              style={{ position: 'absolute', left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)', width: 90, height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: character ? 'pointer' : 'default' }}
             >
               {character ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                  <Portrait name={character.name} size={42} showMusic={selectedPlayer === charId} style={{ boxShadow: '0 6px 14px #00000040', background: 'transparent' }} />
+                  <Portrait
+                    name={character.name}
+                    size={52}
+                    showChemistryNote={chemistryHighlightIds.has(charId)}
+                    highlighted={selectedPlayer === charId}
+                    style={{ boxShadow: '0 6px 14px #00000040', background: 'transparent' }}
+                  />
                   <div style={{ fontSize: 10, fontWeight: 800, color: '#F8FAFC', textShadow: '0 1px 2px #000', background: '#0F172A99', padding: '2px 5px', borderRadius: 999 }}>{pos.label}</div>
                 </div>
               ) : (
-                <div style={{ width: 42, height: 42, borderRadius: '50%', background: '#0F172A66', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#E2E8F0', border: '2px dashed #BFDBFE' }}>{pos.label}</div>
+                <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#0F172A66', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#E2E8F0', border: '2px dashed #BFDBFE' }}>{pos.label}</div>
               )}
             </div>
           )
@@ -337,13 +415,294 @@ function FieldingView({ roster, charactersById, rosterNames, fieldingPositions, 
 }
 
 // ─── Main Roster Component ────────────────────────────────────────────────────
+// ─── Shared UI helpers ───────────────────────────────────────────────────────
+function StatusChip({ value }) {
+  const status = String(value || '')
+  const tone = status === 'accepted' || status === 'approved'
+    ? { bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.35)', color: '#86EFAC' }
+    : status === 'pending'
+      ? { bg: 'rgba(234,179,8,0.12)', border: 'rgba(234,179,8,0.35)', color: '#FDE68A' }
+      : { bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.35)', color: '#FCA5A5' }
+  const label = status.charAt(0).toUpperCase() + status.slice(1)
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 10px', borderRadius: 999, background: tone.bg, border: `1px solid ${tone.border}`, color: tone.color, fontSize: 12, fontWeight: 700 }}>
+      {label}
+    </span>
+  )
+}
+
+function TeamCountCard({ label, value, muted = false }) {
+  return (
+    <div style={{ padding: 10, borderRadius: 12, background: muted ? 'rgba(15,23,42,0.45)' : 'rgba(30,41,59,0.7)', border: '1px solid rgba(71,85,105,0.6)', display: 'grid', gap: 4 }}>
+      <span className="muted" style={{ fontSize: 11 }}>{label}</span>
+      <strong style={{ fontSize: 16 }}>{value}</strong>
+    </div>
+  )
+}
+
+// ─── Tournament Trade Builder ─────────────────────────────────────────────────
+function TournamentTradeBuilderWorkspace({
+  step, onBack, onReset, onAdvance, tradeDraft, setTradeDraft,
+  players, playersById, identitiesByPlayerId, myPlayer, viewedPlayerId,
+  activeRosterByPlayerId, onSubmit, tradeDeadlinePassed,
+}) {
+  const teamLabel = useCallback(
+    (playerId, fallback = 'Unknown') => getTeamShortName(identitiesByPlayerId[playerId]) || playersById[playerId]?.name || fallback,
+    [identitiesByPlayerId, playersById],
+  )
+  const participantPlayerIds = tradeDraft.participantPlayerIds || []
+  const selectedPickIds = useMemo(() => new Set((tradeDraft.assets || []).map(a => a.pickId)), [tradeDraft.assets])
+  const [assetPicker, setAssetPicker] = useState(null)
+
+  const getDefaultDestination = useCallback((fromPlayerId) => {
+    if (myPlayer?.id && String(fromPlayerId) !== String(myPlayer.id)) return String(myPlayer.id)
+    const viewedCandidate = viewedPlayerId && String(viewedPlayerId) !== String(fromPlayerId) ? String(viewedPlayerId) : ''
+    if (viewedCandidate) return viewedCandidate
+    const fallback = participantPlayerIds.find(pid => String(pid) !== String(fromPlayerId))
+    return fallback ? String(fallback) : ''
+  }, [myPlayer?.id, participantPlayerIds, viewedPlayerId])
+
+  const upsertAsset = useCallback((pick, toPlayerId) => {
+    setTradeDraft(current => {
+      const fromPlayerId = String(pick.player_id)
+      const next = { pickId: pick.id, character_id: pick.character_id, character_name: pick.character_name, from_player_id: fromPlayerId, to_player_id: toPlayerId ? String(toPlayerId) : '' }
+      const existing = current.assets.find(a => Number(a.pickId) === Number(pick.id))
+      return {
+        ...current,
+        participantPlayerIds: current.participantPlayerIds.includes(fromPlayerId) ? current.participantPlayerIds : [...current.participantPlayerIds, fromPlayerId],
+        assets: existing ? current.assets.map(a => Number(a.pickId) === Number(pick.id) ? next : a) : [...current.assets, next],
+      }
+    })
+  }, [setTradeDraft])
+
+  const removeAsset = useCallback((pickId) => {
+    setTradeDraft(current => ({ ...current, assets: current.assets.filter(a => Number(a.pickId) !== Number(pickId)) }))
+  }, [setTradeDraft])
+
+  const playerSummaries = useMemo(() => participantPlayerIds.map(playerId => {
+    const outgoing = tradeDraft.assets.filter(a => String(a.from_player_id) === String(playerId)).length
+    const incoming = tradeDraft.assets.filter(a => String(a.to_player_id) === String(playerId)).length
+    const activeCount = activeRosterByPlayerId[String(playerId)]?.length || 0
+    const finalCount = activeCount - outgoing + incoming
+    return { playerId: String(playerId), outgoing, incoming, finalCount, valid: finalCount === 9 }
+  }), [activeRosterByPlayerId, participantPlayerIds, tradeDraft.assets])
+
+  const unresolvedAssets = tradeDraft.assets.filter(a => !a.to_player_id || String(a.to_player_id) === String(a.from_player_id))
+  const invalidPlayers = playerSummaries.filter(p => !p.valid)
+  const confirmReady = tradeDraft.assets.length > 0 && unresolvedAssets.length === 0 && invalidPlayers.length === 0
+
+  const stepTitle = step === 'teams' ? 'Choose Players' : step === 'details' ? 'Build Trade Proposal' : 'Confirm Trade'
+  const stepSubtitle = step === 'teams' ? 'Select the players involved. Your team stays locked in.'
+    : step === 'details' ? 'Select a character, review the owner, and choose where they are being traded.'
+    : 'Review every move before sending the trade request.'
+
+  return (
+    <section className="panel" style={{ padding: 18 }}>
+      <div className="section-head">
+        <div><h2>{stepTitle}</h2><span className="muted">{stepSubtitle}</span></div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {step !== 'teams' ? <button className="ghost-button" onClick={onBack} type="button"><ArrowLeft size={16} /><span>Back</span></button> : null}
+          <button className="ghost-button" onClick={onReset} type="button"><X size={16} /><span>Reset</span></button>
+        </div>
+      </div>
+
+      {step === 'teams' ? (
+        <div className="page-stack" style={{ gap: 16 }}>
+          <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            {players.map(p => {
+              const pid = String(p.id)
+              const selected = participantPlayerIds.includes(pid)
+              const locked = String(p.id) === String(myPlayer?.id)
+              const roster = activeRosterByPlayerId[pid] || []
+              return (
+                <button key={p.id} type="button" onClick={() => { if (locked || tradeDeadlinePassed) return; setTradeDraft(c => ({ ...c, participantPlayerIds: c.participantPlayerIds.includes(pid) ? c.participantPlayerIds.filter(id => id !== pid) : [...c.participantPlayerIds, pid], assets: c.participantPlayerIds.includes(pid) ? c.assets.filter(a => String(a.from_player_id) !== pid && String(a.to_player_id) !== pid) : c.assets })) }} disabled={tradeDeadlinePassed}
+                  style={{ textAlign: 'left', padding: 14, borderRadius: 16, border: `1px solid ${selected ? '#EAB308' : 'rgba(71,85,105,0.75)'}`, background: selected ? 'rgba(234,179,8,0.12)' : 'rgba(15,23,42,0.55)', display: 'grid', gap: 12, color: '#E2E8F0', cursor: tradeDeadlinePassed ? 'default' : 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                    <strong style={{ fontSize: 15 }}>{p.name}</strong>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: selected ? '#FDE68A' : '#94A3B8' }}>{locked ? 'Required' : selected ? 'Selected' : 'Add Player'}</span>
+                  </div>
+                  <span className="muted" style={{ fontSize: 12 }}>{roster.length} active characters</span>
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {roster.slice(0, 9).map(entry => (
+                      <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <CharacterPortrait name={entry.character_name} size={28} />
+                        <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.character_name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="muted">{participantPlayerIds.length} player{participantPlayerIds.length === 1 ? '' : 's'} selected</span>
+            <button className="solid-button" onClick={onAdvance} type="button" disabled={participantPlayerIds.length < 2 || tradeDeadlinePassed}>
+              <ArrowRightLeft size={16} /><span>Next: Build Trade</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {step === 'details' ? (
+        <div className="page-stack" style={{ gap: 16 }}>
+          <section style={{ display: 'grid', gap: 12 }}>
+            <div className="section-head"><div><h3>Players in Deal</h3><span className="muted">{participantPlayerIds.length} participating</span></div></div>
+            <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+              {playerSummaries.map(entry => (
+                <div key={entry.playerId} style={{ padding: 12, borderRadius: 14, border: `1px solid ${entry.valid ? 'rgba(71,85,105,0.7)' : 'rgba(239,68,68,0.65)'}`, background: entry.valid ? 'rgba(15,23,42,0.6)' : 'rgba(127,29,29,0.2)', display: 'grid', gap: 10 }}>
+                  <strong>{teamLabel(entry.playerId)}</strong>
+                  <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                    <TeamCountCard label="Out" value={entry.outgoing} muted />
+                    <TeamCountCard label="In" value={entry.incoming} muted />
+                    <TeamCountCard label="Final" value={entry.finalCount} muted />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section style={{ display: 'grid', gap: 12 }}>
+            <div className="section-head"><div><h3>Select Characters</h3><span className="muted">Tap a character to assign a destination.</span></div></div>
+            <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+              {participantPlayerIds.map(playerId => {
+                const roster = activeRosterByPlayerId[String(playerId)] || []
+                return (
+                  <div key={playerId} style={{ padding: 12, borderRadius: 14, border: '1px solid rgba(71,85,105,0.7)', background: 'rgba(15,23,42,0.55)', display: 'grid', gap: 10 }}>
+                    <strong>{teamLabel(playerId)}</strong>
+                    <div className="feed-list" style={{ maxHeight: 280, overflowY: 'auto' }}>
+                      {roster.map(pick => {
+                        const selected = selectedPickIds.has(pick.id)
+                        const selectedAsset = tradeDraft.assets.find(a => Number(a.pickId) === Number(pick.id))
+                        const destinationName = selectedAsset?.to_player_id ? teamLabel(String(selectedAsset.to_player_id)) : 'Choose destination'
+                        return (
+                          <button key={pick.id} type="button" onClick={() => setAssetPicker({ pick, destinationPlayerId: selectedAsset?.to_player_id || getDefaultDestination(pick.player_id) })} disabled={tradeDeadlinePassed}
+                            style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, padding: 10, borderRadius: 10, border: `1px solid ${selected ? '#EAB308' : 'rgba(71,85,105,0.75)'}`, background: selected ? 'rgba(234,179,8,0.14)' : 'rgba(30,41,59,0.6)', color: '#E2E8F0', cursor: tradeDeadlinePassed ? 'default' : 'pointer' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                              <CharacterPortrait name={pick.character_name} size={34} />
+                              <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                                <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pick.character_name}</span>
+                                <span className="muted" style={{ fontSize: 11 }}>{selected ? destinationName : 'Tap to assign destination'}</span>
+                              </div>
+                            </div>
+                            <span className="muted" style={{ fontSize: 11 }}>{selected ? 'Edit' : 'Select'}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
+          <section style={{ display: 'grid', gap: 12 }}>
+            <div className="section-head"><div><h3>Move Map</h3><span className="muted">{tradeDraft.assets.length} character{tradeDraft.assets.length === 1 ? '' : 's'} selected</span></div></div>
+            <div className="feed-list">
+              {tradeDraft.assets.map(asset => (
+                <div className="feed-row" key={asset.pickId} style={{ alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <CharacterPortrait name={asset.character_name} size={36} />
+                    <div style={{ display: 'grid', gap: 2 }}>
+                      <strong>{asset.character_name}</strong>
+                      <span className="muted" style={{ fontSize: 12 }}>{teamLabel(String(asset.from_player_id))} to {teamLabel(String(asset.to_player_id), 'Unassigned')}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button className="ghost-button" onClick={() => setAssetPicker({ pick: { id: asset.pickId, player_id: asset.from_player_id, character_id: asset.character_id, character_name: asset.character_name }, destinationPlayerId: asset.to_player_id || '' })} type="button" disabled={tradeDeadlinePassed}>Edit</button>
+                    <button className="ghost-button" onClick={() => removeAsset(asset.pickId)} type="button" disabled={tradeDeadlinePassed}><X size={14} /></button>
+                  </div>
+                </div>
+              ))}
+              {!tradeDraft.assets.length ? <span className="muted">No characters selected yet.</span> : null}
+            </div>
+          </section>
+
+          {unresolvedAssets.length || invalidPlayers.length ? (
+            <section style={{ display: 'grid', gap: 8 }}>
+              {unresolvedAssets.length ? <span className="muted" style={{ color: '#FCA5A5' }}>Every selected character needs a destination before you can continue.</span> : null}
+              {invalidPlayers.map(entry => <span key={entry.playerId} className="muted" style={{ color: '#FCA5A5' }}>{teamLabel(entry.playerId, 'A player')} would finish with {entry.finalCount} active characters.</span>)}
+            </section>
+          ) : null}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button className="solid-button" onClick={onAdvance} type="button" disabled={tradeDeadlinePassed || !confirmReady}><ArrowRightLeft size={16} /><span>Next: Confirm Trade</span></button>
+          </div>
+        </div>
+      ) : null}
+
+      {step === 'confirm' ? (
+        <div className="page-stack" style={{ gap: 16 }}>
+          <section style={{ display: 'grid', gap: 12 }}>
+            <div className="section-head"><div><h3>Trade Summary</h3><span className="muted">{tradeDraft.assets.length} character{tradeDraft.assets.length === 1 ? '' : 's'} included</span></div></div>
+            <div className="feed-list">
+              {tradeDraft.assets.map(asset => (
+                <div className="feed-row" key={asset.pickId} style={{ alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <CharacterPortrait name={asset.character_name} size={36} />
+                    <div style={{ display: 'grid', gap: 2 }}>
+                      <strong>{asset.character_name}</strong>
+                      <span className="muted" style={{ fontSize: 12 }}>{teamLabel(String(asset.from_player_id))} to {teamLabel(String(asset.to_player_id))}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section style={{ display: 'grid', gap: 12 }}>
+            <div className="section-head"><div><h3>Final Roster Counts</h3><span className="muted">Each player must finish with 9 active characters.</span></div></div>
+            <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+              {playerSummaries.map(entry => (
+                <div key={entry.playerId} style={{ padding: 12, borderRadius: 14, border: `1px solid ${entry.valid ? 'rgba(71,85,105,0.7)' : 'rgba(239,68,68,0.65)'}`, background: entry.valid ? 'rgba(15,23,42,0.6)' : 'rgba(127,29,29,0.25)', display: 'grid', gap: 10 }}>
+                  <strong>{teamLabel(entry.playerId)}</strong>
+                  <div className="summary-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                    <TeamCountCard label="Out" value={entry.outgoing} muted /><TeamCountCard label="In" value={entry.incoming} muted /><TeamCountCard label="Final" value={entry.finalCount} muted />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+          {!confirmReady ? <span className="muted" style={{ color: '#FCA5A5' }}>This trade cannot be sent until every character has a valid destination and every player finishes with 9 active characters.</span> : null}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button className="solid-button" onClick={onSubmit} type="button" disabled={tradeDeadlinePassed || !confirmReady}><ArrowRightLeft size={16} /><span>Send Trade Request</span></button>
+          </div>
+        </div>
+      ) : null}
+
+      {assetPicker ? (
+        <div className="modal-backdrop" onClick={() => setAssetPicker(null)}>
+          <div className="modal-card" style={{ width: 'min(420px, calc(100vw - 24px))' }} onClick={e => e.stopPropagation()}>
+            <div className="section-head">
+              <div><h3>{assetPicker.pick.character_name}</h3><span className="muted">Owned by {teamLabel(String(assetPicker.pick.player_id))}</span></div>
+              <button className="ghost-button" onClick={() => setAssetPicker(null)} type="button"><X size={14} /></button>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <select value={String(assetPicker.destinationPlayerId || '')} onChange={e => setAssetPicker(c => ({ ...c, destinationPlayerId: e.target.value }))}>
+                <option value="">Choose destination player</option>
+                {participantPlayerIds.filter(pid => String(pid) !== String(assetPicker.pick.player_id)).map(pid => (
+                  <option key={pid} value={pid}>{teamLabel(pid)}</option>
+                ))}
+              </select>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <button className="ghost-button" onClick={() => { removeAsset(assetPicker.pick.id); setAssetPicker(null) }} type="button">Remove From Trade</button>
+                <button className="solid-button" onClick={() => { upsertAsset(assetPicker.pick, assetPicker.destinationPlayerId); setAssetPicker(null) }} type="button" disabled={!assetPicker.destinationPlayerId}>Save Selection</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 export default function Roster() {
-  const { player } = useAuth()
+  const { player, isCommissioner } = useAuth()
   const { currentTournament, allTournaments, selectedTournamentId: ctxTournamentId } = useTournament()
+  const { identitiesByPlayerId } = useTournamentTeamIdentity(currentTournament?.id)
   const [players, setPlayers] = useState([])
   const [characters, setCharacters] = useState([])
   const [allDraftPicks, setAllDraftPicks] = useState([])
   const [plateAppearances, setPlateAppearances] = useState([])
+  const [pitchingStints, setPitchingStints] = useState([])
   const [games, setGames] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedTeamId, setSelectedTeamId] = useState(null)
@@ -352,26 +711,44 @@ export default function Roster() {
   const [selectedTournamentId, setSelectedTournamentId] = useState(() => ctxTournamentId || null)
   const [fieldingPositions, setFieldingPositions] = useState({})
   const [lineupOrder, setLineupOrder] = useState([])
+  const [activeTab, setActiveTab] = useState('Rosters')
   const [selectedPlayer, setSelectedPlayer] = useState(null)
+  const [selectedLineupMoveId, setSelectedLineupMoveId] = useState(null)
   const [cardCharacterId, setCardCharacterId] = useState(null)
-  const [fieldingAssignMode, setFieldingAssignMode] = useState(false)
-  const [selectedForFielding, setSelectedForFielding] = useState(null)
+  const [freeAgentSort, setFreeAgentSort] = useState({ key: 'name', direction: 'asc' })
+  const [tradeProposals, setTradeProposals] = useState([])
+  const [tradeProposalPlayers, setTradeProposalPlayers] = useState([])
+  const [tradeProposalMoves, setTradeProposalMoves] = useState([])
+  const [tradeBuilderStep, setTradeBuilderStep] = useState('teams')
+  const [tradeDraft, setTradeDraft] = useState({ participantPlayerIds: [], assets: [] })
 
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-      const [{ data: pData }, { data: cData }, { data: dData }, { data: paData }, { data: gData }] = await Promise.all([
+      const [
+        { data: pData }, { data: cData }, { data: dData }, { data: paData }, { data: gData },
+        { data: pitchData },
+        { data: tpData }, { data: tppData }, { data: tpmData },
+      ] = await Promise.all([
         supabase.from('players').select('*').order('created_at'),
         supabase.from('characters').select('*').order('name'),
         supabase.from('draft_picks').select('*').order('pick_number'),
         supabase.from('plate_appearances').select('game_id,character_id,result,run_scored,rbi'),
         supabase.from('games').select('id,tournament_id'),
+        supabase.from('pitching_stints').select('*'),
+        supabase.from('tournament_trade_proposals').select('*'),
+        supabase.from('tournament_trade_proposal_players').select('*'),
+        supabase.from('tournament_trade_proposal_moves').select('*'),
       ])
       setPlayers(pData || [])
       setCharacters(cData || [])
       setAllDraftPicks(dData || [])
       setPlateAppearances(paData || [])
       setGames(gData || [])
+      setPitchingStints(pitchData || [])
+      setTradeProposals(tpData || [])
+      setTradeProposalPlayers(tppData || [])
+      setTradeProposalMoves(tpmData || [])
       setLoading(false)
     }
     load()
@@ -381,7 +758,11 @@ export default function Roster() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'characters' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_trade_proposals' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_trade_proposal_players' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_trade_proposal_moves' }, load)
       .subscribe()
 
     return () => supabase.removeChannel(channel)
@@ -406,6 +787,7 @@ export default function Roster() {
   }, [ctxTournamentId, selectedTournamentId])
 
   const charactersById = useMemo(() => Object.fromEntries(characters.map(c => [c.id, c])), [characters])
+  const charactersByName = useMemo(() => Object.fromEntries(characters.map(c => [c.name, c])), [characters])
 
   const draftPicks = useMemo(() => {
     if (!selectedTournamentId) return []
@@ -447,12 +829,32 @@ export default function Roster() {
       return
     }
 
-    const newFielding = {}
+    const defaultFielding = {}
     const positions = ['pitcher', 'catcher', 'firstBase', 'secondBase', 'thirdBase', 'shortStop', 'leftField', 'centerField', 'rightField']
     for (let i = 0; i < Math.min(9, teamRoster.length); i++) {
-      newFielding[positions[i]] = teamRoster[i].id
+      defaultFielding[positions[i]] = teamRoster[i].id
     }
-    setFieldingPositions(newFielding)
+    const fieldingStorageKey = `roster-fielding-${selectedTournamentId}-${selectedTeamId}`
+    try {
+      const saved = JSON.parse(localStorage.getItem(fieldingStorageKey) || 'null')
+      if (saved && typeof saved === 'object') {
+        const rosterIds = new Set(teamRoster.map((character) => character.id))
+        const savedPositions = Object.fromEntries(
+          Object.entries(saved).filter(([, value]) => rosterIds.has(value)),
+        )
+        const placedIds = new Set(Object.values(savedPositions))
+        const unplaced = teamRoster.map((character) => character.id).filter((id) => !placedIds.has(id))
+        const emptyPositions = positions.filter((position) => !savedPositions[position])
+        unplaced.forEach((id, index) => {
+          if (emptyPositions[index]) savedPositions[emptyPositions[index]] = id
+        })
+        setFieldingPositions(savedPositions)
+      } else {
+        setFieldingPositions(defaultFielding)
+      }
+    } catch {
+      setFieldingPositions(defaultFielding)
+    }
 
     // Load saved lineup order from localStorage, falling back to draft pick order
     const savedKey = `roster-lineup-${selectedTournamentId}-${selectedTeamId}`
@@ -469,8 +871,22 @@ export default function Roster() {
     setLineupOrder(teamRoster.map(c => c.id))
   }, [teamRoster, selectedTournamentId, selectedTeamId])
 
+  useEffect(() => {
+    if (!selectedTournamentId || !selectedTeamId || !Object.keys(fieldingPositions).length) return
+    localStorage.setItem(`roster-fielding-${selectedTournamentId}-${selectedTeamId}`, JSON.stringify(fieldingPositions))
+  }, [selectedTournamentId, selectedTeamId, fieldingPositions])
+
   const rosterNames = useMemo(() => teamRoster.map(c => c.chemistryName || c.name), [teamRoster])
   const rosterCharacterMetaById = useMemo(() => Object.fromEntries(teamRoster.map(c => [c.id, c])), [teamRoster])
+  const activeChemistryCharacterId = selectedPlayer || null
+  const chemistryHighlightIds = useMemo(
+    () => buildChemistryHighlightSet(activeChemistryCharacterId, teamRoster),
+    [activeChemistryCharacterId, teamRoster],
+  )
+  const selectedCharacterDetail = useMemo(() => {
+    if (!cardCharacterId) return null
+    return rosterCharacterMetaById[cardCharacterId] || charactersById[cardCharacterId] || null
+  }, [cardCharacterId, rosterCharacterMetaById, charactersById])
 
   const historicalGames = useMemo(() => {
     if (!selectedTournamentId) return []
@@ -487,6 +903,42 @@ export default function Roster() {
     [historicalPAs, historicalGames, allTournaments]
   )
 
+  // All-tournament batting history (includes current tournament) — used by SharedCharacterDetailModal
+  const allTournHistories = useMemo(
+    () => buildCharacterTournamentHistory(plateAppearances, games, allTournaments || []),
+    [plateAppearances, games, allTournaments]
+  )
+
+  const pitchingHistoryByCharacter = useMemo(() => {
+    const gameByIdMap = Object.fromEntries(games.map(g => [g.id, g]))
+    const tournById = Object.fromEntries((allTournaments || []).map(t => [t.id, t]))
+    const byCharTournament = {}
+    for (const stint of pitchingStints) {
+      const game = gameByIdMap[stint.game_id]
+      if (!game || !stint.character_id) continue
+      const tid = game.tournament_id
+      const cid = stint.character_id
+      if (!byCharTournament[cid]) byCharTournament[cid] = {}
+      if (!byCharTournament[cid][tid]) byCharTournament[cid][tid] = []
+      byCharTournament[cid][tid].push(stint)
+    }
+    const result = {}
+    for (const [charId, byT] of Object.entries(byCharTournament)) {
+      result[charId] = Object.entries(byT)
+        .map(([tid, stints]) => {
+          const t = tournById[tid]
+          return {
+            tournamentId: tid,
+            tournamentNumber: t?.tournament_number ?? '?',
+            rawStints: stints,
+            ...summarizePitching(stints),
+          }
+        })
+        .sort((a, b) => (a.tournamentNumber > b.tournamentNumber ? 1 : -1))
+    }
+    return result
+  }, [pitchingStints, games, allTournaments])
+
   const handleDragStartRoster = (characterId) => (e) => {
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('characterId', String(characterId))
@@ -494,8 +946,32 @@ export default function Roster() {
 
   const handleDragStartLineup = (characterId) => (e) => {
     e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('characterId', String(characterId))
     e.dataTransfer.setData('lineupCharacterId', String(characterId))
   }
+
+  const handleLineupNumberClick = useCallback((charId, index) => {
+    if (selectedLineupMoveId === null) {
+      setSelectedLineupMoveId(charId)
+      return
+    }
+    if (selectedLineupMoveId === charId) {
+      setSelectedLineupMoveId(null)
+      return
+    }
+    setLineupOrder((prev) => {
+      const newOrder = [...prev]
+      const sourceIdx = prev.indexOf(selectedLineupMoveId)
+      if (sourceIdx === -1) return prev
+      newOrder.splice(sourceIdx, 1)
+      newOrder.splice(index, 0, selectedLineupMoveId)
+      if (selectedTournamentId && selectedTeamId) {
+        localStorage.setItem(`roster-lineup-${selectedTournamentId}-${selectedTeamId}`, JSON.stringify(newOrder))
+      }
+      return newOrder
+    })
+    setSelectedLineupMoveId(null)
+  }, [selectedLineupMoveId, selectedTournamentId, selectedTeamId])
 
   const handleDropOnLineup = (index) => (e) => {
     e.preventDefault()
@@ -513,192 +989,509 @@ export default function Roster() {
     }
   }
 
-  const handleDragOverLineup = (e) => {
-    e.preventDefault()
-    e.currentTarget.style.background = '#1E293B'
-  }
+  const canEditRoster = String(selectedTeamId) === String(player?.id)
+  const myPlayer = useMemo(() => players.find(p => String(p.id) === String(player?.id)), [players, player?.id])
+  const playersById = useMemo(() => Object.fromEntries(players.map(p => [String(p.id), p])), [players])
+  const teamLabel = useCallback(
+    (playerId, fallback = 'Unknown') => getTeamShortName(identitiesByPlayerId[playerId]) || playersById[playerId]?.name || fallback,
+    [identitiesByPlayerId, playersById],
+  )
 
-  const handleDragLeaveLineup = (e) => {
-    e.currentTarget.style.background = 'transparent'
-  }
+  const tradeDeadlinePassed = currentTournament?.trade_deadline_at
+    ? new Date() > new Date(currentTournament.trade_deadline_at)
+    : false
 
-  const moveInLineup = useCallback((index, dir) => {
-    const targetIdx = index + dir
-    setLineupOrder(prev => {
-      if (targetIdx < 0 || targetIdx >= prev.length) return prev
-      const next = [...prev];
-      [next[index], next[targetIdx]] = [next[targetIdx], next[index]]
-      if (selectedTournamentId && selectedTeamId) {
-        localStorage.setItem(`roster-lineup-${selectedTournamentId}-${selectedTeamId}`, JSON.stringify(next))
-      }
-      return next
+  const activeRosterByPlayerId = useMemo(() => {
+    const result = {}
+    players.forEach(p => {
+      result[String(p.id)] = draftPicks
+        .filter(pick => String(pick.player_id) === String(p.id) && pick.character_id)
+        .map(pick => ({
+          id: pick.id,
+          player_id: pick.player_id,
+          character_id: pick.character_id,
+          character_name: charactersById[pick.character_id]?.name || `Character ${pick.character_id}`,
+        }))
     })
-  }, [selectedTournamentId, selectedTeamId])
+    return result
+  }, [players, draftPicks, charactersById])
 
-  const exitFieldingAssignMode = useCallback(() => {
-    setFieldingAssignMode(false)
-    setSelectedForFielding(null)
-  }, [])
+  const tournamentTradeProposals = useMemo(
+    () => tradeProposals.filter(p => String(p.tournament_id) === String(selectedTournamentId)),
+    [tradeProposals, selectedTournamentId],
+  )
+
+  const tradeSummaries = useMemo(() => tournamentTradeProposals.map(proposal => ({
+    ...proposal,
+    participants: tradeProposalPlayers.filter(p => p.proposal_id === proposal.id),
+    moves: tradeProposalMoves.filter(m => m.proposal_id === proposal.id),
+  })), [tournamentTradeProposals, tradeProposalPlayers, tradeProposalMoves])
+
+  const pendingTrades = tradeSummaries.filter(t => t.status === 'pending')
+  const historyTrades = tradeSummaries.filter(t => t.status !== 'pending')
+
+  const pendingTradeCount = pendingTrades.filter(trade =>
+    trade.participants.some(p =>
+      String(p.player_id) === String(myPlayer?.id) &&
+      p.decision_status === 'pending' &&
+      String(trade.created_by_player_id) !== String(myPlayer?.id),
+    )
+  ).length
+
+  const openTradeBuilder = useCallback((seedPick = null) => {
+    const baseIds = myPlayer?.id ? [String(myPlayer.id)] : []
+    const nextState = { participantPlayerIds: baseIds, assets: [] }
+    if (seedPick) {
+      const fromId = String(seedPick.player_id)
+      const defaultTarget = fromId === String(myPlayer?.id)
+        ? (selectedTeamId && String(selectedTeamId) !== fromId ? String(selectedTeamId) : '')
+        : String(myPlayer?.id || '')
+      nextState.participantPlayerIds = Array.from(new Set([...baseIds, fromId, ...(defaultTarget ? [defaultTarget] : [])]))
+      if (defaultTarget && defaultTarget !== fromId) {
+        nextState.assets = [{
+          pickId: seedPick.id, character_id: seedPick.character_id,
+          character_name: seedPick.character_name,
+          from_player_id: fromId, to_player_id: defaultTarget,
+        }]
+      }
+    }
+    setActiveTab('Trade Center')
+    setTradeDraft(nextState)
+    setTradeBuilderStep('teams')
+  }, [myPlayer?.id, selectedTeamId])
+
+  const closeTradeBuilder = useCallback(() => {
+    setTradeDraft({ participantPlayerIds: myPlayer?.id ? [String(myPlayer.id)] : [], assets: [] })
+    setTradeBuilderStep('teams')
+  }, [myPlayer?.id])
+
+  const submitTradeProposal = async () => {
+    if (!selectedTournamentId || !myPlayer?.id) {
+      pushToast({ title: 'Trade unavailable', message: 'No tournament or player found.', type: 'error' })
+      return
+    }
+    if (tradeDeadlinePassed) {
+      pushToast({ title: 'Trade deadline passed', message: 'Trades are closed for this tournament.', type: 'error' })
+      return
+    }
+    const { data: proposal, error: proposalError } = await supabase
+      .from('tournament_trade_proposals')
+      .insert({ tournament_id: String(selectedTournamentId), created_by_player_id: String(myPlayer.id), status: 'pending' })
+      .select().single()
+    if (proposalError) {
+      pushToast({ title: 'Trade failed', message: proposalError.message, type: 'error' })
+      return
+    }
+    const [{ error: participantError }, { error: moveError }] = await Promise.all([
+      supabase.from('tournament_trade_proposal_players').insert(
+        tradeDraft.participantPlayerIds.map(pid => ({
+          proposal_id: proposal.id,
+          player_id: String(pid),
+          decision_status: String(pid) === String(myPlayer.id) ? 'accepted' : 'pending',
+        }))
+      ),
+      supabase.from('tournament_trade_proposal_moves').insert(
+        tradeDraft.assets.map(asset => ({
+          proposal_id: proposal.id,
+          character_id: asset.character_id,
+          character_name: asset.character_name,
+          from_player_id: String(asset.from_player_id),
+          to_player_id: String(asset.to_player_id),
+        }))
+      ),
+    ])
+    if (participantError || moveError) {
+      pushToast({ title: 'Trade detail failed', message: participantError?.message || moveError?.message, type: 'error' })
+      return
+    }
+    pushToast({ title: 'Trade proposed', message: 'The other players can now review the proposal.', type: 'success' })
+    closeTradeBuilder()
+  }
+
+  const respondToTrade = async (proposalId, response) => {
+    if (!myPlayer?.id) return
+    await supabase
+      .from('tournament_trade_proposal_players')
+      .update({ decision_status: response })
+      .eq('proposal_id', proposalId)
+      .eq('player_id', String(myPlayer.id))
+    if (response === 'rejected') {
+      await supabase.from('tournament_trade_proposals')
+        .update({ status: 'rejected', resolved_at: new Date().toISOString() })
+        .eq('id', proposalId)
+      pushToast({ title: 'Trade rejected', message: 'Trade has been declined.', type: 'info' })
+      return
+    }
+    const { data: allParticipants } = await supabase
+      .from('tournament_trade_proposal_players').select('*').eq('proposal_id', proposalId)
+    const updatedDecisions = (allParticipants || []).map(p =>
+      String(p.player_id) === String(myPlayer.id) ? { ...p, decision_status: 'accepted' } : p
+    )
+    const allAccepted = updatedDecisions.every(p => p.decision_status === 'accepted')
+    if (allAccepted) {
+      const { data: moves } = await supabase
+        .from('tournament_trade_proposal_moves').select('*').eq('proposal_id', proposalId)
+      for (const move of (moves || [])) {
+        await supabase.from('draft_picks')
+          .update({ player_id: move.to_player_id })
+          .eq('tournament_id', String(selectedTournamentId))
+          .eq('player_id', move.from_player_id)
+          .eq('character_id', move.character_id)
+      }
+      await supabase.from('tournament_trade_proposals')
+        .update({ status: 'accepted', resolved_at: new Date().toISOString() })
+        .eq('id', proposalId)
+      pushToast({ title: 'Trade accepted!', message: 'All parties agreed — rosters updated.', type: 'success' })
+    } else {
+      pushToast({ title: 'Trade accepted', message: 'Waiting for other players to respond.', type: 'success' })
+    }
+  }
+
+  const setTradeDeadlineNow = async () => {
+    await supabase.from('tournaments')
+      .update({ trade_deadline_at: new Date().toISOString() })
+      .eq('id', selectedTournamentId)
+    pushToast({ title: 'Trade deadline set', message: 'Trades are now locked for this tournament.', type: 'success' })
+  }
+
+  const selectedTournament = useMemo(
+    () => [currentTournament, ...(allTournaments || [])].filter(Boolean).find(t => String(t.id) === String(selectedTournamentId)),
+    [currentTournament, allTournaments, selectedTournamentId]
+  )
+
+  const draftedCharacterIds = useMemo(() => new Set(draftPicks.map(p => p.character_id)), [draftPicks])
+
+  const sortedFreeAgents = useMemo(() => {
+    const fas = characters.filter(c => !draftedCharacterIds.has(c.id))
+    return [...fas].sort((a, b) => {
+      const aVal = freeAgentSort.key === 'name' ? a.name : (a[freeAgentSort.key] ?? 0)
+      const bVal = freeAgentSort.key === 'name' ? b.name : (b[freeAgentSort.key] ?? 0)
+      const cmp = typeof aVal === 'string' ? aVal.localeCompare(bVal) : aVal - bVal
+      return freeAgentSort.direction === 'asc' ? cmp : -cmp
+    })
+  }, [characters, draftedCharacterIds, freeAgentSort])
+
+  const toggleFreeAgentSort = (key) => {
+    setFreeAgentSort(prev =>
+      prev.key === key
+        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: key === 'name' ? 'asc' : 'desc' }
+    )
+  }
+
+  const TABS = ['Rosters', 'Trade Center', 'Free Agents', 'Transactions']
 
   return (
-    <div style={{ padding: '0 16px 80px' }}>
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 16 }}>Roster</h1>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <label style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase' }}>Team</label>
-            <select value={String(selectedTeamId || '')} onChange={e => setSelectedTeamId(e.target.value)} style={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 8, color: '#E2E8F0', padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>
-              {players.map(p => (
-                <option key={p.id} value={String(p.id)}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <label style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase' }}>Tournament</label>
-            <select value={String(selectedTournamentId || '')} onChange={e => setSelectedTournamentId(e.target.value)} style={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 8, color: '#E2E8F0', padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>
-              {[currentTournament, ...((allTournaments || []).filter(t => t.id !== currentTournament?.id))].filter(Boolean).map(t => (
-                <option key={t.id} value={String(t.id)}>Tournament {t.tournament_number}</option>
-              ))}
-            </select>
-          </div>
+    <div className="page-stack">
+      <div className="page-head">
+        <div>
+          <span className="brand-kicker">Tournament Roster</span>
+          <h1>{selectedTournament ? `Tournament ${selectedTournament.tournament_number}` : 'Roster'}</h1>
+          <p className="muted">View every team's roster and manage fielding positions. Trades live in the Trade Center tab.</p>
         </div>
       </div>
 
-      {/* Lineup */}
-      <div style={{ background: 'linear-gradient(180deg, #2563EB 0%, #0F172A 100%)', borderRadius: 18, padding: 16, marginBottom: 24, border: '2px solid #60A5FA', boxShadow: 'inset 0 1px 0 #93C5FD40' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 800, color: '#EFF6FF', letterSpacing: '.04em', textTransform: 'uppercase' }}>Batting Order</h3>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#DBEAFE', background: '#0F172A55', padding: '4px 8px', borderRadius: 999 }}>Drag or use ← →</div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
-          {lineupOrder.length === 0 ? (
-            <div style={{ padding: 16, textAlign: 'center', color: '#64748B', fontSize: 12, width: '100%' }}>No lineup available for this roster</div>
-          ) : (
-            lineupOrder.map((charId, i) => {
-              const character = charactersById[charId]
-              if (!character) return null
-              return (
-                <div
-                  key={charId}
-                  draggable
-                  onDragStart={handleDragStartLineup(charId)}
-                  onDragOver={handleDragOverLineup}
-                  onDragLeave={handleDragLeaveLineup}
-                  onDrop={handleDropOnLineup(i)}
-                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 6px 4px', minWidth: 58, background: selectedPlayer === charId ? '#FACC1533' : '#0F172A55', borderRadius: 14, border: `2px solid ${selectedPlayer === charId ? '#FACC15' : '#93C5FD55'}`, cursor: 'grab', fontSize: 12, flex: '0 0 auto', boxShadow: 'inset 0 1px 0 #FFFFFF20' }}
+      <div className="tab-row">
+        {TABS.map((tab) => (
+          <button key={tab} className={`tab-button ${activeTab === tab ? 'tab-button-active' : ''}`} onClick={() => setActiveTab(tab)} type="button">
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'Rosters' ? (
+        <div className="page-stack" style={{ gap: 18 }}>
+          <section className="panel" style={{ padding: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <h2 style={{ margin: 0, flexShrink: 0 }}>Viewing:</h2>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <select
+                  value={String(selectedTeamId || '')}
+                  onChange={(e) => setSelectedTeamId(e.target.value)}
+                  style={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 8, color: '#E2E8F0', padding: '6px 10px', fontSize: 14, cursor: 'pointer', minWidth: 180 }}
                 >
-                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: selectedPlayer === charId ? '#FACC15' : '#DBEAFE', color: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900 }}>{i + 1}</div>
-                  <Portrait name={character.name} size={32} showMusic={selectedPlayer === charId} onClick={() => setSelectedPlayer(selectedPlayer === charId ? null : charId)} style={{ cursor: 'pointer', boxShadow: '0 4px 10px #00000040', background: 'transparent' }} />
-                  <div style={{ maxWidth: 52, textAlign: 'center' }}>
-                    <div style={{ fontWeight: 700, fontSize: 9, lineHeight: 1.1, color: '#EFF6FF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(character.displayName || character.name).split(' ')[0]}</div>
-                  </div>
-                  {/* Touch-friendly reorder buttons */}
-                  <div style={{ display: 'flex', gap: 2, marginTop: 2 }}>
-                    <button
-                      type="button"
-                      disabled={i === 0}
-                      onClick={e => { e.stopPropagation(); moveInLineup(i, -1) }}
-                      style={{ background: 'none', border: 'none', color: i === 0 ? '#1E3A5F' : '#93C5FD', fontSize: 14, cursor: i === 0 ? 'default' : 'pointer', padding: '4px 6px', lineHeight: 1, minWidth: 24, minHeight: 28 }}
-                    >‹</button>
-                    <button
-                      type="button"
-                      disabled={i === lineupOrder.length - 1}
-                      onClick={e => { e.stopPropagation(); moveInLineup(i, 1) }}
-                      style={{ background: 'none', border: 'none', color: i === lineupOrder.length - 1 ? '#1E3A5F' : '#93C5FD', fontSize: 14, cursor: i === lineupOrder.length - 1 ? 'default' : 'pointer', padding: '4px 6px', lineHeight: 1, minWidth: 24, minHeight: 28 }}
-                    >›</button>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-      </div>
+                  {players.map((p) => (
+                    <option key={p.id} value={String(p.id)}>
+                      {p.name}{String(p.id) === String(player?.id) ? ' — You' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <select
+                value={String(selectedTournamentId || '')}
+                onChange={(e) => setSelectedTournamentId(e.target.value)}
+                style={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 8, color: '#E2E8F0', padding: '6px 10px', fontSize: 14, cursor: 'pointer', minWidth: 160 }}
+              >
+                {[currentTournament, ...((allTournaments || []).filter((t) => t.id !== currentTournament?.id))].filter(Boolean).map((t) => (
+                  <option key={t.id} value={String(t.id)}>Tournament {t.tournament_number}</option>
+                ))}
+              </select>
+              {!canEditRoster && (
+                <span style={{ fontSize: 11, color: '#64748B', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, padding: '3px 10px' }}>
+                  View only
+                </span>
+              )}
+            </div>
+          </section>
 
-      {/* Main Content */}
-      <div className="roster-grid">
-        {/* Left: Roster List */}
-        <div style={{ background: '#0F172A', borderRadius: 10, padding: 16, height: 'fit-content', maxHeight: '80vh', overflowY: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#CBD5E1', margin: 0 }}>Roster</h3>
-            <button
-              type="button"
-              onClick={() => {
-                if (fieldingAssignMode) { exitFieldingAssignMode() }
-                else { setFieldingAssignMode(true); setSelectedForFielding(null) }
-              }}
-              style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, border: `1px solid ${fieldingAssignMode ? '#A78BFA' : '#334155'}`, background: fieldingAssignMode ? '#A78BFA22' : 'none', color: fieldingAssignMode ? '#A78BFA' : '#94A3B8', cursor: 'pointer' }}
-            >
-              {fieldingAssignMode ? '✕ Cancel' : '📍 Assign'}
+          <div className="roster-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start' }}>
+            <div style={{ background: '#0F172A', borderRadius: 10, padding: 16, height: 'fit-content', maxHeight: '80vh', overflowY: 'auto' }}>
+              <div style={{ marginBottom: 12 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#CBD5E1', margin: 0 }}>Lineup</h3>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {lineupOrder.length === 0 ? (
+                  <div style={{ padding: 12, textAlign: 'center', color: '#64748B', fontSize: 12 }}>No active players on this roster yet.</div>
+                ) : (
+                  lineupOrder.map((charId, index) => {
+                    const character = charactersById[charId]
+                    if (!character) return null
+                    const rosterChar = teamRoster.find((c) => c.id === charId) || character
+                    return (
+                      <div
+                        key={charId}
+                        draggable={canEditRoster}
+                        onDragStart={canEditRoster ? handleDragStartLineup(charId) : undefined}
+                        onDragOver={canEditRoster ? (event) => event.preventDefault() : undefined}
+                        onDrop={canEditRoster ? handleDropOnLineup(index) : undefined}
+                        style={{ borderRadius: 8 }}
+                      >
+                        <DraggableRosterItem
+                          character={rosterChar}
+                          onDragStart={handleDragStartRoster(charId)}
+                          rosterNames={rosterNames}
+                          onOpenCard={() => setCardCharacterId(charId)}
+                          compact
+                          lineupNumber={index + 1}
+                          onLineupNumberClick={() => handleLineupNumberClick(charId, index)}
+                          lineupNumberSelected={selectedLineupMoveId === charId}
+                          lineupNumberAriaLabel={`Lineup spot ${index + 1}`}
+                          lineupNumberTitle={canEditRoster ? (selectedLineupMoveId === charId ? 'Selected lineup slot' : 'Tap to move this player or move another player here') : `Lineup spot ${index + 1}`}
+                          lineupNumberDisabled={!canEditRoster}
+                          onTrade={() => {
+                            const pick = activeRosterByPlayerId[String(myPlayer?.id)]?.find(p => p.character_id === rosterChar.id)
+                            if (pick) openTradeBuilder(pick)
+                            }}
+                            showChemistryNote={chemistryHighlightIds.has(charId)}
+                            highlighted={selectedLineupMoveId === charId}
+                            showTrade={canEditRoster && Boolean(myPlayer) && !tradeDeadlinePassed}
+                            disabled={!canEditRoster}
+                          />
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              <FieldingView
+                charactersById={charactersById}
+                fieldingPositions={fieldingPositions}
+                setFieldingPositions={setFieldingPositions}
+                selectedPlayer={selectedPlayer}
+                setSelectedPlayer={setSelectedPlayer}
+                fieldingAssignMode={false}
+                selectedForFielding={null}
+                onAssignPosition={() => {}}
+                chemistryHighlightIds={chemistryHighlightIds}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === 'Trade Center' ? (
+        <div className="page-stack" style={{ gap: 12 }}>
+          <div className="inline-actions">
+            <StatusChip value={tradeDeadlinePassed ? 'rejected' : 'pending'} />
+            <div className="player-pill" style={{ borderColor: pendingTradeCount ? '#EAB308' : '#334155' }}>
+              <span>Pending For You</span>
+              <strong>{pendingTradeCount}</strong>
+            </div>
+            <button className="solid-button" onClick={() => openTradeBuilder()} type="button" disabled={!myPlayer || tradeDeadlinePassed}>
+              <ArrowRightLeft size={16} /><span>New Trade</span>
             </button>
           </div>
-          {fieldingAssignMode && (
-            <div style={{ fontSize: 11, color: '#A78BFA', background: '#A78BFA18', borderRadius: 8, padding: '6px 10px', marginBottom: 10, fontWeight: 600 }}>
-              Tap a player, then tap a field position to assign them.
-            </div>
-          )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {teamRoster.length === 0 ? (
-              <div style={{ padding: 12, textAlign: 'center', color: '#64748B', fontSize: 12 }}>No players drafted yet</div>
-            ) : (
-              teamRoster.map(character => {
-                const isSelectedForField = selectedForFielding === character.id
-                return (
-                  <div
-                    key={character.id}
-                    onClick={() => {
-                      if (fieldingAssignMode) {
-                        setSelectedForFielding(prev => prev === character.id ? null : character.id)
-                      } else {
-                        setCardCharacterId(character.id)
-                      }
-                    }}
-                    style={{ outline: isSelectedForField ? '2px solid #A78BFA' : 'none', borderRadius: 8 }}
-                  >
-                    <DraggableRosterItem
-                      character={character}
-                      onDragStart={handleDragStartRoster(character.id)}
-                      rosterNames={rosterNames}
-                      showMusic={selectedPlayer === character.id}
-                      onClick={() => {
-                        if (!fieldingAssignMode) setSelectedPlayer(selectedPlayer === character.id ? null : character.id)
-                      }}
-                    />
+
+          {/* Pending trades for me */}
+          {pendingTrades.filter(t => t.participants.some(p => String(p.player_id) === String(myPlayer?.id) && p.decision_status === 'pending' && String(t.created_by_player_id) !== String(myPlayer?.id))).map(trade => (
+            <section key={trade.id} className="panel" style={{ padding: 18, border: '1px solid rgba(234,179,8,0.4)' }}>
+              <div className="section-head">
+                <div>
+                  <h3>Trade Proposal</h3>
+                  <span className="muted">From {teamLabel(String(trade.created_by_player_id))}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="ghost-button" onClick={() => respondToTrade(trade.id, 'rejected')} type="button"><X size={14} /><span>Reject</span></button>
+                  <button className="solid-button" onClick={() => respondToTrade(trade.id, 'accepted')} type="button"><ArrowRightLeft size={14} /><span>Accept</span></button>
+                </div>
+              </div>
+              <div className="feed-list">
+                {trade.moves.map(move => (
+                  <div className="feed-row" key={move.id} style={{ alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <CharacterPortrait name={move.character_name} size={32} />
+                      <div style={{ display: 'grid', gap: 2 }}>
+                        <strong>{move.character_name}</strong>
+                        <span className="muted" style={{ fontSize: 12 }}>{teamLabel(String(move.from_player_id))} → {teamLabel(String(move.to_player_id))}</span>
+                      </div>
+                    </div>
                   </div>
-                )
-              })
-            )}
-          </div>
-        </div>
+                ))}
+              </div>
+            </section>
+          ))}
 
-        {/* Right: Fielding */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <FieldingView
-            roster={teamRoster}
-            charactersById={charactersById}
-            rosterNames={rosterNames}
-            fieldingPositions={fieldingPositions}
-            setFieldingPositions={setFieldingPositions}
-            selectedPlayer={selectedPlayer}
-            setSelectedPlayer={setSelectedPlayer}
-            onCharacterClick={setCardCharacterId}
-            tournHistories={tournHistories}
-            fieldingAssignMode={fieldingAssignMode}
-            selectedForFielding={selectedForFielding}
-            onAssignPosition={exitFieldingAssignMode}
+          <TournamentTradeBuilderWorkspace
+            step={tradeBuilderStep}
+            onBack={() => setTradeBuilderStep(s => s === 'confirm' ? 'details' : 'teams')}
+            onReset={closeTradeBuilder}
+            onAdvance={() => setTradeBuilderStep(s => s === 'teams' ? 'details' : 'confirm')}
+            tradeDraft={tradeDraft}
+            setTradeDraft={setTradeDraft}
+            players={players}
+            playersById={playersById}
+            identitiesByPlayerId={identitiesByPlayerId}
+            myPlayer={myPlayer}
+            viewedPlayerId={selectedTeamId}
+            activeRosterByPlayerId={activeRosterByPlayerId}
+            onSubmit={submitTradeProposal}
+            tradeDeadlinePassed={tradeDeadlinePassed}
           />
-        </div>
-      </div>
 
-      {/* Character Card */}
+          {/* All pending trades (mine and others) */}
+          {pendingTrades.length > 0 ? (
+            <section className="panel" style={{ padding: 18 }}>
+              <div className="section-head"><h2>All Pending Trades</h2></div>
+              <div className="feed-list">
+                {pendingTrades.map(trade => (
+                  <div key={trade.id} style={{ padding: 14, borderRadius: 14, background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(51,65,85,0.9)', display: 'grid', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {trade.participants.map(p => <span key={p.id} style={{ fontSize: 13, fontWeight: 700, color: p.decision_status === 'accepted' ? '#86EFAC' : '#FDE68A' }}>{teamLabel(String(p.player_id))} {p.decision_status === 'accepted' ? '✓' : '…'}</span>)}
+                      </div>
+                      <StatusChip value="pending" />
+                    </div>
+                    <span className="muted" style={{ fontSize: 12 }}>{trade.moves.map(m => m.character_name).join(' • ')}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      ) : null}
+
+      {activeTab === 'Free Agents' ? (
+        <div className="page-stack" style={{ gap: 18 }}>
+          <section className="panel" style={{ padding: 18 }}>
+            <div className="section-head">
+              <div>
+                <h2>Free Agents</h2>
+                <span className="muted">Characters not drafted in this tournament.</span>
+              </div>
+              <div style={{ display: 'grid', gap: 4, justifyItems: 'end' }}>
+                <span className="muted" style={{ fontSize: 12 }}>Your active roster</span>
+                <strong style={{ fontSize: 18 }}>{teamRoster.length}/9</strong>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 26px 26px 26px 26px 1fr', gap: 4, alignItems: 'center', padding: '4px 6px', color: '#475569', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #1E293B', letterSpacing: '.04em' }}>
+                <span />
+                <button type="button" onClick={() => toggleFreeAgentSort('name')} style={{ background: 'none', border: 'none', color: 'inherit', padding: 0, textAlign: 'left', font: 'inherit', cursor: 'pointer' }}>
+                  Player {freeAgentSort.key === 'name' ? (freeAgentSort.direction === 'asc' ? '^' : 'v') : ''}
+                </button>
+                <button type="button" onClick={() => toggleFreeAgentSort('pitching')} style={{ background: 'none', border: 'none', color: 'inherit', padding: 0, font: 'inherit', cursor: 'pointer' }}>
+                  P {freeAgentSort.key === 'pitching' ? (freeAgentSort.direction === 'asc' ? '^' : 'v') : ''}
+                </button>
+                <button type="button" onClick={() => toggleFreeAgentSort('batting')} style={{ background: 'none', border: 'none', color: 'inherit', padding: 0, font: 'inherit', cursor: 'pointer' }}>
+                  B {freeAgentSort.key === 'batting' ? (freeAgentSort.direction === 'asc' ? '^' : 'v') : ''}
+                </button>
+                <button type="button" onClick={() => toggleFreeAgentSort('fielding')} style={{ background: 'none', border: 'none', color: 'inherit', padding: 0, font: 'inherit', cursor: 'pointer' }}>
+                  F {freeAgentSort.key === 'fielding' ? (freeAgentSort.direction === 'asc' ? '^' : 'v') : ''}
+                </button>
+                <button type="button" onClick={() => toggleFreeAgentSort('speed')} style={{ background: 'none', border: 'none', color: 'inherit', padding: 0, font: 'inherit', cursor: 'pointer' }}>
+                  S {freeAgentSort.key === 'speed' ? (freeAgentSort.direction === 'asc' ? '^' : 'v') : ''}
+                </button>
+                <span>Status</span>
+              </div>
+              {sortedFreeAgents.map((c) => (
+                <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 26px 26px 26px 26px 1fr', gap: 4, alignItems: 'center', padding: '7px 6px', borderBottom: '1px solid #0F172A' }}>
+                  <button type="button" onClick={() => setCardCharacterId(c.id)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', justifySelf: 'center' }}>
+                    <CharacterPortrait name={c.name} size={28} />
+                  </button>
+                  <button type="button" onClick={() => setCardCharacterId(c.id)} style={{ width: 'fit-content', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer', textAlign: 'left' }}>
+                    <strong style={{ fontSize: 15 }}>{c.name}</strong>
+                  </button>
+                  {[c.pitching, c.batting, c.fielding, c.speed].map((val, i) => (
+                    <strong key={i} style={{ fontSize: 15, textAlign: 'center' }}>{val ?? '-'}</strong>
+                  ))}
+                  <span className="muted" style={{ fontSize: 10 }}>Free agent</span>
+                </div>
+              ))}
+              {!sortedFreeAgents.length ? <span className="muted">No free agents in this tournament.</span> : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {activeTab === 'Transactions' ? (
+        <section className="panel" style={{ padding: 18 }}>
+          <div className="section-head"><h2>Transaction History</h2></div>
+          <div className="feed-list">
+            {[...historyTrades].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).map(trade => (
+              <div key={trade.id} style={{ padding: 14, borderRadius: 14, background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(51,65,85,0.9)', display: 'grid', gap: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {trade.participants.map(p => <span key={p.id} style={{ fontSize: 13, fontWeight: 700 }}>{teamLabel(String(p.player_id))}</span>)}
+                  </div>
+                  <StatusChip value={trade.status} />
+                </div>
+                <span className="muted" style={{ fontSize: 12 }}>{trade.moves.map(m => m.character_name).join(' • ')}</span>
+              </div>
+            ))}
+            {!historyTrades.length ? <span className="muted">No completed trade history.</span> : null}
+          </div>
+        </section>
+      ) : null}
+
       {cardCharacterId && (
         <>
           <div onClick={() => setCardCharacterId(null)} style={{ position: 'fixed', inset: 0, background: '#00000060', zIndex: 49 }} />
-          <CharacterCard
-            characterId={cardCharacterId}
-            charactersById={charactersById}
-            rosterCharacterMetaById={rosterCharacterMetaById}
-            tournHistories={tournHistories}
+          <SharedCharacterDetailModal
+            character={selectedCharacterDetail}
+            allCharactersById={charactersByName}
+            playersById={players.reduce((acc, p) => ({ ...acc, [p.id]: p }), {})}
+            currentOwner={selectedTeamId ? { player_id: selectedTeamId } : null}
+            battingHistory={allTournHistories[cardCharacterId] || []}
+            pitchingHistory={pitchingHistoryByCharacter[cardCharacterId] || []}
+            currentTournamentBatting={(() => {
+              const entry = allTournHistories[cardCharacterId]?.find(
+                h => String(h.tournamentId) === String(selectedTournamentId)
+              )
+              if (!entry?.rawPas?.length) return undefined
+              const b = summarizeBatting(entry.rawPas)
+              b.ops = b.obp + b.slg
+              b.rawPas = entry.rawPas
+              return b
+            })()}
+            currentTournamentPitching={
+              pitchingHistoryByCharacter[cardCharacterId]?.find(
+                h => String(h.tournamentId) === String(selectedTournamentId)
+              ) || undefined
+            }
+            allTimeBatting={(() => {
+              const pas = plateAppearances.filter(pa => String(pa.character_id) === String(cardCharacterId))
+              if (!pas.length) return undefined
+              const b = summarizeBatting(pas)
+              b.ops = b.obp + b.slg
+              b.rawPas = pas
+              return b
+            })()}
+            allTimePitching={(() => {
+              const stints = pitchingStints.filter(s => String(s.character_id) === String(cardCharacterId))
+              return stints.length ? summarizePitching(stints) : undefined
+            })()}
             rosterNames={rosterNames}
             onClose={() => setCardCharacterId(null)}
           />

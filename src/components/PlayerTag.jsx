@@ -1,4 +1,5 @@
 import TeamLogo from './TeamLogo'
+import { getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
 
 export default function PlayerTag({
   player,
@@ -6,13 +7,15 @@ export default function PlayerTag({
   playersById = {},
   identitiesByPlayerId = {},
   showPlaceholder = true,
-  height = 24,
+  showLogo = true,
+  height = 36,
   textStyle = {},
   color,
   style = {},
 }) {
   const resolvedPlayer = player || playersById[playerId] || null
   const identity = identitiesByPlayerId[resolvedPlayer?.id || playerId] || null
+  const displayName = getTeamShortName(identity) || resolvedPlayer?.name || 'TBD'
 
   return (
     <span
@@ -26,8 +29,9 @@ export default function PlayerTag({
     >
       <TeamLogo
         height={height}
-        logoKey={identity?.teamLogoKey}
-        placeholder={showPlaceholder}
+        logoKey={showLogo ? identity?.teamLogoKey : null}
+        logoUrl={showLogo ? identity?.teamLogoUrl : null}
+        placeholder={showLogo ? showPlaceholder : false}
         teamName={identity?.teamName}
       />
       <span
@@ -36,11 +40,11 @@ export default function PlayerTag({
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          color: color || resolvedPlayer?.color || 'inherit',
+          color: color || getTeamPrimaryColor(identity, resolvedPlayer?.color) || 'inherit',
           ...textStyle,
         }}
       >
-        {resolvedPlayer?.name || 'TBD'}
+        {displayName}
       </span>
     </span>
   )

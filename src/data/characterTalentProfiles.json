@@ -1,0 +1,5838 @@
+{
+  "mario": {
+    "slapContact": 75.0,
+    "chargeContact": 55.0,
+    "slapPower": 50.0,
+    "chargePower": 70.0,
+    "bunting": 30.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 70.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 122.0,
+    "fastballSpeed": 139.0,
+    "curve": 70.0,
+    "stamina": 87.0,
+    "contact": {
+      "slapPerfectTotal": 0.2465,
+      "chargePerfectTotal": 0.2022333333,
+      "slapNicePerfect": 0.659,
+      "chargeNicePerfect": 0.4631333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2704266667,
+      "chargePerfectTotal": 0.2160933333,
+      "slapNicePerfect": 0.6920533333,
+      "chargeNicePerfect": 0.4980533333
+    },
+    "hitbox": {
+      "width": 0.6962,
+      "height": 2.478
+    },
+    "catch": {
+      "regular": 1.888,
+      "height": 3.009,
+      "dive": 2.596,
+      "jumpWidth": 2.124
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.5,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.298
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "luigi": {
+    "slapContact": 70.0,
+    "chargeContact": 50.0,
+    "slapPower": 40.0,
+    "chargePower": 60.0,
+    "bunting": 30.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 60.0,
+    "fielding": 70.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 124.0,
+    "fastballSpeed": 138.0,
+    "curve": 60.0,
+    "stamina": 70.0,
+    "contact": {
+      "slapPerfectTotal": 0.2770333333,
+      "chargePerfectTotal": 0.2281666667,
+      "slapNicePerfect": 0.7304666667,
+      "chargeNicePerfect": 0.5095
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.30305,
+      "chargePerfectTotal": 0.24275,
+      "slapNicePerfect": 0.7657,
+      "chargeNicePerfect": 0.5455
+    },
+    "hitbox": {
+      "width": 0.6962,
+      "height": 2.832
+    },
+    "catch": {
+      "regular": 1.888,
+      "height": 3.363,
+      "dive": 2.596,
+      "jumpWidth": 2.124
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 20.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.05,
+      "finalHitHeight": 1.239
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "donkey kong": {
+    "slapContact": 50.0,
+    "chargeContact": 30.0,
+    "slapPower": 60.0,
+    "chargePower": 90.0,
+    "bunting": 10.0,
+    "runSpeed": 20.0,
+    "throwingSpeed": 85.0,
+    "fielding": 30.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 9.0,
+    "displayedFielding": 3.0,
+    "displayedSpeed": 2.0,
+    "curveballSpeed": 136.0,
+    "fastballSpeed": 150.0,
+    "curve": 30.0,
+    "stamina": 90.0,
+    "contact": {
+      "slapPerfectTotal": 0.262,
+      "chargePerfectTotal": 0.254,
+      "slapNicePerfect": 0.4958333333,
+      "chargeNicePerfect": 0.3179
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.272,
+      "chargePerfectTotal": 0.26,
+      "slapNicePerfect": 0.5195,
+      "chargeNicePerfect": 0.3376
+    },
+    "hitbox": {
+      "width": 1.0989,
+      "height": 2.775
+    },
+    "catch": {
+      "regular": 2.331,
+      "height": 3.2745,
+      "dive": 3.996,
+      "jumpWidth": 2.553
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.65,
+      "moveSpeed": 0.02,
+      "hitZoneHeight": 1.3,
+      "finalHitHeight": 1.443
+    },
+    "size": {
+      "gameplayScale": 1.11
+    }
+  },
+  "diddy kong": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 20.0,
+    "chargePower": 40.0,
+    "bunting": 40.0,
+    "runSpeed": 65.0,
+    "throwingSpeed": 40.0,
+    "fielding": 84.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 125.0,
+    "fastballSpeed": 134.0,
+    "curve": 55.0,
+    "stamina": 65.0,
+    "contact": {
+      "slapPerfectTotal": 0.2636666667,
+      "chargePerfectTotal": 0.2192,
+      "slapNicePerfect": 0.6655333333,
+      "chargeNicePerfect": 0.4606
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2871333333,
+      "chargePerfectTotal": 0.23152,
+      "slapNicePerfect": 0.6958266667,
+      "chargeNicePerfect": 0.4894933333
+    },
+    "hitbox": {
+      "width": 0.4956,
+      "height": 1.77
+    },
+    "catch": {
+      "regular": 1.534,
+      "height": 2.301,
+      "dive": 1.888,
+      "jumpWidth": 1.77
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 30
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 21.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.65,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.18
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "peach": {
+    "slapContact": 80.0,
+    "chargeContact": 60.0,
+    "slapPower": 20.0,
+    "chargePower": 40.0,
+    "bunting": 50.0,
+    "runSpeed": 50.0,
+    "throwingSpeed": 40.0,
+    "fielding": 80.0,
+    "displayedPitching": 9.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 121.0,
+    "fastballSpeed": 130.0,
+    "curve": 80.0,
+    "stamina": 63.0,
+    "contact": {
+      "slapPerfectTotal": 0.2932,
+      "chargePerfectTotal": 0.2384,
+      "slapNicePerfect": 0.8224,
+      "chargeNicePerfect": 0.5828
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3228,
+      "chargePerfectTotal": 0.2566,
+      "slapNicePerfect": 0.8656,
+      "chargeNicePerfect": 0.6312
+    },
+    "hitbox": {
+      "width": 0.4956,
+      "height": 2.832
+    },
+    "catch": {
+      "regular": 1.652,
+      "height": 3.363,
+      "dive": 2.124,
+      "jumpWidth": 1.888
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.8,
+      "farLimit": 0.5,
+      "moveSpeed": 0.04,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.18
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "daisy": {
+    "slapContact": 70.0,
+    "chargeContact": 50.0,
+    "slapPower": 40.0,
+    "chargePower": 60.0,
+    "bunting": 40.0,
+    "runSpeed": 50.0,
+    "throwingSpeed": 60.0,
+    "fielding": 80.0,
+    "displayedPitching": 7.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 124.0,
+    "fastballSpeed": 140.0,
+    "curve": 65.0,
+    "stamina": 66.0,
+    "contact": {
+      "slapPerfectTotal": 0.2867333333,
+      "chargePerfectTotal": 0.2343333333,
+      "slapNicePerfect": 0.7906666667,
+      "chargeNicePerfect": 0.5518333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3131,
+      "chargePerfectTotal": 0.2495,
+      "slapNicePerfect": 0.828,
+      "chargeNicePerfect": 0.591
+    },
+    "hitbox": {
+      "width": 0.4956,
+      "height": 2.596
+    },
+    "catch": {
+      "regular": 1.652,
+      "height": 3.127,
+      "dive": 3.304,
+      "jumpWidth": 1.888
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 20.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.75,
+      "farLimit": 0.55,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.18
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "yoshi": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 30.0,
+    "chargePower": 45.0,
+    "bunting": 40.0,
+    "runSpeed": 90.0,
+    "throwingSpeed": 40.0,
+    "fielding": 55.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 9.0,
+    "curveballSpeed": 126.0,
+    "fastballSpeed": 135.0,
+    "curve": 40.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2563333333,
+      "chargePerfectTotal": 0.2136,
+      "slapNicePerfect": 0.6560666667,
+      "chargeNicePerfect": 0.4474666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2761333333,
+      "chargePerfectTotal": 0.22312,
+      "slapNicePerfect": 0.6816266667,
+      "chargeNicePerfect": 0.4697933333
+    },
+    "hitbox": {
+      "width": 0.6962,
+      "height": 2.242
+    },
+    "catch": {
+      "regular": 1.888,
+      "height": 2.832,
+      "dive": 2.596,
+      "jumpWidth": 2.124
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.65,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.89,
+      "finalHitHeight": 1.0502
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "baby mario": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 20.0,
+    "chargePower": 30.0,
+    "bunting": 40.0,
+    "runSpeed": 80.0,
+    "throwingSpeed": 30.0,
+    "fielding": 40.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 8.0,
+    "curveballSpeed": 110.0,
+    "fastballSpeed": 118.0,
+    "curve": 60.0,
+    "stamina": 46.0,
+    "contact": {
+      "slapPerfectTotal": 0.25984,
+      "chargePerfectTotal": 0.2123866667,
+      "slapNicePerfect": 0.7268,
+      "chargeNicePerfect": 0.4996
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.28086,
+      "chargePerfectTotal": 0.22368,
+      "slapNicePerfect": 0.7566,
+      "chargeNicePerfect": 0.5288
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 2.04
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 2.58,
+      "dive": 1.92,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 13.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.7,
+      "farLimit": 0.51,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.08
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "baby luigi": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 10.0,
+    "chargePower": 20.0,
+    "bunting": 40.0,
+    "runSpeed": 80.0,
+    "throwingSpeed": 20.0,
+    "fielding": 50.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 2.0,
+    "displayedFielding": 5.0,
+    "displayedSpeed": 8.0,
+    "curveballSpeed": 109.0,
+    "fastballSpeed": 119.0,
+    "curve": 60.0,
+    "stamina": 45.0,
+    "contact": {
+      "slapPerfectTotal": 0.27029,
+      "chargePerfectTotal": 0.2233433333,
+      "slapNicePerfect": 0.7225,
+      "chargeNicePerfect": 0.4927666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.290756,
+      "chargePerfectTotal": 0.2334186667,
+      "slapNicePerfect": 0.75004,
+      "chargeNicePerfect": 0.5174733333
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 2.7,
+      "dive": 1.92,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 13.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.62,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "bowser": {
+    "slapContact": 45.0,
+    "chargeContact": 25.0,
+    "slapPower": 65.0,
+    "chargePower": 98.0,
+    "bunting": 10.0,
+    "runSpeed": 29.0,
+    "throwingSpeed": 98.0,
+    "fielding": 32.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 10.0,
+    "displayedFielding": 3.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 140.0,
+    "fastballSpeed": 152.0,
+    "curve": 13.0,
+    "stamina": 100.0,
+    "contact": {
+      "slapPerfectTotal": 0.30165,
+      "chargePerfectTotal": 0.2539166667,
+      "slapNicePerfect": 0.7547,
+      "chargeNicePerfect": 0.5071666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3215233333,
+      "chargePerfectTotal": 0.2620366667,
+      "slapNicePerfect": 0.7794866667,
+      "chargeNicePerfect": 0.5254866667
+    },
+    "hitbox": {
+      "width": 1.7005,
+      "height": 2.565
+    },
+    "catch": {
+      "regular": 2.565,
+      "height": 2.9925,
+      "dive": 4.18,
+      "jumpWidth": 2.755
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.5,
+      "height": 10.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.85,
+      "moveSpeed": 0.02,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.045
+    },
+    "size": {
+      "gameplayScale": 0.95
+    }
+  },
+  "wario": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 50.0,
+    "chargePower": 80.0,
+    "bunting": 10.0,
+    "runSpeed": 40.0,
+    "throwingSpeed": 80.0,
+    "fielding": 30.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 8.0,
+    "displayedFielding": 3.0,
+    "displayedSpeed": 4.0,
+    "curveballSpeed": 132.0,
+    "fastballSpeed": 147.0,
+    "curve": 35.0,
+    "stamina": 98.0,
+    "contact": {
+      "slapPerfectTotal": 0.2592,
+      "chargePerfectTotal": 0.2144,
+      "slapNicePerfect": 0.6816,
+      "chargeNicePerfect": 0.4684
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2808,
+      "chargePerfectTotal": 0.2256,
+      "slapNicePerfect": 0.7104,
+      "chargeNicePerfect": 0.4956
+    },
+    "hitbox": {
+      "width": 1.003,
+      "height": 2.478
+    },
+    "catch": {
+      "regular": 2.242,
+      "height": 3.009,
+      "dive": 3.304,
+      "jumpWidth": 2.478
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.05,
+      "finalHitHeight": 1.239
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "waluigi": {
+    "slapContact": 5.0,
+    "chargeContact": 80.0,
+    "slapPower": 90.0,
+    "chargePower": 1.0,
+    "bunting": 50.0,
+    "runSpeed": 50.0,
+    "throwingSpeed": 40.0,
+    "fielding": 80.0,
+    "displayedPitching": 8.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 90.0,
+    "curve": 80.0,
+    "stamina": 59.0,
+    "contact": {
+      "slapPerfectTotal": 0.22885,
+      "chargePerfectTotal": 0.2496666667,
+      "slapNicePerfect": 0.6249,
+      "chargeNicePerfect": 0.5202333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.23039,
+      "chargePerfectTotal": 0.273,
+      "slapNicePerfect": 0.62686,
+      "chargeNicePerfect": 0.5741
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 2.97
+    },
+    "catch": {
+      "regular": 1.26,
+      "height": 3.375,
+      "dive": 1.62,
+      "jumpWidth": 1.44
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 40.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.7,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.3,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 0.9
+    }
+  },
+  "koopa troopa": {
+    "slapContact": 70.0,
+    "chargeContact": 50.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 30.0,
+    "runSpeed": 64.0,
+    "throwingSpeed": 50.0,
+    "fielding": 45.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 121.0,
+    "fastballSpeed": 138.0,
+    "curve": 50.0,
+    "stamina": 56.0,
+    "contact": {
+      "slapPerfectTotal": 0.2673333333,
+      "chargePerfectTotal": 0.222,
+      "slapNicePerfect": 0.6702666667,
+      "chargeNicePerfect": 0.4671666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.293,
+      "chargePerfectTotal": 0.236,
+      "slapNicePerfect": 0.7034,
+      "chargeNicePerfect": 0.5
+    },
+    "hitbox": {
+      "width": 0.6018,
+      "height": 2.124
+    },
+    "catch": {
+      "regular": 1.77,
+      "height": 2.655,
+      "dive": 2.36,
+      "jumpWidth": 2.006
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.65,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.062
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "red toad": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 30.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 50.0,
+    "fielding": 30.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 5.0,
+    "displayedFielding": 3.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 114.0,
+    "fastballSpeed": 140.0,
+    "curve": 47.0,
+    "stamina": 52.0,
+    "contact": {
+      "slapPerfectTotal": 0.3275833333,
+      "chargePerfectTotal": 0.2663166667,
+      "slapNicePerfect": 0.9467666667,
+      "chargeNicePerfect": 0.6457
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3514333333,
+      "chargePerfectTotal": 0.2786133333,
+      "slapNicePerfect": 0.9815066667,
+      "chargeNicePerfect": 0.67834
+    },
+    "hitbox": {
+      "width": 0.405,
+      "height": 1.95
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.625,
+      "dive": 2.1,
+      "jumpWidth": 2.1
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.95,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.8,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.5
+    }
+  },
+  "boo": {
+    "slapContact": 75.0,
+    "chargeContact": 55.0,
+    "slapPower": 20.0,
+    "chargePower": 30.0,
+    "bunting": 40.0,
+    "runSpeed": 44.0,
+    "throwingSpeed": 30.0,
+    "fielding": 32.0,
+    "displayedPitching": 9.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 3.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 112.0,
+    "fastballSpeed": 132.0,
+    "curve": 89.0,
+    "stamina": 43.0,
+    "contact": {
+      "slapPerfectTotal": 0.2747,
+      "chargePerfectTotal": 0.2269133333,
+      "slapNicePerfect": 0.7034,
+      "chargeNicePerfect": 0.4939333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3018826667,
+      "chargePerfectTotal": 0.2422853333,
+      "slapNicePerfect": 0.7394133333,
+      "chargeNicePerfect": 0.5310133333
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 1.92
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 2.46,
+      "dive": 1.92,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 20
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.62,
+      "moveSpeed": 0.04,
+      "hitZoneHeight": 0.95,
+      "finalHitHeight": 1.14
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "toadette": {
+    "slapContact": 70.0,
+    "chargeContact": 50.0,
+    "slapPower": 20.0,
+    "chargePower": 30.0,
+    "bunting": 30.0,
+    "runSpeed": 80.0,
+    "throwingSpeed": 30.0,
+    "fielding": 40.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 8.0,
+    "curveballSpeed": 122.0,
+    "fastballSpeed": 128.0,
+    "curve": 53.0,
+    "stamina": 41.0,
+    "contact": {
+      "slapPerfectTotal": 0.30662,
+      "chargePerfectTotal": 0.2506333333,
+      "slapNicePerfect": 0.8446,
+      "chargeNicePerfect": 0.5894666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.33483,
+      "chargePerfectTotal": 0.26685,
+      "slapNicePerfect": 0.8845,
+      "chargeNicePerfect": 0.6313
+    },
+    "hitbox": {
+      "width": 0.306,
+      "height": 2.04
+    },
+    "catch": {
+      "regular": 2.04,
+      "height": 2.805,
+      "dive": 2.38,
+      "jumpWidth": 2.38
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.8,
+      "farLimit": 0.59,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.7,
+      "finalHitHeight": 1.19
+    },
+    "size": {
+      "gameplayScale": 1.7
+    }
+  },
+  "shy guy": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 35.0,
+    "chargePower": 55.0,
+    "bunting": 44.0,
+    "runSpeed": 45.0,
+    "throwingSpeed": 55.0,
+    "fielding": 70.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 5.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 4.0,
+    "curveballSpeed": 116.0,
+    "fastballSpeed": 130.0,
+    "curve": 42.0,
+    "stamina": 62.0,
+    "contact": {
+      "slapPerfectTotal": 0.26176,
+      "chargePerfectTotal": 0.2171866667,
+      "slapNicePerfect": 0.67688,
+      "chargeNicePerfect": 0.46512
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.28374,
+      "chargePerfectTotal": 0.22848,
+      "slapNicePerfect": 0.70572,
+      "chargeNicePerfect": 0.49208
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.68,
+      "height": 2.7,
+      "dive": 3.36,
+      "jumpWidth": 2.04
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.58,
+      "farLimit": 0.63,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "birdo": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 48.0,
+    "chargePower": 78.0,
+    "bunting": 20.0,
+    "runSpeed": 50.0,
+    "throwingSpeed": 80.0,
+    "fielding": 70.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 8.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 132.0,
+    "fastballSpeed": 147.0,
+    "curve": 38.0,
+    "stamina": 88.0,
+    "contact": {
+      "slapPerfectTotal": 0.2592,
+      "chargePerfectTotal": 0.2144,
+      "slapNicePerfect": 0.6816,
+      "chargeNicePerfect": 0.4684
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2808,
+      "chargePerfectTotal": 0.2256,
+      "slapNicePerfect": 0.7104,
+      "chargeNicePerfect": 0.4956
+    },
+    "hitbox": {
+      "width": 0.8024,
+      "height": 2.36
+    },
+    "catch": {
+      "regular": 2.006,
+      "height": 2.891,
+      "dive": 2.832,
+      "jumpWidth": 2.242
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.298
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "monty mole": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 60.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 50.0,
+    "fielding": 55.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 5.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 116.0,
+    "fastballSpeed": 138.0,
+    "curve": 45.0,
+    "stamina": 34.0,
+    "contact": {
+      "slapPerfectTotal": 0.2855666667,
+      "chargePerfectTotal": 0.2373,
+      "slapNicePerfect": 0.7227333333,
+      "chargeNicePerfect": 0.5002
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3109533333,
+      "chargePerfectTotal": 0.2506466667,
+      "slapNicePerfect": 0.7555866667,
+      "chargeNicePerfect": 0.5315866667
+    },
+    "hitbox": {
+      "width": 0.8,
+      "height": 1.5
+    },
+    "catch": {
+      "regular": 1.6,
+      "height": 1.95,
+      "dive": 2.2,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 25.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.7,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.05,
+      "finalHitHeight": 1.05
+    },
+    "size": {
+      "gameplayScale": 1.0
+    }
+  },
+  "bowser jr": {
+    "slapContact": 75.0,
+    "chargeContact": 55.0,
+    "slapPower": 50.0,
+    "chargePower": 70.0,
+    "bunting": 20.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 68.0,
+    "fielding": 42.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 95.0,
+    "fastballSpeed": 135.0,
+    "curve": 37.0,
+    "stamina": 83.0,
+    "contact": {
+      "slapPerfectTotal": 0.27615,
+      "chargePerfectTotal": 0.26795,
+      "slapNicePerfect": 0.5517,
+      "chargeNicePerfect": 0.36754
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.29132,
+      "chargePerfectTotal": 0.27902,
+      "slapNicePerfect": 0.588256,
+      "chargeNicePerfect": 0.405556
+    },
+    "hitbox": {
+      "width": 0.805,
+      "height": 1.495
+    },
+    "catch": {
+      "regular": 1.955,
+      "height": 2.0125,
+      "dive": 2.76,
+      "jumpWidth": 2.185
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.63,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.265
+    },
+    "size": {
+      "gameplayScale": 1.15
+    }
+  },
+  "koopa paratroopa": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 37.0,
+    "runSpeed": 52.0,
+    "throwingSpeed": 55.0,
+    "fielding": 70.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 116.0,
+    "fastballSpeed": 138.0,
+    "curve": 41.0,
+    "stamina": 55.0,
+    "contact": {
+      "slapPerfectTotal": 0.26,
+      "chargePerfectTotal": 0.2164,
+      "slapNicePerfect": 0.6608,
+      "chargeNicePerfect": 0.4540333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.282,
+      "chargePerfectTotal": 0.2276,
+      "slapNicePerfect": 0.6892,
+      "chargeNicePerfect": 0.4803
+    },
+    "hitbox": {
+      "width": 0.6018,
+      "height": 2.478
+    },
+    "catch": {
+      "regular": 1.77,
+      "height": 3.009,
+      "dive": 2.36,
+      "jumpWidth": 2.006
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.65,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.062
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "blue pianta": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 52.0,
+    "chargePower": 82.0,
+    "bunting": 20.0,
+    "runSpeed": 20.0,
+    "throwingSpeed": 80.0,
+    "fielding": 35.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 8.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 2.0,
+    "curveballSpeed": 132.0,
+    "fastballSpeed": 147.0,
+    "curve": 32.0,
+    "stamina": 67.0,
+    "contact": {
+      "slapPerfectTotal": 0.24943,
+      "chargePerfectTotal": 0.20691,
+      "slapNicePerfect": 0.65366,
+      "chargeNicePerfect": 0.44582
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.268492,
+      "chargePerfectTotal": 0.216192,
+      "slapNicePerfect": 0.678824,
+      "chargeNicePerfect": 0.468124
+    },
+    "hitbox": {
+      "width": 1.001,
+      "height": 2.73
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 3.9,
+      "jumpWidth": 2.86
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.57,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.95,
+      "finalHitHeight": 1.235
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "red pianta": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 52.0,
+    "chargePower": 82.0,
+    "bunting": 20.0,
+    "runSpeed": 20.0,
+    "throwingSpeed": 80.0,
+    "fielding": 41.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 8.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 2.0,
+    "curveballSpeed": 132.0,
+    "fastballSpeed": 147.0,
+    "curve": 20.0,
+    "stamina": 67.0,
+    "contact": {
+      "slapPerfectTotal": 0.24943,
+      "chargePerfectTotal": 0.20691,
+      "slapNicePerfect": 0.65366,
+      "chargeNicePerfect": 0.44582
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.268492,
+      "chargePerfectTotal": 0.216192,
+      "slapNicePerfect": 0.678824,
+      "chargeNicePerfect": 0.468124
+    },
+    "hitbox": {
+      "width": 1.001,
+      "height": 2.73
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 3.9,
+      "jumpWidth": 2.86
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.57,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.95,
+      "finalHitHeight": 1.235
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "yellow pianta": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 52.0,
+    "chargePower": 82.0,
+    "bunting": 20.0,
+    "runSpeed": 25.0,
+    "throwingSpeed": 80.0,
+    "fielding": 35.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 8.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 2.0,
+    "curveballSpeed": 132.0,
+    "fastballSpeed": 147.0,
+    "curve": 20.0,
+    "stamina": 67.0,
+    "contact": {
+      "slapPerfectTotal": 0.24943,
+      "chargePerfectTotal": 0.20691,
+      "slapNicePerfect": 0.65366,
+      "chargeNicePerfect": 0.44582
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.268492,
+      "chargePerfectTotal": 0.216192,
+      "slapNicePerfect": 0.678824,
+      "chargeNicePerfect": 0.468124
+    },
+    "hitbox": {
+      "width": 1.001,
+      "height": 2.73
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 3.9,
+      "jumpWidth": 2.86
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.57,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.95,
+      "finalHitHeight": 1.235
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "blue noki": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 20.0,
+    "chargePower": 40.0,
+    "bunting": 40.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 40.0,
+    "fielding": 40.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 116.0,
+    "fastballSpeed": 138.0,
+    "curve": 58.0,
+    "stamina": 42.0,
+    "contact": {
+      "slapPerfectTotal": 0.2696,
+      "chargePerfectTotal": 0.2223333333,
+      "slapNicePerfect": 0.7204,
+      "chargeNicePerfect": 0.4951
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2919,
+      "chargePerfectTotal": 0.234,
+      "slapNicePerfect": 0.7506,
+      "chargeNicePerfect": 0.5239
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 2.04
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 2.58,
+      "dive": 1.92,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 1.0,
+      "height": 20.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "red noki": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 20.0,
+    "chargePower": 40.0,
+    "bunting": 40.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 40.0,
+    "fielding": 45.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 5.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 120.0,
+    "fastballSpeed": 132.0,
+    "curve": 49.0,
+    "stamina": 42.0,
+    "contact": {
+      "slapPerfectTotal": 0.2696,
+      "chargePerfectTotal": 0.2223333333,
+      "slapNicePerfect": 0.7204,
+      "chargeNicePerfect": 0.4951
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2919,
+      "chargePerfectTotal": 0.234,
+      "slapNicePerfect": 0.7506,
+      "chargeNicePerfect": 0.5239
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 2.04
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 2.58,
+      "dive": 1.92,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 1.0,
+      "height": 20.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "green noki": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 25.0,
+    "chargePower": 45.0,
+    "bunting": 45.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 45.0,
+    "fielding": 40.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 5.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 120.0,
+    "fastballSpeed": 132.0,
+    "curve": 49.0,
+    "stamina": 42.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 2.04
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 2.58,
+      "dive": 1.92,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 1.0,
+      "height": 20.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "hammer bro": {
+    "slapContact": 60.0,
+    "chargeContact": 25.0,
+    "slapPower": 10.0,
+    "chargePower": 85.0,
+    "bunting": 10.0,
+    "runSpeed": 30.0,
+    "throwingSpeed": 85.0,
+    "fielding": 55.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 128.0,
+    "fastballSpeed": 147.0,
+    "curve": 20.0,
+    "stamina": 69.0,
+    "contact": {
+      "slapPerfectTotal": 0.2836,
+      "chargePerfectTotal": 0.26855,
+      "slapNicePerfect": 0.56,
+      "chargeNicePerfect": 0.3401666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2965,
+      "chargePerfectTotal": 0.27371,
+      "slapNicePerfect": 0.591,
+      "chargeNicePerfect": 0.3577666667
+    },
+    "hitbox": {
+      "width": 0.696,
+      "height": 2.04
+    },
+    "catch": {
+      "regular": 1.92,
+      "height": 2.58,
+      "dive": 2.64,
+      "jumpWidth": 2.16
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.64,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "toadsworth": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 20.0,
+    "chargePower": 30.0,
+    "bunting": 50.0,
+    "runSpeed": 35.0,
+    "throwingSpeed": 60.0,
+    "fielding": 78.0,
+    "displayedPitching": 7.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 70.0,
+    "fastballSpeed": 80.0,
+    "curve": 20.0,
+    "stamina": 33.0,
+    "contact": {
+      "slapPerfectTotal": 0.2760833333,
+      "chargePerfectTotal": 0.26775,
+      "slapNicePerfect": 0.5534333333,
+      "chargeNicePerfect": 0.3603
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2894166667,
+      "chargePerfectTotal": 0.2769166667,
+      "slapNicePerfect": 0.5856466667,
+      "chargeNicePerfect": 0.39198
+    },
+    "hitbox": {
+      "width": 0.336,
+      "height": 2.1
+    },
+    "catch": {
+      "regular": 1.68,
+      "height": 2.59,
+      "dive": 1.96,
+      "jumpWidth": 1.96
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.04,
+      "hitZoneHeight": 0.7,
+      "finalHitHeight": 0.98
+    },
+    "size": {
+      "gameplayScale": 1.4
+    }
+  },
+  "blue toad": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 30.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 50.0,
+    "fielding": 30.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 3.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 110.0,
+    "fastballSpeed": 138.0,
+    "curve": 42.0,
+    "stamina": 52.0,
+    "contact": {
+      "slapPerfectTotal": 0.228,
+      "chargePerfectTotal": 0.1906,
+      "slapNicePerfect": 0.5652,
+      "chargeNicePerfect": 0.3883
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2475,
+      "chargePerfectTotal": 0.2004,
+      "slapNicePerfect": 0.5898,
+      "chargeNicePerfect": 0.4107
+    },
+    "hitbox": {
+      "width": 0.405,
+      "height": 1.95
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.625,
+      "dive": 2.1,
+      "jumpWidth": 2.1
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.9,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.45,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.8,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.5
+    }
+  },
+  "yellow toad": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 30.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 55.0,
+    "fielding": 35.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 115.0,
+    "fastballSpeed": 130.0,
+    "curve": 33.0,
+    "stamina": 52.0,
+    "contact": {
+      "slapPerfectTotal": 0.228,
+      "chargePerfectTotal": 0.1906,
+      "slapNicePerfect": 0.5652,
+      "chargeNicePerfect": 0.3883
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2475,
+      "chargePerfectTotal": 0.2004,
+      "slapNicePerfect": 0.5898,
+      "chargeNicePerfect": 0.4107
+    },
+    "hitbox": {
+      "width": 0.405,
+      "height": 1.95
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.625,
+      "dive": 2.1,
+      "jumpWidth": 2.1
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.45,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.8,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.5
+    }
+  },
+  "green toad": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 30.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 55.0,
+    "fielding": 35.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 5.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 110.0,
+    "fastballSpeed": 138.0,
+    "curve": 42.0,
+    "stamina": 52.0,
+    "contact": {
+      "slapPerfectTotal": 0.22475,
+      "chargePerfectTotal": 0.18815,
+      "slapNicePerfect": 0.5611,
+      "chargeNicePerfect": 0.3827
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2423,
+      "chargePerfectTotal": 0.19648,
+      "slapNicePerfect": 0.58324,
+      "chargeNicePerfect": 0.40174
+    },
+    "hitbox": {
+      "width": 0.405,
+      "height": 1.95
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.625,
+      "dive": 2.1,
+      "jumpWidth": 2.1
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.45,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.8,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.5
+    }
+  },
+  "purple toad": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 30.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 55.0,
+    "fielding": 25.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 2.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 114.0,
+    "fastballSpeed": 140.0,
+    "curve": 47.0,
+    "stamina": 52.0,
+    "contact": {
+      "slapPerfectTotal": 0.228,
+      "chargePerfectTotal": 0.1906,
+      "slapNicePerfect": 0.5652,
+      "chargeNicePerfect": 0.3883
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2475,
+      "chargePerfectTotal": 0.2004,
+      "slapNicePerfect": 0.5898,
+      "chargeNicePerfect": 0.4107
+    },
+    "hitbox": {
+      "width": 0.405,
+      "height": 1.95
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.625,
+      "dive": 2.1,
+      "jumpWidth": 2.1
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.45,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.8,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.5
+    }
+  },
+  "magikoopa": {
+    "slapContact": 50.0,
+    "chargeContact": 30.0,
+    "slapPower": 20.0,
+    "chargePower": 30.0,
+    "bunting": 30.0,
+    "runSpeed": 20.0,
+    "throwingSpeed": 40.0,
+    "fielding": 80.0,
+    "displayedPitching": 8.0,
+    "displayedBatting": 2.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 2.0,
+    "curveballSpeed": 119.0,
+    "fastballSpeed": 125.0,
+    "curve": 81.0,
+    "stamina": 31.0,
+    "contact": {
+      "slapPerfectTotal": 0.2563333333,
+      "chargePerfectTotal": 0.21268,
+      "slapNicePerfect": 0.6790666667,
+      "chargeNicePerfect": 0.4596
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2747,
+      "chargePerfectTotal": 0.22122,
+      "slapNicePerfect": 0.7034,
+      "chargeNicePerfect": 0.4802
+    },
+    "hitbox": {
+      "width": 0.696,
+      "height": 1.92
+    },
+    "catch": {
+      "regular": 1.92,
+      "height": 2.46,
+      "dive": 2.64,
+      "jumpWidth": 2.16
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 20
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 40.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.62,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.05,
+      "finalHitHeight": 1.26
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "red magikoopa": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 25.0,
+    "chargePower": 35.0,
+    "bunting": 30.0,
+    "runSpeed": 14.0,
+    "throwingSpeed": 40.0,
+    "fielding": 80.0,
+    "displayedPitching": 8.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 1.0,
+    "curveballSpeed": 119.0,
+    "fastballSpeed": 125.0,
+    "curve": 81.0,
+    "stamina": 31.0,
+    "contact": {
+      "slapPerfectTotal": 0.2600066667,
+      "chargePerfectTotal": 0.2155266667,
+      "slapNicePerfect": 0.6839333333,
+      "chargeNicePerfect": 0.4664666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2798426667,
+      "chargePerfectTotal": 0.2252053333,
+      "slapNicePerfect": 0.7102133333,
+      "chargeNicePerfect": 0.4898133333
+    },
+    "hitbox": {
+      "width": 0.696,
+      "height": 1.92
+    },
+    "catch": {
+      "regular": 1.92,
+      "height": 2.46,
+      "dive": 2.64,
+      "jumpWidth": 2.16
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 20
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 40.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.62,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "green magikoopa": {
+    "slapContact": 50.0,
+    "chargeContact": 30.0,
+    "slapPower": 20.0,
+    "chargePower": 30.0,
+    "bunting": 30.0,
+    "runSpeed": 25.0,
+    "throwingSpeed": 40.0,
+    "fielding": 80.0,
+    "displayedPitching": 7.0,
+    "displayedBatting": 2.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 2.0,
+    "curveballSpeed": 99.0,
+    "fastballSpeed": 105.0,
+    "curve": 77.0,
+    "stamina": 31.0,
+    "contact": {
+      "slapPerfectTotal": 0.2563333333,
+      "chargePerfectTotal": 0.21268,
+      "slapNicePerfect": 0.6790666667,
+      "chargeNicePerfect": 0.4596
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2747,
+      "chargePerfectTotal": 0.22122,
+      "slapNicePerfect": 0.7034,
+      "chargeNicePerfect": 0.4802
+    },
+    "hitbox": {
+      "width": 0.696,
+      "height": 1.92
+    },
+    "catch": {
+      "regular": 1.92,
+      "height": 2.46,
+      "dive": 2.64,
+      "jumpWidth": 2.16
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 20
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 40.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.62,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "yellow magikoopa": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 25.0,
+    "chargePower": 35.0,
+    "bunting": 30.0,
+    "runSpeed": 20.0,
+    "throwingSpeed": 40.0,
+    "fielding": 80.0,
+    "displayedPitching": 7.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 2.0,
+    "curveballSpeed": 99.0,
+    "fastballSpeed": 105.0,
+    "curve": 77.0,
+    "stamina": 31.0,
+    "contact": {
+      "slapPerfectTotal": 0.2600066667,
+      "chargePerfectTotal": 0.2155266667,
+      "slapNicePerfect": 0.6839333333,
+      "chargeNicePerfect": 0.4664666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2798426667,
+      "chargePerfectTotal": 0.2252053333,
+      "slapNicePerfect": 0.7102133333,
+      "chargeNicePerfect": 0.4898133333
+    },
+    "hitbox": {
+      "width": 0.696,
+      "height": 1.92
+    },
+    "catch": {
+      "regular": 1.92,
+      "height": 2.46,
+      "dive": 2.64,
+      "jumpWidth": 2.16
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 20
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 40.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.62,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "king boo": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 50.0,
+    "chargePower": 70.0,
+    "bunting": 20.0,
+    "runSpeed": 40.0,
+    "throwingSpeed": 70.0,
+    "fielding": 30.0,
+    "displayedPitching": 7.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 3.0,
+    "displayedSpeed": 4.0,
+    "curveballSpeed": 108.0,
+    "fastballSpeed": 122.0,
+    "curve": 75.0,
+    "stamina": 49.0,
+    "contact": {
+      "slapPerfectTotal": 0.2736633333,
+      "chargePerfectTotal": 0.22605,
+      "slapNicePerfect": 0.7170866667,
+      "chargeNicePerfect": 0.49646
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2976206667,
+      "chargePerfectTotal": 0.2388833333,
+      "slapNicePerfect": 0.7491293333,
+      "chargeNicePerfect": 0.5277293333
+    },
+    "hitbox": {
+      "width": 0.578,
+      "height": 2.72
+    },
+    "catch": {
+      "regular": 2.38,
+      "height": 3.485,
+      "dive": 3.06,
+      "jumpWidth": 2.38
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.63,
+      "farLimit": 0.62,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.7,
+      "finalHitHeight": 1.19
+    },
+    "size": {
+      "gameplayScale": 1.7
+    }
+  },
+  "petey piranha": {
+    "slapContact": 45.0,
+    "chargeContact": 25.0,
+    "slapPower": 62.0,
+    "chargePower": 92.0,
+    "bunting": 10.0,
+    "runSpeed": 20.0,
+    "throwingSpeed": 90.0,
+    "fielding": 48.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 10.0,
+    "displayedFielding": 5.0,
+    "displayedSpeed": 2.0,
+    "curveballSpeed": 150.0,
+    "fastballSpeed": 175.0,
+    "curve": 5.0,
+    "stamina": 20.0,
+    "contact": {
+      "slapPerfectTotal": 0.25905,
+      "chargePerfectTotal": 0.2155833333,
+      "slapNicePerfect": 0.6847,
+      "chargeNicePerfect": 0.4598333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2756966667,
+      "chargePerfectTotal": 0.2225833333,
+      "slapNicePerfect": 0.7065533333,
+      "chargeNicePerfect": 0.4765533333
+    },
+    "hitbox": {
+      "width": 1.296,
+      "height": 3.24
+    },
+    "catch": {
+      "regular": 2.07,
+      "height": 3.465,
+      "dive": 3.24,
+      "jumpWidth": 2.25
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.65,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.2,
+      "finalHitHeight": 1.08
+    },
+    "size": {
+      "gameplayScale": 0.9
+    }
+  },
+  "dixie kong": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 20.0,
+    "chargePower": 35.0,
+    "bunting": 30.0,
+    "runSpeed": 72.0,
+    "throwingSpeed": 40.0,
+    "fielding": 80.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 120.0,
+    "fastballSpeed": 130.0,
+    "curve": 30.0,
+    "stamina": 48.0,
+    "contact": {
+      "slapPerfectTotal": 0.2584,
+      "chargePerfectTotal": 0.2124,
+      "slapNicePerfect": 0.7024,
+      "chargeNicePerfect": 0.4827666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2796,
+      "chargePerfectTotal": 0.2236,
+      "slapNicePerfect": 0.7316,
+      "chargeNicePerfect": 0.5109
+    },
+    "hitbox": {
+      "width": 0.6018,
+      "height": 1.77
+    },
+    "catch": {
+      "regular": 1.77,
+      "height": 2.301,
+      "dive": 2.36,
+      "jumpWidth": 2.006
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.55,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.298
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "goomba": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 20.0,
+    "chargePower": 40.0,
+    "bunting": 90.0,
+    "runSpeed": 40.0,
+    "throwingSpeed": 50.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 4.0,
+    "curveballSpeed": 90.0,
+    "fastballSpeed": 95.0,
+    "curve": 42.0,
+    "stamina": 61.0,
+    "contact": {
+      "slapPerfectTotal": 0.25504,
+      "chargePerfectTotal": 0.2112266667,
+      "slapNicePerfect": 0.66608,
+      "chargeNicePerfect": 0.45772
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.27636,
+      "chargePerfectTotal": 0.22224,
+      "slapNicePerfect": 0.69432,
+      "chargeNicePerfect": 0.48428
+    },
+    "hitbox": {
+      "width": 0.696,
+      "height": 1.8
+    },
+    "catch": {
+      "regular": 1.92,
+      "height": 2.34,
+      "dive": 2.64,
+      "jumpWidth": 2.16
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 30
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 16.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.58,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.08
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "paragoomba": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 20.0,
+    "chargePower": 40.0,
+    "bunting": 50.0,
+    "runSpeed": 50.0,
+    "throwingSpeed": 45.0,
+    "fielding": 65.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 110.0,
+    "fastballSpeed": 122.0,
+    "curve": 47.0,
+    "stamina": 58.0,
+    "contact": {
+      "slapPerfectTotal": 0.24384,
+      "chargePerfectTotal": 0.2012933333,
+      "slapNicePerfect": 0.64808,
+      "chargeNicePerfect": 0.4453866667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.26406,
+      "chargePerfectTotal": 0.21184,
+      "slapNicePerfect": 0.67532,
+      "chargeNicePerfect": 0.47128
+    },
+    "hitbox": {
+      "width": 0.696,
+      "height": 1.8
+    },
+    "catch": {
+      "regular": 1.92,
+      "height": 2.34,
+      "dive": 2.64,
+      "jumpWidth": 2.16
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 30
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 17.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.58,
+      "farLimit": 0.55,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "red koopa troopa": {
+    "slapContact": 70.0,
+    "chargeContact": 50.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 30.0,
+    "runSpeed": 64.0,
+    "throwingSpeed": 40.0,
+    "fielding": 35.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 3.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 126.0,
+    "fastballSpeed": 135.0,
+    "curve": 55.0,
+    "stamina": 56.0,
+    "contact": {
+      "slapPerfectTotal": 0.2673333333,
+      "chargePerfectTotal": 0.222,
+      "slapNicePerfect": 0.6702666667,
+      "chargeNicePerfect": 0.4671666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.293,
+      "chargePerfectTotal": 0.236,
+      "slapNicePerfect": 0.7034,
+      "chargeNicePerfect": 0.5
+    },
+    "hitbox": {
+      "width": 0.6018,
+      "height": 2.124
+    },
+    "catch": {
+      "regular": 1.77,
+      "height": 2.655,
+      "dive": 2.36,
+      "jumpWidth": 2.006
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.65,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.062
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "green koopa paratroopa": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 35.0,
+    "chargePower": 55.0,
+    "bunting": 37.0,
+    "runSpeed": 52.0,
+    "throwingSpeed": 55.0,
+    "fielding": 70.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 5.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 120.0,
+    "fastballSpeed": 135.0,
+    "curve": 35.0,
+    "stamina": 55.0,
+    "contact": {
+      "slapPerfectTotal": 0.2636666667,
+      "chargePerfectTotal": 0.2192,
+      "slapNicePerfect": 0.6655333333,
+      "chargeNicePerfect": 0.4606
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2871333333,
+      "chargePerfectTotal": 0.23152,
+      "slapNicePerfect": 0.6958266667,
+      "chargeNicePerfect": 0.4894933333
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.52
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 3.06,
+      "dive": 2.4,
+      "jumpWidth": 2.04
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.65,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.08
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "blue shy guy": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 44.0,
+    "runSpeed": 45.0,
+    "throwingSpeed": 55.0,
+    "fielding": 70.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 4.0,
+    "curveballSpeed": 116.0,
+    "fastballSpeed": 135.0,
+    "curve": 53.0,
+    "stamina": 62.0,
+    "contact": {
+      "slapPerfectTotal": 0.2580966667,
+      "chargePerfectTotal": 0.2143633333,
+      "slapNicePerfect": 0.6720733333,
+      "chargeNicePerfect": 0.45838
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2778786667,
+      "chargePerfectTotal": 0.2239626667,
+      "slapNicePerfect": 0.6980293333,
+      "chargeNicePerfect": 0.481296
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.68,
+      "height": 2.7,
+      "dive": 3.36,
+      "jumpWidth": 1.92
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.58,
+      "farLimit": 0.63,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "yellow shy guy": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 44.0,
+    "runSpeed": 55.0,
+    "throwingSpeed": 55.0,
+    "fielding": 70.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 116.0,
+    "fastballSpeed": 130.0,
+    "curve": 42.0,
+    "stamina": 62.0,
+    "contact": {
+      "slapPerfectTotal": 0.2580966667,
+      "chargePerfectTotal": 0.2143633333,
+      "slapNicePerfect": 0.6720733333,
+      "chargeNicePerfect": 0.45838
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2778786667,
+      "chargePerfectTotal": 0.2239626667,
+      "slapNicePerfect": 0.6980293333,
+      "chargeNicePerfect": 0.481296
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.68,
+      "height": 2.7,
+      "dive": 3.36,
+      "jumpWidth": 1.92
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.58,
+      "farLimit": 0.63,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "green shy guy": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 35.0,
+    "chargePower": 55.0,
+    "bunting": 44.0,
+    "runSpeed": 55.0,
+    "throwingSpeed": 55.0,
+    "fielding": 70.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 5.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 116.0,
+    "fastballSpeed": 125.0,
+    "curve": 40.0,
+    "stamina": 62.0,
+    "contact": {
+      "slapPerfectTotal": 0.26176,
+      "chargePerfectTotal": 0.2171866667,
+      "slapNicePerfect": 0.67688,
+      "chargeNicePerfect": 0.46512
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.28374,
+      "chargePerfectTotal": 0.22848,
+      "slapNicePerfect": 0.70572,
+      "chargeNicePerfect": 0.49208
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.68,
+      "height": 2.7,
+      "dive": 3.36,
+      "jumpWidth": 1.92
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.58,
+      "farLimit": 0.63,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "gray shy guy": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 44.0,
+    "runSpeed": 45.0,
+    "throwingSpeed": 55.0,
+    "fielding": 75.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 4.0,
+    "curveballSpeed": 116.0,
+    "fastballSpeed": 130.0,
+    "curve": 42.0,
+    "stamina": 62.0,
+    "contact": {
+      "slapPerfectTotal": 0.2580966667,
+      "chargePerfectTotal": 0.2143633333,
+      "slapNicePerfect": 0.6720733333,
+      "chargeNicePerfect": 0.45838
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2778786667,
+      "chargePerfectTotal": 0.2239626667,
+      "slapNicePerfect": 0.6980293333,
+      "chargeNicePerfect": 0.481296
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.68,
+      "height": 2.7,
+      "dive": 3.36,
+      "jumpWidth": 1.92
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.58,
+      "farLimit": 0.63,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "dry bones": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 55.0,
+    "chargePower": 75.0,
+    "bunting": 20.0,
+    "runSpeed": 50.0,
+    "throwingSpeed": 70.0,
+    "fielding": 41.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 128.0,
+    "fastballSpeed": 142.0,
+    "curve": 41.0,
+    "stamina": 44.0,
+    "contact": {
+      "slapPerfectTotal": 0.2897966667,
+      "chargePerfectTotal": 0.23733,
+      "slapNicePerfect": 0.7962333333,
+      "chargeNicePerfect": 0.5515
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3146073333,
+      "chargePerfectTotal": 0.2509846667,
+      "slapNicePerfect": 0.8310066667,
+      "chargeNicePerfect": 0.5864066667
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.7,
+      "dive": 2.4,
+      "jumpWidth": 2.04
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.75,
+      "farLimit": 0.58,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "green dry bones": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 55.0,
+    "chargePower": 75.0,
+    "bunting": 20.0,
+    "runSpeed": 57.0,
+    "throwingSpeed": 70.0,
+    "fielding": 41.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 128.0,
+    "fastballSpeed": 137.0,
+    "curve": 37.0,
+    "stamina": 44.0,
+    "contact": {
+      "slapPerfectTotal": 0.30118,
+      "chargePerfectTotal": 0.24738,
+      "slapNicePerfect": 0.8144,
+      "chargeNicePerfect": 0.564
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.327164,
+      "chargePerfectTotal": 0.261548,
+      "slapNicePerfect": 0.85024,
+      "chargeNicePerfect": 0.59964
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.7,
+      "dive": 2.4,
+      "jumpWidth": 2.04
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.75,
+      "farLimit": 0.63,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "dark bones": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 55.0,
+    "chargePower": 75.0,
+    "bunting": 20.0,
+    "runSpeed": 50.0,
+    "throwingSpeed": 70.0,
+    "fielding": 38.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 125.0,
+    "fastballSpeed": 147.0,
+    "curve": 46.0,
+    "stamina": 44.0,
+    "contact": {
+      "slapPerfectTotal": 0.30118,
+      "chargePerfectTotal": 0.24738,
+      "slapNicePerfect": 0.8144,
+      "chargeNicePerfect": 0.564
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.327164,
+      "chargePerfectTotal": 0.261548,
+      "slapNicePerfect": 0.85024,
+      "chargeNicePerfect": 0.59964
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.7,
+      "dive": 2.4,
+      "jumpWidth": 2.04
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.75,
+      "farLimit": 0.63,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "blue dry bones": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 55.0,
+    "chargePower": 75.0,
+    "bunting": 20.0,
+    "runSpeed": 50.0,
+    "throwingSpeed": 70.0,
+    "fielding": 49.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 5.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 128.0,
+    "fastballSpeed": 137.0,
+    "curve": 37.0,
+    "stamina": 44.0,
+    "contact": {
+      "slapPerfectTotal": 0.30118,
+      "chargePerfectTotal": 0.24738,
+      "slapNicePerfect": 0.8144,
+      "chargeNicePerfect": 0.564
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.327164,
+      "chargePerfectTotal": 0.261548,
+      "slapNicePerfect": 0.85024,
+      "chargeNicePerfect": 0.59964
+    },
+    "hitbox": {
+      "width": 0.6,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.7,
+      "dive": 2.4,
+      "jumpWidth": 2.04
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.75,
+      "farLimit": 0.63,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "fire bro": {
+    "slapContact": 55.0,
+    "chargeContact": 20.0,
+    "slapPower": 10.0,
+    "chargePower": 88.0,
+    "bunting": 10.0,
+    "runSpeed": 30.0,
+    "throwingSpeed": 85.0,
+    "fielding": 55.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 8.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 132.0,
+    "fastballSpeed": 150.0,
+    "curve": 15.0,
+    "stamina": 69.0,
+    "contact": {
+      "slapPerfectTotal": 0.2680866667,
+      "chargePerfectTotal": 0.21256,
+      "slapNicePerfect": 0.7189333333,
+      "chargeNicePerfect": 0.4686333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2883546667,
+      "chargePerfectTotal": 0.21844,
+      "slapNicePerfect": 0.7462933333,
+      "chargeNicePerfect": 0.4831
+    },
+    "hitbox": {
+      "width": 0.696,
+      "height": 2.04
+    },
+    "catch": {
+      "regular": 1.92,
+      "height": 2.58,
+      "dive": 2.64,
+      "jumpWidth": 2.16
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.61,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "boomerang bro": {
+    "slapContact": 55.0,
+    "chargeContact": 20.0,
+    "slapPower": 10.0,
+    "chargePower": 85.0,
+    "bunting": 10.0,
+    "runSpeed": 30.0,
+    "throwingSpeed": 80.0,
+    "fielding": 50.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 5.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 128.0,
+    "fastballSpeed": 147.0,
+    "curve": 63.0,
+    "stamina": 69.0,
+    "contact": {
+      "slapPerfectTotal": 0.2658833333,
+      "chargePerfectTotal": 0.2106666667,
+      "slapNicePerfect": 0.7153666667,
+      "chargeNicePerfect": 0.4663
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2859533333,
+      "chargePerfectTotal": 0.2165,
+      "slapNicePerfect": 0.7425466667,
+      "chargeNicePerfect": 0.4807
+    },
+    "hitbox": {
+      "width": 0.696,
+      "height": 2.04
+    },
+    "catch": {
+      "regular": 1.92,
+      "height": 2.58,
+      "dive": 2.64,
+      "jumpWidth": 2.16
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.05,
+      "finalHitHeight": 1.26
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "wiggler": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 50.0,
+    "chargePower": 70.0,
+    "bunting": 20.0,
+    "runSpeed": 75.0,
+    "throwingSpeed": 70.0,
+    "fielding": 42.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 128.0,
+    "fastballSpeed": 142.0,
+    "curve": 27.0,
+    "stamina": 82.0,
+    "contact": {
+      "slapPerfectTotal": 0.26221,
+      "chargePerfectTotal": 0.21749,
+      "slapNicePerfect": 0.6875,
+      "chargeNicePerfect": 0.4689
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.282244,
+      "chargePerfectTotal": 0.227248,
+      "slapNicePerfect": 0.71396,
+      "chargeNicePerfect": 0.49236
+    },
+    "hitbox": {
+      "width": 0.801,
+      "height": 3.51
+    },
+    "catch": {
+      "regular": 1.62,
+      "height": 3.915,
+      "dive": 2.34,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 50
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 10.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.6,
+      "farLimit": 0.63,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.3,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 0.9
+    }
+  },
+  "blooper": {
+    "slapContact": 70.0,
+    "chargeContact": 50.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 60.0,
+    "runSpeed": 50.0,
+    "throwingSpeed": 50.0,
+    "fielding": 50.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 5.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 100.0,
+    "fastballSpeed": 112.0,
+    "curve": 46.0,
+    "stamina": 57.0,
+    "contact": {
+      "slapPerfectTotal": 0.2886,
+      "chargePerfectTotal": 0.2383333333,
+      "slapNicePerfect": 0.7488,
+      "chargeNicePerfect": 0.5221666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3159,
+      "chargePerfectTotal": 0.2535,
+      "slapNicePerfect": 0.7852,
+      "chargeNicePerfect": 0.559
+    },
+    "hitbox": {
+      "width": 0.803,
+      "height": 2.53
+    },
+    "catch": {
+      "regular": 1.925,
+      "height": 3.025,
+      "dive": 2.64,
+      "jumpWidth": 2.09
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 30
+    },
+    "changeup": {
+      "speedMultiplier": 1.5,
+      "height": 25.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.65,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.1
+    },
+    "size": {
+      "gameplayScale": 1.1
+    }
+  },
+  "funky kong": {
+    "slapContact": 60.0,
+    "chargeContact": 30.0,
+    "slapPower": 50.0,
+    "chargePower": 80.0,
+    "bunting": 10.0,
+    "runSpeed": 30.0,
+    "throwingSpeed": 80.0,
+    "fielding": 60.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 8.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 142.0,
+    "fastballSpeed": 110.0,
+    "curve": 22.0,
+    "stamina": 85.0,
+    "contact": {
+      "slapPerfectTotal": 0.26672,
+      "chargePerfectTotal": 0.21662,
+      "slapNicePerfect": 0.6716,
+      "chargeNicePerfect": 0.4481
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.28938,
+      "chargePerfectTotal": 0.22523,
+      "slapNicePerfect": 0.7006,
+      "chargeNicePerfect": 0.4681
+    },
+    "hitbox": {
+      "width": 1.1025,
+      "height": 2.625
+    },
+    "catch": {
+      "regular": 2.1,
+      "height": 3.0975,
+      "dive": 3.15,
+      "jumpWidth": 2.31
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.68,
+      "moveSpeed": 0.02,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.155
+    },
+    "size": {
+      "gameplayScale": 1.05
+    }
+  },
+  "tiny kong": {
+    "slapContact": 68.0,
+    "chargeContact": 50.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 50.0,
+    "runSpeed": 55.0,
+    "throwingSpeed": 40.0,
+    "fielding": 75.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 5.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 5.0,
+    "curveballSpeed": 126.0,
+    "fastballSpeed": 135.0,
+    "curve": 54.0,
+    "stamina": 64.0,
+    "contact": {
+      "slapPerfectTotal": 0.2640533333,
+      "chargePerfectTotal": 0.218,
+      "slapNicePerfect": 0.7101866667,
+      "chargeNicePerfect": 0.4968333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.28808,
+      "chargePerfectTotal": 0.232,
+      "slapNicePerfect": 0.74328,
+      "chargeNicePerfect": 0.532
+    },
+    "hitbox": {
+      "width": 0.704,
+      "height": 2.53
+    },
+    "catch": {
+      "regular": 1.76,
+      "height": 3.025,
+      "dive": 2.42,
+      "jumpWidth": 1.98
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 30
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 25.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.55,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.15,
+      "finalHitHeight": 1.265
+    },
+    "size": {
+      "gameplayScale": 1.1
+    }
+  },
+  "kritter": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 50.0,
+    "chargePower": 70.0,
+    "bunting": 20.0,
+    "runSpeed": 35.0,
+    "throwingSpeed": 75.0,
+    "fielding": 70.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 118.0,
+    "fastballSpeed": 142.0,
+    "curve": 31.0,
+    "stamina": 68.0,
+    "contact": {
+      "slapPerfectTotal": 0.2932,
+      "chargePerfectTotal": 0.2843333333,
+      "slapNicePerfect": 0.5716,
+      "chargeNicePerfect": 0.3712333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3065,
+      "chargePerfectTotal": 0.2932,
+      "slapNicePerfect": 0.6034,
+      "chargeNicePerfect": 0.4011
+    },
+    "hitbox": {
+      "width": 1.0,
+      "height": 2.7
+    },
+    "catch": {
+      "regular": 1.9,
+      "height": 3.15,
+      "dive": 2.8,
+      "jumpWidth": 2.1
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 50
+    },
+    "changeup": {
+      "speedMultiplier": 1.1,
+      "height": 20.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.68,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.15,
+      "finalHitHeight": 1.15
+    },
+    "size": {
+      "gameplayScale": 1.0
+    }
+  },
+  "blue kritter": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 20.0,
+    "runSpeed": 35.0,
+    "throwingSpeed": 75.0,
+    "fielding": 70.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 114.0,
+    "fastballSpeed": 146.0,
+    "curve": 31.0,
+    "stamina": 68.0,
+    "contact": {
+      "slapPerfectTotal": 0.2909833333,
+      "chargePerfectTotal": 0.2821166667,
+      "slapNicePerfect": 0.5663,
+      "chargeNicePerfect": 0.3637666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3029533333,
+      "chargePerfectTotal": 0.2896533333,
+      "slapNicePerfect": 0.59492,
+      "chargeNicePerfect": 0.3891533333
+    },
+    "hitbox": {
+      "width": 1.0,
+      "height": 2.7
+    },
+    "catch": {
+      "regular": 1.9,
+      "height": 3.15,
+      "dive": 2.8,
+      "jumpWidth": 2.1
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 50
+    },
+    "changeup": {
+      "speedMultiplier": 1.1,
+      "height": 20.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.68,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.15,
+      "finalHitHeight": 1.15
+    },
+    "size": {
+      "gameplayScale": 1.0
+    }
+  },
+  "red kritter": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 55.0,
+    "chargePower": 75.0,
+    "bunting": 20.0,
+    "runSpeed": 35.0,
+    "throwingSpeed": 75.0,
+    "fielding": 70.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 8.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 122.0,
+    "fastballSpeed": 138.0,
+    "curve": 24.0,
+    "stamina": 68.0,
+    "contact": {
+      "slapPerfectTotal": 0.2909833333,
+      "chargePerfectTotal": 0.2821166667,
+      "slapNicePerfect": 0.5663,
+      "chargeNicePerfect": 0.3637666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3029533333,
+      "chargePerfectTotal": 0.2896533333,
+      "slapNicePerfect": 0.59492,
+      "chargeNicePerfect": 0.3891533333
+    },
+    "hitbox": {
+      "width": 1.0,
+      "height": 2.7
+    },
+    "catch": {
+      "regular": 1.9,
+      "height": 3.15,
+      "dive": 2.8,
+      "jumpWidth": 2.1
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 50
+    },
+    "changeup": {
+      "speedMultiplier": 1.1,
+      "height": 20.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.68,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.15,
+      "finalHitHeight": 1.15
+    },
+    "size": {
+      "gameplayScale": 1.0
+    }
+  },
+  "brown kritter": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 50.0,
+    "chargePower": 70.0,
+    "bunting": 20.0,
+    "runSpeed": 40.0,
+    "throwingSpeed": 75.0,
+    "fielding": 70.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 4.0,
+    "curveballSpeed": 122.0,
+    "fastballSpeed": 138.0,
+    "curve": 24.0,
+    "stamina": 68.0,
+    "contact": {
+      "slapPerfectTotal": 0.2909833333,
+      "chargePerfectTotal": 0.2821166667,
+      "slapNicePerfect": 0.5663,
+      "chargeNicePerfect": 0.3637666667
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.3029533333,
+      "chargePerfectTotal": 0.2896533333,
+      "slapNicePerfect": 0.59492,
+      "chargeNicePerfect": 0.3891533333
+    },
+    "hitbox": {
+      "width": 1.0,
+      "height": 2.7
+    },
+    "catch": {
+      "regular": 1.9,
+      "height": 3.15,
+      "dive": 2.8,
+      "jumpWidth": 2.1
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 50
+    },
+    "changeup": {
+      "speedMultiplier": 1.1,
+      "height": 20.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.68,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.15,
+      "finalHitHeight": 1.15
+    },
+    "size": {
+      "gameplayScale": 1.0
+    }
+  },
+  "king k rool": {
+    "slapContact": 70.0,
+    "chargeContact": 18.0,
+    "slapPower": 64.0,
+    "chargePower": 94.0,
+    "bunting": 10.0,
+    "runSpeed": 10.0,
+    "throwingSpeed": 90.0,
+    "fielding": 20.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 10.0,
+    "displayedFielding": 2.0,
+    "displayedSpeed": 1.0,
+    "curveballSpeed": 135.0,
+    "fastballSpeed": 155.0,
+    "curve": 48.0,
+    "stamina": 38.0,
+    "contact": {
+      "slapPerfectTotal": 0.2821666667,
+      "chargePerfectTotal": 0.2605,
+      "slapNicePerfect": 0.5296,
+      "chargeNicePerfect": 0.31274
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.29675,
+      "chargePerfectTotal": 0.26425,
+      "slapNicePerfect": 0.5639,
+      "chargeNicePerfect": 0.32486
+    },
+    "hitbox": {
+      "width": 1.404,
+      "height": 3.15
+    },
+    "catch": {
+      "regular": 2.16,
+      "height": 3.555,
+      "dive": 3.42,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.5,
+      "height": 18.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.55,
+      "farLimit": 0.7,
+      "moveSpeed": 0.02,
+      "hitZoneHeight": 1.23,
+      "finalHitHeight": 1.107
+    },
+    "size": {
+      "gameplayScale": 0.9
+    }
+  },
+  "baby peach": {
+    "slapContact": 70.0,
+    "chargeContact": 55.0,
+    "slapPower": 15.0,
+    "chargePower": 25.0,
+    "bunting": 50.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 30.0,
+    "fielding": 50.0,
+    "displayedPitching": 8.0,
+    "displayedBatting": 2.0,
+    "displayedFielding": 5.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 105.0,
+    "fastballSpeed": 117.0,
+    "curve": 80.0,
+    "stamina": 30.0,
+    "contact": {
+      "slapPerfectTotal": 0.2635666667,
+      "chargePerfectTotal": 0.2576166667,
+      "slapNicePerfect": 0.5406666667,
+      "chargeNicePerfect": 0.3605
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.27745,
+      "chargePerfectTotal": 0.2683266667,
+      "slapNicePerfect": 0.5745,
+      "chargeNicePerfect": 0.3983
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 2.7,
+      "dive": 1.92,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.8,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.54,
+      "moveSpeed": 0.04,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.2
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "baby daisy": {
+    "slapContact": 70.0,
+    "chargeContact": 50.0,
+    "slapPower": 20.0,
+    "chargePower": 40.0,
+    "bunting": 50.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 40.0,
+    "fielding": 50.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 5.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 115.0,
+    "fastballSpeed": 122.0,
+    "curve": 65.0,
+    "stamina": 35.0,
+    "contact": {
+      "slapPerfectTotal": 0.2770333333,
+      "chargePerfectTotal": 0.2281666667,
+      "slapNicePerfect": 0.7304666667,
+      "chargeNicePerfect": 0.5095
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.30305,
+      "chargePerfectTotal": 0.24275,
+      "slapNicePerfect": 0.7657,
+      "chargeNicePerfect": 0.5455
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 2.16
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 2.7,
+      "dive": 3.12,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.6,
+      "finalHitHeight": 0.72
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "baby dk": {
+    "slapContact": 55.0,
+    "chargeContact": 40.0,
+    "slapPower": 50.0,
+    "chargePower": 65.0,
+    "bunting": 55.0,
+    "runSpeed": 40.0,
+    "throwingSpeed": 70.0,
+    "fielding": 82.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 8.0,
+    "displayedSpeed": 4.0,
+    "curveballSpeed": 118.0,
+    "fastballSpeed": 132.0,
+    "curve": 30.0,
+    "stamina": 47.0,
+    "contact": {
+      "slapPerfectTotal": 0.27029,
+      "chargePerfectTotal": 0.2263066667,
+      "slapNicePerfect": 0.7225,
+      "chargeNicePerfect": 0.5000333333
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.290756,
+      "chargePerfectTotal": 0.23816,
+      "slapNicePerfect": 0.75004,
+      "chargeNicePerfect": 0.5291
+    },
+    "hitbox": {
+      "width": 0.504,
+      "height": 2.04
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 3.06,
+      "dive": 1.92,
+      "jumpWidth": 1.8
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.6,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.62,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.32
+    },
+    "size": {
+      "gameplayScale": 1.2
+    }
+  },
+  "red yoshi": {
+    "slapContact": 60.0,
+    "chargeContact": 45.0,
+    "slapPower": 30.0,
+    "chargePower": 45.0,
+    "bunting": 35.0,
+    "runSpeed": 80.0,
+    "throwingSpeed": 40.0,
+    "fielding": 42.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 8.0,
+    "curveballSpeed": 116.0,
+    "fastballSpeed": 130.0,
+    "curve": 35.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2696,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7204,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2919,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7506,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.6962,
+      "height": 2.242
+    },
+    "catch": {
+      "regular": 1.888,
+      "height": 2.832,
+      "dive": 2.596,
+      "jumpWidth": 2.124
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.99,
+      "finalHitHeight": 1.1682
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "blue yoshi": {
+    "slapContact": 50.0,
+    "chargeContact": 40.0,
+    "slapPower": 25.0,
+    "chargePower": 35.0,
+    "bunting": 35.0,
+    "runSpeed": 80.0,
+    "throwingSpeed": 35.0,
+    "fielding": 50.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 2.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 8.0,
+    "curveballSpeed": 126.0,
+    "fastballSpeed": 135.0,
+    "curve": 45.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2621666667,
+      "chargePerfectTotal": 0.2223333333,
+      "slapNicePerfect": 0.7103333333,
+      "chargeNicePerfect": 0.4951
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.28075,
+      "chargePerfectTotal": 0.234,
+      "slapNicePerfect": 0.7355,
+      "chargeNicePerfect": 0.5239
+    },
+    "hitbox": {
+      "width": 0.6962,
+      "height": 2.242
+    },
+    "catch": {
+      "regular": 1.888,
+      "height": 2.832,
+      "dive": 2.596,
+      "jumpWidth": 2.124
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.99,
+      "finalHitHeight": 1.1682
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "yellow yoshi": {
+    "slapContact": 60.0,
+    "chargeContact": 45.0,
+    "slapPower": 30.0,
+    "chargePower": 45.0,
+    "bunting": 40.0,
+    "runSpeed": 75.0,
+    "throwingSpeed": 35.0,
+    "fielding": 50.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 112.0,
+    "fastballSpeed": 130.0,
+    "curve": 35.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2696,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7204,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2919,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7506,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.6962,
+      "height": 2.242
+    },
+    "catch": {
+      "regular": 1.888,
+      "height": 2.832,
+      "dive": 2.596,
+      "jumpWidth": 2.124
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.99,
+      "finalHitHeight": 1.1682
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "light blue yoshi": {
+    "slapContact": 55.0,
+    "chargeContact": 45.0,
+    "slapPower": 30.0,
+    "chargePower": 40.0,
+    "bunting": 35.0,
+    "runSpeed": 80.0,
+    "throwingSpeed": 35.0,
+    "fielding": 50.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 8.0,
+    "curveballSpeed": 112.0,
+    "fastballSpeed": 130.0,
+    "curve": 35.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2658833333,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7153666667,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2859533333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7425466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.6962,
+      "height": 2.242
+    },
+    "catch": {
+      "regular": 1.888,
+      "height": 2.832,
+      "dive": 2.596,
+      "jumpWidth": 2.124
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.99,
+      "finalHitHeight": 1.1682
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "pink yoshi": {
+    "slapContact": 55.0,
+    "chargeContact": 45.0,
+    "slapPower": 30.0,
+    "chargePower": 40.0,
+    "bunting": 35.0,
+    "runSpeed": 85.0,
+    "throwingSpeed": 35.0,
+    "fielding": 50.0,
+    "displayedPitching": 2.0,
+    "displayedBatting": 3.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 9.0,
+    "curveballSpeed": 115.0,
+    "fastballSpeed": 127.0,
+    "curve": 30.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2658833333,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7153666667,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2859533333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7425466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.6962,
+      "height": 2.242
+    },
+    "catch": {
+      "regular": 1.888,
+      "height": 2.832,
+      "dive": 2.596,
+      "jumpWidth": 2.124
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.99,
+      "finalHitHeight": 1.1682
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "unused yoshi": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 30.0,
+    "chargePower": 45.0,
+    "bunting": 40.0,
+    "runSpeed": 90.0,
+    "throwingSpeed": 40.0,
+    "fielding": 55.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 9.0,
+    "curveballSpeed": 126.0,
+    "fastballSpeed": 135.0,
+    "curve": 40.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2658833333,
+      "chargePerfectTotal": 0.2194166667,
+      "slapNicePerfect": 0.7153666667,
+      "chargeNicePerfect": 0.4879
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2859533333,
+      "chargePerfectTotal": 0.2293333333,
+      "slapNicePerfect": 0.7425466667,
+      "chargeNicePerfect": 0.51238
+    },
+    "hitbox": {
+      "width": 0.59,
+      "height": 2.36
+    },
+    "catch": {
+      "regular": 1.416,
+      "height": 2.242,
+      "dive": 1.652,
+      "jumpWidth": 2.183
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 25
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.99,
+      "finalHitHeight": 1.1682
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "unused yoshi (white ?)": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 30.0,
+    "chargePower": 45.0,
+    "bunting": 40.0,
+    "runSpeed": 90.0,
+    "throwingSpeed": 40.0,
+    "fielding": 55.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 4.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 9.0,
+    "curveballSpeed": 126.0,
+    "fastballSpeed": 135.0,
+    "curve": 40.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2658833333,
+      "chargePerfectTotal": 0.2194166667,
+      "slapNicePerfect": 0.7153666667,
+      "chargeNicePerfect": 0.4879
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2859533333,
+      "chargePerfectTotal": 0.2293333333,
+      "slapNicePerfect": 0.7425466667,
+      "chargeNicePerfect": 0.51238
+    },
+    "hitbox": null,
+    "catch": null,
+    "charge": null,
+    "changeup": null,
+    "batterLocation": null,
+    "size": null
+  },
+  "unused toad": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 30.0,
+    "runSpeed": 70.0,
+    "throwingSpeed": 50.0,
+    "fielding": 30.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 5.0,
+    "displayedFielding": 3.0,
+    "displayedSpeed": 7.0,
+    "curveballSpeed": 114.0,
+    "fastballSpeed": 140.0,
+    "curve": 47.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2658833333,
+      "chargePerfectTotal": 0.2194166667,
+      "slapNicePerfect": 0.7153666667,
+      "chargeNicePerfect": 0.4879
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2859533333,
+      "chargePerfectTotal": 0.2293333333,
+      "slapNicePerfect": 0.7425466667,
+      "chargeNicePerfect": 0.51238
+    },
+    "hitbox": {
+      "width": 0.75,
+      "height": 3.0
+    },
+    "catch": {
+      "regular": 1.8,
+      "height": 2.775,
+      "dive": 2.1,
+      "jumpWidth": 2.775
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.1,
+      "finalHitHeight": 1.65
+    },
+    "size": {
+      "gameplayScale": 1.5
+    }
+  },
+  "unused pianta": {
+    "slapContact": 55.0,
+    "chargeContact": 35.0,
+    "slapPower": 52.0,
+    "chargePower": 82.0,
+    "bunting": 20.0,
+    "runSpeed": 20.0,
+    "throwingSpeed": 80.0,
+    "fielding": 35.0,
+    "displayedPitching": 5.0,
+    "displayedBatting": 8.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 2.0,
+    "curveballSpeed": 132.0,
+    "fastballSpeed": 147.0,
+    "curve": 32.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2658833333,
+      "chargePerfectTotal": 0.2194166667,
+      "slapNicePerfect": 0.7153666667,
+      "chargeNicePerfect": 0.4879
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2859533333,
+      "chargePerfectTotal": 0.2293333333,
+      "slapNicePerfect": 0.7425466667,
+      "chargeNicePerfect": 0.51238
+    },
+    "hitbox": {
+      "width": 0.65,
+      "height": 2.6
+    },
+    "catch": {
+      "regular": 1.56,
+      "height": 2.405,
+      "dive": 1.82,
+      "jumpWidth": 2.405
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.3,
+      "finalHitHeight": 1.69
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "unused kritter": {
+    "slapContact": 60.0,
+    "chargeContact": 40.0,
+    "slapPower": 50.0,
+    "chargePower": 70.0,
+    "bunting": 20.0,
+    "runSpeed": 35.0,
+    "throwingSpeed": 75.0,
+    "fielding": 70.0,
+    "displayedPitching": 4.0,
+    "displayedBatting": 7.0,
+    "displayedFielding": 7.0,
+    "displayedSpeed": 3.0,
+    "curveballSpeed": 118.0,
+    "fastballSpeed": 142.0,
+    "curve": 31.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2696,
+      "chargePerfectTotal": 0.2223333333,
+      "slapNicePerfect": 0.7204,
+      "chargeNicePerfect": 0.4951
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2919,
+      "chargePerfectTotal": 0.234,
+      "slapNicePerfect": 0.7506,
+      "chargeNicePerfect": 0.5239
+    },
+    "hitbox": {
+      "width": 0.5,
+      "height": 2.0
+    },
+    "catch": {
+      "regular": 1.17,
+      "height": 1.85,
+      "dive": 1.4,
+      "jumpWidth": 1.85
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.15,
+      "finalHitHeight": 0.15
+    },
+    "size": {
+      "gameplayScale": 1.0
+    }
+  },
+  "unused koopa": {
+    "slapContact": 70.0,
+    "chargeContact": 50.0,
+    "slapPower": 30.0,
+    "chargePower": 50.0,
+    "bunting": 30.0,
+    "runSpeed": 64.0,
+    "throwingSpeed": 50.0,
+    "fielding": 45.0,
+    "displayedPitching": 3.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 4.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 121.0,
+    "fastballSpeed": 138.0,
+    "curve": 50.0,
+    "stamina": 60.0,
+    "contact": {
+      "slapPerfectTotal": 0.2770333333,
+      "chargePerfectTotal": 0.2281666667,
+      "slapNicePerfect": 0.7304666667,
+      "chargeNicePerfect": 0.5095
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.30305,
+      "chargePerfectTotal": 0.24275,
+      "slapNicePerfect": 0.7657,
+      "chargeNicePerfect": 0.5455
+    },
+    "hitbox": {
+      "width": 0.59,
+      "height": 2.36
+    },
+    "catch": {
+      "regular": 1.3806,
+      "height": 2.183,
+      "dive": 1.652,
+      "jumpWidth": 2.183
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 60
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 1.0,
+      "finalHitHeight": 1.18
+    },
+    "size": {
+      "gameplayScale": 1.18
+    }
+  },
+  "red mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "orange mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "yellow mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "light green mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "green mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "blue mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "light blue mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "pink mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "purple mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "brown mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "white mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "black mii (m)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "red mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "orange mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "yellow mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "light green mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "green mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "blue mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "light blue mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "pink mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "purple mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "brown mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "white mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  },
+  "black mii (f)": {
+    "slapContact": 65.0,
+    "chargeContact": 45.0,
+    "slapPower": 45.0,
+    "chargePower": 65.0,
+    "bunting": 40.0,
+    "runSpeed": 60.0,
+    "throwingSpeed": 60.0,
+    "fielding": 60.0,
+    "displayedPitching": 6.0,
+    "displayedBatting": 6.0,
+    "displayedFielding": 6.0,
+    "displayedSpeed": 6.0,
+    "curveballSpeed": 130.0,
+    "fastballSpeed": 142.0,
+    "curve": 50.0,
+    "stamina": 75.0,
+    "contact": {
+      "slapPerfectTotal": 0.2733166667,
+      "chargePerfectTotal": 0.22525,
+      "slapNicePerfect": 0.7254333333,
+      "chargeNicePerfect": 0.5023
+    },
+    "starContact": {
+      "slapPerfectTotal": 0.2971033333,
+      "chargePerfectTotal": 0.2380833333,
+      "slapNicePerfect": 0.7576466667,
+      "chargeNicePerfect": 0.53398
+    },
+    "hitbox": {
+      "width": 0.598,
+      "height": 2.86
+    },
+    "catch": {
+      "regular": 2.6,
+      "height": 3.315,
+      "dive": 2.86,
+      "jumpWidth": 2.34
+    },
+    "charge": {
+      "upFrames": 60,
+      "keepFrames": 40
+    },
+    "changeup": {
+      "speedMultiplier": 0.7,
+      "height": 15.0
+    },
+    "batterLocation": {
+      "nearLimit": -0.65,
+      "farLimit": 0.6,
+      "moveSpeed": 0.03,
+      "hitZoneHeight": 0.9,
+      "finalHitHeight": 1.17
+    },
+    "size": {
+      "gameplayScale": 1.3
+    }
+  }
+}

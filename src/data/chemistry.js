@@ -154,6 +154,20 @@ export const CHEMISTRY = {
   'Black Mii':       { good: ['Bowser','Bowser Jr.','Gray Shy Guy'],                                                 bad: [] },
 }
 
+// Color variants share chemistry with their base character, so a name from a
+// chemistry list (e.g. 'Magikoopa') should match a variant on the roster
+// (e.g. 'Blue Magikoopa') and vice versa.
+export function chemistryNamesMatch(a, b) {
+  if (a === b) return true
+  const baseA = CHARACTER_VARIANTS[a] || a
+  const baseB = CHARACTER_VARIANTS[b] || b
+  return baseA === b || baseB === a || baseA === baseB
+}
+
+export function isChemistryNameOnRoster(name, rosterNames = []) {
+  return rosterNames.some((rosterName) => chemistryNamesMatch(name, rosterName))
+}
+
 export function getChemistry(name) {
   if (CHEMISTRY[name]) return CHEMISTRY[name]
   const base = CHARACTER_VARIANTS[name]
@@ -164,17 +178,27 @@ export function getChemistry(name) {
   return { good: [...baseChem.good, mii], bad: baseChem.bad }
 }
 
-// Net chemistry score of candidate against a roster of character names
-export function chemScore(candidateName, rosterNames) {
+export function chemBreakdown(candidateName, rosterNames) {
   if (!rosterNames || rosterNames.length === 0) return null
-  let score = 0
+  let positive = 0
+  let negative = 0
   for (const r of rosterNames) {
     const candidateChem = getChemistry(candidateName)
     const rosterChem = getChemistry(r)
     const good = candidateChem.good.includes(r) || rosterChem.good.includes(candidateName)
     const bad = candidateChem.bad.includes(r) || rosterChem.bad.includes(candidateName)
-    if (good && !bad) score++
-    if (bad && !good) score--
+    if (good && !bad) positive++
+    if (bad && !good) negative++
   }
-  return score
+  return {
+    positive,
+    negative,
+    net: positive - negative,
+  }
+}
+
+// Net chemistry score of candidate against a roster of character names
+export function chemScore(candidateName, rosterNames) {
+  const breakdown = chemBreakdown(candidateName, rosterNames)
+  return breakdown ? breakdown.net : null
 }

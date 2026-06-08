@@ -10,6 +10,19 @@ export const STADIUM_ORDER = [
   'Bowser Castle',
 ]
 
+const STADIUM_LOGO_PATHS = {
+  'Mario Stadium': '/stadiums/mario_stadium_en.png',
+  "Luigi's Mansion": '/stadiums/luigis_mansion_en.png',
+  'Peach Ice Garden': '/stadiums/peach_ice_garden_en.png',
+  'Daisy Cruiser': '/stadiums/daisy_cruiser_en.png',
+  'Wario City': '/stadiums/wario_city_en.png',
+  'Yoshi Park': '/stadiums/yoshi_park_en.png',
+  'DK Jungle': '/stadiums/dk_jungle_en.png',
+  'Bowser Jr. Playroom': '/stadiums/bowser_jr_playroom_en.png',
+  'Bowser Castle': '/stadiums/bowser_castle_en.png',
+  Entrance: '/stadiums/entrance_en.png',
+}
+
 export function getOrderedStadiums(stadiums = []) {
   const order = new Map(STADIUM_ORDER.map((name, index) => [name, index]))
   return [...stadiums].sort((a, b) => (order.get(a.name) ?? 999) - (order.get(b.name) ?? 999))
@@ -50,6 +63,17 @@ export function getChaosTagColors(level = 0) {
 }
 
 export function getStadiumSpriteStyle(name, extra = {}) {
+  const directPath = STADIUM_LOGO_PATHS[name]
+  if (directPath) {
+    return {
+      backgroundImage: `url('${directPath}')`,
+      backgroundRepeat: 'no-repeat',
+      backgroundSize: 'contain',
+      backgroundPosition: 'center',
+      ...extra,
+    }
+  }
+
   const rowIndex = Math.max(0, STADIUM_ORDER.indexOf(name))
   const rowPercent = STADIUM_ORDER.length > 1 ? (rowIndex / (STADIUM_ORDER.length - 1)) * 100 : 0
   return {

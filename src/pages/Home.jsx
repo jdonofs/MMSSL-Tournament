@@ -1,25 +1,39 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { format } from 'date-fns'
-import { ArrowRight, BookOpenText, Download, ScrollText, Trophy } from 'lucide-react'
+import { Download } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
-import BracketView from '../components/BracketView'
-import PlayerTag from '../components/PlayerTag'
+import CompetitionOverviewTables from '../components/CompetitionOverviewTables'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
-import { buildStandings } from '../utils/statsCalculator'
+import { buildTournamentStandings } from '../utils/competitionStandings'
+import { buildSeasonPowerRankings } from '../utils/seasonPowerRankings'
+import { getTeamShortName } from '../utils/teamIdentity'
 import { importTournamentOneWorkbook } from '../utils/dataImport.jsx'
 
+function emptyRankingData() {
+  return {
+    roster: [],
+    characters: [],
+    plateAppearances: [],
+    pitchingStints: [],
+    gameFielders: [],
+    historicalPlateAppearances: [],
+    historicalPitchingStints: [],
+    historicalGameFielders: [],
+  }
+}
+
 export default function Home() {
-  const navigate = useNavigate()
   const { pushToast } = useToast()
   const { currentTournament, refreshTournaments } = useTournament()
   const { identitiesByPlayerId } = useTournamentTeamIdentity(currentTournament?.id)
   const [players, setPlayers] = useState([])
   const [allGames, setAllGames] = useState([])
+  const [rankingData, setRankingData] = useState(emptyRankingData)
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
+  const [rankingsLoading, setRankingsLoading] = useState(false)
+  const [rankingsError, setRankingsError] = useState('')
 
   useEffect(() => {
     const loadHome = async () => {
@@ -52,7 +66,7 @@ export default function Home() {
 
     const channel = supabase
       .channel(`home-tournament-${currentTournament.id}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'games', filter: `tournament_id=eq.${currentTournament.id}` }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games', filter: `tournament_id=eq.${currentTournament.id}` }, async (payload) => {
         setAllGames((current) => {
           const next = [...current]
           const index = next.findIndex((game) => game.id === payload.new?.id || game.id === payload.old?.id)
@@ -79,16 +93,144 @@ export default function Home() {
     }
   }, [currentTournament?.id])
 
-  const playersById = useMemo(
-    () => Object.fromEntries(players.map((player) => [player.id, player])),
-    [players]
+  useEffect(() => {
+    if (!currentTournament?.id) {
+      setRankingData(emptyRankingData())
+      setRankingsLoading(false)
+      setRankingsError('')
+      return undefined
+    }
+
+    let isActive = true
+
+    const loadRankingData = async () => {
+      if (isActive) {
+        setRankingsLoading(true)
+        setRankingsError('')
+      }
+
+      const [
+        { data: draftPicksData, error: draftPicksError },
+        { data: charactersData, error: charactersError },
+        { data: gamesData, error: gamesError },
+        { data: paData, error: paError },
+        { data: pitchingData, error: pitchingError },
+        { data: fieldersData, error: fieldersError },
+      ] = await Promise.all([
+        supabase.from('draft_picks').select('*').eq('tournament_id', currentTournament.id).order('pick_number'),
+        supabase.from('characters').select('*').order('name'),
+        supabase.from('games').select('id,tournament_id').order('id'),
+        supabase.from('plate_appearances').select('*').order('created_at'),
+        supabase.from('pitching_stints').select('*').order('created_at'),
+        supabase.from('game_fielders').select('*').order('created_at'),
+      ])
+
+      const error = draftPicksError || charactersError || gamesError || paError || pitchingError || fieldersError
+      if (!isActive) return
+
+      if (error) {
+        setRankingsError(error.message || 'Unable to load power rankings.')
+        setRankingsLoading(false)
+        return
+      }
+
+      const currentGameIds = new Set((gamesData || []).filter((game) => String(game.tournament_id) === String(currentTournament.id)).map((game) => String(game.id)))
+      const currentPlateAppearances = (paData || []).filter((pa) => currentGameIds.has(String(pa.game_id)))
+      const currentPitchingStints = (pitchingData || []).filter((stint) => currentGameIds.has(String(stint.game_id)))
+      const currentFielders = (fieldersData || []).filter((fielder) => currentGameIds.has(String(fielder.game_id)))
+      const charactersById = Object.fromEntries((charactersData || []).map((character) => [character.id, character]))
+
+      setRankingData({
+        roster: (draftPicksData || [])
+          .filter((entry) => entry.character_id)
+          .map((entry) => ({
+            ...entry,
+            team_id: entry.player_id,
+            character_name: charactersById[entry.character_id]?.name || '',
+            is_active: true,
+          })),
+        characters: charactersData || [],
+        plateAppearances: currentPlateAppearances,
+        pitchingStints: currentPitchingStints,
+        gameFielders: currentFielders,
+        historicalPlateAppearances: (paData || []).filter((pa) => !currentGameIds.has(String(pa.game_id))),
+        historicalPitchingStints: (pitchingData || []).filter((stint) => !currentGameIds.has(String(stint.game_id))),
+        historicalGameFielders: (fieldersData || []).filter((fielder) => !currentGameIds.has(String(fielder.game_id))),
+      })
+      setRankingsLoading(false)
+    }
+
+    loadRankingData()
+
+    const channel = supabase
+      .channel(`home-rankings-${currentTournament.id}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks', filter: `tournament_id=eq.${currentTournament.id}` }, loadRankingData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games', filter: `tournament_id=eq.${currentTournament.id}` }, loadRankingData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, loadRankingData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, loadRankingData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, loadRankingData)
+      .subscribe()
+
+    return () => {
+      isActive = false
+      supabase.removeChannel(channel)
+    }
+  }, [currentTournament?.id])
+
+  const games = useMemo(
+    () => allGames.filter((game) => !currentTournament || String(game.tournament_id) === String(currentTournament.id)),
+    [allGames, currentTournament],
   )
 
-  const games = allGames.filter((game) => !currentTournament || game.tournament_id === currentTournament.id)
+  const tournamentPlayerIds = useMemo(() => {
+    const ids = new Set((currentTournament?.player_ids || []).map((id) => String(id)))
+    games.forEach((game) => {
+      if (game.team_a_player_id) ids.add(String(game.team_a_player_id))
+      if (game.team_b_player_id) ids.add(String(game.team_b_player_id))
+    })
+    rankingData.roster.forEach((entry) => {
+      if (entry.player_id) ids.add(String(entry.player_id))
+    })
+    return ids
+  }, [currentTournament?.player_ids, games, rankingData.roster])
 
-  const currentGame = games.find((game) => game.status === 'active')
-  const recentResults = games.filter((game) => game.status === 'complete').slice(-5).reverse()
-  const standings = buildStandings(games, players)
+  const tournamentPlayers = useMemo(
+    () => players.filter((player) => tournamentPlayerIds.has(String(player.id))),
+    [players, tournamentPlayerIds],
+  )
+
+  const playersById = useMemo(
+    () => Object.fromEntries(tournamentPlayers.map((player) => [player.id, player])),
+    [tournamentPlayers],
+  )
+
+  const tournamentTeams = useMemo(
+    () => tournamentPlayers.map((player) => ({
+      id: player.id,
+      player_id: player.id,
+      team_name: getTeamShortName(identitiesByPlayerId[player.id]) || identitiesByPlayerId[player.id]?.teamName || player.name,
+      team_logo_key: identitiesByPlayerId[player.id]?.teamLogoKey || null,
+    })),
+    [identitiesByPlayerId, tournamentPlayers],
+  )
+
+  const standings = useMemo(
+    () => buildTournamentStandings(games, tournamentPlayers, identitiesByPlayerId),
+    [games, tournamentPlayers, identitiesByPlayerId],
+  )
+
+  const powerRankings = useMemo(() => buildSeasonPowerRankings({
+    seasonTeams: tournamentTeams,
+    standings,
+    roster: rankingData.roster,
+    characters: rankingData.characters,
+    plateAppearances: rankingData.plateAppearances,
+    pitchingStints: rankingData.pitchingStints,
+    gameFielders: rankingData.gameFielders,
+    historicalPlateAppearances: rankingData.historicalPlateAppearances,
+    historicalPitchingStints: rankingData.historicalPitchingStints,
+    historicalGameFielders: rankingData.historicalGameFielders,
+  }), [tournamentTeams, standings, rankingData])
 
   const handleImportTournamentOne = async () => {
     setImporting(true)
@@ -116,10 +258,6 @@ export default function Home() {
   return (
     <div className="page-stack">
       <div className="page-head">
-        <div>
-          <span className="brand-kicker">Tournament Overview</span>
-          <h1>{loading ? 'Loading tournament...' : currentTournament ? `Tournament ${currentTournament.tournament_number}` : 'No tournaments imported yet'}</h1>
-        </div>
         <div className="inline-actions">
           <button className="ghost-button" disabled={importing} onClick={handleImportTournamentOne} type="button">
             <Download size={16} />
@@ -132,161 +270,21 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="summary-grid">
-        <article className="summary-card">
-          <span className="muted">Date</span>
-          <h2>{currentTournament?.date ? format(new Date(currentTournament.date), 'MMM d, yyyy') : 'TBD'}</h2>
-        </article>
-        <article className="summary-card">
-          <span className="muted">Players</span>
-          <h2>{currentTournament?.player_count || players.length || 0}</h2>
-        </article>
-        <article className="summary-card">
-          <span className="muted">Games Logged</span>
-          <h2>{games.length}</h2>
-        </article>
-        <article className="summary-card">
-          <span className="muted">Completed</span>
-          <h2>{games.filter((game) => game.status === 'complete').length}</h2>
-        </article>
-      </div>
-
       {!currentTournament ? (
         <section className="panel">
           <h2>No tournament history yet</h2>
           <p className="muted">Use the import button above to load Tournament 1 from the workbook data and unlock historical browsing across the app.</p>
         </section>
-      ) : null}
-
-      <div className="home-grid">
-        <section className="panel">
-          <div className="section-head">
-            <h2>Bracket Preview</h2>
-            <button className="ghost-button" onClick={() => navigate('/bracket')} type="button">
-              <span>Open Full Bracket</span>
-              <ArrowRight size={16} />
-            </button>
-          </div>
-          <BracketView compact games={games} identitiesByPlayerId={identitiesByPlayerId} onSelectGame={(game) => navigate(`/scorebook?game=${game.id}`)} playersById={playersById} />
-        </section>
-
-        <div className="page-stack">
-          <section className="panel">
-            <div className="section-head">
-              <h2>Current Game</h2>
-              <span className={`status-pill status-${currentGame?.status || 'pending'}`}>{currentGame?.status || 'No live game'}</span>
-            </div>
-            {currentGame ? (
-              <div className="feed-list">
-                <div className="feed-row">
-                  <strong
-                    style={{
-                      color:
-                        currentGame.status === 'complete'
-                          ? currentGame.winner_player_id === currentGame.team_a_player_id
-                            ? '#4ade80'
-                            : '#fb7185'
-                          : undefined
-                    }}
-                  >
-                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={currentGame.team_a_player_id} playersById={playersById} />
-                  </strong>
-                  <strong>{currentGame.team_a_runs}</strong>
-                </div>
-                <div className="feed-row">
-                  <strong
-                    style={{
-                      color:
-                        currentGame.status === 'complete'
-                          ? currentGame.winner_player_id === currentGame.team_b_player_id
-                            ? '#4ade80'
-                            : '#fb7185'
-                          : undefined
-                    }}
-                  >
-                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={currentGame.team_b_player_id} playersById={playersById} />
-                  </strong>
-                  <strong>{currentGame.team_b_runs}</strong>
-                </div>
-                <button className="solid-button" onClick={() => navigate(`/scorebook?game=${currentGame.id}`)} type="button">
-                  <BookOpenText size={16} />
-                  <span>Open Scorebook</span>
-                </button>
-              </div>
-            ) : (
-              <p className="muted">No game is currently marked active.</p>
-            )}
-          </section>
-
-          <section className="panel">
-            <div className="section-head">
-              <h2>Quick Links</h2>
-            </div>
-            <div className="inline-actions">
-              <button className="ghost-button" onClick={() => navigate('/draft')} type="button"><ScrollText size={16} />Draft</button>
-              <button className="ghost-button" onClick={() => navigate('/scorebook')} type="button"><BookOpenText size={16} />Scorebook</button>
-              <button className="ghost-button" onClick={() => navigate('/betting')} type="button"><Trophy size={16} />Betting</button>
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="section-head">
-              <h2>Recent Results</h2>
-            </div>
-            <div className="feed-list">
-              {recentResults.map((game) => (
-                <div className="feed-row" key={game.id}>
-                  <span>{game.game_code}</span>
-                  <strong style={{ color: '#4ade80' }}><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.winner_player_id} playersById={playersById} /></strong>
-                  <span className="muted">
-                    over{' '}
-                    <span style={{ color: '#fb7185' }}>
-                      <PlayerTag
-                        height={24}
-                        identitiesByPlayerId={identitiesByPlayerId}
-                        playerId={game.winner_player_id === game.team_a_player_id ? game.team_b_player_id : game.team_a_player_id}
-                        playersById={playersById}
-                      />
-                    </span>{' '}
-                    {game.team_a_runs}-{game.team_b_runs}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-      </div>
-
-      <section className="table-card">
-        <div className="section-head">
-          <h2>Standings</h2>
-          <span className="muted">W/L, runs scored, runs allowed, and run differential</span>
-        </div>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Player</th>
-              <th>W</th>
-              <th>L</th>
-              <th>RS</th>
-              <th>RA</th>
-              <th>RD</th>
-            </tr>
-          </thead>
-          <tbody>
-            {standings.map((row) => (
-              <tr key={row.playerId}>
-                <td><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} /></td>
-                <td>{row.wins}</td>
-                <td>{row.losses}</td>
-                <td>{row.runsFor}</td>
-                <td>{row.runsAgainst}</td>
-                <td>{row.runDiff}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      ) : (
+        <CompetitionOverviewTables
+          standings={standings}
+          powerRankings={powerRankings}
+          rankingsLoading={rankingsLoading}
+          rankingsError={rankingsError}
+          identitiesByPlayerId={identitiesByPlayerId}
+          playersById={playersById}
+        />
+      )}
     </div>
   )
 }

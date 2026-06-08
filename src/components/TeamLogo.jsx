@@ -6,12 +6,36 @@ const KNOWN_KEYS = new Set([
 
 export default function TeamLogo({
   logoKey,
+  logoUrl,
   teamName,
   height = 24,
   placeholder = false,
   style = {},
 }) {
+  // Uploaded logos are square (500×500); static captain logos are wide banners.
+  if (logoUrl) {
+    return (
+      <img
+        alt={teamName || 'Team logo'}
+        src={logoUrl}
+        style={{
+          height,
+          width: height,
+          flexShrink: 0,
+          objectFit: 'contain',
+          display: 'inline-block',
+          verticalAlign: 'middle',
+          borderRadius: 4,
+          ...style,
+        }}
+      />
+    )
+  }
+
   if (!logoKey || !KNOWN_KEYS.has(logoKey)) {
+    if (!placeholder) return null
+
+    // Placeholder matches the wide shape of the static captain logos
     return (
       <span
         aria-hidden="true"
