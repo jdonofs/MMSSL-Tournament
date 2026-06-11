@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
 
 const TournamentContext = createContext(null)
 const STORAGE_KEY = 'sluggers-selected-tournament'
@@ -12,19 +13,23 @@ export function TournamentProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const selectedTournamentIdRef = useRef(selectedTournamentId)
 
-  const refreshTournaments = async (preferredTournamentId) => {
-    setLoading(true)
+  const refreshTournaments = async (preferredTournamentId, options = {}) => {
+    const { silent = false } = options
+    if (!silent) setLoading(true)
     const { data, error } = await supabase
       .from('tournaments')
       .select('*')
       .order('tournament_number', { ascending: false })
 
     if (error) {
-      setLoading(false)
+      if (!silent) setLoading(false)
       throw error
     }
 
-    const next = data || []
+    const next = (data || []).map((tournament) => ({
+      ...tournament,
+      innings: normalizeRegulationInnings(tournament?.innings, DEFAULT_REGULATION_INNINGS),
+    }))
     setTournaments(next)
 
     const preferredId = preferredTournamentId ? String(preferredTournamentId) : ''
@@ -32,7 +37,7 @@ export function TournamentProvider({ children }) {
     const hasSelection = next.some(t => String(t.id) === current)
     const nextSelection = hasSelection ? current : String(next[0]?.id || '')
     setSelectedTournamentId(nextSelection)
-    setLoading(false)
+    if (!silent) setLoading(false)
     return next
   }
 
@@ -49,7 +54,7 @@ export function TournamentProvider({ children }) {
     const channel = supabase
       .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, () => {
-        refreshTournaments().catch(() => setLoading(false))
+        refreshTournaments(undefined, { silent: true }).catch(() => {})
       })
       .subscribe()
 

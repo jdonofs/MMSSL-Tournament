@@ -1,31 +1,21 @@
-import { LogIn, UserPlus } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, LogIn } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-
-function getDiscordAccountLabel(user) {
-  if (!user) return 'Authenticated Discord account'
-  return (
-    user.user_metadata?.full_name
-    || user.user_metadata?.preferred_username
-    || user.user_metadata?.user_name
-    || user.identities?.find((identity) => identity.provider === 'discord')?.identity_data?.full_name
-    || user.identities?.find((identity) => identity.provider === 'discord')?.identity_data?.name
-    || 'Authenticated Discord account'
-  )
-}
+import TeamLogo from '../components/TeamLogo'
 
 export default function Login() {
   const navigate = useNavigate()
-  const { authUser, createPlayerProfile, has_auth_session, is_logged_in, loading, logout, player, signInWithDiscord } = useAuth()
+  const { is_logged_in, loading, signInWithPassword } = useAuth()
   const { pushToast } = useToast()
+  const [players, setPlayers] = useState([])
+  const [playersLoading, setPlayersLoading] = useState(true)
+  const [selectedPlayer, setSelectedPlayer] = useState(null)
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [signingIn, setSigningIn] = useState(false)
-  const [creatingProfile, setCreatingProfile] = useState(false)
-  const [profileForm, setProfileForm] = useState({
-    name: '',
-    color: '#38BDF8',
-  })
 
   useEffect(() => {
     if (is_logged_in) {
@@ -33,143 +23,186 @@ export default function Login() {
     }
   }, [is_logged_in, navigate])
 
-  const handleDiscordSignIn = async () => {
-    if (signingIn) return
+  useEffect(() => {
+    supabase
+      .from('players')
+      .select('id, name, color, email, team_logo_url, team_name')
+      .order('name')
+      .then(({ data }) => {
+        setPlayers(data || [])
+        setPlayersLoading(false)
+      })
+  }, [])
+
+  const handleSelectPlayer = (p) => {
+    setSelectedPlayer(p)
+    setPassword('')
+    setShowPassword(false)
+  }
+
+  const handleSignIn = async (e) => {
+    e.preventDefault()
+    if (!selectedPlayer?.email || !password || signingIn) return
 
     setSigningIn(true)
     try {
-      await signInWithDiscord()
+      await signInWithPassword(selectedPlayer.email, password)
     } catch (error) {
       pushToast({
-        title: 'Unable to start Discord sign-in',
-        message: error.message,
+        title: 'Sign-in failed',
+        message: 'Incorrect password. Try again or ask a commissioner to reset it.',
         type: 'error',
       })
       setSigningIn(false)
     }
   }
 
-  const handleCreateProfile = async () => {
-    const trimmedName = profileForm.name.trim()
-    if (!trimmedName || creatingProfile) return
-
-    setCreatingProfile(true)
-    try {
-      await createPlayerProfile({
-        name: trimmedName,
-        color: profileForm.color,
-      })
-      pushToast({
-        title: 'Profile created',
-        message: 'Your player profile is now linked to this account.',
-        type: 'success',
-      })
-      navigate('/', { replace: true })
-    } catch (error) {
-      pushToast({
-        title: 'Unable to create player profile',
-        message: error.message,
-        type: 'error',
-      })
-    } finally {
-      setCreatingProfile(false)
-    }
-  }
-
-  const renderDiscordPanel = () => (
-    <section className="panel">
-      <div className="section-head">
-        <h2>Sign In</h2>
-        <span className="muted">Use Discord for account sign-in and session recovery.</span>
-      </div>
-      <div className="inline-actions" style={{ marginTop: 16 }}>
-        <button className="solid-button" disabled={signingIn} onClick={handleDiscordSignIn} type="button">
-          <LogIn size={16} />
-          {signingIn ? 'Redirecting...' : 'Continue With Discord'}
-        </button>
-      </div>
-      <p className="muted" style={{ marginBottom: 0, marginTop: 16 }}>
-        If your Discord account is not linked to a player yet, sign in first and then create a new player profile or ask a commissioner to link your Discord user ID.
-      </p>
-    </section>
-  )
-
-  const renderLinkedProfilePanel = () => (
-    <section className="panel">
-      <div className="section-head">
-        <h2>Finish Setup</h2>
-        <span className="muted">{getDiscordAccountLabel(authUser)}</span>
-      </div>
-      <p className="muted" style={{ marginTop: 0 }}>
-        This Discord account is signed in but not linked to a player yet. If you already exist in the league, ask a commissioner to link this Discord user ID to your player.
-      </p>
-      {authUser?.id ? (
-        <div style={{ padding: 12, borderRadius: 10, border: '1px solid #334155', background: 'rgba(15,23,42,0.55)' }}>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Discord User ID</div>
-          <div style={{ fontFamily: 'monospace', fontSize: 13, wordBreak: 'break-all' }}>{authUser.id}</div>
-        </div>
-      ) : null}
-      <div className="form-stack">
-        <label>
-          <span className="muted">Player name</span>
-          <input
-            onChange={(event) => setProfileForm((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Enter your display name"
-            value={profileForm.name}
-          />
-        </label>
-        <label>
-          <span className="muted">Player color</span>
-          <input
-            onChange={(event) => setProfileForm((current) => ({ ...current, color: event.target.value }))}
-            type="color"
-            value={profileForm.color}
-          />
-        </label>
-      </div>
-      <div className="inline-actions" style={{ marginTop: 16 }}>
-        <button className="solid-button" disabled={!profileForm.name.trim() || creatingProfile} onClick={handleCreateProfile} type="button">
-          <UserPlus size={16} />
-          {creatingProfile ? 'Creating...' : 'Create Player Profile'}
-        </button>
-        <button
-          className="ghost-button"
-          onClick={async () => {
-            try {
-              await logout()
-            } catch (error) {
-              pushToast({ title: 'Unable to sign out', message: error.message, type: 'error' })
-            }
-          }}
-          type="button"
-        >
-          Use Different Discord Account
-        </button>
-      </div>
-    </section>
-  )
-
   return (
     <div className="login-shell">
       <div className="login-card">
+        <button type="button" className="ghost-button" onClick={() => navigate('/')} style={{ display: 'flex', alignItems: 'center', gap: 6, width: 'fit-content' }}>
+          <ArrowLeft size={16} />
+          Back
+        </button>
         <div className="page-head">
           <div>
             <span className="brand-kicker">Sluggers</span>
             <h1>Tournament Tracker</h1>
           </div>
-          <p className="muted">
-            Discord sign-in with linked player profiles and sitewide live data.
-          </p>
+          <p className="muted">Select your name to sign in.</p>
         </div>
 
-        {loading ? (
+        {loading || playersLoading ? (
           <section className="panel">
-            <p className="muted" style={{ margin: 0 }}>Checking session...</p>
+            <p className="muted" style={{ margin: 0 }}>Loading…</p>
           </section>
-        ) : has_auth_session && !player ? (
-          renderLinkedProfilePanel()
         ) : (
-          renderDiscordPanel()
+          <>
+            <section className="panel">
+              <div className="section-head">
+                <h2>Who are you?</h2>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10, marginTop: 12 }}>
+                {players.map((p) => {
+                  const isSelected = selectedPlayer?.id === p.id
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleSelectPlayer(p)}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '14px 10px',
+                        background: isSelected ? 'rgba(234,179,8,0.12)' : 'rgba(15,23,42,0.55)',
+                        border: isSelected ? '2px solid #EAB308' : '2px solid #1E293B',
+                        borderRadius: 12,
+                        cursor: 'pointer',
+                        transition: 'border-color 0.15s, background 0.15s',
+                      }}
+                    >
+                      {p.team_logo_url ? (
+                        <TeamLogo logoUrl={p.team_logo_url} height={40} />
+                      ) : (
+                        <div style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: '50%',
+                          background: p.color || '#38BDF8',
+                          flexShrink: 0,
+                        }} />
+                      )}
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#E2E8F0', textAlign: 'center', lineHeight: 1.2 }}>
+                        {p.name}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+
+            {selectedPlayer && (
+              <section className="panel" style={{ marginTop: 0 }}>
+                <form onSubmit={handleSignIn} style={{ display: 'grid', gap: 14 }}>
+                  <div className="section-head" style={{ marginBottom: 0 }}>
+                    <h2>
+                      <span style={{ color: selectedPlayer.color || '#38BDF8' }}>{selectedPlayer.name}</span>
+                    </h2>
+                    {!selectedPlayer.email && (
+                      <span className="muted" style={{ color: '#F87171', fontSize: 13 }}>
+                        No login account set up yet — ask a commissioner.
+                      </span>
+                    )}
+                  </div>
+
+                  {selectedPlayer.email && (
+                    <>
+                      <label style={{ display: 'grid', gap: 6 }}>
+                        <span className="muted" style={{ fontSize: 13 }}>Password</span>
+                        <div style={{ position: 'relative' }}>
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="Enter your password"
+                            autoFocus
+                            style={{
+                              width: '100%',
+                              background: '#1E293B',
+                              border: '1px solid #334155',
+                              borderRadius: 8,
+                              padding: '10px 44px 10px 14px',
+                              color: '#E2E8F0',
+                              fontSize: 15,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((v) => !v)}
+                            style={{
+                              position: 'absolute',
+                              right: 10,
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: '#64748B',
+                              padding: 4,
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                      </label>
+                      <div className="inline-actions">
+                        <button
+                          className="solid-button"
+                          type="submit"
+                          disabled={!password || signingIn}
+                        >
+                          <LogIn size={16} />
+                          {signingIn ? 'Signing in…' : 'Sign In'}
+                        </button>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => setSelectedPlayer(null)}
+                        >
+                          Back
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </form>
+              </section>
+            )}
+          </>
         )}
       </div>
     </div>

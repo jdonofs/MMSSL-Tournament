@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Moon, Sun, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -11,11 +11,13 @@ import SettleUp from './SettleUp'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import {
   americanOddsFromProbability,
+  buildBettingEntityLabel,
   buildOddsRowKey,
   calculatePayout,
   generateGameOdds,
   mergeOddsWithExistingRows,
 } from '../utils/oddsEngine'
+import { buildPlacedBetLedgerEntries } from '../utils/betResolution'
 import { buildOddsGenerationContext } from '../utils/oddsContext'
 import { buildAppliedStadiumModel } from '../utils/stadiumOdds'
 import {
@@ -25,10 +27,14 @@ import {
   getStadiumTimeLabel,
 } from '../utils/stadiums'
 import { getTeamShortName } from '../utils/teamIdentity'
+import { computeBalance, computeSipCount, computeTotalSipsHeld, getSipPrice } from '../utils/economy'
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
 
 const GAME_STATUSES = new Set(['pending', 'active', 'scheduled', 'in_progress', 'complete'])
 const ACTIVE_STATUSES = new Set(['pending', 'active', 'scheduled', 'in_progress'])
 const BOARD_COLUMN_HEADERS = ['Run Line', 'Total', 'Moneyline']
+const ODDS_FLASH_FIELDS = ['odds_home', 'odds_away', 'odds_over', 'odds_under', 'odds_yes', 'odds_no']
+const ODDS_FLASH_DURATION_MS = 700
 const DETAIL_TABS = [
   { id: 'game-odds', label: 'Game Odds' },
   { id: 'batter-props', label: 'Batter Props' },
@@ -77,6 +83,19 @@ function formatLineValue(value, prefix = '') {
   return `${prefix} ${normalized}`
 }
 
+function parseDollarWager(value) {
+  const raw = String(value ?? '').trim()
+  if (!/^\d+(\.\d{0,2})?$/.test(raw)) return NaN
+  return Number(raw)
+}
+
+function sanitizeDollarWagerInput(value) {
+  const raw = String(value ?? '')
+  if (raw === '') return ''
+  if (!/^\d*(\.\d{0,2})?$/.test(raw)) return null
+  return raw
+}
+
 function isGameReadyForBetting(game, playersById) {
   return Boolean(
     game?.team_a_player_id &&
@@ -97,12 +116,24 @@ function getTeamLabels(game, playersById, identitiesByPlayerId = {}) {
 function getGameStatusLabel(game) {
   if (!game) return 'Unavailable'
   if (game.status === 'in_progress' || game.status === 'active') {
-    return `Live${game.current_inning ? ` · ${game.current_inning}${Number(game.current_inning) === 1 ? 'st' : Number(game.current_inning) === 2 ? 'nd' : Number(game.current_inning) === 3 ? 'rd' : 'th'} inning` : ''}`
+    if (!game.current_inning) return 'Live'
+    const inningNum = Number(game.current_inning)
+    const ordinal = inningNum === 1 ? 'st' : inningNum === 2 ? 'nd' : inningNum === 3 ? 'rd' : 'th'
+    const half = game.is_top_inning == null ? '' : game.is_top_inning ? 'Top ' : 'Bot '
+    return `Live · ${half}${inningNum}${ordinal} inning`
   }
   if (game.status === 'scheduled') return 'Scheduled'
   if (game.status === 'pending') return 'Waiting on matchup'
   if (game.status === 'complete') return 'Final'
   return game.status
+}
+
+function getInningLabel(game) {
+  if (!game.current_inning) return null
+  const inningNum = Number(game.current_inning)
+  const ordinal = inningNum === 1 ? 'st' : inningNum === 2 ? 'nd' : inningNum === 3 ? 'rd' : 'th'
+  const half = game.is_top_inning == null ? '' : game.is_top_inning ? 'Top ' : 'Bot '
+  return `${half}${inningNum}${ordinal}`
 }
 
 function buildStadiumDisplayModel(game, stadiumsById, stadiumGameLog) {
@@ -130,9 +161,8 @@ function getTargetPortraitName(targetEntity = '') {
 function buildLeaderboard(players, games, bets, sourceId, options = {}) {
   const {
     sourceIdField = 'tournament_id',
-    payoutField = 'potential_payout_sips',
-    wagerField = 'wager_sips',
-    isSeasonMode = false,
+    payoutField = 'potential_payout_dollars',
+    wagerField = 'wager_dollars',
   } = options
   const tournamentGameIds = new Set(games.filter((game) => game[sourceIdField] === sourceId || game.tournament_id === sourceId).map((game) => game.id))
   return players
@@ -140,12 +170,11 @@ function buildLeaderboard(players, games, bets, sourceId, options = {}) {
       const net = bets
         .filter((bet) => bet.player_id === player.id && tournamentGameIds.has(bet.game_id))
         .reduce((sum, bet) => {
-          if (!isSeasonMode && bet.wager_type === 'finish_drink') return sum
           if (bet.status === 'won') return sum + Number(bet[payoutField] || 0)
           if (bet.status === 'lost') return sum - Number(bet[wagerField] || 0)
           return sum
         }, 0)
-      return { ...player, net: Math.round(net * 10) / 10 }
+      return { ...player, net: Math.round(net * 100) / 100 }
     })
     .sort((a, b) => b.net - a.net)
 }
@@ -200,13 +229,103 @@ function formatBetDescription(row, game, playersById, identitiesByPlayerId = {})
   return row.target_entity
 }
 
+const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
+const HR_RESULTS = new Set(['HR', 'IPHR'])
+
+function formatBetTitle(bet, game, playersById, identitiesByPlayerId = {}) {
+  const labels = getTeamLabels(game, playersById, identitiesByPlayerId)
+  const line = bet.line != null ? Number(bet.line) : null
+  switch (bet.bet_type) {
+    case 'moneyline':
+      return `${bet.chosen_side === 'home' ? labels.home : labels.away} ML`
+    case 'run_line':
+      return `${bet.chosen_side === 'home' ? labels.home : labels.away} ${line >= 0 ? '+' : ''}${line?.toFixed(1)}`
+    case 'over_under':
+      return `${bet.chosen_side === 'over' ? 'Over' : 'Under'} ${line?.toFixed(1)}`
+    case 'k_prop':
+      return `${bet.chosen_side === 'over' ? 'Over' : 'Under'} ${line?.toFixed(1)} K`
+    case 'hr_prop':
+      return `${bet.chosen_side === 'yes' ? 'Yes' : 'No'} Home Run`
+    case 'hit_prop':
+      return `${bet.chosen_side === 'yes' ? 'Yes' : 'No'} Hit`
+    case 'first_inning_run':
+      return `${bet.chosen_side === 'yes' ? 'Yes' : 'No'} - Run in 1st`
+    default:
+      return bet.target_entity || bet.bet_type
+  }
+}
+
+function formatBetSubtitle(bet, game, playersById, identitiesByPlayerId = {}) {
+  const labels = getTeamLabels(game, playersById, identitiesByPlayerId)
+  if (bet.bet_type === 'moneyline' || bet.bet_type === 'run_line' || bet.bet_type === 'over_under' || bet.bet_type === 'first_inning_run') {
+    return `${labels.away} @ ${labels.home}`
+  }
+  return bet.target_entity || ''
+}
+
+function getBetProgress(bet, game, plateAppearances, pitchingStints, charactersById, playersById) {
+  const line = bet.line != null ? Number(bet.line) : null
+  if (line == null || Number.isNaN(line)) return null
+
+  const gamePAs = plateAppearances.filter((pa) => String(pa.game_id) === String(bet.game_id))
+  const gamePitching = pitchingStints.filter((entry) => String(entry.game_id) === String(bet.game_id))
+
+  if (bet.bet_type === 'over_under') {
+    const current = Number(game?.team_a_runs || 0) + Number(game?.team_b_runs || 0)
+    return { current, line, unit: 'runs', wantsOver: bet.chosen_side === 'over' }
+  }
+
+  if (bet.bet_type === 'k_prop') {
+    const current = gamePitching
+      .filter((entry) => buildBettingEntityLabel(charactersById[entry.character_id], playersById[entry.player_id]) === bet.target_entity)
+      .reduce((sum, entry) => sum + Number(entry.strikeouts || 0), 0)
+    return { current, line, unit: 'K', wantsOver: bet.chosen_side === 'over' }
+  }
+
+  if (bet.bet_type === 'hr_prop' || bet.bet_type === 'hit_prop') {
+    const matchSet = bet.bet_type === 'hr_prop' ? HR_RESULTS : HIT_RESULTS
+    const current = gamePAs.filter((pa) =>
+      buildBettingEntityLabel(charactersById[pa.character_id], playersById[pa.player_id]) === bet.target_entity &&
+      matchSet.has(pa.result),
+    ).length
+    return { current, line, unit: bet.bet_type === 'hr_prop' ? 'HR' : 'hits', wantsOver: bet.chosen_side === 'yes' }
+  }
+
+  return null
+}
+
+function BetProgressMeter({ progress, status }) {
+  const { current, line, unit, wantsOver } = progress
+  const max = Math.max(line * 2, current, 1)
+  const fillPct = Math.min(100, (current / max) * 100)
+  const markerPct = Math.min(100, (line / max) * 100)
+  const hit = wantsOver ? current > line : current < line
+  let fillColor = '#94A3B8'
+  if (status === 'won') fillColor = '#22C55E'
+  else if (status === 'lost') fillColor = '#EF4444'
+  else if (status === 'open') fillColor = hit ? '#22C55E' : '#EAB308'
+
+  return (
+    <div className="bet-progress-meter">
+      <div className="bet-progress-meter-track">
+        <div className="bet-progress-meter-fill" style={{ width: `${fillPct}%`, background: fillColor }} />
+        <div className="bet-progress-meter-marker" style={{ left: `${markerPct}%` }} />
+      </div>
+      <div className="bet-progress-meter-labels">
+        <span>{current} {unit}</span>
+        <span className="muted">Line: {line}</span>
+      </div>
+    </div>
+  )
+}
+
 function MarketTitle({ row, game, playersById, identitiesByPlayerId }) {
   if (row.bet_type === 'moneyline' || row.bet_type === 'run_line') {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} />
+        <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} />
         <span className="muted">vs</span>
-        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} />
+        <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} />
       </div>
     )
   }
@@ -363,9 +482,11 @@ function buildSlipKey(entry) {
     : `${entry.gameId}::${entry.rowId}::${entry.side}`
 }
 
-function normalizeSeasonGame(game, teamsById, stadiumsByName) {
+function normalizeSeasonGame(game, teamsById, stadiumsByName, playersById = {}) {
   const homeTeam = teamsById[game.home_team_id]
   const awayTeam = teamsById[game.away_team_id]
+  const awayName = playersById[awayTeam?.player_id]?.team_name || awayTeam?.team_name || 'Away'
+  const homeName = playersById[homeTeam?.player_id]?.team_name || homeTeam?.team_name || 'Home'
   return {
     ...game,
     tournament_id: game.season_id,
@@ -375,7 +496,7 @@ function normalizeSeasonGame(game, teamsById, stadiumsByName) {
     team_a_runs: Number(game.away_score || 0),
     team_b_runs: Number(game.home_score || 0),
     stadium_id: stadiumsByName[game.stadium]?.id || null,
-    game_code: game.game_code || `R${game.round_number || '-'} · ${awayTeam?.team_name || 'Away'} @ ${homeTeam?.team_name || 'Home'}`,
+    game_code: game.game_code || `R${game.round_number || '-'} · ${awayName} @ ${homeName}`,
     status: game.status === 'completed' ? 'complete' : game.status === 'in_progress' ? 'active' : game.status,
   }
 }
@@ -394,16 +515,240 @@ function normalizeSeasonDraftPicks(rosterRows, seasonId, seasonTeams, characters
   }))
 }
 
+function boardGameCardEqual(prev, next) {
+  return (
+    JSON.stringify(prev.game) === JSON.stringify(next.game) &&
+    prev.ready === next.ready &&
+    JSON.stringify(prev.homeRow) === JSON.stringify(next.homeRow) &&
+    JSON.stringify(prev.awayRow) === JSON.stringify(next.awayRow) &&
+    JSON.stringify(prev.moneyline) === JSON.stringify(next.moneyline) &&
+    JSON.stringify(prev.total) === JSON.stringify(next.total) &&
+    JSON.stringify(prev.runLine) === JSON.stringify(next.runLine) &&
+    JSON.stringify(prev.stadiumData) === JSON.stringify(next.stadiumData) &&
+    prev.flashSignature === next.flashSignature &&
+    JSON.stringify(prev.gameBetSlip) === JSON.stringify(next.gameBetSlip) &&
+    prev.identitiesByPlayerId === next.identitiesByPlayerId &&
+    prev.playersById === next.playersById
+  )
+}
+
+const BoardGameCard = memo(function BoardGameCard({
+  game,
+  ready,
+  homeRow,
+  awayRow,
+  moneyline,
+  total,
+  runLine,
+  stadiumData,
+  flashSignature,
+  gameBetSlip,
+  identitiesByPlayerId,
+  playersById,
+  toggleSlipSelection,
+  onOpenDetail,
+  onOpenStadiumModal,
+}) {
+  const homeWinProb = Number(moneyline?.predicted_probability || 0.5)
+  const homeIsFav = homeWinProb >= 0.5
+  const stadium = stadiumData.stadium
+  const timeLabel = stadium ? getStadiumTimeLabel(stadium, game.is_night) : null
+  const chaosColors = getChaosTagColors(stadium?.chaos_level)
+  const flashTokens = flashSignature ? flashSignature.split(',') : []
+
+  const getRunLineSide = (isHome) => {
+    if (!runLine) return { label: 'Not live', odds: null, selectable: false }
+    const showMinus = isHome ? homeIsFav : !homeIsFav
+    const label = `${showMinus ? '-' : '+'}${Number(runLine.line || 1.5).toFixed(1)}`
+    const odds = isHome ? runLine.odds_home : runLine.odds_away
+    return { label, odds, selectable: true, side: isHome ? 'home' : 'away' }
+  }
+
+  const getTotalSide = (isOver) => {
+    if (!total) return { label: '--', odds: null, selectable: false }
+    const label = isOver ? `O ${Number(total.line || 0).toFixed(1)}` : `U ${Number(total.line || 0).toFixed(1)}`
+    const odds = isOver ? total.odds_over : total.odds_under
+    return { label, odds, selectable: true, side: isOver ? 'over' : 'under' }
+  }
+
+  return (
+    <div
+      className={`sportsbook-game-card ${ready ? '' : 'sportsbook-game-card-disabled'}`}
+      onClick={() => {
+        if (!ready) return
+        onOpenDetail(game.id)
+      }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if ((event.key === 'Enter' || event.key === ' ') && ready) {
+          onOpenDetail(game.id)
+        }
+      }}
+    >
+      <div className="sportsbook-game-meta">
+        <div className="sportsbook-game-meta-main">
+          <span className="brand-kicker">Today</span>
+          <div className="sportsbook-game-time">{game.game_code}</div>
+        </div>
+        {(game.status === 'in_progress' || game.status === 'active') ? (
+          <div className="sportsbook-live-score" style={{ fontSize: 12, fontWeight: 700, color: '#F87171' }}>
+            Live
+          </div>
+        ) : null}
+      </div>
+
+      {stadium ? (
+        <div className="sportsbook-stadium-chip-wrap">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onOpenStadiumModal(game.id)
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 10px',
+              borderRadius: 999,
+              border: `1px solid ${chaosColors.border}`,
+              background: chaosColors.background,
+              color: chaosColors.color,
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+            className="sportsbook-stadium-chip"
+          >
+            <span>{stadium.name}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#E2E8F0' }}>
+              {timeLabel === 'Night' ? <Moon size={12} /> : <Sun size={12} />}
+              {timeLabel}
+            </span>
+          </button>
+        </div>
+      ) : null}
+
+      <div className="sportsbook-columns">
+        <div className="sportsbook-columns-spacer" aria-hidden="true" />
+        {BOARD_COLUMN_HEADERS.map((column) => (
+          <div className="sportsbook-column-label" key={column}>{column}</div>
+        ))}
+      </div>
+
+      <div className="sportsbook-mobile-columns" aria-hidden="true">
+        <div className="sportsbook-mobile-columns-spacer" />
+        {BOARD_COLUMN_HEADERS.map((column) => (
+          <div className="sportsbook-mobile-column-label" key={column}>{column}</div>
+        ))}
+      </div>
+
+      {[{ key: 'home', isHome: true }, { key: 'away', isHome: false }].map(({ key, isHome }) => {
+        const rl = getRunLineSide(isHome)
+        const tot = getTotalSide(isHome)
+        const ml = isHome ? homeRow.moneyline : awayRow.moneyline
+        const rlSelected = runLine && gameBetSlip.some((e) => e.rowId === runLine.id && e.side === rl.side)
+        const totSelected = total && gameBetSlip.some((e) => e.rowId === total.id && e.side === tot.side)
+        const mlSelected = gameBetSlip.some((e) => e.rowId === ml.market?.id && e.side === ml.side)
+
+        const teamRuns = isHome ? game.team_b_runs : game.team_a_runs
+        const showRuns = game.status === 'in_progress' || game.status === 'active' || game.status === 'complete'
+
+        return (
+          <div className="sportsbook-team-row" key={key}>
+            <div className="sportsbook-team-name" style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+              <PlayerTag
+                height={36}
+                identitiesByPlayerId={identitiesByPlayerId}
+                playerId={isHome ? game.team_b_player_id : game.team_a_player_id}
+                playersById={playersById}
+                style={{ flex: 1, minWidth: 0 }}
+              />
+              {showRuns ? <span className="sportsbook-team-runs">{Number(teamRuns || 0)}</span> : null}
+            </div>
+            <div className="sportsbook-team-buttons">
+              <button
+                className={`sportsbook-odds-button ${rlSelected ? 'sportsbook-odds-button-selected' : ''} ${flashTokens.includes(isHome ? 'rlh' : 'rla') ? 'sportsbook-odds-flash' : ''}`}
+                data-column-label="Run Line"
+                disabled={!ready || !rl.selectable || runLine?.is_locked || isOddsOffBoard(rl.odds)}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (!runLine) return
+                  toggleSlipSelection(game, runLine, rl.side)
+                }}
+              >
+                <span className="sportsbook-odds-line">{rl.label}</span>
+                <strong>{formatOdds(rl.odds)}</strong>
+              </button>
+
+              <button
+                className={`sportsbook-odds-button ${totSelected ? 'sportsbook-odds-button-selected' : ''} ${flashTokens.includes(isHome ? 'to' : 'tu') ? 'sportsbook-odds-flash' : ''}`}
+                data-column-label="Total"
+                disabled={!ready || !tot.selectable || total?.is_locked || isOddsOffBoard(tot.odds)}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (!total) return
+                  toggleSlipSelection(game, total, tot.side)
+                }}
+              >
+                <span className="sportsbook-odds-line">{tot.label}</span>
+                <strong>{formatOdds(tot.odds)}</strong>
+              </button>
+
+              <button
+                className={`sportsbook-odds-button ${mlSelected ? 'sportsbook-odds-button-selected' : ''} ${flashTokens.includes(isHome ? 'mlh' : 'mla') ? 'sportsbook-odds-flash' : ''}`}
+                data-column-label="Moneyline"
+                disabled={!ready || !ml.selectable || ml.market?.is_locked || isOddsOffBoard(ml.odds)}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (!ml.market || !ml.side) return
+                  toggleSlipSelection(game, ml.market, ml.side)
+                }}
+              >
+                <span className="sportsbook-odds-line">{ml.label}</span>
+                <strong>{formatOdds(ml.odds)}</strong>
+              </button>
+            </div>
+          </div>
+        )
+      })}
+
+      {!ready ? (
+        <div className="sportsbook-card-note">Matchup not set. Betting is disabled until both teams are assigned.</div>
+      ) : null}
+
+      <div className="sportsbook-card-footer">
+        <div className="sportsbook-card-footer-meta">
+          <span className="muted">{stadium ? `${stadium.name} ${timeLabel ? `· ${timeLabel}` : ''}` : 'Open markets available'}</span>
+        </div>
+        <div className="sportsbook-card-footer-end">
+          {(game.status === 'in_progress' || game.status === 'active') && game.current_inning ? (
+            <span className="sportsbook-card-footer-pill">{getInningLabel(game)}</span>
+          ) : null}
+          <span className="sportsbook-more-bets">
+            <span>More Bets</span>
+            <ChevronRight size={16} />
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}, boardGameCardEqual)
+
 export default function BettingTab({ mode = 'tournament' }) {
-  const { player } = useAuth()
+  const { player, isScorekeeper } = useAuth()
   const { currentTournament } = useTournament()
   const { currentSeason, seasonTeams } = useSeason()
   const { pushToast } = useToast()
   const isSeasonMode = mode === 'season'
   const sourceContext = isSeasonMode ? currentSeason : currentTournament
-  const wagerUnitLabel = isSeasonMode ? 'dollars' : 'sips'
-  const wagerUnitShort = isSeasonMode ? '$' : 'sips'
-  const payoutFormatter = (value) => isSeasonMode ? `$${Number(value || 0).toFixed(0)}` : `${Number(value || 0).toFixed(1)} sips`
+  const wagerUnitLabel = 'dollars'
+  const wagerUnitShort = '$'
+  const payoutFormatter = (value) => `$${Number(value || 0).toFixed(2)}`
   const sourceTables = isSeasonMode ? {
     games: 'season_schedule',
     picks: 'season_roster',
@@ -416,6 +761,8 @@ export default function BettingTab({ mode = 'tournament' }) {
     sourceIdField: 'season_id',
     wagerField: 'wager_dollars',
     payoutField: 'potential_payout_dollars',
+    ledgerTable: 'season_betting_ledger',
+    ledgerChangeField: 'dollars_change',
   } : {
     games: 'games',
     picks: 'draft_picks',
@@ -426,8 +773,10 @@ export default function BettingTab({ mode = 'tournament' }) {
     settlements: 'game_settlements',
     stadiumLog: 'stadium_game_log',
     sourceIdField: 'tournament_id',
-    wagerField: 'wager_sips',
-    payoutField: 'potential_payout_sips',
+    wagerField: 'wager_dollars',
+    payoutField: 'potential_payout_dollars',
+    ledgerTable: 'points_ledger',
+    ledgerChangeField: 'points_change',
   }
   const [games, setGames] = useState([])
   const [players, setPlayers] = useState([])
@@ -440,19 +789,28 @@ export default function BettingTab({ mode = 'tournament' }) {
   const [gameOdds, setGameOdds] = useState([])
   const [bets, setBets] = useState([])
   const [settlements, setSettlements] = useState([])
+  const [ledgerEntries, setLedgerEntries] = useState([])
+  const [playerSips, setPlayerSips] = useState([])
+  const [sipTransactions, setSipTransactions] = useState([])
+  const [sipRedemptions, setSipRedemptions] = useState([])
+  const [balanceAwards, setBalanceAwards] = useState([])
+  const [economyActionLoading, setEconomyActionLoading] = useState(false)
+  const [redeemTargetId, setRedeemTargetId] = useState('')
+  const [redeemNote, setRedeemNote] = useState('')
+  const [redeemQty, setRedeemQty] = useState('1')
   const [weights, setWeights] = useState({ char_stats_weight: 0.333, historical_weight: 0.333, live_weight: 0.334 })
   const [detailGameId, setDetailGameId] = useState('')
   const [viewMode, setViewMode] = useState('board')
   const [detailTab, setDetailTab] = useState('game-odds')
-  const [activeLedgerTab, setActiveLedgerTab] = useState('my-bets')
   const [loading, setLoading] = useState(true)
   const [altRunLine, setAltRunLine] = useState({})
   const [altTotal, setAltTotal] = useState({})
   const [placingBetId, setPlacingBetId] = useState(null)
-  const [voidingBetId, setVoidingBetId] = useState(null)
   const [expandedSections, setExpandedSections] = useState({})
   const [betSlip, setBetSlip] = useState([])
   const [stadiumModalGameId, setStadiumModalGameId] = useState(null)
+  const [myBetsFilter, setMyBetsFilter] = useState('all')
+  const hasLoadedOnceRef = useRef(false)
   const autoSyncRef = useRef({})
   const runLineRailRef = useRef(null)
   const totalRailRef = useRef(null)
@@ -460,7 +818,10 @@ export default function BettingTab({ mode = 'tournament' }) {
 
   useEffect(() => {
     async function load() {
-      setLoading(true)
+      if (!hasLoadedOnceRef.current) setLoading(true)
+      const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
+      const economyContextId = sourceContext?.id || -1
+
       const [
         { data: gamesData },
         { data: playersData },
@@ -474,6 +835,11 @@ export default function BettingTab({ mode = 'tournament' }) {
         { data: weightsData },
         { data: stadiumsData },
         { data: stadiumLogData },
+        { data: ledgerData },
+        { data: playerSipsData },
+        { data: sipTransactionsData },
+        { data: sipRedemptionsData },
+        { data: balanceAwardsData },
       ] = await Promise.all([
         supabase.from(sourceTables.games).select('*').order('id'),
         supabase.from('players').select('*'),
@@ -483,7 +849,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           : supabase.from(sourceTables.picks).select('*'),
         supabase.from(sourceTables.pas).select('*').order('created_at'),
         supabase.from(sourceTables.pitching).select('*').order('created_at'),
-        supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }),
+        supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }).range(0, 49999),
         isSeasonMode
           ? supabase.from(sourceTables.bets).select('*').eq('season_id', sourceContext?.id || -1).order('placed_at', { ascending: false })
           : supabase.from(sourceTables.bets).select('*').order('placed_at', { ascending: false }),
@@ -493,13 +859,19 @@ export default function BettingTab({ mode = 'tournament' }) {
         isSeasonMode
           ? supabase.from(sourceTables.stadiumLog).select('*').eq('season_id', sourceContext?.id || -1).order('created_at')
           : supabase.from(sourceTables.stadiumLog).select('*').order('created_at'),
+        supabase.from(sourceTables.ledgerTable).select('*').eq(economyContextField, economyContextId),
+        supabase.from('player_sips').select('*').eq(economyContextField, economyContextId),
+        supabase.from('sip_transactions').select('*').eq(economyContextField, economyContextId),
+        supabase.from('sip_redemptions').select('*').eq(economyContextField, economyContextId).order('created_at', { ascending: false }),
+        supabase.from('balance_awards').select('*').eq(economyContextField, economyContextId),
       ])
 
       const teamsById = Object.fromEntries((seasonTeams || []).map((entry) => [entry.id, entry]))
       const stadiumsByName = Object.fromEntries((stadiumsData || []).map((entry) => [entry.name, entry]))
       const charactersByName = Object.fromEntries((charactersData || []).map((entry) => [entry.name, entry]))
+      const loadedPlayersById = Object.fromEntries((playersData || []).map((entry) => [entry.id, entry]))
       const normalizedGames = isSeasonMode
-        ? (gamesData || []).map((entry) => normalizeSeasonGame(entry, teamsById, stadiumsByName))
+        ? (gamesData || []).map((entry) => normalizeSeasonGame(entry, teamsById, stadiumsByName, loadedPlayersById))
         : (gamesData || []).filter((entry) => GAME_STATUSES.has(entry.status))
       const normalizedPicks = isSeasonMode
         ? normalizeSeasonDraftPicks(picksData || [], sourceContext?.id, seasonTeams, charactersByName)
@@ -519,9 +891,15 @@ export default function BettingTab({ mode = 'tournament' }) {
       setGameOdds(oddsData || [])
       setBets(betsData || [])
       setSettlements(settlementsData || [])
+      setLedgerEntries(ledgerData || [])
+      setPlayerSips(playerSipsData || [])
+      setSipTransactions(sipTransactionsData || [])
+      setSipRedemptions(sipRedemptionsData || [])
+      setBalanceAwards(balanceAwardsData || [])
       if (weightsData) setWeights(weightsData)
 
       setDetailGameId((current) => current || String((normalizedGames || []).find((entry) => ACTIVE_STATUSES.has(entry.status) && entry.tournament_id === sourceContext?.id)?.id || ''))
+      hasLoadedOnceRef.current = true
       setLoading(false)
     }
 
@@ -532,7 +910,7 @@ export default function BettingTab({ mode = 'tournament' }) {
     const channel = supabase
       .channel(`betting-board-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.odds }, async () => {
-        const { data } = await supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false })
+        const { data } = await supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }).range(0, 49999)
         setGameOdds(data || [])
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.bets }, async () => {
@@ -547,7 +925,8 @@ export default function BettingTab({ mode = 'tournament' }) {
         if (isSeasonMode) {
           const teamsById = Object.fromEntries((seasonTeams || []).map((entry) => [entry.id, entry]))
           const stadiumsByName = Object.fromEntries(stadiums.map((entry) => [entry.name, entry]))
-          setGames((data || []).map((entry) => normalizeSeasonGame(entry, teamsById, stadiumsByName)))
+          const playersById = Object.fromEntries(players.map((entry) => [entry.id, entry]))
+          setGames((data || []).map((entry) => normalizeSeasonGame(entry, teamsById, stadiumsByName, playersById)))
         } else {
           setGames((data || []).filter((entry) => GAME_STATUSES.has(entry.status)))
         }
@@ -581,6 +960,31 @@ export default function BettingTab({ mode = 'tournament' }) {
         const { data } = await supabase.from(sourceTables.settlements).select('*').order('settled_at', { ascending: false })
         setSettlements(data || [])
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.ledgerTable }, async () => {
+        const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
+        const { data } = await supabase.from(sourceTables.ledgerTable).select('*').eq(economyContextField, sourceContext?.id || -1)
+        setLedgerEntries(data || [])
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'player_sips' }, async () => {
+        const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
+        const { data } = await supabase.from('player_sips').select('*').eq(economyContextField, sourceContext?.id || -1)
+        setPlayerSips(data || [])
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sip_transactions' }, async () => {
+        const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
+        const { data } = await supabase.from('sip_transactions').select('*').eq(economyContextField, sourceContext?.id || -1)
+        setSipTransactions(data || [])
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sip_redemptions' }, async () => {
+        const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
+        const { data } = await supabase.from('sip_redemptions').select('*').eq(economyContextField, sourceContext?.id || -1).order('created_at', { ascending: false })
+        setSipRedemptions(data || [])
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'balance_awards' }, async () => {
+        const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
+        const { data } = await supabase.from('balance_awards').select('*').eq(economyContextField, sourceContext?.id || -1)
+        setBalanceAwards(data || [])
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stadiums' }, async () => {
         const { data } = await supabase.from('stadiums').select('*')
         setStadiums(data || [])
@@ -599,19 +1003,175 @@ export default function BettingTab({ mode = 'tournament' }) {
       .subscribe()
 
     return () => supabase.removeChannel(channel)
-  }, [isSeasonMode, seasonTeams, sourceContext?.id, stadiums, sourceTables])
+  }, [isSeasonMode, seasonTeams, sourceContext?.id, stadiums, sourceTables, players])
 
   const playersById = useMemo(() => Object.fromEntries(players.map((entry) => [entry.id, entry])), [players])
+
+  const myBalance = useMemo(() => computeBalance({
+    playerId: player?.id,
+    ledgerEntries,
+    ledgerField: sourceTables.ledgerChangeField,
+    balanceAwards,
+    sipTransactions,
+  }), [player?.id, ledgerEntries, sourceTables.ledgerChangeField, balanceAwards, sipTransactions])
+
+  const mySipCount = useMemo(() => computeSipCount({
+    playerId: player?.id,
+    sipTransactions,
+    sipRedemptions,
+  }), [player?.id, sipTransactions, sipRedemptions])
+
+  const totalSipsHeld = useMemo(() => computeTotalSipsHeld({
+    sipTransactions,
+    sipRedemptions,
+  }), [sipTransactions, sipRedemptions])
+
+  const sipSellPrice = useMemo(() => getSipPrice(totalSipsHeld), [totalSipsHeld])
+  const sipBuyPrice = useMemo(() => getSipPrice(totalSipsHeld + 1), [totalSipsHeld])
+
+  const sipHistory = useMemo(() => {
+    const txEntries = sipTransactions
+      .filter((entry) => entry.created_at)
+      .map((entry) => ({ kind: 'transaction', ...entry }))
+    const redemptionEntries = sipRedemptions.map((entry) => ({ kind: 'redemption', ...entry }))
+    return [...txEntries, ...redemptionEntries].sort(
+      (a, b) => new Date(b.created_at) - new Date(a.created_at),
+    )
+  }, [sipTransactions, sipRedemptions])
+
+  const mySipsOwed = useMemo(
+    () => sipRedemptions.filter((entry) => entry.to_player_id === player?.id && !entry.taken).length,
+    [sipRedemptions, player?.id],
+  )
+
+  const myPendingSipRedemptions = useMemo(
+    () => sipRedemptions.filter((entry) => entry.to_player_id === player?.id && !entry.taken),
+    [sipRedemptions, player?.id],
+  )
+
+  const pendingSipsByPlayer = useMemo(() => {
+    const counts = new Map()
+    sipRedemptions.forEach((entry) => {
+      if (entry.taken) return
+      counts.set(entry.to_player_id, (counts.get(entry.to_player_id) || 0) + 1)
+    })
+    return Array.from(counts.entries())
+      .map(([playerId, count]) => ({ playerId, count }))
+      .sort((a, b) => b.count - a.count)
+  }, [sipRedemptions])
+
+  const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
+
+  const handleBuySip = useCallback(async () => {
+    if (!player?.id || !sourceContext?.id) return
+    if (myBalance < sipBuyPrice) {
+      pushToast({ title: 'Not enough balance to buy a sip.', type: 'error' })
+      return
+    }
+    setEconomyActionLoading(true)
+    const createdAt = new Date().toISOString()
+    const { error } = await supabase.from('sip_transactions').insert({
+      [economyContextField]: sourceContext.id,
+      player_id: player.id,
+      type: 'buy',
+      amount_dollars: sipBuyPrice,
+      created_at: createdAt,
+    })
+    setEconomyActionLoading(false)
+    if (error) {
+      pushToast({ title: 'Buy sip failed', message: error.message, type: 'error' })
+      return
+    }
+    setSipTransactions((current) => [...current, { [economyContextField]: sourceContext.id, player_id: player.id, type: 'buy', amount_dollars: sipBuyPrice, created_at: createdAt }])
+    pushToast({ title: `Bought 1 sip for $${sipBuyPrice.toFixed(2)}.`, type: 'success' })
+  }, [player?.id, sourceContext?.id, myBalance, sipBuyPrice, economyContextField, pushToast])
+
+  const handleSellSip = useCallback(async () => {
+    if (!player?.id || !sourceContext?.id) return
+    if (mySipCount < 1) {
+      pushToast({ title: 'You have no sips to sell.', type: 'error' })
+      return
+    }
+    setEconomyActionLoading(true)
+    const createdAt = new Date().toISOString()
+    const { error } = await supabase.from('sip_transactions').insert({
+      [economyContextField]: sourceContext.id,
+      player_id: player.id,
+      type: 'sell',
+      amount_dollars: sipSellPrice,
+      created_at: createdAt,
+    })
+    setEconomyActionLoading(false)
+    if (error) {
+      pushToast({ title: 'Sell sip failed', message: error.message, type: 'error' })
+      return
+    }
+    setSipTransactions((current) => [...current, { [economyContextField]: sourceContext.id, player_id: player.id, type: 'sell', amount_dollars: sipSellPrice, created_at: createdAt }])
+    pushToast({ title: `Sold 1 sip for $${sipSellPrice.toFixed(2)}.`, type: 'success' })
+  }, [player?.id, sourceContext?.id, mySipCount, sipSellPrice, economyContextField, pushToast])
+
+  const handleRedeemSip = useCallback(async () => {
+    if (!player?.id || !sourceContext?.id || !redeemTargetId) return
+    const qty = Math.floor(Number(redeemQty))
+    if (!Number.isFinite(qty) || qty < 1) {
+      pushToast({ title: 'Enter a valid number of sips.', type: 'error' })
+      return
+    }
+    if (mySipCount < qty) {
+      pushToast({ title: "You don't have enough sips to redeem.", type: 'error' })
+      return
+    }
+    setEconomyActionLoading(true)
+    const { data, error } = await supabase.from('sip_redemptions').insert(
+      Array.from({ length: qty }, () => ({
+        [economyContextField]: sourceContext.id,
+        from_player_id: player.id,
+        to_player_id: redeemTargetId,
+        note: redeemNote || null,
+      })),
+    ).select()
+    setEconomyActionLoading(false)
+    if (error) {
+      pushToast({ title: 'Redeem failed', message: error.message, type: 'error' })
+      return
+    }
+    setSipRedemptions((current) => [...data, ...current])
+    setRedeemTargetId('')
+    setRedeemNote('')
+    setRedeemQty('1')
+    pushToast({ title: `${playersById[redeemTargetId]?.name || 'Player'} has been forced to take ${qty} sip${qty === 1 ? '' : 's'}!`, type: 'success' })
+  }, [player?.id, sourceContext?.id, redeemTargetId, redeemNote, redeemQty, mySipCount, economyContextField, pushToast, playersById])
+
+  const handleConfirmSipTaken = useCallback(async (redemptionId) => {
+    setEconomyActionLoading(true)
+    const takenAt = new Date().toISOString()
+    const { data, error } = await supabase.from('sip_redemptions').update({ taken: true, taken_at: takenAt }).eq('id', redemptionId).select().maybeSingle()
+    setEconomyActionLoading(false)
+    if (error) {
+      pushToast({ title: 'Confirm failed', message: error.message, type: 'error' })
+      return
+    }
+    if (!data) {
+      pushToast({ title: 'Confirm failed', message: 'You do not have permission to confirm this sip.', type: 'error' })
+      return
+    }
+    setSipRedemptions((current) => current.map((entry) => (entry.id === redemptionId ? { ...entry, taken: true, taken_at: takenAt } : entry)))
+    pushToast({ title: 'Sip confirmed.', type: 'success' })
+  }, [pushToast])
+
   const charactersById = useMemo(() => Object.fromEntries(characters.map((entry) => [entry.id, entry])), [characters])
   const stadiumsById = useMemo(() => Object.fromEntries(stadiums.map((entry) => [entry.id, entry])), [stadiums])
   const seasonIdentitiesByPlayerId = useMemo(
-    () => Object.fromEntries((seasonTeams || []).map((team) => [team.player_id, {
-      playerId: team.player_id,
-      teamName: team.team_name || playersById[team.player_id]?.name || 'Season Team',
-      teamMascot: team.team_mascot || null,
-      teamLogoKey: team.team_logo_key || null,
-      teamLogoUrl: team.logo_url || null,
-    }])),
+    () => Object.fromEntries((seasonTeams || []).map((team) => {
+      const profile = playersById[team.player_id]
+      return [team.player_id, {
+        playerId: team.player_id,
+        teamName: profile?.team_name || team.team_name || profile?.name || 'Season Team',
+        teamMascot: profile?.team_mascot || team.team_mascot || null,
+        teamLogoKey: team.team_logo_key || null,
+        teamLogoUrl: profile?.team_logo_url || team.logo_url || null,
+      }]
+    })),
     [seasonTeams, playersById],
   )
   const identitiesByPlayerId = isSeasonMode ? seasonIdentitiesByPlayerId : tournamentIdentitiesByPlayerId
@@ -619,14 +1179,38 @@ export default function BettingTab({ mode = 'tournament' }) {
     () => games.filter((entry) => entry.tournament_id === sourceContext?.id),
     [games, sourceContext?.id],
   )
+  const currentWeekGameIds = useMemo(() => {
+    if (!isSeasonMode) return null
+    const regularSeasonGames = tournamentGames.filter((entry) => !entry.stage)
+    const gamesPerWeek = (seasonTeams || []).length * ((seasonTeams || []).length - 1) / 2
+    if (!gamesPerWeek) return null
+    const totalWeeks = Number(sourceContext?.games_per_matchup || 0)
+    const maxRound = Math.max(0, ...regularSeasonGames.map((entry) => Number(entry.round_number || 0)))
+
+    let groups
+    if (totalWeeks > 0 && maxRound <= totalWeeks) {
+      groups = Array.from({ length: totalWeeks }, (_, index) =>
+        regularSeasonGames.filter((entry) => Number(entry.round_number || 0) === index + 1))
+    } else {
+      const sorted = [...regularSeasonGames].sort((a, b) => Number(a.id) - Number(b.id))
+      groups = []
+      for (let i = 0; i < sorted.length; i += gamesPerWeek) {
+        groups.push(sorted.slice(i, i + gamesPerWeek))
+      }
+    }
+
+    const currentGroup = groups.find((group) => group.length && !group.every((entry) => entry.status === 'complete')) || groups[groups.length - 1]
+    return new Set((currentGroup || []).map((entry) => String(entry.id)))
+  }, [isSeasonMode, tournamentGames, seasonTeams, sourceContext?.games_per_matchup])
   const boardGames = useMemo(
     () =>
       tournamentGames
         .filter((entry) => ACTIVE_STATUSES.has(entry.status))
         .filter((entry) => isGameReadyForBetting(entry, playersById))
+        .filter((entry) => !isSeasonMode || entry.stage || currentWeekGameIds?.has(String(entry.id)))
         .slice()
         .sort((a, b) => Number(a.id) - Number(b.id)),
-    [tournamentGames, playersById],
+    [tournamentGames, playersById, isSeasonMode, currentWeekGameIds],
   )
   const detailGame = useMemo(
     () => boardGames.find((entry) => String(entry.id) === String(detailGameId)) || boardGames[0] || null,
@@ -638,6 +1222,16 @@ export default function BettingTab({ mode = 'tournament' }) {
   )
   const readyGameIds = useMemo(() => new Set(boardGames.map((game) => String(game.id))), [boardGames])
 
+  const gamesById = useMemo(() => Object.fromEntries(tournamentGames.map((entry) => [String(entry.id), entry])), [tournamentGames])
+
+  const myAllBets = useMemo(
+    () => bets
+      .filter((entry) => entry.player_id === player?.id && gamesById[String(entry.game_id)])
+      .slice()
+      .sort((a, b) => new Date(b.placed_at || 0) - new Date(a.placed_at || 0)),
+    [bets, player?.id, gamesById],
+  )
+
   const selectedBets = useMemo(
     () => bets.filter((entry) => detailGame && String(entry.game_id) === String(detailGame.id)),
     [bets, detailGame],
@@ -646,13 +1240,11 @@ export default function BettingTab({ mode = 'tournament' }) {
     () => settlements.filter((entry) => detailGame && String(entry.game_id) === String(detailGame.id)),
     [settlements, detailGame],
   )
-  const myBets = useMemo(() => selectedBets.filter((entry) => entry.player_id === player?.id), [selectedBets, player?.id])
   const leaderboard = useMemo(
     () => buildLeaderboard(players, boardGames, bets, sourceContext?.id, {
       sourceIdField: sourceTables.sourceIdField,
       payoutField: sourceTables.payoutField,
       wagerField: sourceTables.wagerField,
-      isSeasonMode,
     }),
     [players, boardGames, bets, sourceContext?.id, sourceTables, isSeasonMode],
   )
@@ -666,6 +1258,58 @@ export default function BettingTab({ mode = 'tournament' }) {
     })
     return groups
   }, [gameOdds])
+
+  const [flashKeys, setFlashKeys] = useState(() => new Set())
+  const prevOddsValuesRef = useRef(null)
+  const flashTimeoutsRef = useRef({})
+
+  useEffect(() => {
+    const prev = prevOddsValuesRef.current
+    const next = {}
+    const changed = []
+
+    gameOdds.forEach((row) => {
+      ODDS_FLASH_FIELDS.forEach((field) => {
+        if (row[field] == null) return
+        const key = `${row.id}:${field}`
+        next[key] = row[field]
+        if (prev && prev[key] != null && prev[key] !== row[field]) {
+          changed.push(key)
+        }
+      })
+    })
+
+    prevOddsValuesRef.current = next
+
+    if (changed.length) {
+      setFlashKeys((current) => {
+        const updated = new Set(current)
+        changed.forEach((key) => updated.add(key))
+        return updated
+      })
+      changed.forEach((key) => {
+        clearTimeout(flashTimeoutsRef.current[key])
+        flashTimeoutsRef.current[key] = setTimeout(() => {
+          setFlashKeys((current) => {
+            if (!current.has(key)) return current
+            const updated = new Set(current)
+            updated.delete(key)
+            return updated
+          })
+          delete flashTimeoutsRef.current[key]
+        }, ODDS_FLASH_DURATION_MS)
+      })
+    }
+  }, [gameOdds])
+
+  useEffect(() => () => {
+    Object.values(flashTimeoutsRef.current).forEach(clearTimeout)
+  }, [])
+
+  const isOddsFlashing = useCallback((rowId, side) => {
+    if (rowId == null) return false
+    return flashKeys.has(`${rowId}:odds_${side}`)
+  }, [flashKeys])
 
   const detailOdds = useMemo(
     () => oddsByGameId[String(detailGame?.id)] || [],
@@ -731,6 +1375,9 @@ export default function BettingTab({ mode = 'tournament' }) {
         stadiumsById,
         stadiumGameLog,
         playersById,
+        totalInnings: isSeasonMode
+          ? DEFAULT_REGULATION_INNINGS
+          : normalizeRegulationInnings(sourceContext?.innings, DEFAULT_REGULATION_INNINGS),
       })
 
       if (!context.homeRoster.length || !context.awayRoster.length) {
@@ -748,9 +1395,14 @@ export default function BettingTab({ mode = 'tournament' }) {
         weights,
       )
 
+      const { data: existingRows } = await supabase
+        .from(sourceTables.odds)
+        .select('*')
+        .eq('game_id', game.id)
+
       const payload = mergeOddsWithExistingRows(
         generatedRows,
-        gameOdds.filter((entry) => entry.game_id === game.id),
+        existingRows || [],
       )
 
       const toUpdate = payload.filter((r) => r.id != null)
@@ -779,13 +1431,14 @@ export default function BettingTab({ mode = 'tournament' }) {
   }
 
   useEffect(() => {
+    if (!isScorekeeper) return
     boardSourceSignatures.forEach(({ game, signature }) => {
       if (!readyGameIds.has(String(game.id))) return
       const syncState = autoSyncRef.current[game.id]
       if (syncState?.inFlight || syncState?.signature === signature) return
       handleGenerateOdds(game, { silent: true, sourceSignature: signature })
     })
-  }, [boardSourceSignatures, readyGameIds])
+  }, [boardSourceSignatures, readyGameIds, isScorekeeper])
 
   const toggleSlipSelection = (game, row, side, customLineOpts = null) => {
     if (!game || !row?.id || row.is_locked || !isGameReadyForBetting(game, playersById)) return
@@ -799,7 +1452,7 @@ export default function BettingTab({ mode = 'tournament' }) {
       rowId: row.id,
       row,
       side,
-      wagerType: isSeasonMode ? 'dollars' : 'sips',
+      wagerType: 'dollars',
       wagerSips: 1,
       ...customLineOpts,
     }
@@ -825,6 +1478,12 @@ export default function BettingTab({ mode = 'tournament' }) {
   const updateSlipEntry = (key, patch) => {
     setBetSlip((current) => current.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry)))
   }
+
+  const handleSlipWagerChange = useCallback((key, rawValue) => {
+    const sanitized = sanitizeDollarWagerInput(rawValue)
+    if (sanitized == null) return
+    updateSlipEntry(key, { wagerSips: sanitized })
+  }, [])
 
   const completedGameMargins = useMemo(
     () =>
@@ -885,7 +1544,15 @@ export default function BettingTab({ mode = 'tournament' }) {
   }, [games, oddsByGameId, stadiumGameLog, stadiumsById])
 
   const handlePlaceBets = async () => {
-    if (!betSlip.length || !player?.id) return
+    if (!betSlip.length || !player?.id || !sourceContext?.id) return
+    if (slipHasInvalidWager) {
+      pushToast({ title: 'Bet slip invalid', message: 'Every ticket must have a non-negative wager with at most two decimal places, and be at least $0.01.', type: 'error' })
+      return
+    }
+    if (slipWager > myBalance) {
+      pushToast({ title: 'Not enough balance', message: 'Reduce your wagers or add funds before placing this slip.', type: 'error' })
+      return
+    }
     setPlacingBetId('slip')
 
     const payload = []
@@ -905,7 +1572,7 @@ export default function BettingTab({ mode = 'tournament' }) {
         return
       }
 
-      const wagerSips = entry.wagerType === 'finish_drink' ? null : Number(entry.wagerSips || 0)
+      const wagerSips = parseDollarWager(entry.wagerSips)
       const oddsToUse = entry.customOdds ?? Number(option.odds)
       const probToUse = entry.customProb ?? Number(option.probability)
       const lineToUse = entry.customLine ?? row.line
@@ -932,9 +1599,9 @@ export default function BettingTab({ mode = 'tournament' }) {
         chosen_side: entry.side,
         odds: oddsToUse,
         predicted_probability: Number(probToUse.toFixed(4)),
-        wager_type: entry.wagerType,
-        wager_sips: wagerSips,
-        potential_payout_sips: entry.wagerType === 'finish_drink' ? null : calculatePayout(wagerSips, oddsToUse),
+        wager_type: 'dollars',
+        wager_dollars: wagerSips,
+        potential_payout_dollars: calculatePayout(wagerSips, oddsToUse),
         status: 'open',
         line: lineToUse,
         placed_at: new Date().toISOString(),
@@ -942,17 +1609,42 @@ export default function BettingTab({ mode = 'tournament' }) {
     }
 
     const { data, error } = await supabase.from(sourceTables.bets).insert(payload).select()
-    setPlacingBetId(null)
     if (error) {
+      setPlacingBetId(null)
       pushToast({ title: 'Bet failed', message: error.message, type: 'error' })
       return
     }
 
-    if (data?.length) {
-      setBets((current) => [...data, ...current.filter((entry) => !data.some((created) => created.id === entry.id))])
+    const placedBets = data || []
+    const placedLedgerRows = buildPlacedBetLedgerEntries(placedBets, {
+      wagerField: sourceTables.wagerField,
+      ledgerTable: sourceTables.ledgerTable,
+      ledgerChangeField: sourceTables.ledgerChangeField,
+      sourceIdField: sourceTables.sourceIdField,
+      sourceIdValue: sourceContext.id,
+    })
+
+    if (placedLedgerRows.length) {
+      const { error: ledgerError } = await supabase.from(sourceTables.ledgerTable).insert(placedLedgerRows)
+      if (ledgerError) {
+        const createdBetIds = placedBets.map((bet) => bet.id).filter(Boolean)
+        if (createdBetIds.length) {
+          await supabase.from(sourceTables.bets).delete().in('id', createdBetIds)
+        }
+        setPlacingBetId(null)
+        pushToast({ title: 'Bet failed', message: 'The wager could not be debited, so the bet was rolled back.', type: 'error' })
+        return
+      }
+      setLedgerEntries((current) => [...placedLedgerRows, ...current])
+    }
+
+    setPlacingBetId(null)
+
+    if (placedBets.length) {
+      setBets((current) => [...placedBets, ...current.filter((entry) => !placedBets.some((created) => created.id === entry.id))])
     }
     setBetSlip([])
-    pushToast({ title: 'Bets placed', message: `${payload.length} ticket${payload.length === 1 ? '' : 's'} submitted.`, type: 'success' })
+    pushToast({ title: 'Bets placed', message: `${payload.length} ticket${payload.length === 1 ? '' : 's'} submitted and debited.`, type: 'success' })
   }
 
   const handleToggleLocks = async (isLocked) => {
@@ -976,24 +1668,6 @@ export default function BettingTab({ mode = 'tournament' }) {
     pushToast({ title: !isLocked ? 'Board locked' : 'Board unlocked', type: 'success' })
   }
 
-  const handleVoidBet = async (betId) => {
-    setVoidingBetId(betId)
-    const resolvedAt = new Date().toISOString()
-    const { error } = await supabase
-      .from(sourceTables.bets)
-      .update({ status: 'void', result_correct: null, resolved_at: resolvedAt })
-      .eq('id', betId)
-    setVoidingBetId(null)
-
-    if (error) {
-      pushToast({ title: 'Void failed', message: error.message, type: 'error' })
-      return
-    }
-
-    setBets((current) => current.map((bet) => (bet.id === betId ? { ...bet, status: 'void', result_correct: null, resolved_at: resolvedAt } : bet)))
-    pushToast({ title: 'Bet voided', type: 'success' })
-  }
-
   const boardCards = useMemo(
     () =>
       boardGames.map((game) => {
@@ -1003,23 +1677,43 @@ export default function BettingTab({ mode = 'tournament' }) {
         const total = rows.find((entry) => entry.bet_type === 'over_under')
         const runLine = rows.find((entry) => entry.bet_type === 'run_line')
         const stadiumData = buildStadiumDisplayModel(game, stadiumsById, stadiumGameLog)
+        const gamePAs = plateAppearances.filter((entry) => entry.game_id === game.id)
+        const gamePAInnings = gamePAs.map((entry) => Number(entry.inning || 1))
+        const currentInning = Number(game.current_inning || (gamePAInnings.length ? Math.max(...gamePAInnings) : 1))
+        const lastPA = gamePAs.reduce((latest, entry) => (!latest || Number(entry.id) > Number(latest.id) ? entry : latest), null)
+        const awayPlayerId = game.team_a_player_id
+        const isTopInning = lastPA
+          ? (lastPA.batting_team_id != null
+            ? lastPA.batting_team_id === game.away_team_id
+            : lastPA.player_id === awayPlayerId)
+          : null
+        const gameWithInning = { ...game, current_inning: currentInning, is_top_inning: isTopInning }
+        const flashSignature = [
+          runLine && isOddsFlashing(runLine.id, 'home') ? 'rlh' : '',
+          runLine && isOddsFlashing(runLine.id, 'away') ? 'rla' : '',
+          total && isOddsFlashing(total.id, 'over') ? 'to' : '',
+          total && isOddsFlashing(total.id, 'under') ? 'tu' : '',
+          moneyline && isOddsFlashing(moneyline.id, 'home') ? 'mlh' : '',
+          moneyline && isOddsFlashing(moneyline.id, 'away') ? 'mla' : '',
+        ].filter(Boolean).join(',')
+        const gameBetSlip = betSlip.filter((entry) => entry.gameId === game.id)
         return {
-          game,
+          game: gameWithInning,
           ready,
           moneyline,
           total,
           runLine,
-          marketCount: rows.length,
           stadiumData,
           homeRow: getBoardRow({ moneyline, total, runLine }, 'home', game, playersById, identitiesByPlayerId),
           awayRow: getBoardRow({ moneyline, total, runLine }, 'away', game, playersById, identitiesByPlayerId),
+          flashSignature,
+          gameBetSlip,
         }
       }),
-    [boardGames, oddsByGameId, playersById, stadiumsById, stadiumGameLog],
+    [boardGames, oddsByGameId, playersById, stadiumsById, stadiumGameLog, plateAppearances, isOddsFlashing, betSlip, identitiesByPlayerId],
   )
 
   const detailTabSections = detailSections[detailTab] || {}
-  const ledgerRows = activeLedgerTab === 'leaderboard' ? leaderboard : activeLedgerTab === 'all-bets' ? selectedBets : myBets
   const teamLabels = getTeamLabels(detailGame, playersById, identitiesByPlayerId)
   const detailMoneylineRow = detailOdds.find((row) => row.bet_type === 'moneyline') || null
   const detailRunLineRow = detailOdds.find((row) => row.bet_type === 'run_line') || null
@@ -1040,12 +1734,20 @@ export default function BettingTab({ mode = 'tournament' }) {
     : null
   const detailHomeIsFav = Number(detailMoneylineRow?.predicted_probability || 0.5) >= 0.5
   const slipPayout = betSlip.reduce((sum, entry) => {
-    if (!isSeasonMode && entry.wagerType === 'finish_drink') return sum
     const game = boardGames.find((item) => String(item.id) === String(entry.gameId))
     const row = (oddsByGameId[String(entry.gameId)] || []).find((item) => item.id === entry.rowId)
     const option = row && game ? getSideOptions(row, game, playersById, identitiesByPlayerId).find((item) => item.side === entry.side) : null
-    return sum + calculatePayout(Number(entry.wagerSips || 0), option?.odds)
+    const wager = parseDollarWager(entry.wagerSips)
+    return sum + calculatePayout(Number.isFinite(wager) ? wager : 0, option?.odds)
   }, 0)
+  const slipWager = betSlip.reduce((sum, entry) => {
+    const wager = parseDollarWager(entry.wagerSips)
+    return sum + (Number.isFinite(wager) && wager >= 0.01 ? wager : 0)
+  }, 0)
+  const slipHasInvalidWager = betSlip.some((entry) => {
+    const wager = parseDollarWager(entry.wagerSips)
+    return !Number.isFinite(wager) || wager < 0.01
+  })
 
   useEffect(() => {
     centerActiveRailValue(runLineRailRef.current)
@@ -1070,14 +1772,218 @@ export default function BettingTab({ mode = 'tournament' }) {
 
   return (
     <div className="page-stack betting-redesign">
-      {!boardGames.length ? (
+      <div className="panel balance-bar">
+        <div className="balance-bar-stats">
+          <div>
+            <span className="muted">Balance</span>
+            <strong className={myBalance < 0 ? 'balance-negative' : ''}>${myBalance.toFixed(2)}</strong>
+          </div>
+          <div>
+            <span className="muted">Sips to take</span>
+            <strong className={mySipsOwed > 0 ? 'balance-negative' : ''}>{mySipsOwed}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="sportsbook-top-tabbar tab-row">
+        <button
+          className={`tab-button ${viewMode === 'board' || viewMode === 'detail' ? 'tab-button-active' : ''}`}
+          onClick={() => setViewMode('board')}
+          type="button"
+        >
+          Board
+        </button>
+        <button
+          className={`tab-button ${viewMode === 'my-bets' ? 'tab-button-active' : ''}`}
+          onClick={() => setViewMode('my-bets')}
+          type="button"
+        >
+          My Bets{myAllBets.some((bet) => bet.status === 'open') ? ` (${myAllBets.filter((bet) => bet.status === 'open').length})` : ''}
+        </button>
+        <button
+          className={`tab-button ${viewMode === 'leaderboard' ? 'tab-button-active' : ''}`}
+          onClick={() => setViewMode('leaderboard')}
+          type="button"
+        >
+          Leaderboard
+        </button>
+        <button
+          className={`tab-button ${viewMode === 'sips' ? 'tab-button-active' : ''}`}
+          onClick={() => setViewMode('sips')}
+          type="button"
+        >
+          Buy Sips
+        </button>
+        <button
+          className={`tab-button ${viewMode === 'sips-history' ? 'tab-button-active' : ''}`}
+          onClick={() => setViewMode('sips-history')}
+          type="button"
+        >
+          Sips History
+        </button>
+      </div>
+
+      {viewMode === 'my-bets' ? (
+        <MyBetsView
+          bets={myAllBets}
+          charactersById={charactersById}
+          filter={myBetsFilter}
+          gamesById={gamesById}
+          identitiesByPlayerId={identitiesByPlayerId}
+          isSeasonMode={isSeasonMode}
+          onFilterChange={setMyBetsFilter}
+          payoutFormatter={payoutFormatter}
+          plateAppearances={plateAppearances}
+          pitchingStints={pitchingStints}
+          playersById={playersById}
+        />
+      ) : viewMode === 'leaderboard' ? (
+        <div className="panel">
+          <div className="section-head">
+            <h2>Leaderboard</h2>
+          </div>
+          {leaderboard.length ? (
+            <div className="feed-list">
+              {leaderboard.map((entry, index) => (
+                <div className="feed-row" key={entry.id}>
+                  <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>{index + 1}.</span>
+                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} player={entry} />
+                  </strong>
+                  <span style={{ color: entry.net >= 0 ? '#22C55E' : '#EF4444', fontWeight: 700 }}>
+                    {`${entry.net >= 0 ? '+' : '-'}$${Math.abs(entry.net).toFixed(2)}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <strong>No entries</strong>
+              <span className="muted">Leaderboard will populate after bets settle.</span>
+            </div>
+          )}
+        </div>
+      ) : viewMode === 'sips' ? (
+        <div className="panel">
+          <div className="section-head">
+            <h2>Buy Sips</h2>
+            <strong>{mySipCount} sip{mySipCount === 1 ? '' : 's'} owned</strong>
+          </div>
+          <div className="balance-bar-actions">
+            <div>
+              <span className="muted">Current price</span>
+              <strong>${sipSellPrice.toFixed(2)}</strong>
+            </div>
+            <button className="ghost-button" disabled={economyActionLoading || myBalance < sipBuyPrice} onClick={handleBuySip} type="button">
+              Buy Sip (${sipBuyPrice.toFixed(2)})
+            </button>
+            <button className="ghost-button" disabled={economyActionLoading || mySipCount < 1} onClick={handleSellSip} type="button">
+              Sell Sip (${sipSellPrice.toFixed(2)})
+            </button>
+            <select
+              className="balance-bar-select"
+              disabled={economyActionLoading || mySipCount < 1}
+              onChange={(event) => setRedeemTargetId(event.target.value)}
+              value={redeemTargetId}
+            >
+              <option value="">Force a sip on...</option>
+              {players.filter((entry) => entry.id !== player?.id).map((entry) => (
+                <option key={entry.id} value={entry.id}>{identitiesByPlayerId?.[entry.id]?.teamName || entry.name}</option>
+              ))}
+            </select>
+            <input
+              className="balance-bar-note"
+              disabled={economyActionLoading || mySipCount < 1}
+              onChange={(event) => setRedeemNote(event.target.value)}
+              placeholder="Note (optional)"
+              type="text"
+              value={redeemNote}
+            />
+            <input
+              className="balance-bar-note"
+              disabled={economyActionLoading || mySipCount < 1}
+              max={mySipCount}
+              min={1}
+              onChange={(event) => setRedeemQty(event.target.value)}
+              style={{ width: 64 }}
+              type="number"
+              value={redeemQty}
+            />
+            <button className="solid-button" disabled={economyActionLoading || mySipCount < 1 || !redeemTargetId} onClick={handleRedeemSip} type="button">
+              Redeem
+            </button>
+          </div>
+          {myPendingSipRedemptions.length ? (
+            <div className="feed-list">
+              <strong className="muted">Sips you owe</strong>
+              {myPendingSipRedemptions.map((entry) => (
+                <div className="feed-row" key={entry.id}>
+                  <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={entry.from_player_id} playersById={playersById} />
+                    <span className="muted">forced you to drink</span>
+                    {entry.note ? <span className="muted">"{entry.note}"</span> : null}
+                  </strong>
+                  <button className="ghost-button" disabled={economyActionLoading} onClick={() => handleConfirmSipTaken(entry.id)} type="button">
+                    Confirm taken
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {pendingSipsByPlayer.length ? (
+            <div className="feed-list">
+              <strong className="muted">Sips still owed</strong>
+              {pendingSipsByPlayer.map(({ playerId, count }) => (
+                <div className="feed-row" key={playerId}>
+                  <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={playerId} playersById={playersById} />
+                  </strong>
+                  <span className="muted">{count} sip{count === 1 ? '' : 's'} to take</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : viewMode === 'sips-history' ? (
+        <div className="panel">
+          <div className="section-head">
+            <h2>Sips History</h2>
+          </div>
+          {sipHistory.length ? (
+            <div className="feed-list">
+              {sipHistory.map((entry) => (
+                <div className="feed-row" key={`${entry.kind}-${entry.id}`}>
+                  {entry.kind === 'transaction' ? (
+                    <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={entry.player_id} playersById={playersById} />
+                      <span className="muted">{entry.type === 'buy' ? 'bought' : 'sold'} 1 sip for ${Number(entry.amount_dollars).toFixed(2)}</span>
+                    </strong>
+                  ) : (
+                    <strong style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={entry.from_player_id} playersById={playersById} />
+                      <span className="muted">forced</span>
+                      <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={entry.to_player_id} playersById={playersById} />
+                      <span className="muted">to drink</span>
+                      <span className="muted">{entry.taken ? '(Taken)' : '(Pending)'}</span>
+                      {entry.note ? <span className="muted">"{entry.note}"</span> : null}
+                    </strong>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <strong>No entries</strong>
+              <span className="muted">No sip activity yet.</span>
+            </div>
+          )}
+        </div>
+      ) : !boardGames.length ? (
         <div className="panel empty-state">
           <strong>No active games</strong>
           <span className="muted">Create or activate a matchup to publish lines.</span>
         </div>
-      ) : null}
-
-      {!boardGames.length ? null : (
+      ) : (
         <>
           {viewMode === 'board' ? (
           <section className="panel sportsbook-board">
@@ -1089,222 +1995,30 @@ export default function BettingTab({ mode = 'tournament' }) {
             </div>
 
             <div className="sportsbook-game-list">
-              {boardCards.map(({ game, ready, homeRow, awayRow, moneyline, total, runLine, marketCount, stadiumData }) => {
-                const homeWinProb = Number(moneyline?.predicted_probability || 0.5)
-                const homeIsFav = homeWinProb >= 0.5
-                const stadium = stadiumData.stadium
-                const timeLabel = stadium ? getStadiumTimeLabel(stadium, game.is_night) : null
-                const chaosColors = getChaosTagColors(stadium?.chaos_level)
-                const extraMarketCount = Math.max(0, marketCount - 3)
-
-                const getRunLineSide = (isHome) => {
-                  if (!runLine) return { label: 'Not live', odds: null, selectable: false }
-                  const showMinus = isHome ? homeIsFav : !homeIsFav
-                  const label = `${showMinus ? '-' : '+'}${Number(runLine.line || 1.5).toFixed(1)}`
-                  const odds = isHome ? runLine.odds_home : runLine.odds_away
-                  return { label, odds, selectable: true, side: isHome ? 'home' : 'away' }
-                }
-
-                const getTotalSide = (isOver) => {
-                  if (!total) return { label: '--', odds: null, selectable: false }
-                  const label = isOver ? `O ${Number(total.line || 0).toFixed(1)}` : `U ${Number(total.line || 0).toFixed(1)}`
-                  const odds = isOver ? total.odds_over : total.odds_under
-                  return { label, odds, selectable: true, side: isOver ? 'over' : 'under' }
-                }
-
-                return (
-                  <div
-                    className={`sportsbook-game-card ${ready ? '' : 'sportsbook-game-card-disabled'}`}
-                    key={game.id}
-                    onClick={() => {
-                      if (!ready) return
-                      setDetailGameId(String(game.id))
-                      setDetailTab('game-odds')
-                      setViewMode('detail')
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if ((event.key === 'Enter' || event.key === ' ') && ready) {
-                        setDetailGameId(String(game.id))
-                        setDetailTab('game-odds')
-                        setViewMode('detail')
-                      }
-                    }}
-                  >
-                    <div className="sportsbook-game-meta">
-                      <div className="sportsbook-game-meta-main">
-                        <span className="brand-kicker">Today</span>
-                        <div className="sportsbook-game-time">{game.game_code}</div>
-                      </div>
-                    </div>
-
-                    {stadium ? (
-                      <div className="sportsbook-stadium-chip-wrap">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setStadiumModalGameId(String(game.id))
-                          }}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '6px 10px',
-                            borderRadius: 999,
-                            border: `1px solid ${chaosColors.border}`,
-                            background: chaosColors.background,
-                            color: chaosColors.color,
-                            cursor: 'pointer',
-                            fontSize: 12,
-                            fontWeight: 700,
-                          }}
-                          className="sportsbook-stadium-chip"
-                        >
-                          <span>{stadium.name}</span>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#E2E8F0' }}>
-                            {timeLabel === 'Night' ? <Moon size={12} /> : <Sun size={12} />}
-                            {timeLabel}
-                          </span>
-                        </button>
-                      </div>
-                    ) : null}
-
-                    <div className="sportsbook-columns">
-                      <div className="sportsbook-columns-spacer" aria-hidden="true" />
-                      {BOARD_COLUMN_HEADERS.map((column) => (
-                        <div className="sportsbook-column-label" key={column}>{column}</div>
-                      ))}
-                    </div>
-
-                    <div className="sportsbook-mobile-columns" aria-hidden="true">
-                      <div className="sportsbook-mobile-columns-spacer" />
-                      {BOARD_COLUMN_HEADERS.map((column) => (
-                        <div className="sportsbook-mobile-column-label" key={column}>{column}</div>
-                      ))}
-                    </div>
-
-                    {[{ key: 'home', isHome: true }, { key: 'away', isHome: false }].map(({ key, isHome }) => {
-                      const rl = getRunLineSide(isHome)
-                      const tot = getTotalSide(isHome)
-                      const ml = isHome ? homeRow.moneyline : awayRow.moneyline
-                      const rlSelected = runLine && betSlip.some((e) => e.gameId === game.id && e.rowId === runLine.id && e.side === rl.side)
-                      const totSelected = total && betSlip.some((e) => e.gameId === game.id && e.rowId === total.id && e.side === tot.side)
-                      const mlSelected = betSlip.some((e) => e.gameId === game.id && e.rowId === ml.market?.id && e.side === ml.side)
-
-                      return (
-                        <div className="sportsbook-team-row" key={key}>
-                          <div className="sportsbook-team-name">
-                            <PlayerTag
-                              height={24}
-                              identitiesByPlayerId={identitiesByPlayerId}
-                              playerId={isHome ? game.team_b_player_id : game.team_a_player_id}
-                              playersById={playersById}
-                            />
-                          </div>
-                          <div className="sportsbook-team-buttons">
-                            <button
-                              className={`sportsbook-odds-button ${rlSelected ? 'sportsbook-odds-button-selected' : ''}`}
-                              data-column-label="Run Line"
-                              disabled={!ready || !rl.selectable || runLine?.is_locked || isOddsOffBoard(rl.odds)}
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                if (!runLine) return
-                                toggleSlipSelection(game, runLine, rl.side)
-                              }}
-                            >
-                              <span className="sportsbook-odds-line">{rl.label}</span>
-                              <strong>{formatOdds(rl.odds)}</strong>
-                            </button>
-
-                            <button
-                              className={`sportsbook-odds-button ${totSelected ? 'sportsbook-odds-button-selected' : ''}`}
-                              data-column-label="Total"
-                              disabled={!ready || !tot.selectable || total?.is_locked || isOddsOffBoard(tot.odds)}
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                if (!total) return
-                                toggleSlipSelection(game, total, tot.side)
-                              }}
-                            >
-                              <span className="sportsbook-odds-line">{tot.label}</span>
-                              <strong>{formatOdds(tot.odds)}</strong>
-                            </button>
-
-                            <button
-                              className={`sportsbook-odds-button ${mlSelected ? 'sportsbook-odds-button-selected' : ''}`}
-                              data-column-label="Moneyline"
-                              disabled={!ready || !ml.selectable || ml.market?.is_locked || isOddsOffBoard(ml.odds)}
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                if (!ml.market || !ml.side) return
-                                toggleSlipSelection(game, ml.market, ml.side)
-                              }}
-                            >
-                              <span className="sportsbook-odds-line">{ml.label}</span>
-                              <strong>{formatOdds(ml.odds)}</strong>
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
-
-                    {false && ready && (runLine || total) && (
-                      <div className="alt-line-selector">
-                        {runLine && (
-                          <>
-                            <span className="alt-line-label">Spread</span>
-                            {getAltSpreads(Number(runLine.line)).map((spread) => (
-                              <button
-                                className={`alt-line-pill${activeSpread === spread ? ' alt-line-pill-active' : ''}`}
-                                key={spread}
-                                onClick={(e) => { e.stopPropagation(); handleSelectAltSpread(game.id, spread) }}
-                                type="button"
-                              >
-                                ±{spread.toFixed(1)}
-                              </button>
-                            ))}
-                          </>
-                        )}
-                        {total && (
-                          <>
-                            <span className="alt-line-label" style={{ marginLeft: runLine ? '0.75rem' : 0 }}>Total</span>
-                            {getAltTotals(Number(total.line)).map((line) => (
-                              <button
-                                className={`alt-line-pill${activeLine === line ? ' alt-line-pill-active' : ''}`}
-                                key={line}
-                                onClick={(e) => { e.stopPropagation(); handleSelectAltTotal(game.id, line) }}
-                                type="button"
-                              >
-                                {line.toFixed(1)}
-                              </button>
-                            ))}
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {!ready ? (
-                      <div className="sportsbook-card-note">Matchup not set. Betting is disabled until both teams are assigned.</div>
-                    ) : null}
-
-                    <div className="sportsbook-card-footer">
-                      <div className="sportsbook-card-footer-meta">
-                        {extraMarketCount > 0 ? <span className="sportsbook-card-footer-pill">{extraMarketCount} props</span> : null}
-                        <span className="muted">{stadium ? `${stadium.name} ${timeLabel ? `· ${timeLabel}` : ''}` : 'Open markets available'}</span>
-                      </div>
-                      <span className="sportsbook-more-bets">
-                        <span>More Bets</span>
-                        <ChevronRight size={16} />
-                      </span>
-                    </div>
-                  </div>
-                )
-              })}
+              {boardCards.map((card) => (
+                <BoardGameCard
+                  key={card.game.id}
+                  game={card.game}
+                  ready={card.ready}
+                  homeRow={card.homeRow}
+                  awayRow={card.awayRow}
+                  moneyline={card.moneyline}
+                  total={card.total}
+                  runLine={card.runLine}
+                  stadiumData={card.stadiumData}
+                  flashSignature={card.flashSignature}
+                  gameBetSlip={card.gameBetSlip}
+                  identitiesByPlayerId={identitiesByPlayerId}
+                  playersById={playersById}
+                  toggleSlipSelection={toggleSlipSelection}
+                  onOpenDetail={(gameId) => {
+                    setDetailGameId(String(gameId))
+                    setDetailTab('game-odds')
+                    setViewMode('detail')
+                  }}
+                  onOpenStadiumModal={(gameId) => setStadiumModalGameId(String(gameId))}
+                />
+              ))}
             </div>
           </section>
           ) : null}
@@ -1337,9 +2051,9 @@ export default function BettingTab({ mode = 'tournament' }) {
                   <span className="brand-kicker">Game Detail</span>
                   <h2>{detailGame.game_code}</h2>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_b_player_id} playersById={playersById} />
+                    <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_b_player_id} playersById={playersById} />
                     <span className="muted">vs</span>
-                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_a_player_id} playersById={playersById} />
+                    <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_a_player_id} playersById={playersById} />
                   </div>
                   <span className="muted">{getGameStatusLabel(detailGame)}</span>
                 </div>
@@ -1579,7 +2293,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                                     )
                                     return (
                                       <button
-                                        className={`sportsbook-odds-button ${selected ? 'sportsbook-odds-button-selected' : ''}`}
+                                        className={`sportsbook-odds-button ${selected ? 'sportsbook-odds-button-selected' : ''} ${isOddsFlashing(row.id, option.side) ? 'sportsbook-odds-flash' : ''}`}
                                         disabled={!row.id || row.is_locked || !isGameReadyForBetting(detailGame, playersById)}
                                         key={option.side}
                                         onClick={() => toggleSlipSelection(detailGame, row, option.side)}
@@ -1612,72 +2326,6 @@ export default function BettingTab({ mode = 'tournament' }) {
             </section>
           ) : null}
 
-          <section className="betting-summary-grid">
-            <div className="panel">
-              <div className="tab-row">
-                <button className={`tab-button ${activeLedgerTab === 'my-bets' ? 'tab-button-active' : ''}`} onClick={() => setActiveLedgerTab('my-bets')} type="button">My Bets</button>
-                <button className={`tab-button ${activeLedgerTab === 'all-bets' ? 'tab-button-active' : ''}`} onClick={() => setActiveLedgerTab('all-bets')} type="button">All Bets</button>
-                <button className={`tab-button ${activeLedgerTab === 'leaderboard' ? 'tab-button-active' : ''}`} onClick={() => setActiveLedgerTab('leaderboard')} type="button">Leaderboard</button>
-              </div>
-
-              {ledgerRows.length ? (
-                <div className="feed-list">
-                  {activeLedgerTab === 'leaderboard'
-                    ? leaderboard.map((entry, index) => (
-                        <div className="feed-row" key={entry.id}>
-                          <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span>{index + 1}.</span>
-                            <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} player={entry} />
-                          </strong>
-                          <span style={{ color: entry.net >= 0 ? '#22C55E' : '#EF4444', fontWeight: 700 }}>
-                            {isSeasonMode
-                              ? `${entry.net >= 0 ? '+' : '-'}$${Math.abs(entry.net).toFixed(0)}`
-                              : `${entry.net >= 0 ? '+' : ''}${entry.net.toFixed(1)}`}
-                          </span>
-                        </div>
-                      ))
-                    : ledgerRows.map((bet) => (
-                        <div className="betting-ticket" key={bet.id}>
-                          <div className="bet-card-head">
-                            <strong>{bet.target_entity || bet.bet_type}</strong>
-                            <span
-                              className="status-pill"
-                              style={{ background: `${STATUS_COLORS[bet.status] || '#94A3B8'}22`, color: STATUS_COLORS[bet.status] || '#94A3B8' }}
-                            >
-                              {bet.status}
-                            </span>
-                          </div>
-                          <div className="betting-ticket-meta">
-                            <span>{bet.chosen_side}</span>
-                            <strong>{formatOdds(bet.odds)}</strong>
-                          </div>
-                          <div className="betting-ticket-meta muted">
-                            <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={bet.player_id} playersById={playersById} />
-                            <span>
-                              {isSeasonMode
-                                ? `$${Number(bet.wager_dollars || 0).toFixed(0)}`
-                                : bet.wager_type === 'finish_drink'
-                                  ? 'Finish drink'
-                                  : `${Number(bet.wager_sips || 0).toFixed(1)} sips`}
-                            </span>
-                          </div>
-                          {player?.is_commissioner && activeLedgerTab === 'all-bets' && bet.status === 'open' ? (
-                            <button className="ghost-button" disabled={voidingBetId === bet.id} onClick={() => handleVoidBet(bet.id)} type="button">
-                              {voidingBetId === bet.id ? 'Voiding...' : 'Void Bet'}
-                            </button>
-                          ) : null}
-                        </div>
-                      ))}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <strong>No entries</strong>
-                  <span className="muted">{activeLedgerTab === 'leaderboard' ? 'Leaderboard will populate after bets settle.' : 'No bets match the current view.'}</span>
-                </div>
-              )}
-            </div>
-          </section>
-
           {betSlip.length ? (
             <div className="sportsbook-slip">
               <div className="sportsbook-slip-head">
@@ -1708,37 +2356,14 @@ export default function BettingTab({ mode = 'tournament' }) {
                       </div>
 
                       <div className="sportsbook-slip-controls">
-                        {!isSeasonMode ? (
-                          <div className="sportsbook-slip-toggle">
-                            <button
-                              className={`tab-button ${entry.wagerType === 'sips' ? 'tab-button-active' : ''}`}
-                              onClick={() => updateSlipEntry(entry.key, { wagerType: 'sips', wagerSips: Number(entry.wagerSips || 1) || 1 })}
-                              type="button"
-                            >
-                              Sips
-                            </button>
-                            <button
-                              className={`tab-button ${entry.wagerType === 'finish_drink' ? 'tab-button-active' : ''}`}
-                              onClick={() => updateSlipEntry(entry.key, { wagerType: 'finish_drink' })}
-                              type="button"
-                            >
-                              Finish Drink
-                            </button>
-                          </div>
-                        ) : null}
-
-                        {!isSeasonMode && entry.wagerType === 'finish_drink' ? (
-                          <span className="status-pill availability-open">Finish Drink</span>
-                        ) : (
-                          <input
-                            className="sportsbook-slip-input"
-                            min={isSeasonMode ? '1' : '0.5'}
-                            onChange={(event) => updateSlipEntry(entry.key, { wagerSips: event.target.value })}
-                            step={isSeasonMode ? '1' : '0.1'}
-                            type="number"
-                            value={entry.wagerSips}
-                          />
-                        )}
+                        <input
+                          className="sportsbook-slip-input"
+                          inputMode="decimal"
+                          onChange={(event) => handleSlipWagerChange(entry.key, event.target.value)}
+                          pattern="^\d*(\.\d{0,2})?$"
+                          type="text"
+                          value={entry.wagerSips}
+                        />
 
                         <button className="icon-button" onClick={() => setBetSlip((current) => current.filter((item) => item.key !== entry.key))} type="button">
                           <X size={16} />
@@ -1752,9 +2377,9 @@ export default function BettingTab({ mode = 'tournament' }) {
               <div className="sportsbook-slip-footer">
                 <div>
                   <span className="muted">Potential payout</span>
-                  <strong>{isSeasonMode ? `$${slipPayout.toFixed(0)}` : `${slipPayout.toFixed(1)} sips`}</strong>
+                  <strong>{`$${slipPayout.toFixed(2)}`}</strong>
                 </div>
-                <button className="solid-button" disabled={placingBetId === 'slip'} onClick={handlePlaceBets} type="button">
+                <button className="solid-button" disabled={placingBetId === 'slip' || slipHasInvalidWager || slipWager > myBalance} onClick={handlePlaceBets} type="button">
                   {placingBetId === 'slip' ? 'Placing...' : 'Place Bets'}
                 </button>
               </div>
@@ -1784,6 +2409,97 @@ export default function BettingTab({ mode = 'tournament' }) {
         </>
       )}
     </div>
+  )
+}
+
+const MY_BETS_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'open', label: 'Open' },
+  { id: 'settled', label: 'Settled' },
+  { id: 'won', label: 'Won' },
+  { id: 'lost', label: 'Lost' },
+]
+
+function MyBetsView({
+  bets,
+  gamesById,
+  playersById,
+  identitiesByPlayerId,
+  charactersById,
+  plateAppearances,
+  pitchingStints,
+  isSeasonMode,
+  payoutFormatter,
+  filter,
+  onFilterChange,
+}) {
+  const filteredBets = bets.filter((bet) => {
+    if (filter === 'all') return true
+    if (filter === 'open') return bet.status === 'open'
+    if (filter === 'settled') return ['won', 'lost', 'void'].includes(bet.status)
+    return bet.status === filter
+  })
+
+  return (
+    <section className="panel sportsbook-my-bets">
+      <div className="sportsbook-board-head">
+        <div>
+          <h2>My Bets</h2>
+        </div>
+        <span className="muted">{bets.length} bet{bets.length === 1 ? '' : 's'}</span>
+      </div>
+
+      <div className="tab-row">
+        {MY_BETS_FILTERS.map((entry) => (
+          <button
+            className={`tab-button ${filter === entry.id ? 'tab-button-active' : ''}`}
+            key={entry.id}
+            onClick={() => onFilterChange(entry.id)}
+            type="button"
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+
+      {filteredBets.length ? (
+        <div className="feed-list">
+          {filteredBets.map((bet) => {
+            const game = gamesById[String(bet.game_id)]
+            const progress = game ? getBetProgress(bet, game, plateAppearances, pitchingStints, charactersById, playersById) : null
+            const wager = Number(bet.wager_dollars || 0)
+            const payout = Number(bet.potential_payout_dollars || 0)
+            return (
+              <div className="betting-ticket my-bet-ticket" key={bet.id}>
+                <div className="bet-card-head">
+                  <strong>{game ? formatBetTitle(bet, game, playersById, identitiesByPlayerId) : bet.bet_type}</strong>
+                  <span
+                    className="status-pill"
+                    style={{ background: `${STATUS_COLORS[bet.status] || '#94A3B8'}22`, color: STATUS_COLORS[bet.status] || '#94A3B8' }}
+                  >
+                    {bet.status}
+                  </span>
+                </div>
+                <div className="muted">{game ? `${game.game_code} · ${formatBetSubtitle(bet, game, playersById, identitiesByPlayerId)}` : ''}</div>
+
+                {progress ? <BetProgressMeter progress={progress} status={bet.status} /> : null}
+
+                <div className="betting-ticket-meta">
+                  <span className="muted">Odds: <strong>{formatOdds(bet.odds)}</strong></span>
+                  <span className="muted">Wager: {payoutFormatter(wager)}</span>
+                  <span className="muted">To Pay: {payoutFormatter(payout)}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <strong>No bets here</strong>
+          <span className="muted">Place a bet from the board to see it here.</span>
+        </div>
+      )}
+    </section>
   )
 }
 

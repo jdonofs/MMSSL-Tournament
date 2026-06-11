@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { GameSessionProvider } from '../context/GameSessionContext'
 import { useSeason } from '../context/SeasonContext'
+import { DEFAULT_REGULATION_INNINGS } from '../utils/gameRules'
 
 const SEASON_TABLES = {
   games: 'season_schedule',
@@ -36,7 +37,7 @@ export default function SeasonGameSessionProvider({ children }) {
 
   const value = useMemo(() => ({
     gameId,
-    innings: currentSeason?.innings ?? 3,
+    innings: DEFAULT_REGULATION_INNINGS,
     mercyRule: currentSeason?.mercy_rule !== false,
     sourceType: 'season',
     sourceId: currentSeason?.id || null,
@@ -249,6 +250,81 @@ export default function SeasonGameSessionProvider({ children }) {
       if (allRegularSeasonComplete) {
         await supabase.from('seasons').update({ status: 'playoffs' }).eq('id', currentSeason.id)
       }
+
+      await refreshSeasons(currentSeason.id)
+    },
+    async onGameReopen({ selectedGame }) {
+      if (!selectedGame || !currentSeason?.id) return
+
+      const { data: allGames } = await supabase.from(SEASON_TABLES.games).select('*').eq('season_id', currentSeason.id)
+      const { data: allTeams } = await supabase.from('season_teams').select('*').eq('season_id', currentSeason.id)
+
+      const nextTeams = (allTeams || []).map((team) => {
+        const teamGames = (allGames || []).filter((game) => game.home_team_id === team.id || game.away_team_id === team.id)
+        let wins = 0
+        let losses = 0
+        let runDiff = 0
+        let homeWins = 0
+        let homeLosses = 0
+        let awayWins = 0
+        let awayLosses = 0
+
+        teamGames.forEach((game) => {
+          if (game.status !== 'completed') return
+          const isHome = game.home_team_id === team.id
+          const scored = Number(isHome ? game.home_score : game.away_score || 0)
+          const allowed = Number(isHome ? game.away_score : game.home_score || 0)
+          runDiff += scored - allowed
+          if (game.winner_team_id === team.id) {
+            wins += 1
+            if (isHome) homeWins += 1
+            else awayWins += 1
+          } else if (game.winner_team_id) {
+            losses += 1
+            if (isHome) homeLosses += 1
+            else awayLosses += 1
+          }
+        })
+
+        return {
+          ...team,
+          wins,
+          losses,
+          run_differential: runDiff,
+          home_wins: homeWins,
+          home_losses: homeLosses,
+          away_wins: awayWins,
+          away_losses: awayLosses,
+        }
+      })
+
+      await Promise.all(nextTeams.map((team) => (
+        supabase
+          .from('season_teams')
+          .update({
+            wins: team.wins,
+            losses: team.losses,
+            run_differential: team.run_differential,
+            home_wins: team.home_wins,
+            home_losses: team.home_losses,
+            away_wins: team.away_wins,
+            away_losses: team.away_losses,
+          })
+          .eq('id', team.id)
+      )))
+
+      const allRegularSeasonComplete = (allGames || [])
+        .filter((game) => !game.stage)
+        .every((game) => game.status === 'completed')
+      const hasPlayoffGames = (allGames || []).some((game) => Boolean(game.stage))
+
+      await supabase
+        .from('seasons')
+        .update({
+          champion_player_id: null,
+          status: allRegularSeasonComplete || hasPlayoffGames ? 'playoffs' : 'active',
+        })
+        .eq('id', currentSeason.id)
 
       await refreshSeasons(currentSeason.id)
     },

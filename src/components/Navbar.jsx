@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { BarChart3, BookOpenText, GanttChartSquare, House, LogOut, ScrollText, Settings, Trophy, Users2 } from 'lucide-react'
+import { BarChart3, BookOpenText, GanttChartSquare, House, LogIn, LogOut, ScrollText, Settings, Trophy, Users2 } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
@@ -198,10 +198,17 @@ export default function Navbar() {
           <span className="brand-kicker">Sluggers</span>
           <strong>{tournamentLabel}</strong>
         </div>
-        <NavLink to="/team" className="player-pill mobile-player-pill" style={{ borderColor: player?.color, textDecoration: 'none' }}>
-          <span className="player-dot" style={{ backgroundColor: player?.color }} />
-          <span>{player?.name}</span>
-        </NavLink>
+        {player ? (
+          <NavLink to="/team" className="player-pill mobile-player-pill" style={{ borderColor: player.color, textDecoration: 'none' }}>
+            <span className="player-dot" style={{ backgroundColor: player.color }} />
+            <span>{player.name}</span>
+          </NavLink>
+        ) : (
+          <NavLink to="/login" className="player-pill mobile-player-pill" style={{ textDecoration: 'none' }}>
+            <LogIn size={14} />
+            <span>Login</span>
+          </NavLink>
+        )}
       </header>
 
       <div
@@ -220,10 +227,17 @@ export default function Navbar() {
             <span className="brand-kicker">Sluggers</span>
             <strong>{tournamentLabel}</strong>
           </div>
-          <NavLink to="/team" onClick={() => setMobileMenuOpen(false)} className="player-pill mobile-drawer-player" style={{ borderColor: player?.color, textDecoration: 'none' }}>
-            <span className="player-dot" style={{ backgroundColor: player?.color }} />
-            <span>{player?.name}</span>
-          </NavLink>
+          {player ? (
+            <NavLink to="/team" onClick={() => setMobileMenuOpen(false)} className="player-pill mobile-drawer-player" style={{ borderColor: player.color, textDecoration: 'none' }}>
+              <span className="player-dot" style={{ backgroundColor: player.color }} />
+              <span>{player.name}</span>
+            </NavLink>
+          ) : (
+            <NavLink to="/login" onClick={() => setMobileMenuOpen(false)} className="player-pill mobile-drawer-player" style={{ textDecoration: 'none' }}>
+              <LogIn size={14} />
+              <span>Login</span>
+            </NavLink>
+          )}
         </div>
 
         {allTournaments.length || allSeasons.length ? (
@@ -286,14 +300,17 @@ export default function Navbar() {
         </nav>
 
         <div className="mobile-drawer-footer">
-          <button
-            className="mobile-drawer-logout"
-            onClick={handleLogout}
-            type="button"
-          >
-            <LogOut size={18} />
-            <span>Logout</span>
-          </button>
+          {player ? (
+            <button className="mobile-drawer-logout" onClick={handleLogout} type="button">
+              <LogOut size={18} />
+              <span>Logout</span>
+            </button>
+          ) : (
+            <NavLink to="/login" onClick={() => setMobileMenuOpen(false)} className="mobile-drawer-logout" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <LogIn size={18} />
+              <span>Login</span>
+            </NavLink>
+          )}
         </div>
       </aside>
 
@@ -354,18 +371,23 @@ export default function Navbar() {
             </div>
           ) : null}
 
-          <NavLink to="/team" className="player-pill" style={{ borderColor: player?.color, textDecoration: 'none' }}>
-            <span className="player-dot" style={{ backgroundColor: player?.color }} />
-            <span>{player?.name}</span>
-          </NavLink>
-          <button
-            className="ghost-button"
-            onClick={handleLogout}
-            type="button"
-          >
-            <LogOut size={16} />
-            <span>Logout</span>
-          </button>
+          {player ? (
+            <>
+              <NavLink to="/team" className="player-pill" style={{ borderColor: player.color, textDecoration: 'none' }}>
+                <span className="player-dot" style={{ backgroundColor: player.color }} />
+                <span>{player.name}</span>
+              </NavLink>
+              <button className="ghost-button" onClick={handleLogout} type="button">
+                <LogOut size={16} />
+                <span>Logout</span>
+              </button>
+            </>
+          ) : (
+            <NavLink to="/login" className="ghost-button" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <LogIn size={16} />
+              <span>Login</span>
+            </NavLink>
+          )}
         </div>
       </header>
 

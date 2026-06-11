@@ -20,7 +20,7 @@ const POSITION_LABELS = {
   9: 'RF',
 }
 
-const OVERALL_WEIGHTS = { batting: 0.35, pitching: 0.35, fielding: 0.2, speed: 0.1 }
+export const OVERALL_WEIGHTS = { batting: 0.35, pitching: 0.35, fielding: 0.2, speed: 0.1 }
 
 const SEASON_WEIGHT = 0.7
 const HISTORY_WEIGHT = 0.3

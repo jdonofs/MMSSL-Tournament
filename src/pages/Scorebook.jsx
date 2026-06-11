@@ -12,15 +12,19 @@ import StatIcon from '../components/StatIcon'
 import CharacterDetailModal from '../components/CharacterDetailModal'
 import TeamLogo from '../components/TeamLogo'
 import FieldPlayBuilder from '../components/FieldPlayBuilder'
+import { DraggableRosterItem, FieldingView, FIELD_ID_TO_SCOREBOOK_POSITION, FIELD_POSITIONS, SCOREBOOK_POSITION_TO_FIELD_ID } from '../components/RosterLineupWidgets'
+import { buildChemistryHighlightSet } from '../utils/chemistryHighlights'
+import { formatCharacterDisplayName, getCharacterChemistryName } from '../utils/mii'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import usePitchCount from '../hooks/usePitchCount'
 import { assembleErrorNotation, assembleNotation } from '../utils/notation'
-import { buildBettingEntityLabel, generateGameOdds, mergeOddsWithExistingRows, recalculateOdds } from '../utils/oddsEngine'
+import { buildBettingEntityLabel, estimateLiveWinProbability, generateGameOdds, mergeOddsWithExistingRows, recalculateOdds } from '../utils/oddsEngine'
 import { buildOddsGenerationContext as buildSharedOddsGenerationContext } from '../utils/oddsContext'
-import { resolveFirstInningNoRun, resolveGameBets, resolveOnPA } from '../utils/betResolution'
-import { advanceBracketOnGameComplete } from '../utils/bracketProgression'
+import { resolveFirstInningNoRun, reopenGameBets, resolveGameBets, resolveOnPA } from '../utils/betResolution'
+import { advanceBracketOnGameComplete, reopenBracketAfterGameEdit } from '../utils/bracketProgression'
 import { buildScorebookPath } from '../utils/scorebookRouting'
 import { getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
 import {
   getOrderedStadiums,
   getStadiumSpriteStyle,
@@ -147,7 +151,7 @@ function deriveOffense(game, outsRecorded) {
   return {
     battingPlayerId:  isTop ? game.team_a_player_id : game.team_b_player_id,
     pitchingPlayerId: isTop ? game.team_b_player_id : game.team_a_player_id,
-    inning, isTop, halfLabel: `${isTop ? 'TOP' : 'BOT'} ${inning}`,
+    inning, isTop, halfLabel: `${isTop ? 'Top' : 'Bot'} ${inning}`,
   }
 }
 
@@ -170,7 +174,13 @@ function inningRunsFromPAs(pas, playerId) {
 }
 
 function formatBaseballAverage(summary = {}) {
-  return Number(summary.atBats || 0) > 0 ? Number(summary.avg || 0).toFixed(3) : '.000'
+  const avg = Number(summary.atBats || 0) > 0 ? Number(summary.avg || 0) : 0
+  const formatted = avg.toFixed(3)
+  return avg < 1 ? formatted.replace(/^0/, '') : formatted
+}
+
+function formatHitsAtBats(summary = {}) {
+  return `${Number(summary.hits || 0)}-${Number(summary.atBats || 0)}`
 }
 
 function getLineScoreCellValue({ inning, side, scoreMap = {}, completedHalfCount = 0 }) {
@@ -304,22 +314,30 @@ function estimateHomeWinProbability({
   balls = 0,
   strikes = 0,
   status = 'active',
+  paCount = 0,
+  oddsContext = null,
 }) {
-  if (status === 'complete') {
-    if (homeScore > awayScore) return 1
-    if (homeScore < awayScore) return 0
-    return 0.5
-  }
-
-  const totalHalves = Math.max(1, regulationInnings * 2)
-  const halfProgress = (((Math.max(1, currentInning) - 1) * 2) + (isTop ? 0 : 1) + (Math.min(Math.max(outsInHalf, 0), 2) / 3)) / totalHalves
-  const leverage = 1.2 + (Math.max(0, Math.min(halfProgress, 1.2)) * 2.6)
-  const scoreEdge = (homeScore - awayScore) * leverage
-  const battingPressure = (isTop ? -1 : 1) * ((runnersOccupied * 0.28) + ((balls - strikes) * 0.05))
-  const lateHomeEdge = !isTop && currentInning >= regulationInnings ? 0.22 : 0
-  const logit = 0.08 + scoreEdge + battingPressure + lateHomeEdge
-  const probability = 1 / (1 + Math.exp(-logit))
-  return Math.max(0.01, Math.min(0.99, probability))
+  return estimateLiveWinProbability({
+    game: oddsContext?.game,
+    homeRoster: oddsContext?.homeRoster || [],
+    awayRoster: oddsContext?.awayRoster || [],
+    homeHistorical: oddsContext?.homeHistorical || {},
+    awayHistorical: oddsContext?.awayHistorical || {},
+    playerProps: oddsContext?.playerProps || {},
+    state: {
+      homeScore,
+      awayScore,
+      currentInning,
+      isTop,
+      outsInHalf,
+      regulationInnings,
+      runnersOccupied,
+      balls,
+      strikes,
+      status,
+      paCount,
+    },
+  })
 }
 
 function inningRunsFromRows(rows, playerId) {
@@ -444,7 +462,7 @@ function normalizeLiveRunner(runner = null) {
   if (!runner || runner.characterId == null || runner.playerId == null) return null
   return {
     characterId: Number(runner.characterId),
-    playerId: Number(runner.playerId),
+    playerId: runner.playerId,
   }
 }
 
@@ -456,8 +474,37 @@ function normalizeLiveRunners(runners = {}) {
   }
 }
 
+function hasMeaningfulLiveStatePayload(liveState = null) {
+  if (!liveState || typeof liveState !== 'object' || Array.isArray(liveState)) return false
+  const hasTrackedValue = [
+    'inning',
+    'isTop',
+    'is_top',
+    'outsInHalf',
+    'outs_in_half',
+    'balls',
+    'strikes',
+    'pitchNumber',
+    'pitch_number',
+    'paNumber',
+    'pa_number',
+    'batterCharacterId',
+    'batter_character_id',
+    'batterPlayerId',
+    'batter_player_id',
+    'onDeckCharacterId',
+    'on_deck_character_id',
+    'onDeckPlayerId',
+    'on_deck_player_id',
+    'updatedAt',
+    'updated_at',
+  ].some((key) => liveState[key] != null)
+
+  return hasTrackedValue || hasAnyActiveRunners(normalizeLiveRunners(liveState.runners))
+}
+
 function normalizeLiveState(liveState = null) {
-  if (!liveState || typeof liveState !== 'object') return null
+  if (!hasMeaningfulLiveStatePayload(liveState)) return null
   return {
     inning: Number(liveState.inning || 1),
     isTop: Boolean(liveState.isTop ?? liveState.is_top),
@@ -473,6 +520,11 @@ function normalizeLiveState(liveState = null) {
     runners: normalizeLiveRunners(liveState.runners),
     updatedAt: liveState.updatedAt ?? liveState.updated_at ?? null,
   }
+}
+
+function getPersistedLiveStateValue(liveState = null, requireNonNullObject = false) {
+  if (liveState && typeof liveState === 'object') return liveState
+  return requireNonNullObject ? {} : null
 }
 
 function serializeLiveStateForComparison(liveState = null) {
@@ -640,6 +692,10 @@ function isOutcomeDisabledForOuts(result, outsInHalf = 0) {
   return outsInHalf >= 2 && TWO_OUT_DISABLED_RESULTS.has(result)
 }
 
+function isOutcomeDisabledForRunners(result, runners = {}) {
+  return (result === 'SF' || result === 'SH' || result === 'FC' || result === 'DP') && !hasAnyActiveRunners(runners)
+}
+
 function getRunnerStateStorageKey(gameId, halfIdx) {
   return `scorebook-runners:${gameId}:${halfIdx}`
 }
@@ -662,20 +718,6 @@ function sanitizeRunnersForOffense(nextRunners, offense) {
     first: isOffensiveRunner(nextRunners?.first) ? nextRunners.first : null,
     second: isOffensiveRunner(nextRunners?.second) ? nextRunners.second : null,
     third: isOffensiveRunner(nextRunners?.third) ? nextRunners.third : null,
-  }
-}
-
-function sanitizeRunnersForBatter(nextRunners, batter) {
-  if (!batter) return nextRunners
-  const isCurrentBatter = (runner) => (
-    runner
-    && String(runner.characterId) === String(batter.character_id)
-    && String(runner.playerId) === String(batter.player_id)
-  )
-  return {
-    first: isCurrentBatter(nextRunners.first) ? null : nextRunners.first,
-    second: isCurrentBatter(nextRunners.second) ? null : nextRunners.second,
-    third: isCurrentBatter(nextRunners.third) ? null : nextRunners.third,
   }
 }
 
@@ -1397,7 +1439,7 @@ function LineupStatsTable({
             <thead>
               <tr>
                 <th style={{ textAlign: 'left', padding: '0 0 10px', color: C.muted, fontSize: 11, fontWeight: 800 }}>Batter</th>
-                {['AB', 'R', 'H', 'RBI', 'AVG'].map((label) => (
+                {['AB', 'R', 'H', 'RBI', 'BB', 'AVG'].map((label) => (
                   <th key={label} style={{ padding: '0 0 10px', textAlign: 'center', color: C.muted, fontSize: 11, fontWeight: 800 }}>{label}</th>
                 ))}
               </tr>
@@ -1428,6 +1470,7 @@ function LineupStatsTable({
                     <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.runs}</td>
                     <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.hits}</td>
                     <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.rbi}</td>
+                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.walks}</td>
                     <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{formatBaseballAverage(stats.source)}</td>
                   </tr>
                 )
@@ -1525,8 +1568,8 @@ function WinProbabilityCard({ points, currentHomeProbability, homeLabel, awayLab
     return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
   }).join(' ')
   const fillPath = `${path} L ${chartPadding.left + innerWidth} ${chartPadding.top + innerHeight} L ${chartPadding.left} ${chartPadding.top + innerHeight} Z`
-  const homePct = Math.round(currentHomeProbability * 100)
-  const awayPct = 100 - homePct
+  const homePct = (currentHomeProbability * 100).toFixed(1)
+  const awayPct = (100 - currentHomeProbability * 100).toFixed(1)
 
   return (
     <SectionCard
@@ -1542,7 +1585,7 @@ function WinProbabilityCard({ points, currentHomeProbability, homeLabel, awayLab
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
             <div style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 800 }}>{selectedPoint.label}</div>
             <div style={{ color: selectedPoint.probability >= 0.5 ? homeColor : awayColor, fontSize: 14, fontWeight: 900 }}>
-              {selectedPoint.probability >= 0.5 ? Math.round(selectedPoint.probability * 100) : Math.round((1 - selectedPoint.probability) * 100)}% {selectedPoint.probability >= 0.5 ? homeLabel : awayLabel}
+              {selectedPoint.probability >= 0.5 ? (selectedPoint.probability * 100).toFixed(1) : ((1 - selectedPoint.probability) * 100).toFixed(1)}% {selectedPoint.probability >= 0.5 ? homeLabel : awayLabel}
             </div>
           </div>
           <div style={{ color: C.muted, fontSize: 12, marginTop: 4, lineHeight: 1.45 }}>
@@ -1556,7 +1599,7 @@ function WinProbabilityCard({ points, currentHomeProbability, homeLabel, awayLab
           <svg
             viewBox={`0 0 ${chartWidth} ${chartHeight}`}
             preserveAspectRatio="none"
-            style={{ width: '100%', height: 170, display: 'block', touchAction: 'none', cursor: 'pointer' }}
+            style={{ width: '100%', aspectRatio: '2 / 1', display: 'block', touchAction: 'none', cursor: 'pointer' }}
             onMouseMove={(event) => handleChartPointer(event.clientX, event.currentTarget.getBoundingClientRect())}
             onClick={(event) => handleChartPointer(event.clientX, event.currentTarget.getBoundingClientRect())}
             onTouchStart={(event) => handleChartPointer(event.touches[0].clientX, event.currentTarget.getBoundingClientRect())}
@@ -1642,6 +1685,8 @@ export default function Scorebook() {
           betsTable: scorebookTables.bets,
           gameOddsTable: scorebookTables.gameOdds,
           ledgerTable: scorebookTables.bettingLedger,
+          enableCalibrationLogging: false,
+          enableWeightAdjustment: false,
           wagerField: 'wager_dollars',
           payoutField: 'potential_payout_dollars',
           ledgerChangeField: 'dollars_change',
@@ -1652,7 +1697,7 @@ export default function Scorebook() {
   ), [isSeasonGame, scorebookTables, gameSession?.sourceId])
   const { viewedTournament, currentTournament } = useTournament()
   const tournament = viewedTournament || currentTournament
-  const { player } = useAuth()
+  const { player, session } = useAuth()
   const { identitiesByPlayerId } = useTournamentTeamIdentity(tournament?.id)
   const isCommissioner = player?.is_commissioner === true
   const isScorekeeper = Boolean(player && (player.is_commissioner || player.scorebook_access))
@@ -1671,6 +1716,7 @@ export default function Scorebook() {
   const [inningScores, setInningScores] = useState([])
   const [stadiums, setStadiums] = useState([])
   const [stadiumGameLog, setStadiumGameLog] = useState([])
+  const [dataLoaded, setDataLoaded] = useState(false)
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [selectedGameId, setSelectedGameId] = useState(gameSession?.gameId ? String(gameSession.gameId) : '')
@@ -1709,18 +1755,23 @@ export default function Scorebook() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
   const [showEndGameConfirm, setShowEndGameConfirm] = useState(false)
+  const [showReopenGameConfirm, setShowReopenGameConfirm] = useState(false)
   const [runnerStateLoadedScope, setRunnerStateLoadedScope] = useState(null)
   const [activePaLoadedScope, setActivePaLoadedScope] = useState(null)
   const [redoAction, setRedoAction] = useState(null)
 
   const outsRef = useRef(0)
-  const lastSanitizedBatterRef = useRef(null)
   const lastPublishedLiveStateRef = useRef('')
+  const pendingLiveStateRef = useRef(null)
   const isSavingRef = useRef(false)
   const isSyncingLineupsRef = useRef(false)
+  const lastSyncedLineupSignatureRef = useRef(null)
 
   // Tournament settings
-  const regulationInnings = gameSession?.innings ?? tournament?.innings ?? 3
+  const regulationInnings = normalizeRegulationInnings(
+    gameSession?.innings ?? tournament?.innings,
+    DEFAULT_REGULATION_INNINGS,
+  )
   const mercyOn  = gameSession?.mercyRule ?? tournament?.mercy_rule !== false
   const mercyLimit = 10
 
@@ -1732,7 +1783,8 @@ export default function Scorebook() {
   const popRunners = useCallback(() => {
     setRunnersHistory(prev => {
       if (!prev.length) return prev
-      setRunners(prev[prev.length - 1])
+      const last = prev[prev.length - 1]
+      queueMicrotask(() => setRunners(last))
       return prev.slice(0, -1)
     })
   }, [])
@@ -1767,8 +1819,11 @@ export default function Scorebook() {
       } = await gameSession.loadScorebookData()
       setGames(gamesData || [])
       setPlayers(playersData || [])
-      setLineups(lineupsData || [])
-      setCharacters(charsData || [])
+      // Lineups/characters are refetched on every season-data refresh (e.g. live_state
+      // pushes during scoring). A transient empty result shouldn't blank out the
+      // already-rendered lineup/batter — keep the previous data in that case.
+      setLineups(prev => (lineupsData && lineupsData.length) ? lineupsData : (prev.length ? prev : lineupsData))
+      setCharacters(prev => (charsData && charsData.length) ? charsData : (prev.length ? prev : charsData))
       setDraftPicks(picksData || [])
       setPlateAppearances(pasData || [])
       setPitchingStints(pitchData || [])
@@ -1778,6 +1833,7 @@ export default function Scorebook() {
       setInningScores(inningScoresData || [])
       setStadiums(getOrderedStadiums(stadiumsData || []))
       setStadiumGameLog(stadiumLogData || [])
+      setDataLoaded(true)
     }
     load()
   }, [gameSession, tournament?.id])
@@ -2152,6 +2208,25 @@ export default function Scorebook() {
     }
   }, [draftPicks, selectedGame])
 
+  const buildRosterCharMap = useCallback((picks) => Object.fromEntries(
+    picks
+      .filter((p) => p.character_id && charactersById[p.character_id])
+      .map((p) => {
+        const character = charactersById[p.character_id]
+        return [p.character_id, {
+          ...character,
+          miiColor: p.mii_color,
+          displayName: formatCharacterDisplayName(character.name, p.mii_color),
+          chemistryName: getCharacterChemistryName(character.name, p.mii_color),
+        }]
+      }),
+  ), [charactersById])
+
+  const rosterCharMaps = useMemo(() => ({
+    A: buildRosterCharMap(teamRosters.teamA),
+    B: buildRosterCharMap(teamRosters.teamB),
+  }), [buildRosterCharMap, teamRosters])
+
   const inningScoreMaps = useMemo(() => {
     if (!selectedGame) return { a: {}, b: {} }
     if (!gameInningScores.length) {
@@ -2215,6 +2290,10 @@ export default function Scorebook() {
     if (!currentBatter) return []
     return gamePAs.filter(pa => pa.character_id === currentBatter.character_id && pa.player_id === currentBatter.player_id)
   }, [gamePAs, currentBatter])
+  const currentBatterGameSummary = useMemo(
+    () => summarizeBatting(currentBatterGamePAs),
+    [currentBatterGamePAs],
+  )
 
   const teamALineup = useMemo(
     () => gameLineups.filter((entry) => String(entry.player_id) === String(selectedGame?.team_a_player_id)),
@@ -2224,6 +2303,195 @@ export default function Scorebook() {
     () => gameLineups.filter((entry) => String(entry.player_id) === String(selectedGame?.team_b_player_id)),
     [gameLineups, selectedGame?.team_b_player_id],
   )
+
+  // ── Live lineup/fielding editor (commissioner & scorekeepers) ──────────────
+  // Mirrors the Roster tab's lineup ordering + fielding diamond (DraggableRosterItem / FieldingView)
+  const teamAId = isSeasonGame ? gameSession.teamIdByPlayerId?.[selectedGame?.team_a_player_id] : selectedGame?.team_a_player_id
+  const teamBId = isSeasonGame ? gameSession.teamIdByPlayerId?.[selectedGame?.team_b_player_id] : selectedGame?.team_b_player_id
+
+  const [lineupDrafts, setLineupDrafts] = useState({ A: { order: [], fielding: {} }, B: { order: [], fielding: {} } })
+  const [selectedLineupMoveId, setSelectedLineupMoveId] = useState({ A: null, B: null })
+  const [selectedFieldingPlayer, setSelectedFieldingPlayer] = useState({ A: null, B: null })
+
+  const buildLineupDraft = useCallback((team) => {
+    const lineupRows = team === 'A' ? teamALineup : teamBLineup
+    const teamId = team === 'A' ? teamAId : teamBId
+    const order = lineupRows.map((row) => row.character_id)
+    const fielding = {}
+    lineupRows.forEach((row) => {
+      const charName = charactersById[row.character_id]?.name
+      const activeRow = gameFielderRows.find((r) => (
+        String(r.team_id) === String(teamId)
+        && r.character === charName
+        && Number(r.inning_from || 1) <= Number(currentInning)
+        && (r.inning_to == null || Number(r.inning_to) >= Number(currentInning))
+      ))
+      const fieldId = activeRow ? SCOREBOOK_POSITION_TO_FIELD_ID[Number(activeRow.position)] : null
+      if (fieldId) fielding[fieldId] = row.character_id
+    })
+
+    // There's no bench in Sluggers — every player in the lineup fields a
+    // position. Fill any positions left empty (e.g. no game_fielders rows
+    // yet) with the remaining lineup players in batting order.
+    const placedIds = new Set(Object.values(fielding))
+    const unplaced = order.filter((charId) => !placedIds.has(charId))
+    const emptyFieldIds = FIELD_POSITIONS.map((p) => p.id).filter((fieldId) => !fielding[fieldId])
+    unplaced.forEach((charId, index) => {
+      if (emptyFieldIds[index]) fielding[emptyFieldIds[index]] = charId
+    })
+
+    return { order, fielding }
+  }, [teamALineup, teamBLineup, teamAId, teamBId, charactersById, gameFielderRows, currentInning])
+
+  useEffect(() => {
+    if (viewMode !== 'lineups' || !selectedGame) return
+    setLineupDrafts({ A: buildLineupDraft('A'), B: buildLineupDraft('B') })
+    setSelectedLineupMoveId({ A: null, B: null })
+    setSelectedFieldingPlayer({ A: null, B: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, selectedGame?.id])
+
+  const handleLineupDragStart = useCallback((characterId) => (e) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('characterId', String(characterId))
+    e.dataTransfer.setData('lineupCharacterId', String(characterId))
+  }, [])
+
+  const reorderLineupDraft = useCallback((team, characterId, targetIndex) => {
+    setLineupDrafts((current) => {
+      const order = [...current[team].order]
+      const sourceIdx = order.indexOf(characterId)
+      if (sourceIdx === -1) return current
+      order.splice(sourceIdx, 1)
+      order.splice(targetIndex, 0, characterId)
+      return { ...current, [team]: { ...current[team], order } }
+    })
+  }, [])
+
+  const handleLineupNumberClick = useCallback((team, charId, index) => {
+    setSelectedLineupMoveId((current) => {
+      const sel = current[team]
+      if (sel === null) return { ...current, [team]: charId }
+      if (sel === charId) return { ...current, [team]: null }
+      reorderLineupDraft(team, sel, index)
+      return { ...current, [team]: null }
+    })
+  }, [reorderLineupDraft])
+
+  const handleDropOnLineupSlot = useCallback((team, index) => (e) => {
+    e.preventDefault()
+    const characterId = parseInt(e.dataTransfer.getData('lineupCharacterId'), 10)
+    if (characterId) reorderLineupDraft(team, characterId, index)
+  }, [reorderLineupDraft])
+
+  const setFieldingPositionsForTeam = useCallback((team) => (updater) => {
+    setLineupDrafts((current) => {
+      const fielding = typeof updater === 'function' ? updater(current[team].fielding) : updater
+      return { ...current, [team]: { ...current[team], fielding } }
+    })
+  }, [])
+
+  const setSelectedFieldingPlayerForTeam = useCallback((team) => (updater) => {
+    setSelectedFieldingPlayer((current) => {
+      const value = typeof updater === 'function' ? updater(current[team]) : updater
+      return { ...current, [team]: value }
+    })
+  }, [])
+
+  const saveTeamLineup = useCallback(async (team) => {
+    if (!selectedGame) return
+    const teamId = team === 'A' ? teamAId : teamBId
+    const playerId = team === 'A' ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
+    const lineupRows = team === 'A' ? teamALineup : teamBLineup
+    const { order, fielding } = lineupDrafts[team]
+
+    const lineupUpdates = order
+      .map((characterId, i) => {
+        const row = lineupRows[i]
+        if (!row) return null
+        if (row.character_id === characterId && row.batting_order === i + 1) return null
+        return supabase.from(scorebookTables.lineups).update({ character_id: characterId, batting_order: i + 1 }).eq('id', row.id).select()
+      })
+      .filter(Boolean)
+
+    const results = await Promise.all(lineupUpdates)
+    const failed = results.find((r) => r.error)
+    if (failed) {
+      pushToast({ title: 'Lineup save failed', message: failed.error.message, type: 'error' })
+      return
+    }
+    const noRowsUpdated = results.find((r) => !r.data || r.data.length === 0)
+    if (noRowsUpdated) {
+      pushToast({ title: 'Lineup save failed', message: 'No lineup rows were updated. You may not have permission to edit this lineup.', type: 'error' })
+      return
+    }
+
+    const openRows = gameFielderRows.filter((r) => String(r.team_id) === String(teamId) && r.inning_to == null)
+    const toClose = openRows.filter((r) => Number(r.inning_from || 1) < Number(currentInning))
+    const toDelete = openRows.filter((r) => Number(r.inning_from || 1) >= Number(currentInning))
+
+    if (toClose.length) {
+      const { data, error } = await supabase.from(scorebookTables.gameFielders).update({ inning_to: Number(currentInning) - 1 }).in('id', toClose.map((r) => r.id)).select()
+      if (error) {
+        pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
+        return
+      }
+      if (!data || data.length !== toClose.length) {
+        pushToast({ title: 'Lineup save failed', message: 'Could not update existing fielder assignments. You may not have permission to edit this lineup.', type: 'error' })
+        return
+      }
+    }
+    if (toDelete.length) {
+      const { data, error } = await supabase.from(scorebookTables.gameFielders).delete().in('id', toDelete.map((r) => r.id)).select()
+      if (error) {
+        pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
+        return
+      }
+      if (!data || data.length !== toDelete.length) {
+        pushToast({ title: 'Lineup save failed', message: 'Could not remove old fielder assignments. You may not have permission to edit this lineup.', type: 'error' })
+        return
+      }
+    }
+
+    const newFielderRows = Object.entries(fielding)
+      .filter(([, characterId]) => characterId)
+      .map(([fieldId, characterId]) => ({
+        game_id: selectedGame.id,
+        team_id: teamId,
+        player_name: playersById[playerId]?.name || '',
+        character: charactersById[characterId]?.name || '',
+        position: FIELD_ID_TO_SCOREBOOK_POSITION[fieldId],
+        inning_from: currentInning,
+        inning_to: null,
+      }))
+
+    let insertedFielderRows = []
+    if (newFielderRows.length) {
+      const { data, error } = await supabase.from(scorebookTables.gameFielders).insert(newFielderRows.map(addSourceFields)).select()
+      if (error) {
+        pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
+        return
+      }
+      insertedFielderRows = data || newFielderRows.map(addSourceFields)
+    }
+
+    const closedIds = new Set(toClose.map((r) => String(r.id)))
+    const deletedIds = new Set(toDelete.map((r) => String(r.id)))
+    setLineups((current) => current.map((row) => {
+      const idx = lineupRows.findIndex((r) => String(r.id) === String(row.id))
+      if (idx === -1) return row
+      return { ...row, character_id: order[idx], batting_order: idx + 1 }
+    }))
+    setGameFielders((current) => [
+      ...current
+        .filter((row) => !deletedIds.has(String(row.id)))
+        .map((row) => (closedIds.has(String(row.id)) ? { ...row, inning_to: Number(currentInning) - 1 } : row)),
+      ...insertedFielderRows,
+    ])
+
+    pushToast({ title: 'Lineup updated', message: `${team === 'A' ? teamAName : teamBName} lineup saved.`, type: 'success' })
+  }, [selectedGame, teamAId, teamBId, teamALineup, teamBLineup, lineupDrafts, scorebookTables.lineups, scorebookTables.gameFielders, gameFielderRows, currentInning, playersById, charactersById, addSourceFields, pushToast, teamAName, teamBName])
+
   const currentEntryKey = currentBatter ? `${currentBatter.player_id}:${currentBatter.character_id}` : null
   const lineupStatsByEntryKey = useMemo(() => {
     const next = {}
@@ -2305,6 +2573,40 @@ export default function Scorebook() {
   const displayRunners = canEditScorebook
     ? runners
     : (selectedGameLiveState?.runners || { first: null, second: null, third: null })
+  const gameWinProbabilityContext = useMemo(() => {
+    if (!selectedGame) return null
+    return buildSharedOddsGenerationContext({
+      game: selectedGame,
+      draftPicks,
+      charactersById,
+      gamePAs,
+      gamePitching,
+      allGames: games,
+      allPAs: plateAppearances,
+      allPitching: pitchingStints,
+      stadiumsById,
+      stadiumGameLog,
+      playersById,
+      currentInning,
+      scores,
+      totalInnings: regulationInnings,
+    })
+  }, [
+    selectedGame,
+    draftPicks,
+    charactersById,
+    gamePAs,
+    gamePitching,
+    games,
+    plateAppearances,
+    pitchingStints,
+    stadiumsById,
+    stadiumGameLog,
+    playersById,
+    currentInning,
+    scores,
+    regulationInnings,
+  ])
 
   const currentWinProbability = useMemo(() => estimateHomeWinProbability({
     homeScore: scores.b,
@@ -2317,48 +2619,94 @@ export default function Scorebook() {
     balls: displayBalls,
     strikes: displayStrikes,
     status: effectiveGameStatus,
-  }), [scores.b, scores.a, currentInning, offense?.isTop, displayOutsInHalf, regulationInnings, displayRunners.first, displayRunners.second, displayRunners.third, displayBalls, displayStrikes, effectiveGameStatus])
+    paCount: gamePAs.length,
+    oddsContext: gameWinProbabilityContext,
+  }), [
+    scores.b,
+    scores.a,
+    currentInning,
+    offense?.isTop,
+    displayOutsInHalf,
+    regulationInnings,
+    displayRunners.first,
+    displayRunners.second,
+    displayRunners.third,
+    displayBalls,
+    displayStrikes,
+    effectiveGameStatus,
+    gamePAs.length,
+    gameWinProbabilityContext,
+  ])
 
   const winProbabilityPoints = useMemo(() => {
     if (!selectedGame) return []
-    const points = [{ label: 'Start', probability: 0.5, description: 'Game start', score: `${teamAAbbreviation} 0 - ${teamBAbbreviation} 0` }]
+    const points = [{
+      label: 'Start',
+      probability: estimateHomeWinProbability({
+        homeScore: 0,
+        awayScore: 0,
+        currentInning: 1,
+        isTop: true,
+        outsInHalf: 0,
+        regulationInnings,
+        status: 'pending',
+        paCount: 0,
+        oddsContext: gameWinProbabilityContext,
+      }),
+      description: 'Game start',
+      score: `${teamAAbbreviation} 0 - ${teamBAbbreviation} 0`,
+    }]
     let awayScore = 0
     let homeScore = 0
     let outsBefore = 0
 
-    gamePAs.forEach((pa) => {
+    gamePAs.forEach((pa, index) => {
       const scoringRuns = Number(pa.rbi || 0) + (pa.run_scored ? 1 : 0)
       const isAwayBatting = String(pa.player_id) === String(selectedGame.team_a_player_id)
       const outsAfter = outsBefore + calculateOutsForPa(pa.result)
       if (scoringRuns) {
         if (isAwayBatting) awayScore += scoringRuns
         else homeScore += scoringRuns
-        points.push({
-          label: `${isAwayBatting ? 'Top' : 'Bottom'} ${Number(pa.inning || 1)}`,
-          description: buildScoringPlayDescription(pa, scoringRuns, runsByPaId[String(pa.id)] || [], charactersById),
-          probability: estimateHomeWinProbability({
-            homeScore,
-            awayScore,
-            currentInning: Number(pa.inning || 1),
-            isTop: isAwayBatting,
-            outsInHalf: outsAfter % 3,
-            regulationInnings,
-            status: 'active',
-          }),
-          score: `${teamAAbbreviation} ${awayScore} - ${teamBAbbreviation} ${homeScore}`,
-        })
       }
+      const batterName = charactersById[pa.character_id]?.name || 'Unknown'
+      points.push({
+        label: `${isAwayBatting ? 'Top' : 'Bot'} ${Number(pa.inning || 1)}`,
+        description: scoringRuns > 0
+          ? buildScoringPlayDescription(pa, scoringRuns, runsByPaId[String(pa.id)] || [], charactersById)
+          : `${batterName} ${formatPlayResultText(pa)}`,
+        probability: estimateHomeWinProbability({
+          homeScore,
+          awayScore,
+          currentInning: Number(pa.inning || 1),
+          isTop: isAwayBatting,
+          outsInHalf: outsAfter % 3,
+          regulationInnings,
+          status: 'active',
+          paCount: index + 1,
+          oddsContext: gameWinProbabilityContext,
+        }),
+        score: `${teamAAbbreviation} ${awayScore} - ${teamBAbbreviation} ${homeScore}`,
+      })
       outsBefore = outsAfter
     })
 
-    points.push({
-      label: effectiveGameStatus === 'complete' ? 'Final' : (offense?.halfLabel || 'Live'),
-      probability: currentWinProbability,
-      description: effectiveGameStatus === 'complete' ? 'Game complete' : 'Current game state',
-      score: `${teamAAbbreviation} ${scores.a} - ${teamBAbbreviation} ${scores.b}`,
-    })
+    const finalLabel = effectiveGameStatus === 'complete' ? 'Final' : (offense?.halfLabel || 'Live')
+    if (points.length > 1) {
+      const lastPoint = points[points.length - 1]
+      lastPoint.label = finalLabel
+      lastPoint.probability = currentWinProbability
+      lastPoint.score = `${teamAAbbreviation} ${scores.a} - ${teamBAbbreviation} ${scores.b}`
+      if (effectiveGameStatus === 'complete') lastPoint.description = 'Game complete'
+    } else {
+      points.push({
+        label: finalLabel,
+        probability: currentWinProbability,
+        description: effectiveGameStatus === 'complete' ? 'Game complete' : 'Game start',
+        score: `${teamAAbbreviation} ${scores.a} - ${teamBAbbreviation} ${scores.b}`,
+      })
+    }
     return points
-  }, [selectedGame, gamePAs, regulationInnings, offense?.halfLabel, currentWinProbability, runsByPaId, charactersById, teamAAbbreviation, teamBAbbreviation, scores.a, scores.b, effectiveGameStatus])
+  }, [selectedGame, gamePAs, regulationInnings, offense?.halfLabel, currentWinProbability, runsByPaId, charactersById, teamAAbbreviation, teamBAbbreviation, scores.a, scores.b, effectiveGameStatus, gameWinProbabilityContext])
 
   const teamAPitching = useMemo(
     () => dedupePitchingStints(
@@ -2438,16 +2786,10 @@ export default function Scorebook() {
   }, [pitcherDecisionSummary, gamePitching])
 
   useEffect(() => {
-    const batterKey = currentBatter ? `${currentBatter.character_id}:${currentBatter.player_id}` : null
-    if (!batterKey || lastSanitizedBatterRef.current === batterKey) return
-    lastSanitizedBatterRef.current = batterKey
-    setRunners((current) => sanitizeRunnersForBatter(current, currentBatter))
-  }, [currentBatter])
-
-  useEffect(() => {
     if (!offense?.battingPlayerId) return
     setRunners((current) => sanitizeRunnersForOffense(current, offense))
-  }, [offense])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offense?.battingPlayerId])
 
   useEffect(() => {
     if (!selectedGameId || !currentActivePaScope) {
@@ -2627,6 +2969,7 @@ export default function Scorebook() {
 
   useEffect(() => {
     if (!selectedGameId) return
+    if (runnerStateLoadedScope === `${selectedGameId}:${currentHalfIdx}`) return
     const runnerKey = getRunnerStateStorageKey(selectedGameId, currentHalfIdx)
     const historyKey = getRunnerHistoryStorageKey(selectedGameId, currentHalfIdx)
     try {
@@ -2636,6 +2979,7 @@ export default function Scorebook() {
       const parsedHistory = storedHistory ? JSON.parse(storedHistory) : []
       const storedBattingPlayerId = parsed?.runners ? parsed.battingPlayerId : null
       const storedRunners = parsed?.runners ?? parsed
+      const storedUpdatedAt = parsed?.runners ? parsed.updatedAt : null
       const rawHistory = Array.isArray(parsedHistory?.history) ? parsedHistory.history : (Array.isArray(parsedHistory) ? parsedHistory : [])
       const historyBattingPlayerId = Array.isArray(parsedHistory?.history) ? parsedHistory.battingPlayerId : null
       const normalizedRunners = {
@@ -2650,8 +2994,17 @@ export default function Scorebook() {
       const fallbackRunners = shouldTrustLiveStateRunners
         ? normalizeLiveRunners(selectedGameLiveState.runners)
         : { first: null, second: null, third: null }
+      // Prefer whichever source is fresher: a same-tab sessionStorage cache vs.
+      // the durable DB live_state. This stops a stale local cache from
+      // clobbering a more recent write (e.g. from another tab/device), while
+      // still allowing the local cache to win for fast same-session reloads.
+      const storedTime = storedUpdatedAt ? Date.parse(storedUpdatedAt) : NaN
+      const liveStateTime = selectedGameLiveState?.updatedAt ? Date.parse(selectedGameLiveState.updatedAt) : NaN
+      const storedIsFresher = !Number.isNaN(storedTime) && (Number.isNaN(liveStateTime) || storedTime >= liveStateTime)
+      const useStoredRunners = shouldTrustStoredRunners && stored
+        && (storedIsFresher || !shouldTrustLiveStateRunners)
       setRunners(sanitizeRunnersForOffense(
-        shouldTrustStoredRunners && stored
+        useStoredRunners
           ? normalizedRunners
           : fallbackRunners,
         offense,
@@ -2666,7 +3019,7 @@ export default function Scorebook() {
       setRunnersHistory([])
     }
     setRunnerStateLoadedScope(`${selectedGameId}:${currentHalfIdx}`)
-  }, [selectedGameId, currentHalfIdx, offense, selectedGameLiveState])
+  }, [selectedGameId, currentHalfIdx, offense, selectedGameLiveState, runnerStateLoadedScope])
 
   useEffect(() => {
     if (!selectedGameId || runnerStateLoadedScope !== `${selectedGameId}:${currentHalfIdx}`) return
@@ -2676,6 +3029,7 @@ export default function Scorebook() {
       sessionStorage.setItem(runnerKey, JSON.stringify({
         battingPlayerId: offense?.battingPlayerId || null,
         runners: sanitizeRunnersForOffense(runners, offense),
+        updatedAt: new Date().toISOString(),
       }))
       sessionStorage.setItem(historyKey, JSON.stringify({
         battingPlayerId: offense?.battingPlayerId || null,
@@ -2695,7 +3049,7 @@ export default function Scorebook() {
     if (!selectedGame || !canEditScorebook || isGameComplete || !offense || !currentBatter) return undefined
 
     const normalizedRunners = sanitizeRunnersForOffense(
-      sanitizeRunnersForBatter(normalizeLiveRunners(runners), currentBatter),
+      normalizeLiveRunners(runners),
       offense,
     )
     const hasLiveContext = hasAnyActiveRunners(normalizedRunners)
@@ -2730,31 +3084,32 @@ export default function Scorebook() {
     const nextSerialized = serializeLiveStateForComparison(nextLiveState)
     const targetStatus = isSeasonGame ? 'in_progress' : 'active'
     const shouldPromoteStatus = ['pending', 'scheduled'].includes(String(selectedGame.status || '')) && (hasLiveContext || gamePAs.length > 0)
-    const shouldClearLiveState = !hasLiveContext && Boolean(selectedGame?.live_state)
+    const shouldClearLiveState = !hasLiveContext && Boolean(selectedGameLiveState)
 
     if (nextSerialized === lastPublishedLiveStateRef.current && !shouldPromoteStatus && !shouldClearLiveState) {
       return undefined
     }
 
-    const timeoutId = window.setTimeout(async () => {
-      const updatePayload = {}
-      if (nextSerialized !== lastPublishedLiveStateRef.current || shouldClearLiveState) {
-        updatePayload.live_state = nextLiveState
-      }
-      if (shouldPromoteStatus) {
-        updatePayload.status = targetStatus
-      }
-      if (!Object.keys(updatePayload).length) return
-      lastPublishedLiveStateRef.current = nextSerialized
-      const { error } = await supabase.from(scorebookTables.games).update(updatePayload).eq('id', selectedGame.id)
+    const updatePayload = {}
+    if (nextSerialized !== lastPublishedLiveStateRef.current || shouldClearLiveState) {
+      updatePayload.live_state = getPersistedLiveStateValue(nextLiveState, isSeasonGame)
+    }
+    if (shouldPromoteStatus) {
+      updatePayload.status = targetStatus
+    }
+    if (!Object.keys(updatePayload).length) return undefined
+
+    pendingLiveStateRef.current = { gameId: selectedGame.id, updatePayload }
+    lastPublishedLiveStateRef.current = nextSerialized
+    supabase.from(scorebookTables.games).update(updatePayload).eq('id', selectedGame.id).then(({ error }) => {
       if (error) {
         lastPublishedLiveStateRef.current = serializeLiveStateForComparison(selectedGame?.live_state)
+      } else if (pendingLiveStateRef.current?.gameId === selectedGame.id && pendingLiveStateRef.current?.updatePayload === updatePayload) {
+        pendingLiveStateRef.current = null
       }
-    }, 120)
+    })
 
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
+    return undefined
   }, [
     selectedGame,
     canEditScorebook,
@@ -2780,8 +3135,43 @@ export default function Scorebook() {
     gamePAs.length,
     isSeasonGame,
     scorebookTables.games,
+    selectedGameLiveState,
     selectedGame?.live_state,
   ])
+
+  // ── Best-effort flush of any in-flight live_state write on tab close ───────
+  useEffect(() => {
+    const flushPendingLiveState = () => {
+      const pending = pendingLiveStateRef.current
+      const accessToken = session?.access_token
+      if (!pending || !accessToken) return
+      const { gameId, updatePayload } = pending
+      pendingLiveStateRef.current = null
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/${scorebookTables.games}?id=eq.${gameId}`
+      fetch(url, {
+        method: 'PATCH',
+        keepalive: true,
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(updatePayload),
+      }).catch(() => {})
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushPendingLiveState()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', flushPendingLiveState)
+    window.addEventListener('beforeunload', flushPendingLiveState)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', flushPendingLiveState)
+      window.removeEventListener('beforeunload', flushPendingLiveState)
+    }
+  }, [session?.access_token, scorebookTables.games])
 
   useEffect(() => {
     if (!isScorekeeper) {
@@ -2845,36 +3235,6 @@ export default function Scorebook() {
     })
   }, [selectedGame, displayedPAs, runsByPaId, completedHalfCount])
 
-  const inningHalfLog = useMemo(() => {
-    if (!selectedGame) return []
-    const groups = []
-    const groupByKey = {}
-    let awayScore = 0
-    let homeScore = 0
-    gamePAs.forEach((pa) => {
-      const inning = Number(pa.inning || 1)
-      const isTop = String(pa.player_id) === String(selectedGame.team_a_player_id)
-      const key = `${inning}-${isTop ? 'T' : 'B'}`
-      if (!groupByKey[key]) {
-        const group = { key, inning, isTop, hits: 0, runs: 0 }
-        groupByKey[key] = group
-        groups.push(group)
-      }
-      const group = groupByKey[key]
-      if (HIT_RESULTS.has(pa.result)) group.hits += 1
-      const scoringRuns = Number(pa.rbi || 0) + (pa.run_scored ? 1 : 0)
-      group.runs += scoringRuns
-      if (isTop) awayScore += scoringRuns
-      else homeScore += scoringRuns
-      group.awayScore = awayScore
-      group.homeScore = homeScore
-    })
-    return groups.map((group) => {
-      const halfIndex = (group.inning - 1) * 2 + (group.isTop ? 0 : 1)
-      return { ...group, isCompleted: halfIndex < completedHalfCount }
-    })
-  }, [selectedGame, gamePAs, completedHalfCount])
-
   const maxInning = useMemo(() => {
     const completedInnings = Math.ceil(completedHalfCount / 2)
     const highestPlayedInning = Math.max(currentInning, completedInnings, 1)
@@ -2891,19 +3251,47 @@ export default function Scorebook() {
   const scorebookToolbar = null
 
   // ── Game-end check ─────────────────────────────────────────────────────────
-  const checkGameEnd = useCallback((completedInnings, currentScores) => {
-    if (!selectedGame || selectedGame.status === 'complete') return null
-    const diff = Math.abs(currentScores.a - currentScores.b)
-    if (mercyOn && completedInnings >= 1 && diff >= mercyLimit && currentScores.a !== currentScores.b) {
-      const winnerId = currentScores.a > currentScores.b ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
-      return { type: 'mercy', winnerId, inning: completedInnings }
+  const checkGameEnd = useCallback(({
+    inning,
+    isTop,
+    halfCompleted = false,
+    currentScores,
+    previousScores = currentScores,
+  }) => {
+    if (!selectedGame || isGameComplete || !currentScores) return null
+
+    const awayScore = Number(currentScores.a || 0)
+    const homeScore = Number(currentScores.b || 0)
+    if (awayScore === homeScore) return null
+
+    const awayBefore = Number(previousScores?.a || 0)
+    const homeBefore = Number(previousScores?.b || 0)
+    const winnerId = awayScore > homeScore ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
+    const diff = Math.abs(awayScore - homeScore)
+    const homeWonAfterTop = Boolean(halfCompleted && isTop && Number(inning || 0) >= regulationInnings && homeScore > awayScore)
+    const homeWalkOff = Boolean(!halfCompleted && !isTop && Number(inning || 0) >= regulationInnings && homeScore > awayScore && homeBefore <= awayBefore)
+    const inningEndedWithWinner = Boolean(halfCompleted && !isTop && Number(inning || 0) >= regulationInnings)
+    const mercyEndedGame = Boolean(
+      mercyOn
+      && diff >= mercyLimit
+      && halfCompleted
+      && (
+        !isTop
+        || homeWonAfterTop
+      ),
+    )
+
+    if (homeWalkOff) {
+      return { type: 'regulation', winnerId: selectedGame.team_b_player_id, inning }
     }
-    if (completedInnings >= regulationInnings && currentScores.a !== currentScores.b) {
-      const winnerId = currentScores.a > currentScores.b ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
-      return { type: 'regulation', winnerId, inning: completedInnings }
+    if (mercyEndedGame) {
+      return { type: 'mercy', winnerId, inning }
+    }
+    if (homeWonAfterTop || inningEndedWithWinner) {
+      return { type: 'regulation', winnerId, inning }
     }
     return null
-  }, [selectedGame, mercyOn, mercyLimit, regulationInnings])
+  }, [selectedGame, isGameComplete, mercyOn, mercyLimit, regulationInnings])
 
   // ── Sync scores ────────────────────────────────────────────────────────────
   async function syncScores(freshPAs, game) {
@@ -3051,6 +3439,34 @@ export default function Scorebook() {
     })
   }, [selectedGame?.id, selectedGame?.status, ensureLiveOdds, pushToast])
 
+  // Reflect the current count and baserunners in live odds (run line, total, moneyline)
+  // even mid at-bat, so the board doesn't sit frozen between plate appearances.
+  const syncLiveOddsForCount = useCallback(async (nextBalls, nextStrikes) => {
+    if (!selectedGame || effectiveGameStatus === 'complete' || !gameWinProbabilityContext) return
+    try {
+      const currentOdds = await ensureLiveOdds(gamePitching, gamePAs)
+      const changedRows = recalculateOdds(currentOdds || [], {
+        oddsContext: gameWinProbabilityContext,
+        liveState: {
+          homeScore: scores.b,
+          awayScore: scores.a,
+          currentInning,
+          isTop: offense?.isTop !== false,
+          outsInHalf,
+          regulationInnings,
+          runnersOccupied: [runners?.first, runners?.second, runners?.third].filter(Boolean).length,
+          balls: nextBalls,
+          strikes: nextStrikes,
+          paCount: gamePAs.length,
+          status: 'active',
+        },
+      })
+      await upsertChangedOdds(changedRows)
+    } catch (bettingError) {
+      pushToast({ title: 'Odds refresh failed', message: bettingError.message, type: 'error' })
+    }
+  }, [selectedGame, effectiveGameStatus, gameWinProbabilityContext, ensureLiveOdds, gamePitching, gamePAs, scores.a, scores.b, currentInning, offense?.isTop, outsInHalf, regulationInnings, runners, upsertChangedOdds, pushToast])
+
   const recomputePitchingStatsForGame = useCallback(async (overridePAs, overridePitching = gamePitching, overrideRuns = gameRuns) => {
     if (!selectedGame || !overridePitching.length) return
 
@@ -3117,7 +3533,7 @@ export default function Scorebook() {
     )))
   }, [selectedGame, gamePitching, gameRuns])
 
-  const savePA = useCallback(async (result, rbi, runScored) => {
+  const savePA = useCallback(async (result, rbi, runScored, nextRunners = runners) => {
     if (!selectedGame || !offense || !currentBatter || isGameComplete) return
 
     const paPayload = {
@@ -3151,6 +3567,26 @@ export default function Scorebook() {
       try {
         await resolveOnPA(selectedGame.id, paPayload, betResolutionConfig)
         const currentOdds = await ensureLiveOdds(gamePitching, allPAs)
+        const recalcOuts = allPAs.reduce((s, pa) => s + calculateOutsForPa(pa.result), 0)
+        const recalcOffense = deriveOffense(selectedGame, recalcOuts)
+        const recalcHomeScore = runsFromPAs(allPAs, selectedGame.team_b_player_id)
+        const recalcAwayScore = runsFromPAs(allPAs, selectedGame.team_a_player_id)
+        const freshOddsContext = buildSharedOddsGenerationContext({
+          game: selectedGame,
+          draftPicks,
+          charactersById,
+          gamePAs: allPAs,
+          gamePitching,
+          allGames: games,
+          allPAs: plateAppearances,
+          allPitching: pitchingStints,
+          stadiumsById,
+          stadiumGameLog,
+          playersById,
+          currentInning: recalcOffense.inning,
+          scores: { a: recalcAwayScore, b: recalcHomeScore },
+          totalInnings: regulationInnings,
+        })
         const changedRows = recalculateOdds(currentOdds || [], {
           battingSide: offense.isTop ? 'away' : 'home',
           isTop: offense.isTop,
@@ -3159,6 +3595,20 @@ export default function Scorebook() {
             .filter(pa => pa.inning === offense.inning && pa.player_id === currentBatter.player_id)
             .reduce((sum, pa) => sum + Number(pa.rbi || 0) + (pa.run_scored ? 1 : 0), 0),
           lockedEntities: [buildBettingEntityLabel(charactersById[currentBatter.character_id], playersById[currentBatter.player_id])],
+          oddsContext: freshOddsContext,
+          liveState: {
+            homeScore: recalcHomeScore,
+            awayScore: recalcAwayScore,
+            currentInning: recalcOffense.inning,
+            isTop: recalcOffense.isTop,
+            outsInHalf: recalcOuts % 3,
+            regulationInnings,
+            runnersOccupied: [nextRunners?.first, nextRunners?.second, nextRunners?.third].filter(Boolean).length,
+            balls: 0,
+            strikes: 0,
+            paCount: allPAs.length,
+            status: 'active',
+          },
         }, paPayload)
         await upsertChangedOdds(changedRows)
       } catch (bettingError) {
@@ -3179,7 +3629,7 @@ export default function Scorebook() {
     if (navigator.vibrate) navigator.vibrate(50)
     setEditingPa(null)
     setOverrideBatterIdx(null)
-  }, [selectedGame, offense, currentBatter, editingPa, gamePAs, charactersById, playersById, pushToast, upsertChangedOdds, ensureLiveOdds, gamePitching, recomputePitchingStatsForGame, clearRedoAction, isGameComplete])
+  }, [selectedGame, offense, currentBatter, editingPa, gamePAs, charactersById, playersById, pushToast, upsertChangedOdds, ensureLiveOdds, gamePitching, recomputePitchingStatsForGame, clearRedoAction, isGameComplete, gameWinProbabilityContext, regulationInnings])
 
   // ── Handle outcome button ──────────────────────────────────────────────────
   const handleOutcome = useCallback((result) => {
@@ -3204,8 +3654,30 @@ export default function Scorebook() {
 
     // HR / IPHR: all runners score automatically
     if (result === 'HR' || result === 'IPHR') {
-      const rbi = (runners.first ? 1 : 0) + (runners.second ? 1 : 0) + (runners.third ? 1 : 0)
-      savePA(result, rbi, true)
+      const batterRunner = {
+        characterId: currentBatter.character_id,
+        playerId: currentBatter.player_id,
+        chargedToPitcherId: currentPitcherStint?.character_id,
+        chargedToPitcherPlayerId: currentPitcherStint?.player_id,
+      }
+      const runnersToScore = [runners.first, runners.second, runners.third, batterRunner].filter(Boolean)
+      const rbi = runnersToScore.length - 1
+      saveEnhancedPA({
+        result,
+        rbi,
+        runScored: true,
+        pitchRows: paPitchRows,
+        runEvents: runnersToScore
+          .filter((runner) => runner?.characterId && runner?.playerId)
+          .map((runner) => ({
+            playerId: runner.playerId,
+            characterId: runner.characterId,
+            chargedToPitcherId: runner.chargedToPitcherId ?? currentPitcherStint?.character_id,
+            chargedToPitcherPlayerId: runner.chargedToPitcherPlayerId ?? currentPitcherStint?.player_id,
+            isEarnedRun: !runner.reachedOnError,
+          })),
+        nextRunners: { first: null, second: null, third: null },
+      })
       pushRunners({ first: null, second: null, third: null })
       return
     }
@@ -3224,22 +3696,55 @@ export default function Scorebook() {
 
     // SF: runner on third scores
     if (result === 'SF') {
-      savePA('SF', runners.third ? 1 : 0, false)
-      pushRunners(computeImmediateNextRunners('SF', runners, null))
+      const sfNextRunners = computeImmediateNextRunners('SF', runners, null)
+      const scoringRunner = runners.third
+      saveEnhancedPA({
+        result: 'SF',
+        rbi: scoringRunner ? 1 : 0,
+        runScored: false,
+        pitchRows: paPitchRows,
+        isOfficialAb: false,
+        runEvents: scoringRunner?.characterId && scoringRunner?.playerId ? [{
+          playerId: scoringRunner.playerId,
+          characterId: scoringRunner.characterId,
+          chargedToPitcherId: scoringRunner.chargedToPitcherId ?? currentPitcherStint?.character_id,
+          chargedToPitcherPlayerId: scoringRunner.chargedToPitcherPlayerId ?? currentPitcherStint?.player_id,
+          isEarnedRun: !scoringRunner.reachedOnError,
+        }] : [],
+        nextRunners: sfNextRunners,
+      })
+      pushRunners(sfNextRunners)
       return
     }
 
     // SH: batter bunts out, all runners advance one base, runner on third scores
     if (result === 'SH') {
-      savePA('SH', runners.third ? 1 : 0, false)
-      pushRunners({ first: null, second: runners.first, third: runners.second })
+      const shNextRunners = { first: null, second: runners.first, third: runners.second }
+      const scoringRunner = runners.third
+      saveEnhancedPA({
+        result: 'SH',
+        rbi: scoringRunner ? 1 : 0,
+        runScored: false,
+        pitchRows: paPitchRows,
+        isOfficialAb: false,
+        runEvents: scoringRunner?.characterId && scoringRunner?.playerId ? [{
+          playerId: scoringRunner.playerId,
+          characterId: scoringRunner.characterId,
+          chargedToPitcherId: scoringRunner.chargedToPitcherId ?? currentPitcherStint?.character_id,
+          chargedToPitcherPlayerId: scoringRunner.chargedToPitcherPlayerId ?? currentPitcherStint?.player_id,
+          isEarnedRun: !scoringRunner.reachedOnError,
+        }] : [],
+        nextRunners: shNextRunners,
+      })
+      pushRunners(shNextRunners)
       return
     }
 
     // All other outs (K, GO, FO, LO, DP, FC)
-    savePA(result, 0, false)
-    pushRunners(computeImmediateNextRunners(result, runners, batter))
-  }, [canEditScorebook, currentBatter, offense, editingPa, runners, savePA, pushRunners, currentPitcherStint, pushToast, selectionOutsInHalf])
+    const outNextRunners = computeImmediateNextRunners(result, runners, batter)
+    savePA(result, 0, false, outNextRunners)
+    pushRunners(outNextRunners)
+  }, [canEditScorebook, currentBatter, offense, editingPa, runners, savePA, saveEnhancedPA, pushRunners, currentPitcherStint, pushToast, selectionOutsInHalf, paPitchRows])
 
   // ── Runner resolution toggles ──────────────────────────────────────────────
   const handleSetRunnerDestination = useCallback((assignmentId, destination) => {
@@ -3314,6 +3819,7 @@ export default function Scorebook() {
       ...paMeta,
       isOfficialAb: pending.outResolution ? !['SF', 'SH'].includes(resolvedResult) : paMeta.isOfficialAb,
       fielderChoiceOut: pending.outResolution ? resolvedResult === 'FC' : paMeta.fielderChoiceOut,
+      nextRunners: extractNextRunners(pending),
     })
     pushRunners(extractNextRunners(pending))
     return true
@@ -3351,7 +3857,10 @@ export default function Scorebook() {
     if (!canEditScorebook) return
     if (starHitUsed) return
     const pitchEvent = appendPitchEvent(recordBall(starPitchActive))
-    if (!pitchEvent.completedPa) return
+    if (!pitchEvent.completedPa) {
+      syncLiveOddsForCount(pitchEvent.pitch.count_balls_after, pitchEvent.pitch.count_strikes_after)
+      return
+    }
 
     const batterRunner = buildBatterRunner(false)
     const pending = computePendingState('BB', runners, batterRunner)
@@ -3366,20 +3875,22 @@ export default function Scorebook() {
       isOfficialAb: false,
       starPitchUsed: starPitchActive,
       runEvents,
+      nextRunners: extractNextRunners(pending),
     })
     pushRunners(extractNextRunners(pending))
-  }, [canEditScorebook, recordBall, starPitchActive, appendPitchEvent, buildBatterRunner, runners, paPitchRows, saveEnhancedPA, pushRunners, starHitUsed, buildRunEvent])
+  }, [canEditScorebook, recordBall, starPitchActive, appendPitchEvent, buildBatterRunner, runners, paPitchRows, saveEnhancedPA, pushRunners, starHitUsed, buildRunEvent, syncLiveOddsForCount])
 
   const handlePitchFoul = useCallback(() => {
     if (!canEditScorebook) return
     const usedStarHitOnPitch = starHitUsed
-    appendPitchEvent(recordFoul(starPitchActive))
+    const pitchEvent = appendPitchEvent(recordFoul(starPitchActive))
     if (usedStarHitOnPitch) {
       setStarHitPending(true)
       setStarHitConnected(true)
       setStarHitUsed(false)
     }
-  }, [canEditScorebook, recordFoul, starPitchActive, appendPitchEvent, starHitUsed])
+    syncLiveOddsForCount(pitchEvent.pitch.count_balls_after, pitchEvent.pitch.count_strikes_after)
+  }, [canEditScorebook, recordFoul, starPitchActive, appendPitchEvent, starHitUsed, syncLiveOddsForCount])
 
   const handlePitchHbp = useCallback(() => {
     if (!canEditScorebook) return
@@ -3398,6 +3909,7 @@ export default function Scorebook() {
       isOfficialAb: false,
       starPitchUsed: starPitchActive,
       runEvents,
+      nextRunners: extractNextRunners(pending),
     })
     pushRunners(extractNextRunners(pending))
   }, [canEditScorebook, recordHbp, starPitchActive, appendPitchEvent, buildBatterRunner, runners, paPitchRows, saveEnhancedPA, pushRunners, starHitUsed, buildRunEvent])
@@ -3411,7 +3923,10 @@ export default function Scorebook() {
       setStarHitUsed(false)
     }
     setPitchActionSheet(null)
-    if (!pitchEvent.completedPa) return
+    if (!pitchEvent.completedPa) {
+      syncLiveOddsForCount(pitchEvent.pitch.count_balls_after, pitchEvent.pitch.count_strikes_after)
+      return
+    }
     saveEnhancedPA({
       result: 'K',
       strikeoutType: pitchEvent.completedPa.strikeoutType,
@@ -3419,7 +3934,7 @@ export default function Scorebook() {
       starPitchUsed: starPitchActive,
       starHitResult: usedStarHitOnPitch || starHitPending ? 'Out' : null,
     })
-  }, [canEditScorebook, recordStrike, starPitchActive, appendPitchEvent, paPitchRows, saveEnhancedPA, starHitPending, starHitUsed])
+  }, [canEditScorebook, recordStrike, starPitchActive, appendPitchEvent, paPitchRows, saveEnhancedPA, starHitPending, starHitUsed, syncLiveOddsForCount])
 
   const handlePitchInPlay = useCallback(() => {
     if (!canEditScorebook) return
@@ -3477,6 +3992,7 @@ export default function Scorebook() {
         starPitchUsed: state.pitchEvent?.pitch?.is_star_pitch,
         starHitResult: usedStarHit ? state.result : null,
         starHitRbi: usedStarHit ? runnersToScore.length : 0,
+        nextRunners: { first: null, second: null, third: null },
       })
       pushRunners({ first: null, second: null, third: null })
       return
@@ -3578,6 +4094,7 @@ export default function Scorebook() {
       runEvents,
       starPitchUsed: state.pitchEvent?.pitch?.is_star_pitch,
       starHitResult: usedStarHit ? 'Out' : null,
+      nextRunners,
     })
     pushRunners(nextRunners)
   }, [canEditScorebook, inferDirectionFromPosition, buildBatterRunner, runners, saveEnhancedPA, pushRunners, activeDefensiveFielders, buildRunEvent, starHitPending, starHitUsed, commitPendingPA])
@@ -3593,21 +4110,16 @@ export default function Scorebook() {
         pushToast({ title: 'First inning resolution failed', message: error.message, type: 'error' })
       }
     }
-    // After top half of regulation/extra inning: if home team (team_b) is winning, offer to end
-    if (newHalfIdx % 2 === 1) {
-      const justFinishedInning = Math.ceil(newHalfIdx / 2)
-      if (justFinishedInning >= regulationInnings && scores.b > scores.a) {
-        setGameEndBanner({ type: 'regulation', winnerId: selectedGame.team_b_player_id, inning: justFinishedInning })
-        setShowOutsBanner(false)
-        setOverrideBatterIdx(null)
-        resetRunners(false)
-        return
-      }
-    }
-    // After bottom half: standard end-of-inning check (regulation + mercy + extra innings)
-    if (newHalfIdx % 2 === 0 && newHalfIdx > 0) {
-      const completedInnings = newHalfIdx / 2
-      const end = checkGameEnd(completedInnings, scores)
+    if (newHalfIdx > 0) {
+      const justFinishedTop = newHalfIdx % 2 === 1
+      const justFinishedInning = justFinishedTop ? Math.ceil(newHalfIdx / 2) : (newHalfIdx / 2)
+      const end = checkGameEnd({
+        inning: justFinishedInning,
+        isTop: justFinishedTop,
+        halfCompleted: true,
+        currentScores: scores,
+        previousScores: scores,
+      })
       if (end) {
         setGameEndBanner(end)
         setShowOutsBanner(false)
@@ -3621,7 +4133,7 @@ export default function Scorebook() {
     setPendingPA(null)
     setSelectedPitcher(null)
     resetRunners(false)
-  }, [canEditScorebook, outsRecorded, selectedGame, scores, checkGameEnd, regulationInnings, pushToast, resetRunners])
+  }, [canEditScorebook, outsRecorded, selectedGame, scores, checkGameEnd, pushToast, resetRunners])
 
   // ── Undo last PA ───────────────────────────────────────────────────────────
 
@@ -3647,6 +4159,7 @@ export default function Scorebook() {
     fielderChoiceOut = false,
     pitchRows = [],
     runEvents = [],
+    nextRunners = runners,
   }) {
     if (!selectedGame || !offense || !currentBatter || !currentPitcherStint || isGameComplete) return
     if (isSavingRef.current) return
@@ -3781,6 +4294,26 @@ export default function Scorebook() {
       try {
         await resolveOnPA(selectedGame.id, paPayload, betResolutionConfig)
         const currentOdds = await ensureLiveOdds(gamePitching, allPAs)
+        const recalcOuts = allPAs.reduce((s, pa) => s + calculateOutsForPa(pa.result), 0)
+        const recalcOffense = deriveOffense(selectedGame, recalcOuts)
+        const recalcHomeScore = runsFromPAs(allPAs, selectedGame.team_b_player_id)
+        const recalcAwayScore = runsFromPAs(allPAs, selectedGame.team_a_player_id)
+        const freshOddsContext = buildSharedOddsGenerationContext({
+          game: selectedGame,
+          draftPicks,
+          charactersById,
+          gamePAs: allPAs,
+          gamePitching,
+          allGames: games,
+          allPAs: plateAppearances,
+          allPitching: pitchingStints,
+          stadiumsById,
+          stadiumGameLog,
+          playersById,
+          currentInning: recalcOffense.inning,
+          scores: { a: recalcAwayScore, b: recalcHomeScore },
+          totalInnings: regulationInnings,
+        })
         const changedRows = recalculateOdds(currentOdds || [], {
           battingSide: offense.isTop ? 'away' : 'home',
           isTop: offense.isTop,
@@ -3789,6 +4322,20 @@ export default function Scorebook() {
             .filter(pa => pa.inning === offense.inning && pa.player_id === currentBatter.player_id)
             .reduce((sum, pa) => sum + Number(pa.rbi || 0) + (pa.run_scored ? 1 : 0), 0),
           lockedEntities: [buildBettingEntityLabel(charactersById[currentBatter.character_id], playersById[currentBatter.player_id])],
+          oddsContext: freshOddsContext,
+          liveState: {
+            homeScore: recalcHomeScore,
+            awayScore: recalcAwayScore,
+            currentInning: recalcOffense.inning,
+            isTop: recalcOffense.isTop,
+            outsInHalf: recalcOuts % 3,
+            regulationInnings,
+            runnersOccupied: [nextRunners?.first, nextRunners?.second, nextRunners?.third].filter(Boolean).length,
+            balls: 0,
+            strikes: 0,
+            paCount: allPAs.length,
+            status: 'active',
+          },
         }, paPayload)
         await upsertChangedOdds(changedRows)
       } catch (bettingError) {
@@ -3796,10 +4343,27 @@ export default function Scorebook() {
       }
     }
 
+    const nextScores = {
+      a: runsFromPAs(allPAs, selectedGame.team_a_player_id),
+      b: runsFromPAs(allPAs, selectedGame.team_b_player_id),
+    }
     const newOuts = allPAs.reduce((sum, pa) => sum + calculateOutsForPa(pa.result), 0)
     const prevHalf = Math.floor(outsRef.current / 3)
     const newHalf = Math.floor(newOuts / 3)
-    if (newHalf > prevHalf) setShowOutsBanner(true)
+    const halfCompleted = newHalf > prevHalf
+    const end = checkGameEnd({
+      inning: offense.inning,
+      isTop: offense.isTop,
+      halfCompleted,
+      currentScores: nextScores,
+      previousScores: scores,
+    })
+    if (end) {
+      setGameEndBanner(end)
+      setShowOutsBanner(false)
+    } else if (halfCompleted) {
+      setShowOutsBanner(true)
+    }
 
     if (navigator.vibrate) navigator.vibrate(50)
     setEditingPa(null)
@@ -4056,6 +4620,10 @@ export default function Scorebook() {
         .join('|')
 
       if (currentSignature === desiredSignature) return
+      // Avoid re-running the delete/insert cycle while the realtime echo of our own
+      // previous sync is still propagating back (which would otherwise transiently
+      // empty `lineups` and re-trigger this effect, causing the lineup to flicker).
+      if (lastSyncedLineupSignatureRef.current === desiredSignature) return
 
       const lineupPayload = desiredPayload.map(addSourceFields)
       const fielderPayload = desiredPayload.map((row, index) => ({
@@ -4082,24 +4650,29 @@ export default function Scorebook() {
         return
       }
 
-      const { error: lineupError } = await supabase.from(scorebookTables.lineups).insert(lineupPayload)
+      const { data: insertedLineups, error: lineupError } = await supabase.from(scorebookTables.lineups).insert(lineupPayload).select()
       if (lineupError) {
         pushToast({ title: 'Lineup sync failed', message: lineupError.message, type: 'error' })
         return
       }
 
-      const { error: fielderError } = await supabase.from(scorebookTables.gameFielders).insert(fielderPayload.map(addSourceFields))
+      const { data: insertedFielders, error: fielderError } = await supabase.from(scorebookTables.gameFielders).insert(fielderPayload.map(addSourceFields)).select()
       if (fielderError) {
         pushToast({ title: 'Fielder sync failed', message: fielderError.message, type: 'error' })
         return
       }
 
-      setLineups((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGame.id)), ...lineupPayload])
-      setGameFielders((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGame.id)), ...fielderPayload])
+      setLineups((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGame.id)), ...(insertedLineups || lineupPayload)])
+      setGameFielders((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGame.id)), ...(insertedFielders || fielderPayload)])
+      lastSyncedLineupSignatureRef.current = desiredSignature
     } finally {
       isSyncingLineupsRef.current = false
     }
   }, [selectedGame, isGameComplete, gamePAs.length, gameLineups, teamRosters, gameSession, addSourceFields, playersById, charactersById, scorebookTables.lineups, scorebookTables.gameFielders, pushToast, isSeasonGame])
+
+  useEffect(() => {
+    lastSyncedLineupSignatureRef.current = null
+  }, [selectedGame?.id])
 
   useEffect(() => {
     if (!selectedGame) return
@@ -4120,8 +4693,8 @@ export default function Scorebook() {
       inning_from: 1,
       inning_to: null,
     }))
-    supabase.from(scorebookTables.gameFielders).insert(payload.map(addSourceFields)).then(({ error }) => {
-      if (!error) setGameFielders((current) => [...current, ...payload])
+    supabase.from(scorebookTables.gameFielders).insert(payload.map(addSourceFields)).select().then(({ data, error }) => {
+      if (!error) setGameFielders((current) => [...current, ...(data || payload)])
     })
   }, [selectedGame, isGameComplete, gameLineups, gameFielderRows.length, playersById, charactersById, isSeasonGame, gameSession.teamIdByPlayerId])
 
@@ -4129,10 +4702,11 @@ export default function Scorebook() {
   const markGameComplete = useCallback(async (winnerId, finalInning, isExtra) => {
     if (!selectedGame) return
     const resolved = winnerId ?? (scores.a === scores.b ? null : scores.a > scores.b ? selectedGame.team_a_player_id : selectedGame.team_b_player_id)
+    const clearedLiveState = getPersistedLiveStateValue(null, isSeasonGame)
     const completionUpdate = isSeasonGame
       ? {
           status: 'completed',
-          live_state: null,
+          live_state: clearedLiveState,
           winner_team_id: resolved ? gameSession.teamIdByPlayerId?.[resolved] || null : null,
           away_score: scores.a,
           home_score: scores.b,
@@ -4141,7 +4715,7 @@ export default function Scorebook() {
         }
       : {
           status: 'complete',
-          live_state: null,
+          live_state: clearedLiveState,
           winner_player_id: resolved,
           team_a_runs: scores.a,
           team_b_runs: scores.b,
@@ -4158,7 +4732,7 @@ export default function Scorebook() {
       team_b_runs: scores.b,
       final_inning: finalInning || currentInning,
       is_extra_innings: isExtra || false,
-      live_state: null,
+      live_state: clearedLiveState,
     }
     setGames(cur => cur.map(g => g.id === selectedGame.id ? completedGame : g))
     setGameEndBanner(null)
@@ -4224,6 +4798,100 @@ export default function Scorebook() {
     }
     pushToast({ title: 'Game complete', type: 'success' })
   }, [selectedGame, scores, currentInning, pushToast, gamePitching, charactersById, playersById, tournament, games, isSeasonGame, gameSession, scorebookTables.games, scorebookTables.stadiumGameLog, selectedStadium, betResolutionConfig])
+
+  const reopenCompletedGame = useCallback(async () => {
+    if (!selectedGame || !isGameComplete) return
+
+    const reopenedStatus = isSeasonGame ? 'in_progress' : 'active'
+    const clearedLiveState = getPersistedLiveStateValue(null, isSeasonGame)
+    const reopenUpdate = isSeasonGame
+      ? {
+          status: reopenedStatus,
+          live_state: clearedLiveState,
+          winner_team_id: null,
+          away_score: scores.a,
+          home_score: scores.b,
+          final_inning: null,
+          is_extra_innings: false,
+        }
+      : {
+          status: reopenedStatus,
+          live_state: clearedLiveState,
+          winner_player_id: null,
+          team_a_runs: scores.a,
+          team_b_runs: scores.b,
+          final_inning: null,
+          is_extra_innings: false,
+        }
+
+    const { error } = await supabase.from(scorebookTables.games).update(reopenUpdate).eq('id', selectedGame.id)
+    if (error) {
+      pushToast({ title: 'Reopen failed', message: error.message, type: 'error' })
+      return
+    }
+
+    const reopenedGame = {
+      ...selectedGame,
+      status: 'active',
+      winner_player_id: null,
+      team_a_runs: scores.a,
+      team_b_runs: scores.b,
+      final_inning: null,
+      is_extra_innings: false,
+      live_state: clearedLiveState,
+    }
+
+    setGames((current) => current.map((game) => (game.id === selectedGame.id ? reopenedGame : game)))
+    setShowReopenGameConfirm(false)
+    setGameEndBanner(null)
+    setShowOutsBanner(false)
+
+    try {
+      const { error: stadiumLogError } = await supabase.from(scorebookTables.stadiumGameLog).delete().eq('game_id', selectedGame.id)
+      if (stadiumLogError) throw stadiumLogError
+    } catch (stadiumError) {
+      pushToast({ title: 'History cleanup failed', message: stadiumError.message, type: 'error' })
+    }
+
+    try {
+      await reopenGameBets(selectedGame.id, betResolutionConfig)
+    } catch (bettingError) {
+      pushToast({ title: 'Bet reopen failed', message: bettingError.message, type: 'error' })
+    }
+
+    try {
+      if (isSeasonGame) {
+        await gameSession.onGameReopen?.({ selectedGame: reopenedGame })
+      } else {
+        if (tournament && (tournament.status === 'complete' || tournament.champion_player_id != null)) {
+          const { error: tournamentError } = await supabase
+            .from('tournaments')
+            .update({ champion_player_id: null, status: 'active' })
+            .eq('id', tournament.id)
+          if (tournamentError) throw tournamentError
+        }
+
+        const syncedGames = await reopenBracketAfterGameEdit({
+          supabase,
+          tournament,
+          games: games.map((game) => (game.id === selectedGame.id ? reopenedGame : game)),
+          reopenedGame,
+        })
+
+        if (syncedGames.length) {
+          setGames((current) => {
+            const existingById = new Map(current.map((game) => [game.id, game]))
+            syncedGames.forEach((game) => existingById.set(game.id, game))
+            return Array.from(existingById.values())
+          })
+        }
+      }
+    } catch (syncError) {
+      pushToast({ title: isSeasonGame ? 'Season reopen failed' : 'Bracket reopen failed', message: syncError.message, type: 'error' })
+    }
+
+    pushToast({ title: 'Game reopened', type: 'success' })
+  }, [selectedGame, isGameComplete, isSeasonGame, scores.a, scores.b, scorebookTables.games, scorebookTables.stadiumGameLog, pushToast, betResolutionConfig, gameSession, tournament, games])
 
   // ── Swap home / away teams ────────────────────────────────────────────────
   const swapTeams = useCallback(async () => {
@@ -4372,6 +5040,18 @@ export default function Scorebook() {
     navigate(buildScorebookPath({ gameId: data.id, source: isSeasonGame ? 'season' : 'tournament' }))
   }, [tournament, filteredGames, addGameForm, pushToast, selectedAddGameStadium, navigate, isSeasonGame])
 
+  // ─── Loading state ──────────────────────────────────────────────────────────
+  if (!dataLoaded) {
+    return (
+      <div>
+        <div className="page-head"><span className="brand-kicker">Live Scorebook</span><h1>Scorebook</h1></div>
+        <section className="panel" style={{ textAlign: 'center', padding: 40 }}>
+          <p className="muted">Loading scorebook…</p>
+        </section>
+      </div>
+    )
+  }
+
   // ─── Empty state ────────────────────────────────────────────────────────────
   if (!selectedGame) {
     const emptyMessage = filteredGames.length === 0
@@ -4420,6 +5100,7 @@ export default function Scorebook() {
         {[
           { key: 'game', label: 'Game View' },
           { key: 'scorebook', label: 'Scorebook' },
+          { key: 'lineups', label: 'Lineups' },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -4455,11 +5136,6 @@ export default function Scorebook() {
               <div style={{ color: effectiveGameStatus === 'complete' ? C.green : effectiveGameStatus === 'active' ? C.accent : '#93C5FD', fontSize: 12, fontWeight: 800, textTransform: 'uppercase' }}>
                 {formatGameStatusLabel(effectiveGameStatus, offense?.halfLabel)}
               </div>
-              {effectiveGameStatus === 'active' ? (
-                <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>
-                  {`Count ${displayBalls}-${displayStrikes} / ${displayOutsInHalf} out${displayOutsInHalf === 1 ? '' : 's'}`}
-                </div>
-              ) : null}
             </div>
           )}
         >
@@ -4509,7 +5185,10 @@ export default function Scorebook() {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                 <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', padding: 12 }}>
-                  <div style={{ color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>Current Batter</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>
+                    <TeamLogo logoKey={battingIdentity?.teamLogoKey} logoUrl={battingIdentity?.teamLogoUrl || battingPlayer?.team_logo_url} teamName={battingPlayer?.name} height={14} />
+                    Current Batter
+                  </div>
                   <div
                     onClick={currentBatter ? () => setViewedCharacterId(currentBatter.character_id) : undefined}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: currentBatter ? 'pointer' : 'default' }}
@@ -4519,17 +5198,24 @@ export default function Scorebook() {
                     </div>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ color: '#F8FAFC', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{charactersById[currentBatter?.character_id]?.name || 'Waiting on lineup'}</div>
-                      <div style={{ color: C.muted, fontSize: 12 }}>{currentBatter ? `AVG ${formatBaseballAverage(lineupStatsByEntryKey[currentEntryKey]?.source || {})} / ${displayBalls}-${displayStrikes}` : 'No batter yet'}</div>
+                      <div style={{ color: C.muted, fontSize: 12 }}>{currentBatter ? `AVG ${formatBaseballAverage(lineupStatsByEntryKey[currentEntryKey]?.source || {})} / ${formatHitsAtBats(currentBatterGameSummary)}` : 'No batter yet'}</div>
                     </div>
                   </div>
                 </div>
                 <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', padding: 12, display: 'grid', justifyItems: 'center', gap: 8 }}>
                   <div style={{ color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>{offense?.halfLabel || 'Top 1'}</div>
                   <BaseStateDiamond runners={displayRunners} charactersById={charactersById} />
-                  <div style={{ color: '#CBD5E1', fontSize: 12, fontWeight: 700 }}>{displayOutsInHalf} out{displayOutsInHalf === 1 ? '' : 's'} / Pitch {displayPitchNumber}</div>
+                  <div style={{ display: 'grid', gap: 6, justifyItems: 'center' }}>
+                    <CountDotRow label="B" count={Math.min(displayBalls, 3)} total={3} activeColor={C.green} inactiveColor={C.border} />
+                    <CountDotRow label="S" count={Math.min(displayStrikes, 2)} total={2} activeColor={C.accent} inactiveColor={C.border} />
+                    <CountDotRow label="O" count={Math.min(displayOutsInHalf, 2)} total={2} activeColor={C.red} inactiveColor={C.border} />
+                  </div>
                 </div>
                 <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', padding: 12 }}>
-                  <div style={{ color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>Current Pitcher</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>
+                    <TeamLogo logoKey={pitchingIdentity?.teamLogoKey} logoUrl={pitchingIdentity?.teamLogoUrl || pitchingPlayer?.team_logo_url} teamName={pitchingPlayer?.name} height={14} />
+                    Current Pitcher
+                  </div>
                   <div
                     onClick={currentPitcherChar ? () => setViewedCharacterId(currentPitcherStint.character_id) : undefined}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: currentPitcherChar ? 'pointer' : 'default' }}
@@ -4540,6 +5226,7 @@ export default function Scorebook() {
                     <div style={{ minWidth: 0 }}>
                       <div style={{ color: '#F8FAFC', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentPitcherChar?.name || 'Waiting on pitcher'}</div>
                       <div style={{ color: C.muted, fontSize: 12 }}>IP {currentPitcherGameLine.ip ?? 0} / H {currentPitcherGameLine.h ?? 0} / R {currentPitcherGameLine.r ?? 0} / K {currentPitcherGameLine.k ?? 0}</div>
+                      <div style={{ color: C.muted, fontSize: 12 }}>Pitch Count {displayPitchNumber}</div>
                     </div>
                   </div>
                 </div>
@@ -4619,24 +5306,6 @@ export default function Scorebook() {
           <PitchingStatsTable title={`${teamAAbbreviation} Pitchers`} stints={teamAPitching} decisionLabels={pitcherDecisionLabels} charactersById={charactersById} onCharacterClick={(characterId) => setViewedCharacterId(characterId)} />
           <PitchingStatsTable title={`${teamBAbbreviation} Pitchers`} stints={teamBPitching} decisionLabels={pitcherDecisionLabels} charactersById={charactersById} onCharacterClick={(characterId) => setViewedCharacterId(characterId)} />
         </div>
-
-        <SectionCard title="Inning Log" subtitle={inningHalfLog.length ? `${inningHalfLog.length} half-innings played` : 'Game has not started'}>
-          {!inningHalfLog.length ? (
-            <div style={{ color: C.muted, fontSize: 13 }}>No plate appearances recorded.</div>
-          ) : (
-            <div style={{ display: 'grid', gap: 0 }}>
-              {inningHalfLog.map((half) => (
-                <div key={half.key} style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 12, alignItems: 'baseline', padding: '12px 0', borderTop: `1px solid ${C.border}44` }}>
-                  <div style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 800, minWidth: 76 }}>{half.isTop ? 'Top' : 'Bottom'} {half.inning}</div>
-                  <div style={{ color: C.muted, fontSize: 13 }}>{half.hits} hit{half.hits === 1 ? '' : 's'}, {half.runs} run{half.runs === 1 ? '' : 's'}</div>
-                  <div style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>
-                    {half.isCompleted ? '' : 'Now: '}{half.awayScore}-{half.homeScore}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
       </div>
       {viewedCharacterId != null && (
         <BatterStatsModal
@@ -4654,18 +5323,118 @@ export default function Scorebook() {
     </div>
   )
 
+  const renderLineupTeamCard = (team) => {
+    const teamName = team === 'A' ? teamAName : teamBName
+    const draft = lineupDrafts[team]
+    const rosterCharMap = rosterCharMaps[team]
+    const rosterCharsArray = Object.values(rosterCharMap)
+    const rosterNames = rosterCharsArray.map((c) => c.chemistryName || c.name)
+    const selectedFieldingCharId = selectedFieldingPlayer[team]
+    const chemistryHighlightIds = buildChemistryHighlightSet(selectedFieldingCharId || null, rosterCharsArray)
+    const positionByCharId = Object.fromEntries(Object.entries(draft.fielding).map(([fieldId, charId]) => [charId, fieldId]))
+
+    return (
+      <SectionCard title={teamName} subtitle="Batting order & fielding positions">
+        <div className="roster-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', alignItems: 'start', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {draft.order.length === 0 ? (
+              <div style={{ padding: 12, textAlign: 'center', color: C.muted, fontSize: 12 }}>No lineup set yet.</div>
+            ) : (
+              draft.order.map((charId, index) => {
+                const character = rosterCharMap[charId]
+                if (!character) return null
+                return (
+                  <div
+                    key={charId}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={handleDropOnLineupSlot(team, index)}
+                    style={{ borderRadius: 8 }}
+                  >
+                    <DraggableRosterItem
+                      character={character}
+                      onDragStart={handleLineupDragStart(charId)}
+                      rosterNames={rosterNames}
+                      onOpenCard={() => setViewedCharacterId(charId)}
+                      compact
+                      lineupNumber={index + 1}
+                      positionLabel={positionByCharId[charId] || null}
+                      onLineupNumberClick={() => handleLineupNumberClick(team, charId, index)}
+                      lineupNumberSelected={selectedLineupMoveId[team] === charId}
+                      lineupNumberAriaLabel={`Lineup spot ${index + 1}`}
+                      lineupNumberTitle={selectedLineupMoveId[team] === charId ? 'Selected lineup slot' : 'Tap to move this player or move another player here'}
+                      showChemistryNote={chemistryHighlightIds.has(charId)}
+                      highlighted={selectedLineupMoveId[team] === charId}
+                    />
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          <FieldingView
+            charactersById={rosterCharMap}
+            fieldingPositions={draft.fielding}
+            setFieldingPositions={setFieldingPositionsForTeam(team)}
+            selectedPlayer={selectedFieldingCharId}
+            setSelectedPlayer={setSelectedFieldingPlayerForTeam(team)}
+            fieldingAssignMode={false}
+            selectedForFielding={null}
+            onAssignPosition={() => {}}
+            editable
+            chemistryHighlightIds={chemistryHighlightIds}
+          />
+        </div>
+        <button
+          type="button"
+          className="solid-button"
+          onClick={() => saveTeamLineup(team)}
+          disabled={!draft.order.length}
+          style={{ marginTop: 12 }}
+        >
+          Save {teamName} Lineup
+        </button>
+      </SectionCard>
+    )
+  }
+
+  const renderLineupsView = () => (
+    <div style={{ color: C.text, paddingBottom: 40, margin: '-1.25rem -1.25rem 0' }}>
+      {scorebookToolbar}
+      {viewTabs}
+      <div style={{ padding: '8px 10px 32px', display: 'grid', gap: 12 }}>
+        {!selectedGame ? (
+          <div style={{ color: C.muted, textAlign: 'center', padding: 24 }}>Select a game to manage lineups.</div>
+        ) : (
+          <>
+            <div style={{ color: C.muted, fontSize: 12, textAlign: 'center' }}>
+              Changes apply starting in inning {currentInning} and update the scorebook, spectator view, and odds immediately.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
+              {renderLineupTeamCard('A')}
+              {renderLineupTeamCard('B')}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+
+  if (viewMode === 'lineups' && isScorekeeper) {
+    return renderLineupsView()
+  }
+
   if (viewMode === 'game' || !isScorekeeper) {
     return renderGameView()
   }
 
   // ── Scorekeeper mode ────────────────────────────────────────────────────────
   return (
-    <div style={{ color: C.text, paddingBottom: 90, margin: '-1.25rem -1.25rem 0' }}>
+    <div className="scorebook-page-wrapper" style={{ color: C.text, paddingBottom: 90, margin: '-1.25rem -1.25rem 0' }}>
       {scorebookToolbar}
       {viewTabs}
 
       {/* ── Sticky header: score + inning strip ── */}
-      <div style={{ position: 'sticky', top: 60, zIndex: 19, background: C.bg, borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ background: C.bg, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ padding: '8px 12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <StadiumHeaderPill stadium={selectedStadium} isNight={selectedGame?.is_night} />
@@ -4679,12 +5448,15 @@ export default function Scorebook() {
                 <Avatar name={charactersById[currentBatter?.character_id]?.name} size={48} />
               </div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ color: battingColor, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>Batter</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: battingColor, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  <TeamLogo logoKey={battingIdentity?.teamLogoKey} logoUrl={battingIdentity?.teamLogoUrl || battingPlayer?.team_logo_url} teamName={battingPlayer?.name} height={14} />
+                  Batter
+                </div>
                 <div style={{ fontSize: 16, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{charactersById[currentBatter?.character_id]?.name || 'No batter'}</div>
                 <div style={{ color: C.muted, fontSize: 11, fontWeight: 700 }}>{currentBatter ? `${getTeamShortName(identitiesByPlayerId[currentBatter.player_id]) || playersById[currentBatter.player_id]?.name || ''} · #${currentBatter.batting_order}` : 'Waiting'}</div>
                 {characterSeasonStats ? (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-                    <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>AVG {characterSeasonStats.avg.toFixed(3)}</span>
+                    <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>AVG {formatBaseballAverage({ atBats: 1, avg: characterSeasonStats.avg })}</span>
                     <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>HR {characterSeasonStats.homeRuns}</span>
                     <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>RBI {characterSeasonStats.rbi}</span>
                   </div>
@@ -4724,7 +5496,10 @@ export default function Scorebook() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, minWidth: 0 }}>
               <div style={{ minWidth: 0, textAlign: 'right' }}>
-                <div style={{ color: pitchingColor, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>Pitcher</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, color: pitchingColor, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  Pitcher
+                  <TeamLogo logoKey={pitchingIdentity?.teamLogoKey} logoUrl={pitchingIdentity?.teamLogoUrl || pitchingPlayer?.team_logo_url} teamName={pitchingPlayer?.name} height={14} />
+                </div>
                 <div style={{ fontSize: 16, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentPitcherChar?.name || 'No pitcher'}</div>
                 <div style={{ color: C.muted, fontSize: 11, fontWeight: 700 }}>{getTeamShortName(identitiesByPlayerId[currentPitcherStint?.player_id]) || playersById[currentPitcherStint?.player_id]?.name || 'Waiting'}</div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
@@ -4838,8 +5613,17 @@ export default function Scorebook() {
 
         {selectedGame && !gameLineups.length && <div style={{ background: C.card, borderRadius: 10, padding: 16, textAlign: 'center', marginBottom: 10, color: C.muted }}>No lineup set.</div>}
         {isGameComplete && (
-          <div style={{ background: `${C.green}18`, border: `1px solid ${C.green}44`, borderRadius: 10, padding: '10px 14px', marginBottom: 10, color: C.green, fontWeight: 700, fontSize: 13 }}>
-            Game complete. The scorebook is locked for viewing only.
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: `${C.green}18`, border: `1px solid ${C.green}44`, borderRadius: 10, padding: '10px 14px', marginBottom: 10, color: C.green, fontWeight: 700, fontSize: 13 }}>
+            <span>Game complete. The scorebook is locked for viewing only.</span>
+            {isScorekeeper && (
+              <button
+                type="button"
+                onClick={() => setShowReopenGameConfirm(true)}
+                style={{ background: C.card, color: C.green, border: `1px solid ${C.green}55`, borderRadius: 8, padding: '8px 12px', fontWeight: 800, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                Reopen Game
+              </button>
+            )}
           </div>
         )}
 
@@ -4919,7 +5703,7 @@ export default function Scorebook() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
                 <button type="button" onClick={handlePitchBall} disabled={!canRecordOutcome || starHitUsed} style={{ minHeight: 56, borderRadius: 14, border: `1px solid ${starHitUsed ? `${C.border}99` : C.border}`, background: starHitUsed ? 'rgba(148,163,184,0.12)' : `${C.blue}22`, color: starHitUsed ? C.muted : C.blue, fontWeight: 800, opacity: !canRecordOutcome || starHitUsed ? 0.55 : 1, cursor: !canRecordOutcome || starHitUsed ? 'not-allowed' : 'pointer' }}>BALL</button>
                 <button type="button" onClick={() => handleStrikeChoice('swinging')} disabled={!canRecordOutcome} style={{ minHeight: 56, borderRadius: 14, border: `1px solid ${C.border}`, background: `${C.red}22`, color: C.red, fontWeight: 800, opacity: !canRecordOutcome ? 0.55 : 1, cursor: !canRecordOutcome ? 'not-allowed' : 'pointer' }}>SWING</button>
-                <button type="button" onClick={() => handleStrikeChoice('looking')} disabled={!canRecordOutcome} style={{ minHeight: 56, borderRadius: 14, border: `1px solid ${C.border}`, background: `${C.red}22`, color: C.red, fontWeight: 800, opacity: !canRecordOutcome ? 0.55 : 1, cursor: !canRecordOutcome ? 'not-allowed' : 'pointer' }}>LOOK</button>
+                <button type="button" onClick={() => handleStrikeChoice('looking')} disabled={!canRecordOutcome || starHitUsed} title={starHitUsed ? 'A star hit requires swinging.' : undefined} style={{ minHeight: 56, borderRadius: 14, border: `1px solid ${starHitUsed ? `${C.border}99` : C.border}`, background: starHitUsed ? 'rgba(148,163,184,0.12)' : `${C.red}22`, color: starHitUsed ? C.muted : C.red, fontWeight: 800, opacity: !canRecordOutcome || starHitUsed ? 0.55 : 1, cursor: !canRecordOutcome || starHitUsed ? 'not-allowed' : 'pointer' }}>LOOK</button>
                 <button type="button" onClick={handlePitchFoul} disabled={!canRecordOutcome} style={{ minHeight: 56, borderRadius: 14, border: `1px solid ${C.border}`, background: `${C.red}22`, color: C.red, fontWeight: 800, opacity: !canRecordOutcome ? 0.55 : 1, cursor: !canRecordOutcome ? 'not-allowed' : 'pointer' }}>FOUL</button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
@@ -4949,13 +5733,15 @@ export default function Scorebook() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
                   {IN_PLAY_RESULT_OPTIONS.map((option) => {
                     const color = ZONE_COLOR[option.zone]
-                    const disabled = isOutcomeDisabledForOuts(option.value, selectionOutsInHalf)
+                    const disabledForOuts = isOutcomeDisabledForOuts(option.value, selectionOutsInHalf)
+                    const disabledForRunners = isOutcomeDisabledForRunners(option.value, runners)
+                    const disabled = disabledForOuts || disabledForRunners
                     return (
                       <button
                         key={option.value}
                         type="button"
                         disabled={disabled}
-                        title={disabled ? `${option.label} is not available with two outs.` : undefined}
+                        title={disabled ? (disabledForOuts ? `${option.label} is not available with two outs.` : `${option.label} requires a runner on base.`) : undefined}
                         onClick={() => {
                           if (disabled) return
                           setInPlayState((current) => ({
@@ -5102,6 +5888,17 @@ export default function Scorebook() {
           teamBColor={teamBColor}
           onConfirm={() => { setShowEndGameConfirm(false); markGameComplete() }}
           onClose={() => setShowEndGameConfirm(false)}
+        />
+      )}
+      {showReopenGameConfirm && (
+        <ReopenGameConfirmModal
+          scores={scores}
+          teamAName={teamAName}
+          teamBName={teamBName}
+          teamAColor={teamAColor}
+          teamBColor={teamBColor}
+          onConfirm={() => reopenCompletedGame()}
+          onClose={() => setShowReopenGameConfirm(false)}
         />
       )}
     </div>
@@ -5287,6 +6084,35 @@ function EndGameConfirmModal({ scores, teamAName, teamBName, teamAColor, teamBCo
 }
 
 // ─── Batter Stats Modal ───────────────────────────────────────────────────────
+function ReopenGameConfirmModal({ scores, teamAName, teamBName, teamAColor, teamBColor, onConfirm, onClose }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: C.card, borderRadius: 16, padding: 24, width: '100%', maxWidth: 360, border: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>Reopen Game?</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer' }}><X size={20} /></button>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginBottom: 16, fontSize: 22, fontWeight: 900 }}>
+          <span style={{ color: teamAColor }}>{teamAName} {scores.a}</span>
+          <span style={{ color: C.muted, fontWeight: 400 }}>-</span>
+          <span style={{ color: teamBColor }}>{teamBName} {scores.b}</span>
+        </div>
+        <div style={{ color: C.muted, textAlign: 'center', marginBottom: 16, fontSize: 14, lineHeight: 1.5 }}>
+          Reopening will unlock the scorebook, clear the final result, and roll back postgame standings, bracket advancement, and bet settlement so you can fix mistakes.
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onConfirm} style={{ flex: 1, background: C.accent, color: '#000', border: 'none', borderRadius: 10, padding: '13px 0', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
+            Confirm Reopen
+          </button>
+          <button onClick={onClose} style={{ flex: 1, background: 'none', color: C.muted, border: `1px solid ${C.border}`, borderRadius: 10, padding: '13px 0', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function BatterStatsModal({ characterId, plateAppearances, pitchingStints, draftPicks, tournamentGameIds, charactersById, playersById, identitiesByPlayerId, onClose }) {
   const char = charactersById[characterId]
   if (!char) return null

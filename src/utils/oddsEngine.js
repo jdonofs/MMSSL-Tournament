@@ -1,5 +1,6 @@
 import { getPlayerSkillProfile } from './teamIdentity'
 import { buildAppliedStadiumModel } from './stadiumOdds'
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules'
 
 const MIN_PROBABILITY = 0.07
 const MAX_PROBABILITY = 0.97
@@ -160,7 +161,7 @@ function getRosterAverages(roster = []) {
 }
 
 export function buildOddsRowKey(row = {}) {
-  return `${row.bet_type}::${row.target_entity || 'game'}::${row.line ?? 'nil'}`
+  return `${row.bet_type}::${row.target_entity || 'game'}`
 }
 
 export function mergeOddsWithExistingRows(rows = [], existingRows = []) {
@@ -197,7 +198,19 @@ function buildMoneylineSources(homeRoster, awayRoster, homeHistorical, awayHisto
   const char = logistic(charEdge * (1.8 + charWeight))
   const historical = logistic(historicalEdge * (1.4 + historyWeight))
   const skill = logistic(normalizedSkillDiff * (1.35 + skillWeight * 0.6))
-  const live = logistic((liveState.scoreDiff * 0.32) + ((liveState.inning - 1) * 0.08))
+
+  // Live win probability: a lead matters far more with fewer innings left to play it back.
+  const totalInnings = normalizeRegulationInnings(playerProps.totalInnings, DEFAULT_REGULATION_INNINGS)
+  const completedInnings = clamp(liveState.inning - 1, 0, totalInnings - 1)
+  const remainingInnings = Math.max(totalInnings - completedInnings, 0.5)
+  const live = logistic((liveState.scoreDiff * 1.1) / Math.sqrt(remainingInnings))
+
+  // Live weight ramps up as the game progresses, dominating by the final innings.
+  const gameStarted = liveState.inning > 1 || liveState.scoreDiff !== 0 || liveState.paCount > 0
+  const gameProgress = completedInnings / totalInnings
+  const liveWeight = gameStarted ? clamp(0.12 + gameProgress * 0.85, 0.12, 0.92) : 0
+  const remainder = 1 - liveWeight
+  const pregameTotal = skillWeight + historyWeight + charWeight || 1
 
   return {
     char,
@@ -205,12 +218,202 @@ function buildMoneylineSources(homeRoster, awayRoster, homeHistorical, awayHisto
     live,
     skill,
     weights: {
-      char: charWeight,
-      historical: historyWeight,
-      skill: skillWeight,
-      live: liveState.inning > 1 || liveState.scoreDiff !== 0 ? 0.1 : 0,
+      char: (charWeight / pregameTotal) * remainder,
+      historical: (historyWeight / pregameTotal) * remainder,
+      skill: (skillWeight / pregameTotal) * remainder,
+      live: liveWeight,
     },
   }
+}
+
+function buildPregameMoneylineProbability(moneylineSources = {}) {
+  const pregameWeight =
+    Number(moneylineSources.weights?.char || 0) +
+    Number(moneylineSources.weights?.historical || 0) +
+    Number(moneylineSources.weights?.skill || 0)
+
+  if (!pregameWeight) return 0.5
+
+  return clamp(
+    (
+      (Number(moneylineSources.char || 0.5) * Number(moneylineSources.weights?.char || 0)) +
+      (Number(moneylineSources.historical || 0.5) * Number(moneylineSources.weights?.historical || 0)) +
+      (Number(moneylineSources.skill || 0.5) * Number(moneylineSources.weights?.skill || 0))
+    ) / pregameWeight,
+    MIN_PROBABILITY,
+    MAX_PROBABILITY,
+  )
+}
+
+function getRemainingOutsBySide({
+  currentInning = 1,
+  isTop = true,
+  outsInHalf = 0,
+  totalInnings = DEFAULT_REGULATION_INNINGS,
+}) {
+  const inning = Math.max(1, Number(currentInning || 1))
+  const outs = clamp(Number(outsInHalf || 0), 0, 2)
+  const regulationInnings = normalizeRegulationInnings(totalInnings, DEFAULT_REGULATION_INNINGS)
+  const inningsAfterCurrent = Math.max(regulationInnings - inning, 0)
+
+  if (isTop) {
+    return {
+      away: Math.max(0, 3 - outs) + (inningsAfterCurrent * 3),
+      home: inning > regulationInnings ? 0 : (Math.max(regulationInnings - inning + 1, 0) * 3),
+    }
+  }
+
+  return {
+    away: inningsAfterCurrent * 3,
+    home: Math.max(0, 3 - outs) + (inningsAfterCurrent * 3),
+  }
+}
+
+export function estimateLiveMarketState({
+  game = {},
+  homeRoster = [],
+  awayRoster = [],
+  homeHistorical = {},
+  awayHistorical = {},
+  playerProps = {},
+  state = {},
+}) {
+  const status = state.status || game.status || 'active'
+  const homeScore = Number(state.homeScore ?? game.team_b_runs ?? 0)
+  const awayScore = Number(state.awayScore ?? game.team_a_runs ?? 0)
+
+  if (status === 'complete') {
+    const winProbability = homeScore > awayScore ? 1 : homeScore < awayScore ? 0 : 0.5
+    return {
+      winProbability,
+      expectedMargin: homeScore - awayScore,
+      marginVariance: 1,
+      projectedTotal: homeScore + awayScore,
+      totalVariance: 1,
+    }
+  }
+
+  const totalInnings = normalizeRegulationInnings(
+    state.regulationInnings ?? playerProps.totalInnings,
+    DEFAULT_REGULATION_INNINGS,
+  )
+  const currentInning = Math.max(1, Number(state.currentInning ?? game.current_inning ?? 1))
+  const isTop = Boolean(state.isTop ?? true)
+  const outsInHalf = clamp(Number(state.outsInHalf ?? 0), 0, 2)
+  const runnersOccupied = clamp(Number(state.runnersOccupied ?? 0), 0, 3)
+  const balls = clamp(Number(state.balls ?? 0), 0, 3)
+  const strikes = clamp(Number(state.strikes ?? 0), 0, 2)
+  const paCount = Math.max(0, Number(state.paCount ?? playerProps.gameState?.paCount ?? 0))
+  const scoreDiff = homeScore - awayScore
+
+  const liveState = {
+    inning: currentInning,
+    scoreDiff,
+    homeRuns: homeScore,
+    awayRuns: awayScore,
+    paCount,
+    homePitcherId: playerProps.gameState?.homePitcherId ?? null,
+    awayPitcherId: playerProps.gameState?.awayPitcherId ?? null,
+  }
+
+  const moneylineSources = buildMoneylineSources(
+    homeRoster,
+    awayRoster,
+    homeHistorical,
+    awayHistorical,
+    liveState,
+    { ...playerProps, totalInnings },
+  )
+  const pregameProbability = buildPregameMoneylineProbability(moneylineSources)
+
+  if (status === 'pending') {
+    return {
+      winProbability: pregameProbability,
+      expectedMargin: 0,
+      marginVariance: Math.max(1.1, Number(playerProps.runLineData?.stdDev || 2.5)),
+      projectedTotal: Number(playerProps.historicalTotals?.average || 0) || null,
+      totalVariance: Math.max(1, Number(playerProps.historicalTotals?.stdDev || 2.5)),
+    }
+  }
+
+  const projectedScore = buildProjectedScore(
+    homeRoster,
+    awayRoster,
+    liveState,
+    { ...playerProps, totalInnings },
+  )
+  const remainingOuts = getRemainingOutsBySide({
+    currentInning,
+    isTop,
+    outsInHalf,
+    totalInnings,
+  })
+  const totalOutsRemaining = remainingOuts.home + remainingOuts.away
+  const totalGameOuts = totalInnings * 6
+  const remainingOutFraction = clamp(totalOutsRemaining / Math.max(totalGameOuts, 1), 0, 1)
+  const progress = clamp(1 - remainingOutFraction, 0, 1)
+  const historicalMarginStd = Math.max(
+    1.1,
+    Number(playerProps.runLineData?.stdDev || 0),
+    Number(playerProps.historicalTotals?.stdDev || 0) * 0.55,
+  )
+  const oneRunGameRate = clamp(Number(playerProps.runLineData?.oneRunGameRate || 0.28), 0.15, 0.65)
+  const baseStatePressure = (runnersOccupied * 0.14) + ((balls * 0.045) - (strikes * 0.035))
+  const battingStateAdjustment = (isTop ? -1 : 1) * baseStatePressure * (0.42 + progress * 0.58)
+  const lastBatBonus = !isTop ? 0.08 : 0
+  const expectedMargin =
+    Number(projectedScore.margin || scoreDiff) +
+    battingStateAdjustment +
+    ((pregameProbability - 0.5) * 0.65) +
+    lastBatBonus
+
+  const variance =
+    Math.max(
+      0.72,
+      historicalMarginStd * (0.42 + remainingOutFraction * 0.95),
+    ) +
+    (Math.abs(scoreDiff) <= 1 ? oneRunGameRate * (0.9 + remainingOutFraction * 0.8) : 0)
+
+  const liveProbability = clamp(
+    logistic(expectedMargin / variance),
+    MIN_PROBABILITY,
+    MAX_PROBABILITY,
+  )
+  const liveWeight = clamp(
+    0.1 + (progress * 0.74),
+    0.1,
+    0.94,
+  )
+
+  let probability = (pregameProbability * (1 - liveWeight)) + (liveProbability * liveWeight)
+
+  if (currentInning >= totalInnings && isTop && homeScore > awayScore) {
+    const closeoutFloor = clamp(
+      0.64 + ((homeScore - awayScore) * 0.08) + (outsInHalf * 0.1),
+      0.64,
+      0.96,
+    )
+    probability = Math.max(probability, closeoutFloor)
+  }
+
+  // Baserunners and a deep count both raise the chance of more runs scoring
+  // this half-inning, regardless of which team is batting — push the total up.
+  const totalStateAdjustment = baseStatePressure * (0.42 + progress * 0.58)
+  const totalStdDev = Math.max(1, Number(playerProps.historicalTotals?.stdDev || 2.5))
+  const projectedTotal = Math.max(homeScore + awayScore, Number(projectedScore.line || 0) + totalStateAdjustment)
+  const totalVariance = Math.max(0.9, totalStdDev * (0.42 + remainingOutFraction * 0.95))
+
+  return {
+    winProbability: clamp(probability, MIN_PROBABILITY, MAX_PROBABILITY),
+    expectedMargin,
+    marginVariance: variance,
+    projectedTotal,
+    totalVariance,
+  }
+}
+
+export function estimateLiveWinProbability(args) {
+  return estimateLiveMarketState(args).winProbability
 }
 
 function buildProjectedScore(homeRoster, awayRoster, liveState, playerProps = {}) {
@@ -255,10 +458,11 @@ function buildProjectedScore(homeRoster, awayRoster, liveState, playerProps = {}
   const currentHomeRuns = Math.max(0, Number(liveState.homeRuns || 0))
   const currentAwayRuns = Math.max(0, Number(liveState.awayRuns || 0))
   const currentTotalRuns = currentHomeRuns + currentAwayRuns
-  const completedInnings = clamp(inning - 1, 0, 9)
+  const totalInnings = normalizeRegulationInnings(playerProps.totalInnings, DEFAULT_REGULATION_INNINGS)
+  const completedInnings = clamp(inning - 1, 0, totalInnings)
 
   if (currentTotalRuns > 0 || inning > 1) {
-    const remainingFactor = clamp((9 - completedInnings) / 9, 0, 1)
+    const remainingFactor = clamp((totalInnings - completedInnings) / totalInnings, 0, 1)
     projectedHomeRuns = currentHomeRuns + Math.max(0, projectedHomeRuns * remainingFactor)
     projectedAwayRuns = currentAwayRuns + Math.max(0, projectedAwayRuns * remainingFactor)
   }
@@ -388,7 +592,7 @@ export function calculatePayout(wagerSips, americanOdds) {
   if (!stake || !odds) return 0
 
   const raw = odds > 0 ? (odds / 100) * stake : (100 / Math.abs(odds)) * stake
-  return Math.round(raw * 10) / 10
+  return Math.round(raw * 100) / 100
 }
 
 export function generateGameOdds(
@@ -625,19 +829,77 @@ export function recalculateOdds(currentOdds = [], gameState = {}, pa = {}) {
   const runsScored = Number(pa.rbi || 0) + (pa.run_scored ? 1 : 0)
   const battingSide = gameState.battingSide || (gameState.isTop ? 'away' : 'home')
 
+  const liveMarketState = gameState.oddsContext && gameState.liveState
+    ? estimateLiveMarketState({
+      game: gameState.oddsContext.game,
+      homeRoster: gameState.oddsContext.homeRoster || [],
+      awayRoster: gameState.oddsContext.awayRoster || [],
+      homeHistorical: gameState.oddsContext.homeHistorical || {},
+      awayHistorical: gameState.oddsContext.awayHistorical || {},
+      playerProps: gameState.oddsContext.playerProps || {},
+      state: gameState.liveState,
+    })
+    : null
+
   currentOdds.forEach((row) => {
     let nextRow = null
 
-    if (row.bet_type === 'moneyline' && runsScored > 0) {
-      const shift = Number(gameState.runsThisHalf || 0) >= 3 ? 0.12 : 0.03
-      const currentProbability = Number(row.predicted_probability || 0.5)
-      const signedShift = battingSide === 'home' ? shift : -shift
-      const nextProbability = clamp(currentProbability + signedShift, MIN_PROBABILITY, MAX_PROBABILITY)
+    if (row.bet_type === 'moneyline') {
+      let nextProbability = null
+
+      if (liveMarketState) {
+        nextProbability = liveMarketState.winProbability
+      } else if (runsScored > 0) {
+        const shift = Number(gameState.runsThisHalf || 0) >= 3 ? 0.12 : 0.03
+        const currentProbability = Number(row.predicted_probability || 0.5)
+        const signedShift = battingSide === 'home' ? shift : -shift
+        nextProbability = clamp(currentProbability + signedShift, MIN_PROBABILITY, MAX_PROBABILITY)
+      }
+
+      if (nextProbability != null) {
+        nextRow = {
+          ...row,
+          odds_home: americanOddsFromProbability(nextProbability),
+          odds_away: americanOddsFromProbability(1 - nextProbability),
+          predicted_probability: Number(nextProbability.toFixed(4)),
+          updated_at: new Date().toISOString(),
+        }
+      }
+    }
+
+    if (row.bet_type === 'run_line' && liveMarketState && row.line != null && !row.is_locked) {
+      const homeIsFav = liveMarketState.winProbability >= 0.5
+      const favWinProb = homeIsFav ? liveMarketState.winProbability : 1 - liveMarketState.winProbability
+      const coverTilt = (favWinProb - 0.5) * 0.25
+      const projectedMargin = Math.abs(liveMarketState.expectedMargin)
+      const favCoverProb = clamp(
+        probabilityFromProjectionGap(projectedMargin - Number(row.line), liveMarketState.marginVariance, coverTilt),
+        MIN_PROBABILITY,
+        MAX_PROBABILITY,
+      )
+      const dogCoverProb = clamp(1 - favCoverProb, MIN_PROBABILITY, MAX_PROBABILITY)
+
       nextRow = {
         ...row,
-        odds_home: americanOddsFromProbability(nextProbability),
-        odds_away: americanOddsFromProbability(1 - nextProbability),
-        predicted_probability: Number(nextProbability.toFixed(4)),
+        odds_home: homeIsFav ? americanOddsFromProbability(favCoverProb) : americanOddsFromProbability(dogCoverProb),
+        odds_away: homeIsFav ? americanOddsFromProbability(dogCoverProb) : americanOddsFromProbability(favCoverProb),
+        predicted_probability: Number((homeIsFav ? favCoverProb : dogCoverProb).toFixed(4)),
+        updated_at: new Date().toISOString(),
+      }
+    }
+
+    if (row.bet_type === 'over_under' && liveMarketState && row.line != null && liveMarketState.projectedTotal != null && !row.is_locked) {
+      const overProbability = clamp(
+        probabilityFromProjectionGap(liveMarketState.projectedTotal - Number(row.line), liveMarketState.totalVariance),
+        MIN_PROBABILITY,
+        MAX_PROBABILITY,
+      )
+
+      nextRow = {
+        ...row,
+        odds_over: americanOddsFromProbability(overProbability),
+        odds_under: americanOddsFromProbability(1 - overProbability),
+        predicted_probability: Number(overProbability.toFixed(4)),
         updated_at: new Date().toISOString(),
       }
     }

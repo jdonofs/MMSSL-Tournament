@@ -1,2 +1,0 @@
--- run_line uses the existing game_odds.line column for the spread value
--- no schema changes required for this feature

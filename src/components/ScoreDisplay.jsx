@@ -1,5 +1,9 @@
-export default function ScoreDisplay({ innings = [], teams = [], totals = {} }) {
-  const inningNumbers = Array.from({ length: 9 }, (_, index) => index + 1)
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
+
+export default function ScoreDisplay({ innings = [], teams = [], totals = {}, totalInnings = DEFAULT_REGULATION_INNINGS }) {
+  const highestRecordedInning = innings.reduce((max, entry) => Math.max(max, Number(entry?.inning || 0)), 0)
+  const inningCount = Math.max(normalizeRegulationInnings(totalInnings), highestRecordedInning)
+  const inningNumbers = Array.from({ length: inningCount }, (_, index) => index + 1)
 
   return (
     <div className="score-display">

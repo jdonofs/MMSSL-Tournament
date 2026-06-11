@@ -171,11 +171,66 @@ async function advanceSingleElim({ supabase, tournament, games, completedGame })
   return [created]
 }
 
+async function reopenSingleElim({ supabase, games, reopenedGame }) {
+  const match = normalizeStage(reopenedGame.stage).match(/^Round (\d+)-(\d+)$/)
+  if (!match) return []
+
+  const roundNumber = Number(match[1])
+  const matchNumber = Number(match[2])
+  const siblingMatchNumber = matchNumber % 2 === 0 ? matchNumber - 1 : matchNumber + 1
+  const sibling = findStageGame(games, `Round ${roundNumber}-${siblingMatchNumber}`)
+  const siblingWinnerId = sibling?.winner_player_id || null
+  const nextStage = `Round ${roundNumber + 1}-${Math.ceil(matchNumber / 2)}`
+  const nextGame = findStageGame(games, nextStage)
+
+  if (!nextGame || nextGame.status !== 'pending') return []
+
+  const reopenedFeedsTeamA = matchNumber % 2 === 1
+  const nextTeamA = reopenedFeedsTeamA ? null : siblingWinnerId
+  const nextTeamB = reopenedFeedsTeamA ? siblingWinnerId : null
+
+  if (
+    String(nextGame.team_a_player_id || '') === String(nextTeamA || '')
+    && String(nextGame.team_b_player_id || '') === String(nextTeamB || '')
+  ) {
+    return []
+  }
+
+  const updated = await updateGameParticipants(supabase, nextGame, nextTeamA, nextTeamB)
+  return [updated]
+}
+
 export async function advanceBracketOnGameComplete({ supabase, tournament, games, completedGame }) {
   if (!tournament || !completedGame?.winner_player_id) return []
 
   if (tournament.bracket_format === 'single') {
     return advanceSingleElim({ supabase, tournament, games, completedGame })
+  }
+
+  if (tournament.bracket_format !== 'double') return []
+
+  const syncedGames = await syncDoubleElimTemplate({ supabase, tournament, games, createMissing: false })
+  const allGames = [...games]
+  syncedGames.forEach((game) => {
+    const index = allGames.findIndex((entry) => entry.id === game.id)
+    if (index >= 0) allGames[index] = game
+    else allGames.push(game)
+  })
+
+  const resetGames = await syncChampionshipResetState({
+    supabase,
+    tournament,
+    games: allGames,
+  })
+
+  return [...syncedGames, ...resetGames]
+}
+
+export async function reopenBracketAfterGameEdit({ supabase, tournament, games, reopenedGame }) {
+  if (!tournament || !reopenedGame) return []
+
+  if (tournament.bracket_format === 'single') {
+    return reopenSingleElim({ supabase, games, reopenedGame })
   }
 
   if (tournament.bracket_format !== 'double') return []

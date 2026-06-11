@@ -989,13 +989,11 @@ export default function Stats() {
     [viewedSeason?.id, currentSeason?.id, seasons],
   )
 
-  const selectedTournamentValue = selectedTournamentId || defaultTournamentId || 'combined'
-  const selectedSeasonValue = selectedSeasonId || defaultSeasonId || 'combined'
-  const isCombinedView = sourceMode === 'tournaments'
-    ? selectedTournamentValue === 'combined'
-    : selectedSeasonValue === 'combined'
-  const ownerTournamentId = selectedTournamentValue === 'combined' ? defaultTournamentId : selectedTournamentValue
-  const ownerSeasonId = selectedSeasonValue === 'combined' ? defaultSeasonId : selectedSeasonValue
+  const selectedTournamentValue = selectedTournamentId || defaultTournamentId || ''
+  const selectedSeasonValue = selectedSeasonId || defaultSeasonId || ''
+  const isCombinedView = sourceMode === 'all'
+  const ownerTournamentId = selectedTournamentValue || defaultTournamentId
+  const ownerSeasonId = selectedSeasonValue || defaultSeasonId
 
   useEffect(() => {
     const loadStats = async () => {
@@ -1171,20 +1169,29 @@ export default function Stats() {
   }, [isCombinedView, sourceMode, gameFielders, seasonFielders, selectedTournamentValue, selectedSeasonValue, gameById])
 
   const ownerDraftPicks = useMemo(() => {
+    const mappedSeasonRoster = seasonRoster
+      .filter((pick) => (
+        isCombinedView
+          ? true
+          : !ownerSeasonId || String(pick.season_id) === String(ownerSeasonId)
+      ))
+      .map((pick, index) => ({
+        ...pick,
+        id: `season-roster-${pick.id}`,
+        tournament_id: pick.season_id,
+        player_id: seasonTeams.find((team) => team.id === pick.team_id)?.player_id || null,
+        character_id: characters.find((character) => character.name === pick.character_name)?.id || null,
+        pick_number: index + 1,
+      }))
+
+    if (isCombinedView) {
+      return [...draftPicks, ...mappedSeasonRoster]
+    }
     if (sourceMode === 'seasons') {
-      return seasonRoster
-        .filter((pick) => !ownerSeasonId || String(pick.season_id) === String(ownerSeasonId))
-        .map((pick, index) => ({
-          ...pick,
-          id: `season-roster-${pick.id}`,
-          tournament_id: pick.season_id,
-          player_id: seasonTeams.find((team) => team.id === pick.team_id)?.player_id || null,
-          character_id: characters.find((character) => character.name === pick.character_name)?.id || null,
-          pick_number: index + 1,
-        }))
+      return mappedSeasonRoster
     }
     return draftPicks.filter((pick) => String(pick.tournament_id) === String(ownerTournamentId))
-  }, [sourceMode, seasonRoster, ownerSeasonId, seasonTeams, characters, draftPicks, ownerTournamentId])
+  }, [sourceMode, isCombinedView, seasonRoster, ownerSeasonId, seasonTeams, characters, draftPicks, ownerTournamentId])
 
   const identitiesByPlayerId = useMemo(
     () => buildTournamentTeamIdentityMap(ownerDraftPicks, charactersById, {}, playersById),
@@ -1703,12 +1710,12 @@ export default function Stats() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <select onChange={(event) => setSourceMode(event.target.value)} value={sourceMode}>
+            <option value="all">All Stats</option>
             <option value="tournaments">Tournaments</option>
             <option value="seasons">Seasons</option>
           </select>
           {sourceMode === 'tournaments' ? (
             <select onChange={(event) => setSelectedTournamentId(event.target.value)} value={selectedTournamentValue}>
-              <option value="combined">Combined</option>
               {tournaments.map((tournament) => (
                 <option key={tournament.id} value={tournament.id}>
                   Tournament {tournament.tournament_number}
@@ -1718,7 +1725,6 @@ export default function Stats() {
           ) : null}
           {sourceMode === 'seasons' ? (
             <select onChange={(event) => setSelectedSeasonId(event.target.value)} value={selectedSeasonValue}>
-              <option value="combined">Combined</option>
               {seasons.map((season) => (
                 <option key={season.id} value={season.id}>
                   {season.name}

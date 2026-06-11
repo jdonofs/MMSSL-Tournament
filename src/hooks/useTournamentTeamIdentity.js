@@ -23,7 +23,7 @@ export default function useTournamentTeamIdentity(tournamentId) {
         supabase.from('draft_picks').select('*').eq('tournament_id', tournamentId).order('pick_number'),
         supabase.from('characters').select('id,name'),
         supabase.from('tournament_team_logos').select('player_id,logo_url').eq('tournament_id', tournamentId),
-        supabase.from('players').select('id,team_name,team_mascot,team_location,team_abbreviation,team_primary_color,team_secondary_color,team_logo_url'),
+        supabase.from('players').select('id,color,team_name,team_mascot,team_location,team_abbreviation,team_primary_color,team_secondary_color,team_logo_url'),
       ])
 
       if (!active) return

@@ -7,7 +7,7 @@ import TeamLogo from '../components/TeamLogo'
 import EyeDropperButton from '../components/EyeDropperButton'
 
 export default function TeamProfile() {
-  const { authUser, player, refreshPlayer } = useAuth()
+  const { player, refreshPlayer, changePassword } = useAuth()
   const { pushToast } = useToast()
   const [teamLocation, setTeamLocation] = useState(player?.team_location || '')
   const [teamMascot, setTeamMascot] = useState(player?.team_mascot || '')
@@ -16,6 +16,9 @@ export default function TeamProfile() {
   const [secondaryColor, setSecondaryColor] = useState(player?.team_secondary_color || '#0F172A')
   const [logoUrl, setLogoUrl] = useState(player?.team_logo_url || null)
   const [saving, setSaving] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [changingPassword, setChangingPassword] = useState(false)
 
   // Pull the latest team fields from the database — the cached auth player can be stale
   useEffect(() => {
@@ -69,6 +72,25 @@ export default function TeamProfile() {
     setLogoUrl(url)
   }
 
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword !== confirmPassword || changingPassword) return
+    if (newPassword.length < 4) {
+      pushToast({ title: 'Password too short', message: 'Password must be at least 4 characters.', type: 'error' })
+      return
+    }
+    setChangingPassword(true)
+    try {
+      await changePassword(newPassword)
+      setNewPassword('')
+      setConfirmPassword('')
+      pushToast({ title: 'Password updated', message: 'Your new password is active.', type: 'success' })
+    } catch (error) {
+      pushToast({ title: 'Error', message: error.message, type: 'error' })
+    } finally {
+      setChangingPassword(false)
+    }
+  }
+
   const handleSave = async () => {
     if (!player?.id) return
     setSaving(true)
@@ -112,17 +134,9 @@ export default function TeamProfile() {
       <div style={{ display: 'grid', gap: 16, maxWidth: 480 }}>
         <section className="panel" style={{ padding: 20, display: 'grid', gap: 8 }}>
           <div>
-            <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Connected Account</div>
-            <div style={{ fontWeight: 700 }}>
-              {authUser?.user_metadata?.full_name || authUser?.user_metadata?.preferred_username || authUser?.user_metadata?.user_name || 'Discord'}
-            </div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Signed in as</div>
+            <div style={{ fontWeight: 700, color: player?.color || '#E2E8F0' }}>{player?.name}</div>
           </div>
-          {authUser?.id ? (
-            <div>
-              <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Discord User ID</div>
-              <div style={{ fontFamily: 'monospace', fontSize: 13, wordBreak: 'break-all' }}>{authUser.id}</div>
-            </div>
-          ) : null}
         </section>
 
         <section className="panel" style={{ padding: 24, display: 'grid', gap: 20 }}>
@@ -278,6 +292,60 @@ export default function TeamProfile() {
           Changes apply to all current and future seasons and tournaments.
           Completed seasons keep their recorded team name and logo.
         </p>
+
+        <section className="panel" style={{ padding: 24, display: 'grid', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>Change Password</div>
+            <div className="muted" style={{ fontSize: 12 }}>Your default password is your name. Change it here to something more secure.</div>
+          </div>
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <label htmlFor="new-password-input" style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8' }}>New Password</label>
+              <input
+                id="new-password-input"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="At least 4 characters"
+                style={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 8, padding: '10px 14px', color: '#E2E8F0', fontSize: 15, width: '100%', boxSizing: 'border-box' }}
+              />
+            </div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <label htmlFor="confirm-password-input" style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8' }}>Confirm Password</label>
+              <input
+                id="confirm-password-input"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Repeat new password"
+                style={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 8, padding: '10px 14px', color: '#E2E8F0', fontSize: 15, width: '100%', boxSizing: 'border-box' }}
+              />
+            </div>
+            {confirmPassword && newPassword !== confirmPassword && (
+              <div style={{ color: '#F87171', fontSize: 13 }}>Passwords do not match.</div>
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={handleChangePassword}
+              disabled={!newPassword || newPassword !== confirmPassword || changingPassword}
+              style={{
+                background: newPassword && newPassword === confirmPassword && !changingPassword ? '#EAB308' : 'rgba(234,179,8,0.2)',
+                color: newPassword && newPassword === confirmPassword && !changingPassword ? '#0F172A' : '#94A3B8',
+                border: 'none',
+                borderRadius: 8,
+                padding: '0.5rem 1.5rem',
+                cursor: newPassword && newPassword === confirmPassword && !changingPassword ? 'pointer' : 'default',
+                fontWeight: 700,
+                fontSize: 14,
+                transition: 'background 0.15s',
+              }}
+            >
+              {changingPassword ? 'Saving…' : 'Update Password'}
+            </button>
+          </div>
+        </section>
 
       </div>
     </div>

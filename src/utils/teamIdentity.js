@@ -8,19 +8,19 @@ export const PLAYER_SKILL_TIERS = {
 }
 
 export const CAPTAIN_TEAM_MAP = {
-  Mario: { logoKey: 'mario-fireballs', teamName: 'Mario Fireballs' },
-  Luigi: { logoKey: 'luigi-knights', teamName: 'Luigi Knights' },
-  Peach: { logoKey: 'peach-monarchs', teamName: 'Peach Monarchs' },
-  Daisy: { logoKey: 'daisy-flowers', teamName: 'Daisy Flowers' },
-  Wario: { logoKey: 'wario-muscles', teamName: 'Wario Muscles' },
-  Waluigi: { logoKey: 'waluigi-symbiants', teamName: 'Waluigi Spitballs' },
-  Yoshi: { logoKey: 'yoshi-eggs', teamName: 'Yoshi Eggs' },
-  Birdo: { logoKey: 'birdo-bows', teamName: 'Birdo Bows' },
-  'Donkey Kong': { logoKey: 'dk-wilds', teamName: 'DK Wilds' },
-  'Diddy Kong': { logoKey: 'diddy-monkeys', teamName: 'Diddy Monkeys' },
-  Bowser: { logoKey: 'bowser-monsters', teamName: 'Bowser Monsters' },
-  'Bowser Jr.': { logoKey: 'bowser-rookies', teamName: 'Bowser Rookies' },
-  'Bowser Jr': { logoKey: 'bowser-rookies', teamName: 'Bowser Rookies' },
+  Mario: { logoKey: 'mario-fireballs' },
+  Luigi: { logoKey: 'luigi-knights' },
+  Peach: { logoKey: 'peach-monarchs' },
+  Daisy: { logoKey: 'daisy-flowers' },
+  Wario: { logoKey: 'wario-muscles' },
+  Waluigi: { logoKey: 'waluigi-symbiants' },
+  Yoshi: { logoKey: 'yoshi-eggs' },
+  Birdo: { logoKey: 'birdo-bows' },
+  'Donkey Kong': { logoKey: 'dk-wilds' },
+  'Diddy Kong': { logoKey: 'diddy-monkeys' },
+  Bowser: { logoKey: 'bowser-monsters' },
+  'Bowser Jr.': { logoKey: 'bowser-rookies' },
+  'Bowser Jr': { logoKey: 'bowser-rookies' },
 }
 
 export const CAPTAIN_NAMES = Object.keys(CAPTAIN_TEAM_MAP)
@@ -68,10 +68,38 @@ export function buildSeasonTeamIdentity(team) {
   }
 }
 
+// Returns true if the given CSS color is (effectively) white.
+function isWhiteColor(color) {
+  if (!color) return false
+  const normalized = String(color).trim().toLowerCase()
+  if (normalized === 'white' || normalized === '#fff' || normalized === '#ffffff') return true
+
+  const hexMatch = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/)
+  if (hexMatch) {
+    const hex = hexMatch[1]
+    const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex
+    return full === 'ffffff'
+  }
+
+  const rgbMatch = normalized.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+  if (rgbMatch) {
+    return rgbMatch[1] === '255' && rgbMatch[2] === '255' && rgbMatch[3] === '255'
+  }
+
+  return false
+}
+
 // Returns the team's chosen primary color, falling back to the player's
-// personal color for teams that haven't set one yet.
+// personal color for teams that haven't set one yet. If the resulting color
+// is white, the team's secondary color is used instead so text remains
+// visible against the site's dark backgrounds.
 export function getTeamPrimaryColor(team, fallbackColor) {
-  return (team?.team_primary_color ?? team?.teamPrimaryColor) || fallbackColor || null
+  const primary = (team?.team_primary_color ?? team?.teamPrimaryColor) || fallbackColor || null
+  if (primary && isWhiteColor(primary)) {
+    const secondary = team?.team_secondary_color ?? team?.teamSecondaryColor
+    if (secondary) return secondary
+  }
+  return primary
 }
 
 // Returns the short "mascot" form of a team name for compact lists
@@ -88,13 +116,43 @@ export function getTeamShortName(team) {
   return parts[parts.length - 1] || fullName
 }
 
+function deriveCompactAbbreviation(name) {
+  const words = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.replace(/[^a-z0-9]/gi, ''))
+    .filter(Boolean)
+
+  if (!words.length) return null
+
+  if (words.length > 1) {
+    const initials = words.map((word) => word[0]).join('').toUpperCase()
+    if (initials.length >= 3) return initials.slice(0, 3)
+
+    const filler = words
+      .slice(1)
+      .join('')
+      .slice(1)
+      .replace(/[^a-z0-9]/gi, '')
+      .toUpperCase()
+
+    return `${initials}${filler}`.slice(0, 3)
+  }
+
+  const normalized = words[0].toUpperCase()
+  const consonants = normalized.replace(/[AEIOU]/g, '')
+  const compact = `${normalized[0] || ''}${consonants.slice(1)}${normalized.replace(/[^AEIOU]/g, '').slice(0, 2)}`.replace(/[^A-Z0-9]/g, '')
+
+  return (compact || normalized).slice(0, Math.min(3, normalized.length))
+}
+
 // Returns the short abbreviation for a team (e.g. "CLE"), falling back to
 // the mascot/short name for teams that haven't set one yet.
 export function getTeamAbbreviation(team) {
   const abbreviation = team?.team_abbreviation ?? team?.teamAbbreviation
-  if (abbreviation) return abbreviation
+  if (abbreviation) return String(abbreviation).trim().toUpperCase()
 
-  return getTeamShortName(team)
+  return deriveCompactAbbreviation(getTeamShortName(team) || team?.team_name || team?.teamName)
 }
 
 export function getCaptainIdentityFromName(characterName) {
@@ -115,21 +173,32 @@ function buildIdentityFromPick(pick, charactersById = {}) {
 
   const captainIdentity = getCaptainIdentityFromName(characterName)
   const teamLogoKey = pick.team_logo_key || captainIdentity?.logoKey || null
-  const teamName = captainIdentity?.teamName || null
-
-  if (!teamLogoKey && !teamName) return null
+  if (!teamLogoKey && !characterName) return null
 
   return {
     playerId: pick.player_id,
     captainCharacterId: pick.character_id || null,
     captainCharacterName: characterName,
-    teamName,
     teamLogoKey,
     draftPickId: pick.id,
   }
 }
 
-// playerProfilesByPlayerId: { [playerId]: { team_name, team_logo_url } }
+function resolveProfileTeamName(profile) {
+  if (!profile) return null
+
+  const explicitName = String(profile.team_name || '').trim()
+  if (explicitName) return explicitName
+
+  const derivedName = [profile.team_location, profile.team_mascot]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ')
+
+  return derivedName || null
+}
+
+// playerProfilesByPlayerId: { [playerId]: { team_name, team_logo_url, team_primary_color, team_secondary_color, color } }
 // logoUrlsByPlayerId: per-tournament overrides from tournament_team_logos
 export function buildTournamentTeamIdentityMap(
   draftPicks = [],
@@ -159,23 +228,51 @@ export function buildTournamentTeamIdentityMap(
       }
     })
 
-  // Merge player universal profiles and per-tournament logo overrides
-  for (const [playerId, base] of Object.entries(firstPicksByPlayer)) {
+  const playerIds = new Set([
+    ...Object.keys(firstPicksByPlayer),
+    ...Object.keys(playerProfilesByPlayerId),
+    ...Object.keys(logoUrlsByPlayerId),
+  ])
+
+  const identitiesByPlayerId = {}
+
+  // Merge player custom profiles and per-tournament logo overrides.
+  // Captain-derived Mario team names are intentionally ignored here.
+  for (const playerId of playerIds) {
+    const base = firstPicksByPlayer[playerId] || { playerId }
     const profile = playerProfilesByPlayerId[playerId]
     const tournamentLogoUrl = logoUrlsByPlayerId[playerId]
-    firstPicksByPlayer[playerId] = {
+    const teamName = resolveProfileTeamName(profile)
+    const teamLogoUrl = tournamentLogoUrl || profile?.team_logo_url || base.teamLogoUrl || null
+    const hasIdentityData = Boolean(
+      teamName
+      || teamLogoUrl
+      || profile?.team_primary_color
+      || profile?.team_secondary_color
+      || profile?.color
+      || profile?.team_abbreviation
+      || profile?.team_location
+      || profile?.team_mascot
+      || base.teamLogoKey
+      || base.captainCharacterId
+      || base.captainCharacterName,
+    )
+
+    if (!hasIdentityData) continue
+
+    identitiesByPlayerId[playerId] = {
       ...base,
-      // Universal team name takes priority over captain-derived name
-      teamName: profile?.team_name || base.teamName,
+      playerId: base.playerId || playerId,
+      teamName,
       teamMascot: profile?.team_mascot || null,
       teamLocation: profile?.team_location || null,
       teamAbbreviation: profile?.team_abbreviation || null,
-      teamPrimaryColor: profile?.team_primary_color || null,
+      teamPrimaryColor: profile?.team_primary_color || profile?.color || null,
       teamSecondaryColor: profile?.team_secondary_color || null,
-      // Priority: per-tournament override > universal logo > keep existing
-      teamLogoUrl: tournamentLogoUrl || profile?.team_logo_url || base.teamLogoUrl || null,
+      // Priority: per-tournament override > universal logo > captain/pick logo key
+      teamLogoUrl,
     }
   }
 
-  return firstPicksByPlayer
+  return identitiesByPlayerId
 }

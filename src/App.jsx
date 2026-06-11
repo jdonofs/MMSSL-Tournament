@@ -6,6 +6,7 @@ import ScorebookRoute from './components/ScorebookRoute'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Draft from './pages/Draft'
+import { SeasonDraftPresentation, TournamentDraftPresentation } from './pages/DraftPresentation'
 import Roster from './pages/Roster'
 import Betting from './pages/Betting'
 import Stats from './pages/Stats'
@@ -52,13 +53,9 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route
-        element={
-          <ProtectedRoute>
-            <AppLayout />
-          </ProtectedRoute>
-        }
-      >
+      <Route path="/draft/presentation" element={<TournamentDraftPresentation />} />
+      <Route path="/season/draft/presentation" element={<SeasonDraftPresentation />} />
+      <Route element={<AppLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/draft" element={<Draft />} />
         <Route path="/roster" element={<Roster />} />
@@ -77,7 +74,7 @@ function AppRoutes() {
         <Route path="/season/bets" element={<SeasonBetting />} />
         <Route path="/season/stats" element={<SeasonStats />} />
         <Route path="/season/bracket" element={<SeasonBracket />} />
-        <Route path="/team" element={<TeamProfile />} />
+        <Route path="/team" element={<ProtectedRoute><TeamProfile /></ProtectedRoute>} />
         <Route path="/admin" element={<Admin />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

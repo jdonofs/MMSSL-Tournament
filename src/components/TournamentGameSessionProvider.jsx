@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useTournament } from '../context/TournamentContext'
 import { GameSessionProvider } from '../context/GameSessionContext'
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
 
 const TOURNAMENT_TABLES = {
   games: 'games',
@@ -29,7 +30,7 @@ export default function TournamentGameSessionProvider({ children }) {
 
   const value = useMemo(() => ({
     gameId,
-    innings: tournament?.innings ?? 3,
+    innings: normalizeRegulationInnings(tournament?.innings, DEFAULT_REGULATION_INNINGS),
     mercyRule: tournament?.mercy_rule !== false,
     sourceType: 'tournament',
     sourceId: tournament?.id || null,

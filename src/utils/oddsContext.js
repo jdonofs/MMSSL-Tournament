@@ -1,6 +1,7 @@
 import { buildBettingEntityLabel } from './oddsEngine'
 import { getPlayerSkillProfile } from './teamIdentity'
 import { inningsAsDecimal } from './statsCalculator'
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules'
 
 const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 
@@ -157,6 +158,7 @@ export function buildOddsGenerationContext({
   playersById = {},
   currentInning = null,
   scores = null,
+  totalInnings = DEFAULT_REGULATION_INNINGS,
 }) {
   if (!game) return null
 
@@ -240,6 +242,7 @@ export function buildOddsGenerationContext({
     stadium,
     isNight,
     stadiumGameLog: scopedStadiumLog,
+    totalInnings: normalizeRegulationInnings(totalInnings, DEFAULT_REGULATION_INNINGS),
   }
 
   ;[...homeRoster, ...awayRoster].forEach((entry) => {

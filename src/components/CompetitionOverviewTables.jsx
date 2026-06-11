@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import TeamLogo from './TeamLogo'
-import { getTeamAbbreviation, getTeamPrimaryColor } from '../utils/teamIdentity'
+import { getTeamAbbreviation, getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
 
 const COLUMN_CONFIG = [
   { key: 'overallRating', label: 'OVR', color: '#F8FAFC', title: 'Overall rating' },
@@ -13,7 +13,8 @@ const COLUMN_CONFIG = [
 function TeamIdentityCell({ playerId, identitiesByPlayerId, playersById, height = 40 }) {
   const player = playersById[playerId] || null
   const identity = identitiesByPlayerId[playerId] || null
-  const abbreviation = getTeamAbbreviation(identity) || player?.name || 'TBD'
+  const teamLabel = getTeamShortName(identity) || player?.name || 'TBD'
+  const mobileLabel = getTeamAbbreviation(identity) || teamLabel
   const color = getTeamPrimaryColor(identity, player?.color)
 
   return (
@@ -25,7 +26,10 @@ function TeamIdentityCell({ playerId, identitiesByPlayerId, playersById, height 
         teamName={identity?.teamName}
         placeholder
       />
-      <span style={{ fontWeight: 800, fontSize: 13, color: color || 'inherit' }}>{abbreviation}</span>
+      <span style={{ minWidth: 0 }}>
+        <span className="season-team-label season-team-label-full" style={{ fontWeight: 800, fontSize: 13, color: color || 'inherit' }}>{teamLabel}</span>
+        <span className="season-team-label season-team-label-mobile" style={{ fontWeight: 800, fontSize: 13, color: color || 'inherit' }}>{mobileLabel}</span>
+      </span>
     </span>
   )
 }

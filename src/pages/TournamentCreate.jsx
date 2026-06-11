@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
 import { buildDoubleElimBracket, generateSingleElimBracket, getRoundRobinSchedule } from '../utils/bracketTemplates'
+import { DEFAULT_REGULATION_INNINGS } from '../utils/gameRules'
 
 // ─── Style constants ─────────────────────────────────────────────────────────
 const C = {
@@ -145,7 +146,7 @@ export default function TournamentCreate() {
     : 1)
   const [tournamentNumber, setTournamentNumber] = useState(nextNumber)
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [innings, setInnings] = useState(3)
+  const [innings, setInnings] = useState(DEFAULT_REGULATION_INNINGS)
   const [mercyRule, setMercyRule] = useState(true)
   const [bracketFormat, setBracketFormat] = useState('double')
   const [selectedPlayerIds, setSelectedPlayerIds] = useState([])

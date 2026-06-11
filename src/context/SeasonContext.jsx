@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { buildSeasonStandings } from '../utils/competitionStandings'
+import { DEFAULT_REGULATION_INNINGS } from '../utils/gameRules'
 
 const SeasonContext = createContext(null)
 const STORAGE_KEY = 'sluggers-selected-season'
@@ -14,8 +15,9 @@ export function SeasonProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const selectedSeasonIdRef = useRef(selectedSeasonId)
 
-  const refreshSeasons = async (preferredSeasonId) => {
-    setLoading(true)
+  const refreshSeasons = async (preferredSeasonId, options = {}) => {
+    const { silent = false } = options
+    if (!silent) setLoading(true)
 
     const { data: seasonsData, error: seasonsError } = await supabase
       .from('seasons')
@@ -23,11 +25,15 @@ export function SeasonProvider({ children }) {
       .order('created_at', { ascending: false })
 
     if (seasonsError) {
-      setLoading(false)
+      if (!silent) setLoading(false)
       throw seasonsError
     }
 
-    const seasons = seasonsData || []
+    const seasons = (seasonsData || []).map((season) => ({
+      ...season,
+      // Season mode currently uses the standard 3-inning game length.
+      innings: DEFAULT_REGULATION_INNINGS,
+    }))
     setAllSeasons(seasons)
 
     const preferredId = preferredSeasonId ? String(preferredSeasonId) : ''
@@ -39,7 +45,7 @@ export function SeasonProvider({ children }) {
     if (!nextSelection) {
       setSeasonTeams([])
       setSchedule([])
-      setLoading(false)
+      if (!silent) setLoading(false)
       return seasons
     }
 
@@ -52,7 +58,7 @@ export function SeasonProvider({ children }) {
     setSeasonTeams(teamsData || [])
     setSchedule(scheduleData || [])
     setPlayers(playersData || [])
-    setLoading(false)
+    if (!silent) setLoading(false)
     return seasons
   }
 
@@ -76,7 +82,7 @@ export function SeasonProvider({ children }) {
     const channel = supabase
       .channel(`season-context-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'seasons' }, () => {
-        refreshSeasons().catch(() => setLoading(false))
+        refreshSeasons(undefined, { silent: true }).catch(() => {})
       })
       .subscribe()
 
@@ -89,13 +95,13 @@ export function SeasonProvider({ children }) {
     const channel = supabase
       .channel(`season-live-${selectedSeasonId}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_schedule', filter: `season_id=eq.${selectedSeasonId}` }, () => {
-        refreshSeasons(selectedSeasonId).catch(() => setLoading(false))
+        refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams', filter: `season_id=eq.${selectedSeasonId}` }, () => {
-        refreshSeasons(selectedSeasonId).catch(() => setLoading(false))
+        refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster', filter: `season_id=eq.${selectedSeasonId}` }, () => {
-        refreshSeasons(selectedSeasonId).catch(() => setLoading(false))
+        refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
       })
       .subscribe()
 

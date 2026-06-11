@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useSeason } from '../context/SeasonContext'
 import { buildRoundRobinSchedule, formatSeasonLabel, SLUGGERS_PLAYER_ORDER } from '../utils/season'
+import { DEFAULT_REGULATION_INNINGS } from '../utils/gameRules'
 
 const C = {
   bg: '#0F172A',
@@ -96,6 +97,7 @@ export default function SeasonCreate() {
     name: 'Sluggers Season 1',
     league_type: 'draft',
     games_per_matchup: 3,
+    innings: DEFAULT_REGULATION_INNINGS,
     keeper_count: 2,
     auction_budget: 100,
     playoff_format: 'double_elimination',

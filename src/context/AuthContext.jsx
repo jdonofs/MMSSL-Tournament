@@ -54,6 +54,7 @@ export function AuthProvider({ children }) {
       return existingPlayer
     }
 
+    // Auto-link player record by matching email
     const { data: linkedPlayer, error: linkError } = await supabase.rpc('link_player_to_current_user')
     if (linkError) {
       throw new Error(linkError.message)
@@ -124,35 +125,18 @@ export function AuthProvider({ children }) {
     }
   }, [player?.id, session?.user?.id])
 
-  const signInWithDiscord = useCallback(async () => {
-    const redirectTo = window.location.href.split('#')[0]
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'discord',
-      options: {
-        redirectTo,
-        scopes: 'identify email',
-      },
-    })
-
+  const signInWithPassword = useCallback(async (email, password) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       throw new Error(error.message)
     }
   }, [])
 
-  const createPlayerProfile = useCallback(async ({ name, color }) => {
-    const { data, error } = await supabase.rpc('create_player_for_current_user', {
-      player_name: name,
-      player_color: color,
-    })
-
+  const changePassword = useCallback(async (newPassword) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
     if (error) {
       throw new Error(error.message)
     }
-
-    const createdPlayer = data ? extractPlayer(data) : null
-    setPlayer(createdPlayer)
-    return createdPlayer
   }, [])
 
   const refreshPlayer = useCallback(async () => {
@@ -176,17 +160,16 @@ export function AuthProvider({ children }) {
       session,
       authUser: session?.user || null,
       player,
-      has_auth_session: Boolean(session?.user),
       is_logged_in: Boolean(session?.user && player),
       isCommissioner: Boolean(player?.is_commissioner),
       isScorekeeper: Boolean(player && (player.is_commissioner || player.scorebook_access)),
       loading,
-      signInWithDiscord,
-      createPlayerProfile,
+      signInWithPassword,
+      changePassword,
       refreshPlayer,
       logout,
     }),
-    [session, player, loading, signInWithDiscord, createPlayerProfile, refreshPlayer, logout],
+    [session, player, loading, signInWithPassword, changePassword, refreshPlayer, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

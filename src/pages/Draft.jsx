@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, RotateCcw, SkipForward, Star, X, Zap } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, RotateCcw, SkipForward, X, Zap } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
@@ -14,6 +14,7 @@ import StatIcon from '../components/StatIcon'
 import { chemBreakdown, chemScore, getChemistry, isChemistryNameOnRoster, CHARACTER_VARIANTS } from '../data/chemistry'
 import { formatCharacterDisplayName, getCharacterChemistryName, isMiiCharacter, MII_COLOR_OPTIONS } from '../utils/mii'
 import { buildTournamentTeamIdentityMap, getCaptainIdentityFromName, getTeamShortName, isCaptainCharacterName } from '../utils/teamIdentity'
+import { getCurrentDraftState, normalizeSeasonDraftPicks, snakeOrder } from '../utils/draftOrder'
 
 function trendSymbol(history) {
   const valid = (history || []).filter(t => t.perfScore !== null)
@@ -59,8 +60,41 @@ function ChemChip({ name, rosterNames, draftedNames, onClick }) {
   )
 }
 
+function getCompactDraftBoardName(name, miiColor) {
+  const displayName = formatCharacterDisplayName(name, miiColor)
+  if (displayName.length <= 10) return displayName
+
+  if (name === 'Mii' && miiColor) {
+    const compactColor = String(miiColor)
+      .trim()
+      .split(/\s+/)
+      .map((part) => part[0] || '')
+      .join('')
+      .toUpperCase()
+    return `${compactColor} Mii`
+  }
+
+  const words = String(displayName)
+    .replace(/\./g, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (words.length === 1) return words[0].slice(0, 8)
+
+  const lastWord = words[words.length - 1]
+  if (/^Jr$/i.test(lastWord)) {
+    return `${words.slice(0, -1).map((word) => word[0]).join('').toUpperCase()}Jr`
+  }
+
+  const initials = words.map((word) => word[0]).join('').toUpperCase()
+  if (initials.length >= 2 && initials.length <= 4) return initials
+
+  return `${words[0].slice(0, 5)} ${lastWord[0] || ''}`.trim()
+}
+
 // ─── Player card panel ────────────────────────────────────────────────────────
-function PlayerCard({ stack, charactersById, tournHistories, rosterNames, draftedNames, picksByCharacter, playersById, teamIdentitiesByPlayerId, isYourTurn, isDrafting, onDraft, onClose, onNavigate, watchlist, onToggleWatchlist }) {
+function PlayerCard({ stack, charactersById, tournHistories, rosterNames, draftedNames, picksByCharacter, playersById, teamIdentitiesByPlayerId, isYourTurn, isDrafting, onDraft, onClose, onNavigate }) {
   const charId = stack[stack.length - 1]
   const c = charactersById[charId]
   if (!c) return null
@@ -132,9 +166,6 @@ function PlayerCard({ stack, charactersById, tournHistories, rosterNames, drafte
               {trend && <span style={{ color: trendColor, fontWeight: 700 }}>{trend} {validHistory.length}T</span>}
             </div>
           </div>
-          <button onClick={() => onToggleWatchlist(c.id)} type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', color: watchlist.has(c.id) ? '#EAB308' : '#334155', flexShrink: 0 }}>
-            <Star size={20} fill={watchlist.has(c.id) ? '#EAB308' : 'none'} />
-          </button>
         </div>
 
         {/* Stat bars */}
@@ -295,42 +326,6 @@ function PlayerCard({ stack, charactersById, tournHistories, rosterNames, drafte
   )
 }
 
-// ─── Watchlist drawer ─────────────────────────────────────────────────────────
-function WatchlistDrawer({ watchlist, charactersById, tournHistories, picksByCharacter, onOpen, onRemove }) {
-  const [open, setOpen] = useState(false)
-  const items = [...watchlist].map(id => charactersById[id]).filter(Boolean)
-
-  return (
-    <>
-      <button onClick={() => setOpen(v => !v)} type="button" style={{ position: 'fixed', bottom: 20, left: 16, background: '#1E293B', border: '1px solid #334155', borderRadius: 24, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 6, color: '#EAB308', fontWeight: 600, fontSize: 13, cursor: 'pointer', zIndex: 40, boxShadow: '0 4px 12px #00000060' }}>
-        <Star size={15} fill="#EAB308" />
-        Watchlist{items.length > 0 ? ` (${items.length})` : ''}
-      </button>
-      {open && (
-        <div style={{ position: 'fixed', bottom: 62, left: 16, width: 248, background: '#1E293B', border: '1px solid #334155', borderRadius: 12, overflow: 'hidden', zIndex: 41, boxShadow: '0 8px 24px #00000080' }}>
-          <div style={{ padding: '10px 12px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Watchlist</span>
-            <button onClick={() => setOpen(false)} type="button" style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer' }}><X size={14} /></button>
-          </div>
-          {items.length === 0 && <div style={{ padding: 12, color: '#64748B', fontSize: 13 }}>No starred players yet.</div>}
-          {items.map(c => {
-            const isDrafted = Boolean(picksByCharacter[c.id])
-            const watchAnalysis = analyzeCharacterTalent(c, tournHistories[c.id])
-            return (
-              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #0F172A', opacity: isDrafted ? 0.4 : 1 }}>
-                <Portrait name={c.name} size={28} />
-                <button onClick={() => { onOpen(c.id); setOpen(false) }} type="button" style={{ flex: 1, background: 'none', border: 'none', color: isDrafted ? '#64748B' : '#E2E8F0', textAlign: 'left', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>{c.name}</button>
-                <span style={{ fontSize: 11, color: '#EAB308', fontWeight: 700 }}>{watchAnalysis?.displayRatings?.batting ?? '—'}</span>
-                <button onClick={() => onRemove(c.id)} type="button" style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer' }}><X size={12} /></button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </>
-  )
-}
-
 const SORT_KEY_TIER = {
   value:      { tierKey: 'battingTier',  icon: 'batting' },
   pitchValue: { tierKey: 'pitchingTier', icon: 'pitching' },
@@ -339,25 +334,6 @@ const SORT_KEY_TIER = {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-function snakeOrder(players, round) {
-  return round % 2 === 1 ? players : [...players].reverse()
-}
-
-function normalizeSeasonDraftPicks(rosterRows, seasonId, seasonTeams, charactersByName) {
-  const teamCount = Math.max((seasonTeams || []).length, 1)
-  return (rosterRows || []).map((entry, index) => ({
-    ...entry,
-    tournament_id: seasonId,
-    pick_number: index + 1,
-    round: Math.ceil((index + 1) / teamCount),
-    pick_in_round: (index % teamCount) + 1,
-    player_id: (seasonTeams || []).find((team) => team.id === entry.team_id)?.player_id || null,
-    character_id: charactersByName[entry.character_name]?.id || null,
-    mii_color: null,
-    is_captain: index < (seasonTeams || []).length,
-  }))
-}
-
 export default function Draft() {
   return <DraftExperience mode="tournament" />
 }
@@ -382,17 +358,24 @@ export function DraftExperience({ mode = 'tournament' }) {
   const [sortDesc, setSortDesc] = useState(true)
   const [availabilityFilter, setAvailabilityFilter] = useState('available')
   const [cardStack, setCardStack] = useState([])
-  const [forcePickMenu, setForcePickMenu] = useState(null)
   const [pendingMiiPick, setPendingMiiPick] = useState(null)
   const [isAutoDrafting, setIsAutoDrafting] = useState(false)
   const [draftError, setDraftError] = useState('')
-  const [watchlist, setWatchlist] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('draft-watchlist') || '[]')) } catch { return new Set() }
+  const [pendingReveal, setPendingReveal] = useState(null)
+  const [myPendingPick, setMyPendingPick] = useState(null)
+  const [isRevealing, setIsRevealing] = useState(false)
+  const [isMobileBoard, setIsMobileBoard] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.innerWidth <= 480
+  })
+  const [skipReveal, setSkipReveal] = useState(() => {
+    try { return localStorage.getItem('draft-skip-reveal') === 'true' } catch { return false }
   })
 
+  const hasLoadedRef = useRef(false)
   useEffect(() => {
     const load = async () => {
-      setLoading(true)
+      if (!hasLoadedRef.current) setLoading(true)
       const [{ data: pData }, { data: cData }, { data: dData }, { data: paData }, { data: gData }, { data: pitchData }] = await Promise.all([
         supabase.from('players').select('*').order('created_at'),
         supabase.from('characters').select('*').order('name'),
@@ -426,6 +409,7 @@ export function DraftExperience({ mode = 'tournament' }) {
       setGames(gData || [])
       setPitchingStints(pitchData || [])
       setLoading(false)
+      hasLoadedRef.current = true
     }
     load()
   }, [isSeasonMode, activeDraftContext?.id, activeDraftContext?.draft_order, activeDraftContext?.player_ids, seasonTeams])
@@ -462,13 +446,75 @@ export function DraftExperience({ mode = 'tournament' }) {
   }, [activeDraftContext?.id, isSeasonMode, refreshSeasonDraftPicks])
 
   useEffect(() => {
-    localStorage.setItem('draft-watchlist', JSON.stringify([...watchlist]))
-  }, [watchlist])
+    try { localStorage.setItem('draft-skip-reveal', String(skipReveal)) } catch { /* ignore */ }
+  }, [skipReveal])
+
+  useEffect(() => {
+    const handleResize = () => setIsMobileBoard(window.innerWidth <= 480)
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // Channel used to tell the presentation screen to advance to its next slide.
+  const presentationChannelRef = useRef(null)
+  useEffect(() => {
+    if (!activeDraftContext?.id) {
+      presentationChannelRef.current = null
+      return undefined
+    }
+    const channelName = isSeasonMode ? `season-presentation-${activeDraftContext.id}` : `presentation-${activeDraftContext.id}`
+    const ch = supabase.channel(channelName)
+    ch.subscribe()
+    presentationChannelRef.current = ch
+    return () => {
+      supabase.removeChannel(ch)
+      presentationChannelRef.current = null
+    }
+  }, [activeDraftContext?.id, isSeasonMode])
+
+  const advancePresentationSlide = useCallback(() => {
+    presentationChannelRef.current?.send({ type: 'broadcast', event: 'advance', payload: {} })
+  }, [])
+
+  const retreatPresentationSlide = useCallback(() => {
+    presentationChannelRef.current?.send({ type: 'broadcast', event: 'back', payload: {} })
+  }, [])
+
+  // Channel used to send a player's pick to the commissioner for manual reveal (no spoilers on the presentation).
+  const pendingPickChannelRef = useRef(null)
+  useEffect(() => {
+    if (!activeDraftContext?.id) {
+      pendingPickChannelRef.current = null
+      return undefined
+    }
+    const channelName = isSeasonMode ? `season-pending-pick-${activeDraftContext.id}` : `pending-pick-${activeDraftContext.id}`
+    const ch = supabase.channel(channelName)
+    ch.on('broadcast', { event: 'pick-pending' }, ({ payload }) => {
+      setPendingReveal(payload)
+    })
+    ch.on('broadcast', { event: 'pick-cleared' }, () => {
+      setPendingReveal(null)
+      setMyPendingPick(null)
+    })
+    ch.subscribe()
+    pendingPickChannelRef.current = ch
+    return () => {
+      supabase.removeChannel(ch)
+      pendingPickChannelRef.current = null
+    }
+  }, [activeDraftContext?.id, isSeasonMode])
 
   const draftPicks = useMemo(
     () => allDraftPicks.filter(p => p.tournament_id === activeDraftContext?.id),
     [allDraftPicks, activeDraftContext?.id]
   )
+
+  // Clear any pending (unrevealed) pick once the pick count changes — a pick was made or undone.
+  useEffect(() => {
+    setPendingReveal(null)
+    setMyPendingPick(null)
+  }, [draftPicks.length])
   const picksByCharacter = useMemo(
     () => Object.fromEntries(draftPicks.map(p => [p.character_id, p])),
     [draftPicks]
@@ -478,7 +524,7 @@ export function DraftExperience({ mode = 'tournament' }) {
   const teamIdentitiesByPlayerId = useMemo(
     () => {
       if (!isSeasonMode) {
-        return buildTournamentTeamIdentityMap(draftPicks, charactersById)
+        return buildTournamentTeamIdentityMap(draftPicks, charactersById, {}, playersById)
       }
       return Object.fromEntries(
         (seasonTeams || []).map((team) => [team.player_id, {
@@ -545,15 +591,14 @@ export function DraftExperience({ mode = 'tournament' }) {
   }, [pitchingStints, games, allTournaments])
 
   // Draft order
-  const currentPickNumber = draftPicks.length + 1
-  const round = Math.ceil(currentPickNumber / Math.max(players.length, 1))
-  const orderThisRound = useMemo(() => snakeOrder(players, round), [players, round])
-  const pickInRound = (currentPickNumber - 1) % Math.max(players.length, 1)
-  const currentDrafter = orderThisRound[pickInRound]
-  const isYourTurn = currentDrafter?.id === player?.id
-  const isDrafting = isSeasonMode ? activeDraftContext?.status === 'draft' : activeDraftContext?.status === 'drafting'
-  const totalPicks = players.length > 0 ? players.length * 9 : 54
+  const { currentPickNumber, round, pickInRound, totalPicks, isDraftComplete, currentDrafter } = useMemo(
+    () => getCurrentDraftState(players, draftPicks),
+    [players, draftPicks]
+  )
+  const draftStatusOpen = isSeasonMode ? activeDraftContext?.status === 'draft' : activeDraftContext?.status === 'drafting'
   const picksRemaining = Math.max(0, totalPicks - draftPicks.length)
+  const isYourTurn = !isDraftComplete && currentDrafter?.id === player?.id
+  const canDraft = draftStatusOpen && !isDraftComplete
   const playersWithCaptainPick = useMemo(
     () => new Set(
       draftPicks
@@ -582,9 +627,24 @@ export function DraftExperience({ mode = 'tournament' }) {
   )
   const showDraftedMetadata = availabilityFilter === 'drafted' || availabilityFilter === 'all'
   const draftBoardColumns = showDraftedMetadata
-    ? '32px 1fr 46px 46px 46px 46px 46px 120px 44px 52px 36px 36px'
-    : '32px 1fr 46px 46px 46px 46px 46px 36px 36px'
-  const draftBoardMinWidth = showDraftedMetadata ? 660 : 500
+    ? (
+        isMobileBoard
+          ? '22px minmax(0, 1fr) 24px 24px 24px 24px 26px 42px 20px 24px 44px'
+          : '32px 1fr 46px 46px 46px 46px 46px 120px 44px 52px 36px'
+      )
+    : (
+        isMobileBoard
+          ? '22px minmax(0, 1fr) 24px 24px 24px 24px 26px 44px'
+          : '32px 1fr 46px 46px 46px 46px 46px 36px'
+      )
+  const draftBoardMinWidth = isMobileBoard ? 0 : showDraftedMetadata ? 620 : 460
+  const draftBoardGap = isMobileBoard ? 2 : 4
+  const draftBoardHeaderPadding = isMobileBoard ? '4px 2px' : '4px 6px'
+  const draftBoardRowPadding = isMobileBoard ? '6px 2px' : '7px 6px'
+  const draftBoardHeaderFontSize = isMobileBoard ? 9 : 10
+  const draftBoardValueFontSize = isMobileBoard ? 11 : 13
+  const draftBoardMetaFontSize = isMobileBoard ? 9 : 10
+  const draftBoardPortraitSize = isMobileBoard ? 22 : 28
 
   const sortedCharacters = useMemo(() => {
     let list = characters
@@ -645,10 +705,6 @@ export function DraftExperience({ mode = 'tournament' }) {
     return sorted
   }, [characters, picksByCharacter, availabilityFilter, isCaptainRoundLocked, search, sortKey, sortDesc, tournHistories, myRosterNames])
 
-  const toggleWatchlist = useCallback((id) => {
-    setWatchlist(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  }, [])
-
   const openCard = useCallback((id) => setCardStack([id]), [])
   const navigateCard = useCallback((id, goBack = false, stackIndex = null) => {
     if (goBack) setCardStack(prev => prev.slice(0, -1))
@@ -695,7 +751,6 @@ export function DraftExperience({ mode = 'tournament' }) {
       const { error } = await supabase.from('season_roster').insert(seasonPayload)
       if (!error && firstPickForPlayer && captainIdentity) {
         await supabase.from('season_teams').update({
-          team_name: captainIdentity.teamName,
           team_logo_key: captainIdentity.logoKey,
         }).eq('id', targetTeam.id)
       }
@@ -728,8 +783,25 @@ export function DraftExperience({ mode = 'tournament' }) {
     return { error }
   }, [charactersById, activeDraftContext?.id, activeDraftContext?.league_type, currentPickNumber, draftPicks, round, pickInRound, isSeasonMode, seasonTeams])
 
+  const finalizeDraftPick = useCallback(async ({ targetPlayerId, character, miiColor, toastTitle, toastVerb }) => {
+    const { error } = await insertDraftPick({ targetPlayerId, characterId: character.id, miiColor })
+    if (error) { pushToast({ title: `${toastTitle} failed`, message: error.message, type: 'error' }); return false }
+    if (!isSeasonMode) {
+      const { data } = await supabase.from('draft_picks').select('*').eq('tournament_id', activeDraftContext.id).order('pick_number')
+      setAllDraftPicks(cur => [...cur.filter(p => p.tournament_id !== activeDraftContext.id), ...(data || [])])
+    }
+    setDraftError('')
+    pushToast({ title: toastTitle, message: `${getTeamShortName(teamIdentitiesByPlayerId[targetPlayerId]) || playersById[targetPlayerId]?.name} ${toastVerb} ${formatCharacterDisplayName(character.name, miiColor)}.`, type: 'success' })
+    return true
+  }, [activeDraftContext, insertDraftPick, isSeasonMode, teamIdentitiesByPlayerId, playersById, pushToast])
+
   const submitDraftPick = useCallback(async (character, miiColor = null) => {
-    if (!character || !activeDraftContext || !currentDrafter) return
+    if (!character || !activeDraftContext) return
+    if (!canDraft) {
+      pushToast({ title: isDraftComplete ? 'Draft complete' : 'Draft locked', message: isDraftComplete ? 'No picks remain in this draft.' : 'Drafting is not currently open.', type: 'error' })
+      return
+    }
+    if (!currentDrafter) return
     if (!isYourTurn) { pushToast({ title: 'Not your pick', message: 'Wait for your turn.', type: 'error' }); return }
     const captainError = validateCaptainPick(currentDrafter.id, character)
     if (captainError) {
@@ -737,13 +809,19 @@ export function DraftExperience({ mode = 'tournament' }) {
       pushToast({ title: 'Captain required', message: captainError, type: 'error' })
       return
     }
-    const { error } = await insertDraftPick({ targetPlayerId: currentDrafter.id, characterId: character.id, miiColor })
-    if (error) { pushToast({ title: 'Draft pick failed', message: error.message, type: 'error' }); return }
+    if (skipReveal) {
+      const ok = await finalizeDraftPick({ targetPlayerId: currentDrafter.id, character, miiColor, toastTitle: 'Pick submitted', toastVerb: 'drafted' })
+      if (ok) { setPendingMiiPick(null); closeCard() }
+      return
+    }
+    pendingPickChannelRef.current?.send({ type: 'broadcast', event: 'pick-pending', payload: { playerId: currentDrafter.id, characterId: character.id, miiColor } })
+    setPendingReveal({ playerId: currentDrafter.id, characterId: character.id, miiColor })
+    setMyPendingPick({ characterId: character.id, miiColor })
     setDraftError('')
-    pushToast({ title: 'Pick submitted', message: `${getTeamShortName(teamIdentitiesByPlayerId[currentDrafter.id]) || currentDrafter.name} drafted ${formatCharacterDisplayName(character.name, miiColor)}.`, type: 'success' })
+    pushToast({ title: 'Pick sent', message: `Your pick has been sent to the commissioner to reveal.`, type: 'success' })
     setPendingMiiPick(null)
     closeCard()
-  }, [activeDraftContext, currentDrafter, teamIdentitiesByPlayerId, isYourTurn, closeCard, pushToast, insertDraftPick, validateCaptainPick])
+  }, [activeDraftContext, canDraft, currentDrafter, isDraftComplete, isYourTurn, closeCard, pushToast, validateCaptainPick, skipReveal, finalizeDraftPick])
 
   const forceAdvance = useCallback(async () => {
     if (!activeDraftContext || !currentDrafter || isSeasonMode) {
@@ -752,44 +830,81 @@ export function DraftExperience({ mode = 'tournament' }) {
       }
       return
     }
+    if (!canDraft) {
+      pushToast({ title: isDraftComplete ? 'Draft complete' : 'Draft locked', message: isDraftComplete ? 'No picks remain in this draft.' : 'Drafting is not currently open.', type: 'error' })
+      return
+    }
     const { error } = await supabase.from('draft_picks').insert({ tournament_id: activeDraftContext.id, pick_number: currentPickNumber, round, pick_in_round: pickInRound + 1, player_id: currentDrafter.id, character_id: null })
     if (error) { pushToast({ title: 'Failed', message: error.message, type: 'error' }); return }
     const { data } = await supabase.from('draft_picks').select('*').eq('tournament_id', activeDraftContext.id).order('pick_number')
     setAllDraftPicks(cur => [...cur.filter(p => p.tournament_id !== activeDraftContext.id), ...(data || [])])
     pushToast({ title: 'Pick skipped', type: 'info' })
-  }, [activeDraftContext, currentDrafter, currentPickNumber, round, pickInRound, pushToast, isSeasonMode])
+  }, [activeDraftContext, currentDrafter, currentPickNumber, round, pickInRound, pushToast, isSeasonMode, canDraft, isDraftComplete])
 
   const undoLastPick = useCallback(async () => {
     if (!draftPicks.length) return
+    const removedPick = draftPicks[draftPicks.length - 1]
     const { error } = await supabase
       .from(isSeasonMode ? 'season_roster' : 'draft_picks')
       .delete()
-      .eq('id', draftPicks[draftPicks.length - 1].id)
+      .eq('id', removedPick.id)
     if (error) { pushToast({ title: 'Undo failed', message: error.message, type: 'error' }); return }
     if (isSeasonMode) {
       await refreshSeasonDraftPicks()
     } else {
-      const { data } = await supabase.from('draft_picks').select('*').eq('tournament_id', activeDraftContext.id).order('pick_number')
-      setAllDraftPicks(cur => [...cur.filter(p => p.tournament_id !== activeDraftContext.id), ...(data || [])])
+      setAllDraftPicks(cur => cur.filter(p => p.id !== removedPick.id))
     }
     pushToast({ title: 'Pick undone', type: 'success' })
-  }, [draftPicks, activeDraftContext?.id, pushToast, isSeasonMode, refreshSeasonDraftPicks])
+  }, [draftPicks, pushToast, isSeasonMode, refreshSeasonDraftPicks])
 
-  const forcePickCharacter = useCallback(async (character, targetPlayerId, miiColor = null) => {
-    if (!character || !activeDraftContext) return
-    const captainError = validateCaptainPick(targetPlayerId, character)
+  const confirmPendingPick = useCallback(async () => {
+    if (!pendingReveal || !activeDraftContext) return
+    const character = charactersById[pendingReveal.characterId]
+    if (!character) return
+    if (!canDraft) {
+      pushToast({ title: isDraftComplete ? 'Draft complete' : 'Draft locked', message: isDraftComplete ? 'No picks remain in this draft.' : 'Drafting is not currently open.', type: 'error' })
+      return
+    }
+    const captainError = validateCaptainPick(pendingReveal.playerId, character)
     if (captainError) { pushToast({ title: 'Captain required', message: captainError, type: 'error' }); return }
-    const { error } = await insertDraftPick({ targetPlayerId, characterId: character.id, miiColor })
-    if (error) { pushToast({ title: 'Force pick failed', message: error.message, type: 'error' }); return }
+    setIsRevealing(true)
+    const { error } = await insertDraftPick({ targetPlayerId: pendingReveal.playerId, characterId: character.id, miiColor: pendingReveal.miiColor })
+    if (error) {
+      pushToast({ title: 'Pick failed', message: error.message, type: 'error' })
+      setIsRevealing(false)
+      return
+    }
     if (!isSeasonMode) {
       const { data } = await supabase.from('draft_picks').select('*').eq('tournament_id', activeDraftContext.id).order('pick_number')
       setAllDraftPicks(cur => [...cur.filter(p => p.tournament_id !== activeDraftContext.id), ...(data || [])])
     }
     setDraftError('')
-    pushToast({ title: 'Pick forced', message: `${getTeamShortName(teamIdentitiesByPlayerId[targetPlayerId]) || playersById[targetPlayerId]?.name} drafted ${formatCharacterDisplayName(character.name, miiColor)}.`, type: 'success' })
-    setForcePickMenu(null)
+    pendingPickChannelRef.current?.send({ type: 'broadcast', event: 'pick-cleared', payload: {} })
+    setPendingReveal(null)
+    setMyPendingPick(null)
+    pushToast({ title: 'Pick made', message: `${getTeamShortName(teamIdentitiesByPlayerId[pendingReveal.playerId]) || playersById[pendingReveal.playerId]?.name} drafted ${formatCharacterDisplayName(character.name, pendingReveal.miiColor)}.`, type: 'success' })
+    setIsRevealing(false)
+  }, [pendingReveal, activeDraftContext, charactersById, canDraft, isDraftComplete, validateCaptainPick, insertDraftPick, isSeasonMode, teamIdentitiesByPlayerId, playersById, pushToast])
+
+  const forcePickCharacter = useCallback(async (character, targetPlayerId, miiColor = null) => {
+    if (!character || !activeDraftContext) return
+    if (!canDraft) {
+      pushToast({ title: isDraftComplete ? 'Draft complete' : 'Draft locked', message: isDraftComplete ? 'No picks remain in this draft.' : 'Drafting is not currently open.', type: 'error' })
+      return
+    }
+    const captainError = validateCaptainPick(targetPlayerId, character)
+    if (captainError) { pushToast({ title: 'Captain required', message: captainError, type: 'error' }); return }
+    if (skipReveal) {
+      const ok = await finalizeDraftPick({ targetPlayerId, character, miiColor, toastTitle: 'Pick forced', toastVerb: 'drafted' })
+      if (ok) setPendingMiiPick(null)
+      return
+    }
+    pendingPickChannelRef.current?.send({ type: 'broadcast', event: 'pick-pending', payload: { playerId: targetPlayerId, characterId: character.id, miiColor } })
+    setPendingReveal({ playerId: targetPlayerId, characterId: character.id, miiColor })
+    setDraftError('')
+    pushToast({ title: 'Pick sent', message: `Forced pick for ${getTeamShortName(teamIdentitiesByPlayerId[targetPlayerId]) || playersById[targetPlayerId]?.name} is ready to reveal.`, type: 'success' })
     setPendingMiiPick(null)
-  }, [activeDraftContext, playersById, teamIdentitiesByPlayerId, pushToast, insertDraftPick, validateCaptainPick, isSeasonMode])
+  }, [activeDraftContext, canDraft, playersById, teamIdentitiesByPlayerId, pushToast, validateCaptainPick, isDraftComplete, skipReveal, finalizeDraftPick])
 
   const beginDraftPick = useCallback((character) => {
     if (!character) return
@@ -804,7 +919,6 @@ export function DraftExperience({ mode = 'tournament' }) {
     if (!character || !targetPlayerId) return
     if (!isSeasonMode && isMiiCharacter(character)) {
       setPendingMiiPick({ character, targetPlayerId })
-      setForcePickMenu(null)
       return
     }
     forcePickCharacter(character, targetPlayerId)
@@ -820,7 +934,7 @@ export function DraftExperience({ mode = 'tournament' }) {
   }, [pendingMiiPick, forcePickCharacter, submitDraftPick])
 
   const autoDraftAll = useCallback(async () => {
-    if (!activeDraftContext || !isDrafting || players.length === 0 || characters.length === 0) return
+    if (!activeDraftContext || !canDraft || players.length === 0 || characters.length === 0 || isCaptainRoundLocked) return
     setIsAutoDrafting(true)
 
     const draftedIds = new Set(draftPicks.map(p => p.character_id).filter(Boolean))
@@ -884,7 +998,6 @@ export function DraftExperience({ mode = 'tournament' }) {
               const captainIdentity = getCaptainIdentityFromName(entry.character_name)
               if (!captainIdentity || !entry.team_id) return null
               return supabase.from('season_teams').update({
-                team_name: captainIdentity.teamName,
                 team_logo_key: captainIdentity.logoKey,
               }).eq('id', entry.team_id)
             })
@@ -899,10 +1012,10 @@ export function DraftExperience({ mode = 'tournament' }) {
     }
 
     setIsAutoDrafting(false)
-  }, [activeDraftContext, isDrafting, players, draftPicks, characters, totalPicks, tournHistories, pushToast, isSeasonMode, seasonTeams, refreshSeasonDraftPicks])
+  }, [activeDraftContext, canDraft, players, draftPicks, characters, totalPicks, tournHistories, pushToast, isSeasonMode, seasonTeams, refreshSeasonDraftPicks, isCaptainRoundLocked])
 
   const autoDraftCaptains = useCallback(async () => {
-    if (!activeDraftContext || !isDrafting || players.length === 0 || characters.length === 0 || !isCaptainRoundLocked) return
+    if (!activeDraftContext || !canDraft || players.length === 0 || characters.length === 0 || !isCaptainRoundLocked) return
     setIsAutoDrafting(true)
 
     const draftedIds = new Set(draftPicks.map((pick) => pick.character_id).filter(Boolean))
@@ -956,7 +1069,6 @@ export function DraftExperience({ mode = 'tournament' }) {
               const captainIdentity = getCaptainIdentityFromName(entry.character_name)
               if (!captainIdentity || !entry.team_id) return null
               return supabase.from('season_teams').update({
-                team_name: captainIdentity.teamName,
                 team_logo_key: captainIdentity.logoKey,
               }).eq('id', entry.team_id)
             })
@@ -971,15 +1083,15 @@ export function DraftExperience({ mode = 'tournament' }) {
     }
 
     setIsAutoDrafting(false)
-  }, [activeDraftContext, isDrafting, players, characters, isCaptainRoundLocked, draftPicks, tournHistories, isSeasonMode, seasonTeams, pushToast, refreshSeasonDraftPicks])
+  }, [activeDraftContext, canDraft, players, characters, isCaptainRoundLocked, draftPicks, tournHistories, isSeasonMode, seasonTeams, pushToast, refreshSeasonDraftPicks])
 
   return (
     <div style={{ position: 'relative' }}>
       {/* Sticky bar */}
-      <div style={{ position: 'sticky', top: 60, zIndex: 19, background: '#0F172A', borderBottom: '1px solid #1E293B', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+      <div style={{ position: 'sticky', top: 60, zIndex: 19, background: '#0F172A', borderBottom: '1px solid #1E293B', padding: '10px 16px', display: 'flex', alignItems: isMobileBoard ? 'flex-start' : 'center', gap: isMobileBoard ? 12 : 20, flexWrap: 'wrap' }}>
         {[
-          { label: 'Pick',      val: loading ? '—' : currentPickNumber },
-          { label: 'Round',     val: loading ? '—' : round },
+          { label: 'Pick',      val: loading ? '—' : isDraftComplete ? totalPicks : currentPickNumber },
+          { label: 'Round',     val: loading ? '—' : Math.min(round, Math.max(1, Math.ceil(totalPicks / Math.max(players.length, 1)))) },
           { label: 'Remaining', val: loading ? '—' : picksRemaining },
         ].map(({ label, val }) => (
           <div key={label} style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
@@ -987,23 +1099,60 @@ export function DraftExperience({ mode = 'tournament' }) {
             <span style={{ fontSize: 18, fontWeight: 800 }}>{val}</span>
           </div>
         ))}
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1, flex: 1 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1, flex: isMobileBoard ? '1 1 100%' : 1, minWidth: 0 }}>
           <span style={{ fontSize: 10, color: '#64748B', textTransform: 'uppercase', fontWeight: 700 }}>On the clock</span>
           <span style={{ fontSize: 18, fontWeight: 800, color: currentDrafter?.color || '#E2E8F0' }}>
-            {loading ? '—' : isYourTurn ? 'You' : <PlayerTag height={24} identitiesByPlayerId={teamIdentitiesByPlayerId} player={currentDrafter} />}
+            {loading ? '—' : isDraftComplete ? 'Draft complete' : isYourTurn ? 'You' : <PlayerTag height={24} identitiesByPlayerId={teamIdentitiesByPlayerId} player={currentDrafter} />}
           </span>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: isMobileBoard ? '100%' : 'auto' }}>
           {player?.is_commissioner && (
             <>
-              <button className="ghost-button" disabled={!isDrafting || isCaptainRoundLocked} onClick={forceAdvance} type="button" style={{ fontSize: 12, padding: '6px 10px' }}><SkipForward size={14} /> Skip</button>
-              <button className="ghost-button" disabled={!isDrafting} onClick={undoLastPick} type="button" style={{ fontSize: 12, padding: '6px 10px' }}><RotateCcw size={14} /> Undo</button>
-              <button className="ghost-button" disabled={!isDrafting || isAutoDrafting || !isCaptainRoundLocked} onClick={autoDraftCaptains} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#7DD3FC', borderColor: '#7DD3FC' }}><Zap size={14} /> {isAutoDrafting && isCaptainRoundLocked ? 'Drafting…' : 'Auto Draft Captains'}</button>
-              <button className="ghost-button" disabled={!isDrafting || isAutoDrafting || picksRemaining === 0} onClick={autoDraftAll} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#A78BFA', borderColor: '#A78BFA' }}><Zap size={14} /> {isAutoDrafting ? 'Drafting…' : 'Auto Draft'}</button>
+              <button
+                className="ghost-button"
+                onClick={() => window.open(isSeasonMode ? '/season/draft/presentation' : '/draft/presentation', '_blank', 'noopener')}
+                type="button"
+                style={{ fontSize: 12, padding: '6px 10px' }}
+              >
+                Presentation Mode
+              </button>
+              <button className="ghost-button" onClick={retreatPresentationSlide} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#94A3B8', borderColor: '#94A3B8' }}><ChevronLeft size={14} /> Back Slide</button>
+              <button className="ghost-button" onClick={advancePresentationSlide} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#EAB308', borderColor: '#EAB308' }}><ChevronRight size={14} /> Advance Slide</button>
+              <button className="ghost-button" disabled={!canDraft || isCaptainRoundLocked} onClick={forceAdvance} type="button" style={{ fontSize: 12, padding: '6px 10px' }}><SkipForward size={14} /> Skip</button>
+              <button className="ghost-button" disabled={!draftStatusOpen || !draftPicks.length} onClick={undoLastPick} type="button" style={{ fontSize: 12, padding: '6px 10px' }}><RotateCcw size={14} /> Undo</button>
+              <button className="ghost-button" disabled={!canDraft || isAutoDrafting || !isCaptainRoundLocked} onClick={autoDraftCaptains} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#7DD3FC', borderColor: '#7DD3FC' }}><Zap size={14} /> {isAutoDrafting && isCaptainRoundLocked ? 'Drafting…' : 'Auto Draft Captains'}</button>
+              <button className="ghost-button" disabled={!canDraft || isAutoDrafting || picksRemaining === 0 || isCaptainRoundLocked} title={isCaptainRoundLocked ? 'Finish the captain round first (Auto Draft Captains).' : undefined} onClick={autoDraftAll} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#A78BFA', borderColor: '#A78BFA' }}><Zap size={14} /> {isAutoDrafting ? 'Drafting…' : 'Auto Draft'}</button>
+              <label title="When on, picks are made instantly without waiting for commissioner confirmation. Use if you're not running the presentation." style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: skipReveal ? '#EAB308' : '#94A3B8', border: `1px solid ${skipReveal ? '#EAB308' : '#334155'}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>
+                <input type="checkbox" checked={skipReveal} onChange={(e) => setSkipReveal(e.target.checked)} style={{ margin: 0 }} />
+                Skip Pick Reveal
+              </label>
             </>
           )}
         </div>
       </div>
+
+      {pendingReveal && player?.is_commissioner ? (
+        <div style={{ margin: '10px 16px 0', background: '#1E293B', border: '1px solid #EAB30855', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Portrait name={charactersById[pendingReveal.characterId]?.name} size={36} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase' }}>
+              <PlayerTag height={18} identitiesByPlayerId={teamIdentitiesByPlayerId} playerId={pendingReveal.playerId} playersById={playersById} /> picked
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#FDE68A' }}>
+              {formatCharacterDisplayName(charactersById[pendingReveal.characterId]?.name, pendingReveal.miiColor)}
+            </div>
+          </div>
+          <button className="solid-button" disabled={isRevealing} onClick={confirmPendingPick} type="button" style={{ width: 'auto', padding: '8px 16px' }}>
+            {isRevealing ? 'Making pick…' : 'Make Pick'}
+          </button>
+        </div>
+      ) : null}
+
+      {myPendingPick && !player?.is_commissioner ? (
+        <div style={{ margin: '10px 16px 0', background: '#1E293B', border: '1px solid #33415588', borderRadius: 12, padding: '10px 14px', color: '#94A3B8', fontWeight: 600 }}>
+          Pick sent — waiting for the commissioner to reveal {formatCharacterDisplayName(charactersById[myPendingPick.characterId]?.name, myPendingPick.miiColor)}.
+        </div>
+      ) : null}
 
       {isCaptainRoundLocked ? (
         <div style={{ margin: '10px 16px 0', background: '#EAB30818', border: '1px solid #EAB30855', borderRadius: 12, padding: '10px 14px', color: '#FDE68A', fontWeight: 700 }}>
@@ -1030,21 +1179,20 @@ export function DraftExperience({ mode = 'tournament' }) {
 
         {/* Scrollable character board — overflow on both axes so position:sticky works inside */}
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 200px)', WebkitOverflowScrolling: 'touch' }}>
-          <div style={{ minWidth: draftBoardMinWidth }}>
+          <div style={{ minWidth: draftBoardMinWidth || undefined }}>
 
         {/* Column headers — sticky within the scroll container */}
-        <div style={{ display: 'grid', gridTemplateColumns: draftBoardColumns, gap: 4, padding: '4px 6px', color: '#475569', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #1E293B', letterSpacing: '.04em', position: 'sticky', top: 0, zIndex: 10, background: '#0F172A' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: draftBoardColumns, gap: draftBoardGap, padding: draftBoardHeaderPadding, color: '#475569', fontSize: draftBoardHeaderFontSize, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #1E293B', letterSpacing: '.04em', position: 'sticky', top: 0, zIndex: 10, background: '#0F172A' }}>
           <span />
           <span>Name</span>
-          <button onClick={() => handleHeaderClick('value')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'value' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}><StatIcon stat="batting" size={13} /> OVR {sortKey === 'value' && (sortDesc ? '↓' : '↑')}</button>
-          <button onClick={() => handleHeaderClick('pitchValue')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'pitchValue' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}><StatIcon stat="pitching" size={13} /> OVR {sortKey === 'pitchValue' && (sortDesc ? '↓' : '↑')}</button>
-          <button onClick={() => handleHeaderClick('fieldValue')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'fieldValue' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}><StatIcon stat="fielding" size={13} /> OVR {sortKey === 'fieldValue' && (sortDesc ? '↓' : '↑')}</button>
-          <button onClick={() => handleHeaderClick('speedValue')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'speedValue' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}><StatIcon stat="speed" size={13} /> OVR {sortKey === 'speedValue' && (sortDesc ? '↓' : '↑')}</button>
-          <button onClick={() => handleHeaderClick('ovr')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'ovr' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0 }}>OVR {sortKey === 'ovr' && (sortDesc ? '↓' : '↑')}</button>
-          {showDraftedMetadata ? <span style={{ textAlign: 'left' }}>Team</span> : null}
-          {showDraftedMetadata ? <button onClick={() => handleHeaderClick('round')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'round' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>Rnd {sortKey === 'round' && (sortDesc ? '↓' : '↑')}</button> : null}
-          {showDraftedMetadata ? <button onClick={() => handleHeaderClick('pick_number')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'pick_number' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>Pick {sortKey === 'pick_number' && (sortDesc ? '↓' : '↑')}</button> : null}
-          <span />
+          <button onClick={() => handleHeaderClick('value')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'value' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: draftBoardHeaderFontSize, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: isMobileBoard ? 0 : 2 }}><StatIcon stat="batting" size={isMobileBoard ? 11 : 13} /> {sortKey === 'value' && (sortDesc ? '↓' : '↑')}</button>
+          <button onClick={() => handleHeaderClick('pitchValue')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'pitchValue' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: draftBoardHeaderFontSize, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: isMobileBoard ? 0 : 2 }}><StatIcon stat="pitching" size={isMobileBoard ? 11 : 13} /> {sortKey === 'pitchValue' && (sortDesc ? '↓' : '↑')}</button>
+          <button onClick={() => handleHeaderClick('fieldValue')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'fieldValue' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: draftBoardHeaderFontSize, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: isMobileBoard ? 0 : 2 }}><StatIcon stat="fielding" size={isMobileBoard ? 11 : 13} /> {sortKey === 'fieldValue' && (sortDesc ? '↓' : '↑')}</button>
+          <button onClick={() => handleHeaderClick('speedValue')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'speedValue' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: draftBoardHeaderFontSize, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: isMobileBoard ? 0 : 2 }}><StatIcon stat="speed" size={isMobileBoard ? 11 : 13} /> {sortKey === 'speedValue' && (sortDesc ? '↓' : '↑')}</button>
+          <button onClick={() => handleHeaderClick('ovr')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'ovr' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: draftBoardHeaderFontSize, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0 }}>OVR {sortKey === 'ovr' && (sortDesc ? '↓' : '↑')}</button>
+          {showDraftedMetadata ? <span style={{ textAlign: 'left' }}>{isMobileBoard ? 'Tm' : 'Team'}</span> : null}
+          {showDraftedMetadata ? <button onClick={() => handleHeaderClick('round')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'round' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: draftBoardHeaderFontSize, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>{isMobileBoard ? 'R' : 'Rnd'} {sortKey === 'round' && (sortDesc ? '↓' : '↑')}</button> : null}
+          {showDraftedMetadata ? <button onClick={() => handleHeaderClick('pick_number')} type="button" style={{ textAlign: 'center', background: 'none', border: 'none', color: sortKey === 'pick_number' ? '#EAB308' : '#475569', cursor: 'pointer', padding: 0, fontSize: draftBoardHeaderFontSize, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>{isMobileBoard ? 'Pk' : 'Pick'} {sortKey === 'pick_number' && (sortDesc ? '↓' : '↑')}</button> : null}
           <span />
         </div>
 
@@ -1061,8 +1209,8 @@ export function DraftExperience({ mode = 'tournament' }) {
           const tierIcon = activeTierInfo?.icon ?? null
           const chemistryName = getCharacterChemistryName(c.name, pick?.mii_color)
           const displayName = formatCharacterDisplayName(c.name, pick?.mii_color)
+          const boardDisplayName = isMobileBoard ? getCompactDraftBoardName(c.name, pick?.mii_color) : displayName
           const chemistry = chemBreakdown(chemistryName, myRosterNames)
-          const starred = watchlist.has(c.id)
 
           return (
             <div
@@ -1070,67 +1218,56 @@ export function DraftExperience({ mode = 'tournament' }) {
               onClick={() => openCard(c.id)}
               onMouseEnter={e => e.currentTarget.style.background = '#1E293B'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              style={{ display: 'grid', gridTemplateColumns: draftBoardColumns, gap: 4, alignItems: 'center', padding: '7px 6px', borderBottom: '1px solid #0F172A', cursor: 'pointer' }}
+              style={{ display: 'grid', gridTemplateColumns: draftBoardColumns, gap: draftBoardGap, alignItems: 'center', padding: draftBoardRowPadding, borderBottom: '1px solid #0F172A', cursor: 'pointer' }}
             >
-              <Portrait name={c.name} size={28} />
+              <Portrait name={c.name} size={draftBoardPortraitSize} />
               <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
-                <div style={{ display: 'flex', gap: 5, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', alignItems: 'center' }}>
+                <div title={displayName} style={{ fontWeight: 600, fontSize: isMobileBoard ? 11 : 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{boardDisplayName}</div>
+                <div style={{ display: 'flex', gap: isMobileBoard ? 4 : 5, fontSize: draftBoardMetaFontSize, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', alignItems: 'center' }}>
                   {chemistry && <span style={{ color: chemistry.positive === 0 ? '#94A3B8' : '#22C55E' }}>+{chemistry.positive}</span>}
                   {chemistry && <span style={{ color: chemistry.negative === 0 ? '#94A3B8' : '#F87171' }}>-{chemistry.negative}</span>}
-                  <span style={{ color: tierMeta.color, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                    {tierIcon && <StatIcon stat={tierIcon} size={9} style={{ opacity: 0.7 }} />}
-                    {tierMeta.label}
+                  <span style={{ color: tierMeta.color, display: 'inline-flex', alignItems: 'center', gap: isMobileBoard ? 1 : 2 }}>
+                    {tierIcon && <StatIcon stat={tierIcon} size={isMobileBoard ? 8 : 9} style={{ opacity: 0.7 }} />}
+                    {isMobileBoard ? tierMeta.label.split(' ')[0] : tierMeta.label}
                   </span>
                 </div>
               </div>
-              <span style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#EAB308' }}>{score}</span>
-              <span style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#EF4444' }}>{analysis?.displayRatings?.pitching ?? '—'}</span>
-              <span style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#3B82F6' }}>{analysis?.displayRatings?.fielding ?? '—'}</span>
-              <span style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#A78BFA' }}>{analysis?.displayRatings?.speed ?? '—'}</span>
-              <span style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#64748B' }}>{analysis?.displayRatings?.overall ?? '—'}</span>
+              <span style={{ textAlign: 'center', fontSize: draftBoardValueFontSize, fontWeight: 700, color: '#EAB308' }}>{score}</span>
+              <span style={{ textAlign: 'center', fontSize: draftBoardValueFontSize, fontWeight: 700, color: '#EF4444' }}>{analysis?.displayRatings?.pitching ?? '—'}</span>
+              <span style={{ textAlign: 'center', fontSize: draftBoardValueFontSize, fontWeight: 700, color: '#3B82F6' }}>{analysis?.displayRatings?.fielding ?? '—'}</span>
+              <span style={{ textAlign: 'center', fontSize: draftBoardValueFontSize, fontWeight: 700, color: '#A78BFA' }}>{analysis?.displayRatings?.speed ?? '—'}</span>
+              <span style={{ textAlign: 'center', fontSize: draftBoardValueFontSize, fontWeight: 700, color: '#64748B' }}>{analysis?.displayRatings?.overall ?? '—'}</span>
               {showDraftedMetadata ? (
                 <div style={{ minWidth: 0, overflow: 'hidden' }}>
                   {pick?.player_id ? (
                     <PlayerTag
-                      height={20}
+                      height={isMobileBoard ? 14 : 20}
                       identitiesByPlayerId={teamIdentitiesByPlayerId}
                       playerId={pick.player_id}
                       playersById={playersById}
-                      textStyle={{ fontSize: 12, fontWeight: 600 }}
+                      nameMode={isMobileBoard ? 'abbreviation' : 'short'}
+                      showLogo={!isMobileBoard}
+                      textStyle={{ fontSize: isMobileBoard ? 10 : 12, fontWeight: 600 }}
+                      style={{ gap: isMobileBoard ? 4 : 8 }}
                     />
-                  ) : <span style={{ fontSize: 12, color: '#64748B' }}>—</span>}
+                  ) : <span style={{ fontSize: draftBoardValueFontSize, color: '#64748B' }}>—</span>}
                 </div>
               ) : null}
-              {showDraftedMetadata ? <span style={{ textAlign: 'center', fontSize: 12, color: '#CBD5E1' }}>{pick?.round || '—'}</span> : null}
-              {showDraftedMetadata ? <span style={{ textAlign: 'center', fontSize: 12, color: '#CBD5E1' }}>{pick?.pick_number || '—'}</span> : null}
-              <button onClick={e => { e.stopPropagation(); toggleWatchlist(c.id) }} type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', color: starred ? '#EAB308' : '#334155', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Star size={15} fill={starred ? '#EAB308' : 'none'} />
-              </button>
+              {showDraftedMetadata ? <span style={{ textAlign: 'center', fontSize: draftBoardValueFontSize, color: '#CBD5E1' }}>{pick?.round || '—'}</span> : null}
+              {showDraftedMetadata ? <span style={{ textAlign: 'center', fontSize: draftBoardValueFontSize, color: '#CBD5E1' }}>{pick?.pick_number || '—'}</span> : null}
               {!isDrafted
                 ? (
-                  player?.is_commissioner ? (
-                    <div style={{ position: 'relative' }}>
-                      <button onClick={e => { e.stopPropagation(); setForcePickMenu(forcePickMenu === c.id ? null : c.id) }} type="button" style={{ padding: '4px 6px', borderRadius: 6, fontSize: 11, fontWeight: 700, border: '1px solid #EAB308', background: forcePickMenu === c.id ? '#EAB30820' : 'transparent', color: '#EAB308', cursor: 'pointer' }}>
-                        Force
-                      </button>
-                      {forcePickMenu === c.id && (
-                        <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#1E293B', border: '1px solid #334155', borderRadius: 6, zIndex: 50, maxHeight: 200, overflowY: 'auto', minWidth: 120 }}>
-                          {players.map(p => (
-                            <button key={p.id} onClick={() => beginForcePick(c, p.id)} type="button" style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: 'none', border: 'none', color: '#E2E8F0', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              <PlayerTag height={24} identitiesByPlayerId={teamIdentitiesByPlayerId} player={p} />
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                  player?.is_commissioner && !isYourTurn && canDraft && currentDrafter ? (
+                    <button onClick={e => { e.stopPropagation(); beginForcePick(c, currentDrafter.id) }} type="button" style={{ padding: isMobileBoard ? '4px 2px' : '4px 6px', borderRadius: 6, fontSize: isMobileBoard ? 10 : 11, fontWeight: 700, border: '1px solid #EAB308', background: 'transparent', color: '#EAB308', cursor: 'pointer' }}>
+                      {isMobileBoard ? 'Frc' : 'Force'}
+                    </button>
                   ) : (
-                    <button onClick={e => { e.stopPropagation(); beginDraftPick(c) }} type="button" disabled={!isYourTurn || !isDrafting} style={{ padding: '4px 6px', borderRadius: 6, fontSize: 11, fontWeight: 700, border: 'none', background: isYourTurn && isDrafting ? '#EAB308' : '#1E293B', color: isYourTurn && isDrafting ? '#000' : '#334155', cursor: isYourTurn && isDrafting ? 'pointer' : 'default' }}>
-                      Draft
+                    <button onClick={e => { e.stopPropagation(); beginDraftPick(c) }} type="button" disabled={!isYourTurn || !canDraft || !!myPendingPick} style={{ padding: isMobileBoard ? '4px 2px' : '4px 6px', borderRadius: 6, fontSize: isMobileBoard ? 10 : 11, fontWeight: 700, border: 'none', background: isYourTurn && canDraft && !myPendingPick ? '#EAB308' : '#1E293B', color: isYourTurn && canDraft && !myPendingPick ? '#000' : '#334155', cursor: isYourTurn && canDraft && !myPendingPick ? 'pointer' : 'default' }}>
+                      {isMobileBoard ? 'Pick' : 'Draft'}
                     </button>
                   )
                 )
-                : <span style={{ fontSize: 10, color: '#334155', textAlign: 'center' }}>—</span>}
+                : <span style={{ fontSize: draftBoardMetaFontSize, color: '#334155', textAlign: 'center' }}>—</span>}
             </div>
           )
         })}
@@ -1202,16 +1339,6 @@ export function DraftExperience({ mode = 'tournament' }) {
         </>
       )}
 
-      <WatchlistDrawer
-        watchlist={watchlist}
-        charactersById={charactersById}
-        tournHistories={tournHistories}
-        picksByCharacter={picksByCharacter}
-        onOpen={openCard}
-        onRemove={toggleWatchlist}
-      />
     </div>
   )
 }
-
-

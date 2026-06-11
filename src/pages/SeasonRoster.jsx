@@ -9,9 +9,10 @@ import PlayerTag from '../components/PlayerTag'
 import TeamLogo from '../components/TeamLogo'
 import CharacterPortrait from '../components/CharacterPortrait'
 import StatIcon from '../components/StatIcon'
+import { DraggableRosterItem, FieldingView, FIELD_POSITIONS } from '../components/RosterLineupWidgets'
 import { getChemistry, chemScore } from '../data/chemistry'
 import { analyzeCharacterTalent } from '../utils/characterAnalysis'
-import { buildChemistryHighlightSet, CHEMISTRY_NOTE_SRC } from '../utils/chemistryHighlights'
+import { buildChemistryHighlightSet } from '../utils/chemistryHighlights'
 import { formatSeasonLabel } from '../utils/season'
 import { buildSeasonTeamIdentity, getTeamShortName } from '../utils/teamIdentity'
 import { summarizeBatting, summarizePitching } from '../utils/statsCalculator'
@@ -122,224 +123,6 @@ function TeamCountCard({ label, value, muted = false }) {
     <div style={{ padding: 10, borderRadius: 12, background: muted ? 'rgba(15,23,42,0.45)' : 'rgba(30,41,59,0.7)', border: '1px solid rgba(71,85,105,0.6)', display: 'grid', gap: 4 }}>
       <span className="muted" style={{ fontSize: 11 }}>{label}</span>
       <strong style={{ fontSize: 16 }}>{value}</strong>
-    </div>
-  )
-}
-
-function Portrait({ name, size = 36, style = {}, showChemistryNote = false, highlighted = false }) {
-  const shadowLayers = []
-  if (highlighted) {
-    shadowLayers.push('0 0 0 3px #FACC15', '0 0 0 6px rgba(250,204,21,0.25)')
-  }
-  if (style.boxShadow) shadowLayers.push(style.boxShadow)
-  const portraitStyle = shadowLayers.length ? { ...style, boxShadow: shadowLayers.join(', ') } : style
-
-  return (
-    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
-      <CharacterPortrait name={name} size={size} draggable={false} style={portraitStyle} />
-      {showChemistryNote ? (
-        <img
-          src={CHEMISTRY_NOTE_SRC}
-          alt=""
-          aria-hidden="true"
-          style={{ position: 'absolute', right: -5, bottom: -5, width: size * 0.34, height: size * 0.34, objectFit: 'contain', pointerEvents: 'none' }}
-        />
-      ) : null}
-    </div>
-  )
-}
-
-function StatBar({ label, value, color = '#EAB308' }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ width: 12, fontSize: 11, color: '#94A3B8', fontWeight: 700 }}>{label}</span>
-      <div style={{ flex: 1, height: 6, background: '#0F172A', borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${Number(value || 0) * 10}%`, background: color, borderRadius: 3 }} />
-      </div>
-      <span style={{ width: 18, textAlign: 'right', fontSize: 13, fontWeight: 600 }}>{value}</span>
-    </div>
-  )
-}
-
-function DraggableRosterItem({
-  character,
-  onDragStart,
-  rosterNames,
-  onOpenCard,
-  onTrade,
-  showChemistryNote = false,
-  highlighted = false,
-  showTrade = false,
-  disabled = false,
-  selected = false,
-  compact = false,
-  lineupNumber = null,
-  onLineupNumberClick,
-  lineupNumberSelected = false,
-  lineupNumberTitle,
-  lineupNumberAriaLabel,
-  lineupNumberDisabled = false,
-}) {
-  return (
-    <div
-      draggable={!disabled}
-      onDragStart={disabled ? undefined : onDragStart}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: compact ? 10 : 12,
-        padding: compact ? '10px 14px' : '14px 16px',
-        minHeight: compact ? 64 : 80,
-        background: selected ? '#FACC1533' : '#1E293B',
-        borderRadius: 10,
-        border: `1px solid ${selected ? '#FACC15' : '#334155'}`,
-      }}
-    >
-      {lineupNumber !== null ? (
-        <button
-          type="button"
-          onClick={(event) => { event.stopPropagation(); onLineupNumberClick?.(event) }}
-          disabled={lineupNumberDisabled}
-          aria-label={lineupNumberAriaLabel}
-          title={lineupNumberTitle}
-          style={{
-            width: compact ? 26 : 32,
-            height: compact ? 26 : 32,
-            borderRadius: '50%',
-            border: `2px solid ${lineupNumberSelected ? '#FACC15' : '#DBEAFE'}`,
-            background: lineupNumberSelected ? '#FACC15' : '#DBEAFE',
-            color: '#0F172A',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: compact ? 10 : 11,
-            fontWeight: 900,
-            cursor: lineupNumberDisabled ? 'default' : 'pointer',
-            flexShrink: 0,
-            padding: 0,
-          }}
-        >
-          {lineupNumber}
-        </button>
-      ) : null}
-      <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
-        <Portrait name={character.name} size={compact ? 36 : 48} showChemistryNote={showChemistryNote} highlighted={highlighted} />
-      </button>
-      <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer' }}>
-        <div style={{ fontWeight: 700, fontSize: compact ? 13 : 15, lineHeight: 1.2, whiteSpace: 'normal', wordBreak: 'break-word' }}>{character.displayName || character.name}</div>
-      </button>
-      {showTrade ? (
-        <button className="ghost-button" onClick={(event) => { event.stopPropagation(); onTrade?.() }} type="button" disabled={disabled} aria-label="Trade player" title="Trade player" style={{ minWidth: 42, minHeight: 42, padding: 0, justifyContent: 'center' }}>
-          <ArrowRightLeft size={15} />
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
-const FIELD_POSITIONS = [
-  { id: 'pitcher', label: 'P', x: 50, y: 56 },
-  { id: 'catcher', label: 'C', x: 50, y: 80 },
-  { id: 'firstBase', label: '1B', x: 71, y: 56 },
-  { id: 'secondBase', label: '2B', x: 59, y: 38 },
-  { id: 'thirdBase', label: '3B', x: 29, y: 56 },
-  { id: 'shortStop', label: 'SS', x: 41, y: 38 },
-  { id: 'leftField', label: 'LF', x: 25, y: 20 },
-  { id: 'centerField', label: 'CF', x: 50, y: 12 },
-  { id: 'rightField', label: 'RF', x: 75, y: 20 },
-]
-
-function FieldingView({
-  charactersById,
-  fieldingPositions,
-  setFieldingPositions,
-  selectedPlayer,
-  setSelectedPlayer,
-  fieldingAssignMode,
-  selectedForFielding,
-  onAssignPosition,
-  editable,
-  chemistryHighlightIds,
-}) {
-  const assignCharToPos = useCallback((posId, characterId) => {
-    if (!editable) return
-    setFieldingPositions((current) => {
-      const next = { ...current }
-      const targetCharId = next[posId]
-      if (targetCharId && targetCharId !== characterId) {
-        const sourcePos = Object.entries(next).find(([, value]) => value === characterId)?.[0]
-        if (sourcePos) next[sourcePos] = targetCharId
-        next[posId] = characterId
-      } else {
-        next[posId] = characterId
-        Object.keys(next).forEach((key) => {
-          if (key !== posId && next[key] === characterId) delete next[key]
-        })
-      }
-      return next
-    })
-  }, [editable, setFieldingPositions])
-
-  const handlePositionClick = (posId) => {
-    if (fieldingAssignMode && selectedForFielding) {
-      assignCharToPos(posId, selectedForFielding)
-      onAssignPosition()
-      return
-    }
-    const charId = fieldingPositions[posId]
-    if (selectedPlayer) {
-      if (selectedPlayer === charId) {
-        setSelectedPlayer(null)
-        return
-      }
-      assignCharToPos(posId, selectedPlayer)
-      setSelectedPlayer(null)
-      return
-    }
-    if (charId) {
-      setSelectedPlayer((current) => (current === charId ? null : charId))
-    }
-  }
-
-  return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 800, color: '#EFF6FF', letterSpacing: '.04em', textTransform: 'uppercase' }}>Fielding Positions</h3>
-        <div style={{ fontSize: 11, fontWeight: 700, color: fieldingAssignMode ? '#A78BFA' : '#DBEAFE', background: '#0F172A55', padding: '4px 8px', borderRadius: 999 }}>
-          {editable ? (fieldingAssignMode ? (selectedForFielding ? 'Tap position to place' : 'Tap roster player first') : (selectedPlayer ? 'Tap position to move selected player' : 'Tap player, then tap position to swap')) : 'View only'}
-        </div>
-      </div>
-      <div style={{ position: 'relative', width: '100%', maxWidth: 460, aspectRatio: '1/1.02', background: 'radial-gradient(circle at 50% 18%, #86EFAC 0%, #4ADE80 22%, #2E8B57 52%, #24553A 100%)', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: 'inset 0 10px 30px #00000030' }}>
-        <div style={{ position: 'absolute', inset: '8% 12% 7%', borderRadius: '50% 50% 22% 22%', background: 'radial-gradient(circle at 50% 35%, #7CFC8A 0%, #4CAF50 45%, #2B6B3F 100%)', opacity: 0.85 }} />
-        <div style={{ position: 'absolute', left: '50%', top: '54%', width: '42%', height: '42%', background: '#C8A873', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 20, boxShadow: 'inset 0 0 0 3px #FDE68A80' }} />
-        <div style={{ position: 'absolute', left: '50%', top: '54%', width: '29%', height: '29%', border: '3px solid #FFF7ED', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 14, opacity: 0.95 }} />
-        {FIELD_POSITIONS.map((pos) => {
-          const charId = fieldingPositions[pos.id]
-          const character = charId ? charactersById[charId] : null
-          return (
-            <div
-              key={pos.id}
-              onClick={() => handlePositionClick(pos.id)}
-              style={{ position: 'absolute', left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)', width: 90, height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: character ? 'pointer' : 'default' }}
-            >
-              {character ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                  <Portrait
-                    name={character.name}
-                    size={52}
-                    showChemistryNote={chemistryHighlightIds.has(charId)}
-                    highlighted={selectedPlayer === charId}
-                    style={{ boxShadow: '0 6px 14px #00000040', background: 'transparent' }}
-                  />
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#F8FAFC', textShadow: '0 1px 2px #000', background: '#0F172A99', padding: '2px 5px', borderRadius: 999 }}>{pos.label}</div>
-                </div>
-              ) : (
-                <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#0F172A66', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#E2E8F0', border: '2px dashed #BFDBFE' }}>{pos.label}</div>
-              )}
-            </div>
-          )
-        })}
-      </div>
     </div>
   )
 }
@@ -1120,6 +903,10 @@ export default function SeasonRoster() {
   const lineupCharactersById = useMemo(
     () => Object.fromEntries(lineupCharacters.map((entry) => [entry.id, entry])),
     [lineupCharacters],
+  )
+  const positionByCharId = useMemo(
+    () => Object.fromEntries(Object.entries(fieldingPositions).map(([posId, charId]) => [charId, posId])),
+    [fieldingPositions],
   )
   const lineupChemistryCharacterId = selectedLineupMoveId || null
   const lineupChemistryHighlightIds = useMemo(
@@ -1914,8 +1701,8 @@ export default function SeasonRoster() {
                     value={viewedTeamId}
                     onChange={(e) => setViewedTeamId(e.target.value)}
                     style={{
-                      background: '#1E293B', border: '1px solid #334155', borderRadius: 8,
-                      color: '#E2E8F0', padding: '6px 10px', fontSize: 14, cursor: 'pointer',
+                      background: '#1E293B', border: '1px solid #334155', borderRadius: 999,
+                      color: '#E2E8F0', fontWeight: 600, padding: '8px 14px', fontSize: 14, cursor: 'pointer',
                       minWidth: 180,
                     }}
                   >
@@ -1933,7 +1720,7 @@ export default function SeasonRoster() {
                   </select>
                 </div>
                 {!canEditRoster && (
-                  <span style={{ fontSize: 11, color: '#64748B', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, padding: '3px 10px' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, padding: '4px 12px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
                     View only
                   </span>
                 )}
@@ -1941,9 +1728,9 @@ export default function SeasonRoster() {
             </section>
 
             <div className="roster-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start' }}>
-              <div style={{ background: '#0F172A', borderRadius: 10, padding: 16, height: 'fit-content', maxHeight: '80vh', overflowY: 'auto' }}>
-                <div style={{ marginBottom: 12 }}>
-                  <h3 style={{ fontSize: 14, fontWeight: 700, color: '#CBD5E1', margin: 0 }}>Lineup</h3>
+              <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 14, padding: 16, height: 'fit-content', maxHeight: '80vh', overflowY: 'auto' }}>
+                <div style={{ marginBottom: 14 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 800, color: '#EFF6FF', letterSpacing: '.04em', textTransform: 'uppercase', margin: 0 }}>Lineup</h3>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {lineupCharacters.length === 0 ? (
@@ -1968,6 +1755,7 @@ export default function SeasonRoster() {
                           onOpenCard={() => setCardCharacterId(character.id)}
                           compact
                           lineupNumber={index + 1}
+                          positionLabel={positionByCharId[charId] || null}
                           onLineupNumberClick={() => handleLineupNumberClick(charId, index)}
                           lineupNumberSelected={selectedLineupMoveId === charId}
                           lineupNumberAriaLabel={`Lineup spot ${index + 1}`}
