@@ -1029,7 +1029,7 @@ export default function Roster() {
           </section>
 
           <div className="roster-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start' }}>
-            <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 14, padding: 16, height: 'fit-content', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 14, padding: 16, height: 'fit-content' }}>
               <div style={{ marginBottom: 14 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 800, color: '#EFF6FF', letterSpacing: '.04em', textTransform: 'uppercase', margin: 0 }}>Lineup</h3>
               </div>
