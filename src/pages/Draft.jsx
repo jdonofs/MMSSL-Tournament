@@ -1295,11 +1295,26 @@ export function DraftExperience({ mode = 'tournament' }) {
                 ? (
                   !is_logged_in ? <span /> : (
                     player?.is_commissioner && !isYourTurn && canDraft && currentDrafter ? (
-                      <button onClick={e => { e.stopPropagation(); beginForcePick(c, currentDrafter.id) }} type="button" style={{ padding: isMobileBoard ? '4px 2px' : '4px 6px', borderRadius: 6, fontSize: isMobileBoard ? 10 : 11, fontWeight: 700, border: '1px solid #EAB308', background: 'transparent', color: '#EAB308', cursor: 'pointer' }}>
+                      <button
+                        onClick={e => { e.stopPropagation(); beginForcePick(c, currentDrafter.id) }}
+                        type="button"
+                        style={{ ...draftBoardActionButtonStyle, border: '1px solid #EAB308', background: 'transparent', color: '#EAB308', cursor: 'pointer' }}
+                      >
                         {isMobileBoard ? 'Frc' : 'Force'}
                       </button>
                     ) : (
-                      <button onClick={e => { e.stopPropagation(); beginDraftPick(c) }} type="button" disabled={!isYourTurn || !canDraft || !!myPendingPick} style={{ padding: isMobileBoard ? '4px 2px' : '4px 6px', borderRadius: 6, fontSize: isMobileBoard ? 10 : 11, fontWeight: 700, border: 'none', background: isYourTurn && canDraft && !myPendingPick ? '#EAB308' : '#1E293B', color: isYourTurn && canDraft && !myPendingPick ? '#000' : '#334155', cursor: isYourTurn && canDraft && !myPendingPick ? 'pointer' : 'default' }}>
+                      <button
+                        onClick={e => { e.stopPropagation(); beginDraftPick(c) }}
+                        type="button"
+                        disabled={!isYourTurn || !canDraft || !!myPendingPick}
+                        style={{
+                          ...draftBoardActionButtonStyle,
+                          border: 'none',
+                          background: isYourTurn && canDraft && !myPendingPick ? '#EAB308' : '#1E293B',
+                          color: isYourTurn && canDraft && !myPendingPick ? '#000' : '#334155',
+                          cursor: isYourTurn && canDraft && !myPendingPick ? 'pointer' : 'default',
+                        }}
+                      >
                         {isMobileBoard ? 'Pick' : 'Draft'}
                       </button>
                     )
