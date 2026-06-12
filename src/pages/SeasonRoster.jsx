@@ -1731,7 +1731,7 @@ export default function SeasonRoster() {
                         onDragStart={canEditRoster ? handleDragStartLineup(charId) : undefined}
                         onDragOver={canEditRoster ? (event) => event.preventDefault() : undefined}
                         onDrop={canEditRoster ? handleDropOnLineup(index) : undefined}
-                        style={{ borderRadius: 8 }}
+                        style={{ borderRadius: 8, touchAction: 'pan-y' }}
                       >
                         <DraggableRosterItem
                           character={character}
