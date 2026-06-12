@@ -1187,7 +1187,7 @@ body.drawer-open {
   .season-standings-table td:first-child,
   .season-power-table th:first-child,
   .season-power-table td:first-child {
-    width: 26%;
+    width: 22%;
     max-width: none;
     padding-left: 0.14rem;
     padding-right: 0.14rem;
@@ -1207,14 +1207,23 @@ body.drawer-open {
   .season-standings-table td:nth-child(4),
   .season-standings-table th:nth-child(5),
   .season-standings-table td:nth-child(5) {
-    width: 9%;
+    width: 8%;
+  }
+
+  .season-standings-table th:nth-child(6),
+  .season-standings-table td:nth-child(6),
+  .season-standings-table th:nth-child(7),
+  .season-standings-table td:nth-child(7) {
+    width: 8%;
+    padding-left: 0.1rem;
+    padding-right: 0.1rem;
   }
 
   .season-standings-table th:nth-child(8),
   .season-standings-table td:nth-child(8),
   .season-standings-table th:nth-child(9),
   .season-standings-table td:nth-child(9) {
-    width: 16%;
+    width: 15%;
     padding-left: 0.1rem;
     padding-right: 0.1rem;
   }
