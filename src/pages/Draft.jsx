@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, RotateCcw, SkipForward, X, Zap } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RotateCcw, X, Zap } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
@@ -856,24 +856,6 @@ export function DraftExperience({ mode = 'tournament' }) {
     closeCard()
   }, [activeDraftContext, canDraft, currentDrafter, isDraftComplete, isYourTurn, closeCard, pushToast, validateCaptainPick, skipReveal, finalizeDraftPick])
 
-  const forceAdvance = useCallback(async () => {
-    if (!activeDraftContext || !currentDrafter || isSeasonMode) {
-      if (isSeasonMode) {
-        pushToast({ title: 'Skip unavailable', message: 'Season draft skips are not supported with the current season schema.', type: 'info' })
-      }
-      return
-    }
-    if (!canDraft) {
-      pushToast({ title: isDraftComplete ? 'Draft complete' : 'Draft locked', message: isDraftComplete ? 'No picks remain in this draft.' : 'Drafting is not currently open.', type: 'error' })
-      return
-    }
-    const { error } = await supabase.from('draft_picks').insert({ tournament_id: activeDraftContext.id, pick_number: currentPickNumber, round, pick_in_round: pickInRound + 1, player_id: currentDrafter.id, character_id: null })
-    if (error) { pushToast({ title: 'Failed', message: error.message, type: 'error' }); return }
-    const { data } = await supabase.from('draft_picks').select('*').eq('tournament_id', activeDraftContext.id).order('pick_number')
-    setAllDraftPicks(cur => [...cur.filter(p => p.tournament_id !== activeDraftContext.id), ...(data || [])])
-    pushToast({ title: 'Pick skipped', type: 'info' })
-  }, [activeDraftContext, currentDrafter, currentPickNumber, round, pickInRound, pushToast, isSeasonMode, canDraft, isDraftComplete])
-
   const undoLastPick = useCallback(async () => {
     if (!draftPicks.length) return
     const removedPick = draftPicks[draftPicks.length - 1]
@@ -1151,7 +1133,6 @@ export function DraftExperience({ mode = 'tournament' }) {
               </button>
               <button className="ghost-button" onClick={retreatPresentationSlide} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#94A3B8', borderColor: '#94A3B8' }}><ChevronLeft size={14} /> Back Slide</button>
               <button className="ghost-button" onClick={advancePresentationSlide} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#EAB308', borderColor: '#EAB308' }}><ChevronRight size={14} /> Advance Slide</button>
-              <button className="ghost-button" disabled={!canDraft || isCaptainRoundLocked} onClick={forceAdvance} type="button" style={{ fontSize: 12, padding: '6px 10px' }}><SkipForward size={14} /> Skip</button>
               <button className="ghost-button" disabled={!draftStatusOpen || !draftPicks.length} onClick={undoLastPick} type="button" style={{ fontSize: 12, padding: '6px 10px' }}><RotateCcw size={14} /> Undo</button>
               <button className="ghost-button" disabled={!canDraft || isAutoDrafting || !isCaptainRoundLocked} onClick={autoDraftCaptains} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#7DD3FC', borderColor: '#7DD3FC' }}><Zap size={14} /> {isAutoDrafting && isCaptainRoundLocked ? 'Drafting…' : 'Auto Draft Captains'}</button>
               <button className="ghost-button" disabled={!canDraft || isAutoDrafting || picksRemaining === 0 || isCaptainRoundLocked} title={isCaptainRoundLocked ? 'Finish the captain round first (Auto Draft Captains).' : undefined} onClick={autoDraftAll} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#A78BFA', borderColor: '#A78BFA' }}><Zap size={14} /> {isAutoDrafting ? 'Drafting…' : 'Auto Draft'}</button>

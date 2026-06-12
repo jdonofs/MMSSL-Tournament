@@ -26,7 +26,13 @@ export default function Login() {
 
   useEffect(() => {
     if (selectedPlayer && passwordSectionRef.current) {
-      passwordSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      // Delay so the on-screen keyboard has time to open (from autoFocus)
+      // before we measure scroll position, otherwise the password field
+      // ends up hidden behind the keyboard on mobile.
+      const timeout = setTimeout(() => {
+        passwordSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 300)
+      return () => clearTimeout(timeout)
     }
   }, [selectedPlayer])
 
@@ -152,6 +158,11 @@ export default function Login() {
                             type={showPassword ? 'text' : 'password'}
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
+                            onFocus={() => {
+                              setTimeout(() => {
+                                passwordSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                              }, 300)
+                            }}
                             placeholder="Enter your password"
                             autoFocus
                             style={{

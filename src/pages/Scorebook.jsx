@@ -1975,6 +1975,15 @@ export default function Scorebook() {
     }
   }, [selectedGameId, scorebookTables.bets])
 
+  const shouldDeferRealtimeMerge = useCallback((currentRows = [], nextRows = [], getId = (row) => row.id) => {
+    if (Date.now() > deferRealtimeUntilRef.current) return false
+    if (nextRows.length < currentRows.length) return true
+    if (nextRows.length !== currentRows.length) return false
+    const currentIds = currentRows.map((row) => String(getId(row))).sort()
+    const nextIds = nextRows.map((row) => String(getId(row))).sort()
+    return currentIds.length > 0 && currentIds.every((id, index) => id === nextIds[index])
+  }, [])
+
   // ── Realtime ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!selectedGameId) return
@@ -3264,14 +3273,6 @@ export default function Scorebook() {
   }, [selectedGameId, currentHalfIdx, runnerStateLoadedScope, runners, runnersHistory, offense])
 
   const [isSaving, setIsSaving] = useState(false)
-  const shouldDeferRealtimeMerge = useCallback((currentRows = [], nextRows = [], getId = (row) => row.id) => {
-    if (Date.now() > deferRealtimeUntilRef.current) return false
-    if (nextRows.length < currentRows.length) return true
-    if (nextRows.length !== currentRows.length) return false
-    const currentIds = currentRows.map((row) => String(getId(row))).sort()
-    const nextIds = nextRows.map((row) => String(getId(row))).sort()
-    return currentIds.length > 0 && currentIds.every((id, index) => id === nextIds[index])
-  }, [])
   const canRecordOutcome = Boolean(currentPitcherStint) && !isSaving && !isPitchActionPending && canEditScorebook
 
   useEffect(() => () => {

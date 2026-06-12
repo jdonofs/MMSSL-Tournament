@@ -1063,13 +1063,9 @@ export default function Roster() {
                           lineupNumberAriaLabel={`Lineup spot ${index + 1}`}
                           lineupNumberTitle={canEditRoster ? (selectedLineupMoveId === charId ? 'Selected lineup slot' : 'Tap to move this player or move another player here') : `Lineup spot ${index + 1}`}
                           lineupNumberDisabled={!canEditRoster}
-                          onTrade={() => {
-                            const pick = activeRosterByPlayerId[String(myPlayer?.id)]?.find(p => p.character_id === rosterChar.id)
-                            if (pick) openTradeBuilder(pick)
-                            }}
-                            showChemistryNote={chemistryHighlightIds.has(charId)}
+                          showChemistryNote={chemistryHighlightIds.has(charId)}
                             highlighted={selectedLineupMoveId === charId}
-                            showTrade={canEditRoster && Boolean(myPlayer) && !tradeDeadlinePassed}
+                            showTrade={false}
                             disabled={!canEditRoster}
                           />
                       </div>

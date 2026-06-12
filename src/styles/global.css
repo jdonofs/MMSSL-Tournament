@@ -1210,10 +1210,10 @@ body.drawer-open {
     width: 9%;
   }
 
-  .season-standings-table th:nth-child(6),
-  .season-standings-table td:nth-child(6),
-  .season-standings-table th:nth-child(7),
-  .season-standings-table td:nth-child(7) {
+  .season-standings-table th:nth-child(8),
+  .season-standings-table td:nth-child(8),
+  .season-standings-table th:nth-child(9),
+  .season-standings-table td:nth-child(9) {
     width: 16%;
     padding-left: 0.1rem;
     padding-right: 0.1rem;
@@ -1554,7 +1554,10 @@ button, a, select, input, textarea, label, [role="button"] {
   .mobile-drawer {
     position: fixed;
     inset: 0 auto 0 0;
-    z-index: 31;
+    /* Must sit above .mobile-topbar (z-index 32, position: sticky) so the
+       drawer's own header (Sluggers brand + username) isn't hidden behind it
+       and the drawer can be scrolled all the way to the top. */
+    z-index: 33;
     width: min(320px, calc(100vw - 3rem));
     background: linear-gradient(180deg, rgba(20, 28, 44, 0.98), rgba(12, 18, 31, 0.98));
     border-right: 1px solid var(--line);

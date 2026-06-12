@@ -1535,7 +1535,7 @@ export default function Stats() {
 
   const playerColumns = useMemo(() => ({
     batting: [
-      { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} /> },
+      { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
       { key: 'gamesPlayed', group: 'Record', label: 'G', sortValue: (row) => row.gamesPlayed, value: (row) => row.gamesPlayed },
       { key: 'runsFor', group: 'Runs', label: 'RS', sortValue: (row) => row.runsFor, value: (row) => row.runsFor },
       { key: 'runsAgainst', group: 'Runs', label: 'RA', sortValue: (row) => row.runsAgainst, value: (row) => row.runsAgainst },
@@ -1578,7 +1578,7 @@ export default function Stats() {
       { key: 'rc3', group: 'Advanced', label: 'RC/3', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.rc3 : null, render: (row) => qualifiesAdvancedBatting(row) ? <span title="Runs Created per 3-inning game">{formatTooltipNumber(row.advancedBatting.rc3, 1)}</span> : '--' },
     ],
     pitching: [
-      { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} /> },
+      { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
       { key: 'games', group: 'Usage', label: 'G', sortValue: (row) => row.pitching.games, value: (row) => row.pitching.games },
       { key: 'innings', group: 'Usage', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
       { key: 'wins', group: 'Decisions', label: 'W', sortValue: (row) => row.pitching.wins, value: (row) => row.pitching.wins },
@@ -1612,7 +1612,7 @@ export default function Stats() {
       { key: 'babipAllowed', group: 'Rates', label: 'BABIP Allowed', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.babipAllowed : null, value: (row) => qualifiesAdvancedPitching(row) ? formatAverageStyle(row.advancedPitching.babipAllowed) : '--' },
     ],
     fielding: [
-      { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} /> },
+      { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
       { key: 'games', group: 'Fielding', label: 'G', sortValue: (row) => row.fielding.games, value: (row) => row.fielding.games },
       { key: 'chances', group: 'Fielding', label: 'Chances', sortValue: (row) => row.fielding.chances, value: (row) => row.fielding.chances },
       { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
@@ -1701,7 +1701,7 @@ export default function Stats() {
   }), [identitiesByPlayerId, playersById])
 
   const advancedBattingColumns = useMemo(() => ([
-    { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 190, sortValue: (row) => row.name, render: (row) => row.isLeagueRow ? <div><div style={{ fontWeight: 800, color: '#FDE68A' }}>League Avg</div><div className="muted" style={{ fontSize: 12 }}>AVG {formatAverageStyle(leagueConstants.lgAVG)} / OBP {formatAverageStyle(leagueConstants.lgOBP)} / SLG {formatAverageStyle(leagueConstants.lgSLG)}</div></div> : <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} /> },
+    { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 190, sortValue: (row) => row.name, render: (row) => row.isLeagueRow ? <div><div style={{ fontWeight: 800, color: '#FDE68A' }}>League Avg</div><div className="muted" style={{ fontSize: 12 }}>AVG {formatAverageStyle(leagueConstants.lgAVG)} / OBP {formatAverageStyle(leagueConstants.lgOBP)} / SLG {formatAverageStyle(leagueConstants.lgSLG)}</div></div> : <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
     { key: 'plateAppearances', group: 'Profile', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
     { key: 'babip', group: 'Profile', label: 'BABIP', sortValue: (row) => row.advancedBatting.babip, value: (row) => Number.isFinite(row.advancedBatting.babip) ? formatAverageStyle(row.advancedBatting.babip) : '--' },
     { key: 'iso', group: 'Profile', label: 'ISO', sortValue: (row) => row.advancedBatting.iso, value: (row) => Number.isFinite(row.advancedBatting.iso) ? formatAverageStyle(row.advancedBatting.iso) : '--' },
@@ -1718,7 +1718,7 @@ export default function Stats() {
   ]), [identitiesByPlayerId, playersById, leagueConstants])
 
   const advancedPitchingColumns = useMemo(() => ([
-    { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 190, sortValue: (row) => row.name, render: (row) => row.isLeagueRow ? <div><div style={{ fontWeight: 800, color: '#FDE68A' }}>League Avg</div><div className="muted" style={{ fontSize: 12 }}>ERA/3 {formatDecimal(leagueConstants.lgERA, 2)} / FIP {formatDecimal(leaguePitchingSummary.fip, 2)}</div></div> : <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} /> },
+    { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 190, sortValue: (row) => row.name, render: (row) => row.isLeagueRow ? <div><div style={{ fontWeight: 800, color: '#FDE68A' }}>League Avg</div><div className="muted" style={{ fontSize: 12 }}>ERA/3 {formatDecimal(leagueConstants.lgERA, 2)} / FIP {formatDecimal(leaguePitchingSummary.fip, 2)}</div></div> : <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
     { key: 'innings', group: 'Workload', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
     { key: 'era3', group: 'Prevention', label: 'ERA/3', sortValue: (row) => row.advancedPitching.era3, value: (row) => formatDecimal(row.advancedPitching.era3, 2) },
     { key: 'fip', group: 'Prevention', label: 'FIP', defaultDirection: 'asc', sortValue: (row) => row.advancedPitching.fip, value: (row) => formatDecimal(row.advancedPitching.fip, 2) },

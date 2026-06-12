@@ -302,7 +302,7 @@ export default function Bracket() {
         {champion && (
           <div className="player-pill" style={{ borderColor: champion.color }}>
             <Crown size={16} color="#eab308" />
-            <strong><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} player={champion} /> is champion</strong>
+            <strong><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} player={champion} responsiveAbbreviation /> is champion</strong>
           </div>
         )}
       </div>
@@ -328,7 +328,7 @@ export default function Bracket() {
                   <tr key={s.player?.id || i} style={{ borderBottom: '1px solid #1E293B' }}>
                     <td style={{ padding: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ width: 12, height: 12, borderRadius: '50%', background: s.player?.color || '#666', flexShrink: 0 }} />
-                      <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} player={s.player} />
+                      <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} player={s.player} responsiveAbbreviation />
                     </td>
                     <td style={{ textAlign: 'center', padding: 8 }}>{s.w}</td>
                     <td style={{ textAlign: 'center', padding: 8 }}>{s.l}</td>
@@ -362,7 +362,7 @@ export default function Bracket() {
                   </button>
                   <div className="page-stack" style={{ gap: '0.2rem', minWidth: 0 }}>
                     <strong>{game.stage}</strong>
-                    <span className="muted"><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} /> vs <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} /></span>
+                    <span className="muted"><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} responsiveAbbreviation /> vs <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} responsiveAbbreviation /></span>
                   </div>
                   {game.status === 'complete' && <span style={{ color: '#EAB308', fontWeight: 600 }}>{game.team_a_runs}-{game.team_b_runs}</span>}
                   {isCommissioner && <button className="icon-button" onClick={() => deleteGame(game)} type="button"><Trash2 size={14} /></button>}
@@ -393,11 +393,11 @@ export default function Bracket() {
                     <strong>{game.stage}</strong>
                     <span className="muted">
                       <span style={{ color: game.status === 'complete' && game.winner_player_id === game.team_a_player_id ? '#4ade80' : game.status === 'complete' ? '#fb7185' : undefined }}>
-                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} />
+                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} responsiveAbbreviation />
                       </span>
                       {' vs '}
                       <span style={{ color: game.status === 'complete' && game.winner_player_id === game.team_b_player_id ? '#4ade80' : game.status === 'complete' ? '#fb7185' : undefined }}>
-                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} />
+                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} responsiveAbbreviation />
                       </span>
                     </span>
                   </div>
@@ -455,11 +455,11 @@ export default function Bracket() {
                     <strong>{normalizeStageLabel(game.stage)}</strong>
                     <span className="muted">
                       <span style={{ color: game.status === 'complete' && game.winner_player_id === game.team_a_player_id ? '#4ade80' : game.status === 'complete' ? '#fb7185' : undefined }}>
-                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} />
+                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} responsiveAbbreviation />
                       </span>
                       {' vs '}
                       <span style={{ color: game.status === 'complete' && game.winner_player_id === game.team_b_player_id ? '#4ade80' : game.status === 'complete' ? '#fb7185' : undefined }}>
-                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} />
+                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} responsiveAbbreviation />
                       </span>
                     </span>
                   </div>
@@ -546,9 +546,9 @@ export default function Bracket() {
                 {normalizeStageLabel(stadiumSetupGame.stage || 'Exhibition')}
               </div>
               <div>
-                <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={stadiumSetupGame.team_a_player_id} playersById={playersById} />
+                <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={stadiumSetupGame.team_a_player_id} playersById={playersById} responsiveAbbreviation />
                 {' vs '}
-                <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={stadiumSetupGame.team_b_player_id} playersById={playersById} />
+                <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={stadiumSetupGame.team_b_player_id} playersById={playersById} responsiveAbbreviation />
               </div>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="muted">Stadium</span>

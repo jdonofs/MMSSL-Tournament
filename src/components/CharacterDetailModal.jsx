@@ -550,9 +550,7 @@ export default function CharacterDetailModal({
       { key: 'speedRangeBonus', label: 'Speed Range Bonus', value: talentAnalysis.categoryBreakdown?.fielding?.bonuses?.speedRangeBonus, min: -5, median: 0, digits: 2, max: 5, description: 'Small defense bonus or penalty created by mobility relative to average.' },
       { key: 'fieldDefenseBonus', label: 'Fielding Ability Bonus', value: talentAnalysis.categoryBreakdown?.fielding?.bonuses?.fieldDefenseBonus, min: 0, median: 0, digits: 0, max: 10, description: 'Flat defensive bonus from the fielding ability trait.' },
     ] : []
-    const speedSkillItems = talentAnalysis ? [
-      { key: 'mobilitySpeed', label: 'Mobility', value: talentAnalysis.categoryBreakdown?.speed?.metrics?.mobility, min: statMins?.mobility ?? 0, median: statMedians?.mobility ?? 50, max: statMaxes?.mobility ?? 100, description: 'Speed OVR is currently driven directly by normalized mobility.' },
-    ] : []
+    const speedSkillItems = []
     return (
       <div style={{ display: 'grid', gap: 18 }}>
         {talentAnalysis ? (

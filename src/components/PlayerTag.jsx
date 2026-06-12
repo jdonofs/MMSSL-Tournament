@@ -10,6 +10,7 @@ export default function PlayerTag({
   showLogo = true,
   height = 36,
   nameMode = 'short',
+  responsiveAbbreviation = false,
   textStyle = {},
   color,
   style = {},
@@ -21,6 +22,7 @@ export default function PlayerTag({
       ? getTeamAbbreviation(identity)
       : getTeamShortName(identity)
   ) || resolvedPlayer?.name || 'TBD'
+  const abbreviationName = getTeamAbbreviation(identity) || resolvedPlayer?.name || 'TBD'
 
   return (
     <span
@@ -39,18 +41,49 @@ export default function PlayerTag({
         placeholder={showLogo ? showPlaceholder : false}
         teamName={identity?.teamName}
       />
-      <span
-        style={{
-          minWidth: 0,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          color: color || getTeamPrimaryColor(identity, resolvedPlayer?.color) || 'inherit',
-          ...textStyle,
-        }}
-      >
-        {displayName}
-      </span>
+      {responsiveAbbreviation ? (
+        <>
+          <span
+            className="season-team-label-full"
+            style={{
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: color || getTeamPrimaryColor(identity, resolvedPlayer?.color) || 'inherit',
+              ...textStyle,
+            }}
+          >
+            {displayName}
+          </span>
+          <span
+            className="season-team-label-mobile"
+            style={{
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: color || getTeamPrimaryColor(identity, resolvedPlayer?.color) || 'inherit',
+              ...textStyle,
+            }}
+          >
+            {abbreviationName}
+          </span>
+        </>
+      ) : (
+        <span
+          style={{
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            color: color || getTeamPrimaryColor(identity, resolvedPlayer?.color) || 'inherit',
+            ...textStyle,
+          }}
+        >
+          {displayName}
+        </span>
+      )}
     </span>
   )
 }

@@ -1143,27 +1143,6 @@ export default function SeasonRoster() {
     })
   }, [canEditRoster])
 
-  const openTradeBuilder = useCallback((seedEntry = null) => {
-    const baseParticipantIds = myTeam?.id ? [String(myTeam.id)] : []
-    const nextState = { participantTeamIds: baseParticipantIds, assets: [] }
-    if (seedEntry) {
-      const fromTeamId = String(seedEntry.team_id)
-      const defaultTarget = fromTeamId === String(myTeam?.id)
-        ? (viewedTeamId && viewedTeamId !== fromTeamId ? String(viewedTeamId) : '')
-        : String(myTeam?.id || '')
-      nextState.participantTeamIds = Array.from(new Set([...baseParticipantIds, fromTeamId, ...(defaultTarget ? [defaultTarget] : [])]))
-      nextState.assets = [{
-        rosterId: seedEntry.id,
-        character_name: seedEntry.character_name,
-        from_team_id: fromTeamId,
-        to_team_id: defaultTarget && defaultTarget !== fromTeamId ? defaultTarget : '',
-      }]
-    }
-    setActiveTab('Trade Center')
-    setTradeDraft(nextState)
-    setTradeBuilderStep('teams')
-  }, [myTeam?.id, viewedTeamId])
-
   const closeTradeBuilder = useCallback(() => {
     setTradeDraft({ participantTeamIds: myTeam?.id ? [String(myTeam.id)] : [], assets: [] })
     setTradeBuilderStep('teams')
@@ -1767,10 +1746,9 @@ export default function SeasonRoster() {
                           lineupNumberAriaLabel={`Lineup spot ${index + 1}`}
                           lineupNumberTitle={canEditRoster ? (selectedLineupMoveId === charId ? 'Selected lineup slot' : 'Tap to move this player or move another player here') : `Lineup spot ${index + 1}`}
                           lineupNumberDisabled={!canEditRoster}
-                          onTrade={() => openTradeBuilder(character.seasonRosterEntry)}
                           showChemistryNote={lineupChemistryHighlightIds.has(character.id)}
                           highlighted={selectedLineupMoveId === character.id}
-                          showTrade={isViewingOwnTeam && Boolean(myTeam)}
+                          showTrade={false}
                           disabled={!isViewingOwnTeam || !myTeam || tradeDeadlinePassed}
                         />
                       </div>
