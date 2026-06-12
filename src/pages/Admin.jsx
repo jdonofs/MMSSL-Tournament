@@ -132,10 +132,11 @@ function EditSeasonModal({
     }
 
     const nextGamesPerMatchup = Math.trunc(Number(form.games_per_matchup))
-    if (regularSeasonStarted && nextGamesPerMatchup !== Number(season.games_per_matchup || 0)) {
+    const currentGamesPerMatchup = Number(season.games_per_matchup || 0)
+    if (regularSeasonStarted && nextGamesPerMatchup < currentGamesPerMatchup) {
       pushToast({
         title: 'Games per matchup locked',
-        message: 'Change games per matchup before the regular season starts so the existing schedule stays valid.',
+        message: 'Games per matchup can only be increased once the regular season has started, not decreased.',
         type: 'error',
       })
       return
@@ -161,7 +162,7 @@ function EditSeasonModal({
         .eq('id', season.id)
       if (seasonError) throw seasonError
 
-      if (!regularSeasonStarted && nextGamesPerMatchup !== Number(season.games_per_matchup || 0)) {
+      if (!regularSeasonStarted && nextGamesPerMatchup !== currentGamesPerMatchup) {
         const playerIdToTeamId = Object.fromEntries((seasonTeams || []).map((entry) => [entry.player_id, entry.id]))
         const nextSchedule = buildRoundRobinSchedule(
           (seasonTeams || []).map((entry) => entry.player_id),
@@ -191,6 +192,40 @@ function EditSeasonModal({
           const { error: insertError } = await supabase.from('season_schedule').insert(nextSchedule)
           if (insertError) throw insertError
         }
+      } else if (regularSeasonStarted && nextGamesPerMatchup > currentGamesPerMatchup) {
+        const playerIdToTeamId = Object.fromEntries((seasonTeams || []).map((entry) => [entry.player_id, entry.id]))
+        const addedCycles = nextGamesPerMatchup - currentGamesPerMatchup
+        const maxRoundNumber = regularSeasonGames.reduce((max, game) => Math.max(max, Number(game.round_number || 0)), 0)
+        const additionalSchedule = buildRoundRobinSchedule(
+          (seasonTeams || []).map((entry) => entry.player_id),
+          addedCycles,
+        ).map((game) => ({
+          season_id: season.id,
+          round_number: maxRoundNumber + game.round_number,
+          home_team_id: playerIdToTeamId[game.home_team_id],
+          away_team_id: playerIdToTeamId[game.away_team_id],
+          stadium_picker_team_id: playerIdToTeamId[game.stadium_picker_team_id],
+          innings: payload.innings,
+          mercy_rule: payload.mercy_rule,
+          mercy_rule_differential: payload.mercy_rule_differential,
+          status: 'scheduled',
+        }))
+
+        if (additionalSchedule.length) {
+          const { error: insertError } = await supabase.from('season_schedule').insert(additionalSchedule)
+          if (insertError) throw insertError
+        }
+
+        const { error: scheduledGamesError } = await supabase
+          .from('season_schedule')
+          .update({
+            innings: payload.innings,
+            mercy_rule: payload.mercy_rule,
+            mercy_rule_differential: payload.mercy_rule_differential,
+          })
+          .eq('season_id', season.id)
+          .eq('status', 'scheduled')
+        if (scheduledGamesError) throw scheduledGamesError
       } else {
         const { error: scheduledGamesError } = await supabase
           .from('season_schedule')
@@ -232,13 +267,17 @@ function EditSeasonModal({
           <label style={{ display: 'grid', gap: 6 }}>
             <span className="muted">Games per matchup</span>
             <input
-              min="1"
+              min={regularSeasonStarted ? Number(season.games_per_matchup || 1) : 1}
               max="10"
               type="number"
               value={form.games_per_matchup}
               onChange={(event) => setForm((current) => ({ ...current, games_per_matchup: Number(event.target.value) }))}
-              disabled={regularSeasonStarted}
             />
+            {regularSeasonStarted ? (
+              <span className="muted" style={{ fontSize: 12 }}>
+                The regular season has started — you can add more games per matchup, but not remove any.
+              </span>
+            ) : null}
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
             <span className="muted">Regulation innings</span>
@@ -855,17 +894,14 @@ export default function Admin() {
         <Section title="Season">
           <Row
             label="New Season"
-            description="Create a new season with a fresh schedule and rosters."
             action={<button className="ghost-button" onClick={() => navigate('/season/create')} type="button">Create</button>}
           />
           <Row
             label="Edit Season"
-            description={activeSeason ? `Update ${activeSeason.name} settings without leaving Admin.` : 'No active season.'}
             action={<button className="ghost-button" onClick={() => setEditingSeason(true)} disabled={!activeSeason} type="button">Edit</button>}
           />
           <Row
             label="Resolve Waivers"
-            description={activeSeason ? `Process all pending waiver claims for ${activeSeason.name}.` : 'No active season.'}
             action={
               <ConfirmButton
                 label="Resolve"
@@ -877,7 +913,6 @@ export default function Admin() {
           />
           <Row
             label="Delete Season"
-            description={activeSeason ? `Permanently delete ${activeSeason.name} and all related data.` : 'No active season.'}
             action={
               <ConfirmButton
                 label="Delete"

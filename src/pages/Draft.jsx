@@ -659,16 +659,18 @@ export function DraftExperience({ mode = 'tournament' }) {
     [draftPicks, charactersById]
   )
   const showDraftedMetadata = availabilityFilter === 'drafted' || availabilityFilter === 'all'
+  const draftBoardActionButtonWidth = isMobileBoard ? 40 : 56
+  const draftBoardActionColumnWidth = isMobileBoard ? 48 : 64
   const draftBoardColumns = showDraftedMetadata
     ? (
         isMobileBoard
-          ? '22px minmax(0, 1fr) 24px 24px 24px 24px 26px 42px 20px 24px 44px'
-          : '32px 1fr 46px 46px 46px 46px 46px 120px 44px 52px 36px'
+          ? `22px minmax(0, 1fr) 24px 24px 24px 24px 26px 42px 20px 24px ${draftBoardActionColumnWidth}px`
+          : `32px 1fr 46px 46px 46px 46px 46px 120px 44px 52px ${draftBoardActionColumnWidth}px`
       )
     : (
         isMobileBoard
-          ? '22px minmax(0, 1fr) 24px 24px 24px 24px 26px 44px'
-          : '32px 1fr 46px 46px 46px 46px 46px 36px'
+          ? `22px minmax(0, 1fr) 24px 24px 24px 24px 26px ${draftBoardActionColumnWidth}px`
+          : `32px 1fr 46px 46px 46px 46px 46px ${draftBoardActionColumnWidth}px`
       )
   const draftBoardMinWidth = isMobileBoard ? 0 : showDraftedMetadata ? 620 : 460
   const draftBoardGap = isMobileBoard ? 2 : 4
@@ -678,6 +680,20 @@ export function DraftExperience({ mode = 'tournament' }) {
   const draftBoardValueFontSize = isMobileBoard ? 11 : 13
   const draftBoardMetaFontSize = isMobileBoard ? 9 : 10
   const draftBoardPortraitSize = isMobileBoard ? 22 : 28
+  const draftBoardActionButtonStyle = {
+    width: draftBoardActionButtonWidth,
+    minHeight: isMobileBoard ? 24 : 28,
+    padding: isMobileBoard ? '4px 2px' : '4px 6px',
+    borderRadius: 6,
+    fontSize: isMobileBoard ? 10 : 11,
+    fontWeight: 700,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    justifySelf: 'center',
+    whiteSpace: 'nowrap',
+    lineHeight: 1,
+  }
 
   const sortedCharacters = useMemo(() => {
     let list = characters

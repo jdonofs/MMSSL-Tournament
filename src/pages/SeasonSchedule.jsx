@@ -551,58 +551,48 @@ export default function SeasonSchedule() {
 
   return (
     <div className="page-stack">
-      <div className="page-head">
+      <div className="page-head" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
           <span className="brand-kicker">Season Schedule</span>
           <h1>{currentSeason.name}</h1>
         </div>
+        <div className="tab-row" style={{ justifyContent: 'flex-end', marginLeft: 'auto' }}>
+          <button
+            className={`tab-button ${selectedView === 'regular' ? 'tab-button-active' : ''}`}
+            onClick={() => setSelectedView('regular')}
+            type="button"
+          >
+            Regular Season
+          </button>
+          {hasPlayoffTab ? (
+            <button
+              className={`tab-button ${selectedView === 'playoffs' ? 'tab-button-active' : ''}`}
+              onClick={() => setSelectedView('playoffs')}
+              type="button"
+            >
+              Playoffs
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <section className="panel" style={{ padding: 16 }}>
-        <div className="section-head" style={{ alignItems: 'flex-start', gap: 12 }}>
-          <div style={{ display: 'grid', gap: 6 }}>
-            <h2 style={{ margin: 0 }}>{selectedView === 'playoffs' ? 'Playoffs' : 'Regular Season'}</h2>
-            <span className="muted" style={{ fontSize: 13 }}>
-              {selectedView === 'playoffs'
-                ? 'Play postseason games here in bracket order.'
-                : 'Open each matchup to set the park and launch the scorebook.'}
-            </span>
-          </div>
-          <div style={{ display: 'grid', gap: 12, justifyItems: 'end' }}>
+        {selectedView === 'regular' ? (
+          <div className="section-head" style={{ justifyContent: 'flex-end' }}>
             <div className="tab-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <button
-                className={`tab-button ${selectedView === 'regular' ? 'tab-button-active' : ''}`}
-                onClick={() => setSelectedView('regular')}
-                type="button"
-              >
-                Regular Season
-              </button>
-              {hasPlayoffTab ? (
+              {weekGroups.map((group) => (
                 <button
-                  className={`tab-button ${selectedView === 'playoffs' ? 'tab-button-active' : ''}`}
-                  onClick={() => setSelectedView('playoffs')}
+                  key={group.week}
+                  className={`tab-button ${selectedWeek === group.week ? 'tab-button-active' : ''}`}
+                  onClick={() => setSelectedWeek(group.week)}
                   type="button"
                 >
-                  Playoffs
+                  Week {group.week}
                 </button>
-              ) : null}
+              ))}
             </div>
-            {selectedView === 'regular' ? (
-              <div className="tab-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                {weekGroups.map((group) => (
-                  <button
-                    key={group.week}
-                    className={`tab-button ${selectedWeek === group.week ? 'tab-button-active' : ''}`}
-                    onClick={() => setSelectedWeek(group.week)}
-                    type="button"
-                  >
-                    Week {group.week}
-                  </button>
-                ))}
-              </div>
-            ) : null}
           </div>
-        </div>
+        ) : null}
 
         {!visibleGames.length ? (
           <div className="summary-card" style={{ minHeight: 140, placeItems: 'center', textAlign: 'center' }}>

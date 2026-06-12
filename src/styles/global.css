@@ -1023,7 +1023,9 @@ body.drawer-open {
   right: 1rem;
   display: grid;
   gap: 0.75rem;
-  z-index: 40;
+  /* Must sit above .modal-backdrop (z-index 80) so validation toasts are
+     visible while a modal (e.g. Create Season) is open. */
+  z-index: 90;
 }
 
 .toast {

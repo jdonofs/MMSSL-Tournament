@@ -35,13 +35,13 @@ const STEPS = ['Setup', 'Players', 'Draft Order', 'Review']
 
 function StepIndicator({ current }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 24 }}>
       {STEPS.map((label, index) => {
         const step = index + 1
         const active = step === current
         const done = step < current
         return (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', flex: index < STEPS.length - 1 ? 1 : 0 }}>
+          <div key={label} style={{ display: 'flex', alignItems: 'flex-start', flex: index < STEPS.length - 1 ? 1 : 0 }}>
             <div style={{ display: 'grid', gap: 4, justifyItems: 'center' }}>
               <div
                 style={{
@@ -62,7 +62,7 @@ function StepIndicator({ current }) {
               </div>
               <span style={{ color: active ? C.accent : C.muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</span>
             </div>
-            {index < STEPS.length - 1 ? <div style={{ flex: 1, height: 2, background: done ? C.accent : C.border, margin: '0 8px 18px' }} /> : null}
+            {index < STEPS.length - 1 ? <div style={{ flex: 1, height: 2, background: done ? C.accent : C.border, margin: '14px 8px 0' }} /> : null}
           </div>
         )
       })}
