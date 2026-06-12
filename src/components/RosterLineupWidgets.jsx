@@ -153,15 +153,15 @@ export const POSITION_GROUP_COLORS = {
 }
 
 export const FIELD_POSITIONS = [
-  { id: 'pitcher', label: 'P', x: 50, y: 56, group: 'battery' },
-  { id: 'catcher', label: 'C', x: 50, y: 80, group: 'battery' },
-  { id: 'firstBase', label: '1B', x: 71, y: 56, group: 'infield' },
-  { id: 'secondBase', label: '2B', x: 59, y: 38, group: 'infield' },
-  { id: 'thirdBase', label: '3B', x: 29, y: 56, group: 'infield' },
-  { id: 'shortStop', label: 'SS', x: 41, y: 38, group: 'infield' },
-  { id: 'leftField', label: 'LF', x: 25, y: 20, group: 'outfield' },
-  { id: 'centerField', label: 'CF', x: 50, y: 12, group: 'outfield' },
-  { id: 'rightField', label: 'RF', x: 75, y: 20, group: 'outfield' },
+  { id: 'pitcher', label: 'P', x: 50, y: 68, group: 'battery' },
+  { id: 'catcher', label: 'C', x: 50, y: 85, group: 'battery' },
+  { id: 'firstBase', label: '1B', x: 66, y: 64, group: 'infield' },
+  { id: 'secondBase', label: '2B', x: 62, y: 48, group: 'infield' },
+  { id: 'thirdBase', label: '3B', x: 34, y: 64, group: 'infield' },
+  { id: 'shortStop', label: 'SS', x: 38, y: 48, group: 'infield' },
+  { id: 'leftField', label: 'LF', x: 22, y: 38, group: 'outfield' },
+  { id: 'centerField', label: 'CF', x: 50, y: 27, group: 'outfield' },
+  { id: 'rightField', label: 'RF', x: 78, y: 38, group: 'outfield' },
 ]
 
 export const FIELD_POSITIONS_BY_ID = Object.fromEntries(FIELD_POSITIONS.map((p) => [p.id, p]))
@@ -243,10 +243,8 @@ export function FieldingView({
           {editable ? (fieldingAssignMode ? (selectedForFielding ? 'Tap position to place' : 'Tap roster player first') : (selectedPlayer ? 'Tap position to move selected player' : 'Tap player, then tap position to swap')) : 'View only'}
         </div>
       </div>
-      <div style={{ position: 'relative', width: '100%', maxWidth: 460, aspectRatio: '1/1.02', background: 'radial-gradient(circle at 50% 18%, #86EFAC 0%, #4ADE80 22%, #2E8B57 52%, #24553A 100%)', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: '0 8px 24px #00000040, inset 0 10px 30px #00000030', border: '1px solid #1E293B' }}>
-        <div style={{ position: 'absolute', inset: '8% 12% 7%', borderRadius: '50% 50% 22% 22%', background: 'radial-gradient(circle at 50% 35%, #7CFC8A 0%, #4CAF50 45%, #2B6B3F 100%)', opacity: 0.85 }} />
-        <div style={{ position: 'absolute', left: '50%', top: '54%', width: '42%', height: '42%', background: '#C8A873', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 20, boxShadow: 'inset 0 0 0 3px #FDE68A80' }} />
-        <div style={{ position: 'absolute', left: '50%', top: '54%', width: '29%', height: '29%', border: '3px solid #FFF7ED', transform: 'translate(-50%, -50%) rotate(45deg)', borderRadius: 14, opacity: 0.95 }} />
+      <div style={{ position: 'relative', width: '100%', maxWidth: 460, aspectRatio: '1/1.02', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: '0 8px 24px #00000040', border: '1px solid #1E293B' }}>
+        <img src="/baseball-field.jpg" alt="Baseball field" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
         {FIELD_POSITIONS.map((pos) => {
           const charId = fieldingPositions[pos.id]
           const character = charId ? charactersById[charId] : null

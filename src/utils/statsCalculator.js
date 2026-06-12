@@ -36,11 +36,16 @@ export function inningsAsDecimal(inningsPitched = 0) {
   return outsFromInningsPitched(inningsPitched) / 3
 }
 
+export function normalizeRbiForPaResult(result, rbi = 0, isError = false) {
+  if (isError || result === 'ROE' || result === 'DP' || result === 'TP') return 0
+  return Number(rbi || 0)
+}
+
 export function getCreditedRbiForPa(pa = {}) {
-  if (pa.is_error || pa.result === 'ROE') return 0
-  const base = Number(pa.rbi || 0)
-  // Batter always drives themselves in on a home run
-  return (pa.result === 'HR' || pa.result === 'IPHR') ? base + 1 : base
+  const base = normalizeRbiForPaResult(pa.result, pa.rbi, pa.is_error)
+  // Batter drives themselves in if they score on the same play (HR, or a hit
+  // where they advance all the way home due to an error/extra advance)
+  return (hitResults.has(pa.result) && pa.run_scored) ? base + 1 : base
 }
 
 export function summarizeBatting(plateAppearances = []) {

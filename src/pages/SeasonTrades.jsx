@@ -178,6 +178,7 @@ export default function SeasonTrades() {
     }
     setTrades((current) => current.map((entry) => entry.id === trade.id ? { ...entry, status, resolved_at: new Date().toISOString() } : entry))
     pushToast({ title: `Trade ${status}`, type: 'success' })
+    window.dispatchEvent(new Event('season-trades-updated'))
   }
 
   const submitWaiverClaim = async () => {

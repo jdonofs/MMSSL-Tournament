@@ -18,3 +18,20 @@ export function normalizeMercyRuleDifferential(value, fallback = DEFAULT_MERCY_R
   if (!Number.isFinite(numeric) || numeric < 1) return fallbackValue
   return Math.trunc(numeric)
 }
+
+export function getFinalStatusLabel(game, regulationInnings = game?.innings) {
+  const normalizedRegulationInnings = normalizeRegulationInnings(
+    regulationInnings ?? game?.innings,
+    DEFAULT_REGULATION_INNINGS,
+  )
+  const recordedFinalInning = Number(game?.final_inning ?? game?.current_inning ?? 0)
+  const finalInning = Number.isFinite(recordedFinalInning) && recordedFinalInning >= 1
+    ? Math.trunc(recordedFinalInning)
+    : null
+
+  if (finalInning && (Boolean(game?.is_extra_innings) || finalInning > normalizedRegulationInnings)) {
+    return `Final/${finalInning}`
+  }
+
+  return 'Final'
+}

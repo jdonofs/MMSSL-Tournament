@@ -16,9 +16,11 @@ import {
   calculatePayout,
   generateGameOdds,
   mergeOddsWithExistingRows,
+  priceCountPropLine,
 } from '../utils/oddsEngine'
 import { buildPlacedBetLedgerEntries } from '../utils/betResolution'
 import { buildOddsGenerationContext } from '../utils/oddsContext'
+import { persistOddsRowsWithFallback } from '../utils/oddsPersistence'
 import { buildAppliedStadiumModel } from '../utils/stadiumOdds'
 import {
   getChaosStars,
@@ -28,7 +30,7 @@ import {
 } from '../utils/stadiums'
 import { getTeamShortName } from '../utils/teamIdentity'
 import { computeBalance, computeSipCount, computeTotalSipsHeld, getSipPrice } from '../utils/economy'
-import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
+import { DEFAULT_REGULATION_INNINGS, getFinalStatusLabel, normalizeRegulationInnings } from '../utils/gameRules'
 
 const GAME_STATUSES = new Set(['pending', 'active', 'scheduled', 'in_progress', 'complete'])
 const ACTIVE_STATUSES = new Set(['pending', 'active', 'scheduled', 'in_progress'])
@@ -72,7 +74,7 @@ function formatOdds(value) {
 }
 
 function isOddsOffBoard(odds) {
-  return odds != null && Math.abs(Number(odds)) > 900
+  return odds != null && Math.abs(Number(odds)) > 20000
 }
 
 function formatLineValue(value, prefix = '') {
@@ -113,7 +115,7 @@ function getTeamLabels(game, playersById, identitiesByPlayerId = {}) {
   }
 }
 
-function getGameStatusLabel(game) {
+function getGameStatusLabel(game, regulationInnings = DEFAULT_REGULATION_INNINGS) {
   if (!game) return 'Unavailable'
   if (game.status === 'in_progress' || game.status === 'active') {
     if (!game.current_inning) return 'Live'
@@ -124,7 +126,7 @@ function getGameStatusLabel(game) {
   }
   if (game.status === 'scheduled') return 'Scheduled'
   if (game.status === 'pending') return 'Waiting on matchup'
-  if (game.status === 'complete') return 'Final'
+  if (game.status === 'complete') return getFinalStatusLabel(game, regulationInnings)
   return game.status
 }
 
@@ -208,7 +210,7 @@ function getSideOptions(row, game, playersById, identitiesByPlayerId = {}) {
     ]
   }
 
-  if (row.bet_type === 'over_under' || row.bet_type === 'k_prop') {
+  if (row.bet_type === 'over_under' || row.bet_type === 'k_prop' || row.bet_type === 'hr_prop' || row.bet_type === 'hit_prop') {
     return [
       { side: 'over', label: `Over ${Number(row.line || 0).toFixed(1)}`, odds: row.odds_over, probability: row.predicted_probability },
       { side: 'under', label: `Under ${Number(row.line || 0).toFixed(1)}`, odds: row.odds_under, probability: 1 - Number(row.predicted_probability || 0.5) },
@@ -227,6 +229,8 @@ function formatBetDescription(row, game, playersById, identitiesByPlayerId = {})
   if (row.bet_type === 'over_under') return `Game total ${Number(row.line || 0).toFixed(1)}`
   if (row.bet_type === 'first_inning_run') return 'Run scored in 1st inning'
   if (row.bet_type === 'k_prop') return `${row.target_entity} strikeouts ${Number(row.line || 0).toFixed(1)}`
+  if (row.bet_type === 'hr_prop') return `${row.target_entity} home runs ${Number(row.line || 0).toFixed(1)}`
+  if (row.bet_type === 'hit_prop') return `${row.target_entity} hits ${Number(row.line || 0).toFixed(1)}`
   return row.target_entity
 }
 
@@ -246,9 +250,9 @@ function formatBetTitle(bet, game, playersById, identitiesByPlayerId = {}) {
     case 'k_prop':
       return `${bet.chosen_side === 'over' ? 'Over' : 'Under'} ${line?.toFixed(1)} K`
     case 'hr_prop':
-      return `${bet.chosen_side === 'yes' ? 'Yes' : 'No'} Home Run`
+      return `${bet.chosen_side === 'over' ? 'Over' : 'Under'} ${line?.toFixed(1)} HR`
     case 'hit_prop':
-      return `${bet.chosen_side === 'yes' ? 'Yes' : 'No'} Hit`
+      return `${bet.chosen_side === 'over' ? 'Over' : 'Under'} ${line?.toFixed(1)} Hits`
     case 'first_inning_run':
       return `${bet.chosen_side === 'yes' ? 'Yes' : 'No'} - Run in 1st`
     default:
@@ -289,7 +293,7 @@ function getBetProgress(bet, game, plateAppearances, pitchingStints, charactersB
       buildBettingEntityLabel(charactersById[pa.character_id], playersById[pa.player_id]) === bet.target_entity &&
       matchSet.has(pa.result),
     ).length
-    return { current, line, unit: bet.bet_type === 'hr_prop' ? 'HR' : 'hits', wantsOver: bet.chosen_side === 'yes' }
+    return { current, line, unit: bet.bet_type === 'hr_prop' ? 'HR' : 'hits', wantsOver: bet.chosen_side === 'over' }
   }
 
   return null
@@ -357,6 +361,44 @@ function getAltTotals(defaultTotal) {
     values.push(roundToHalf(Math.max(1, current)))
   }
   return [...new Set(values)]
+}
+
+// Player-prop count markets (hr/hit/k) always sit on an X.5 hook. Build a
+// rail of nearby lines centered on the generated default line.
+function getAltPropLines(defaultLine) {
+  if (defaultLine == null) return []
+  const center = Math.floor(Number(defaultLine)) + 0.5
+  const min = Math.max(0.5, center - 3)
+  const values = []
+  for (let current = min; current <= center + 3; current += 1) {
+    values.push(roundToHalf(current))
+  }
+  return values
+}
+
+// Re-prices a hr_prop/hit_prop/k_prop row at an alternate count line using the
+// row's stored Poisson rate (prop_lambda) — the same live-updating rate the
+// board uses for the default line, just evaluated at a different threshold.
+function getPropSettledCount(row) {
+  if (row?.prop_current_count != null) return Math.max(0, Number(row.prop_current_count || 0))
+  if (row?.bet_type === 'hr_prop' || row?.bet_type === 'hit_prop') {
+    return Math.max(0, Math.floor(Number(row.line || 0)))
+  }
+  return 0
+}
+
+function getAltPropPricing({ line, row }) {
+  if (!row || row.prop_lambda == null) return null
+  const pricing = priceCountPropLine(Number(row.prop_lambda), line, {
+    varianceMultiplier: Number(row.prop_variance_multiplier || 1),
+    settledCount: getPropSettledCount(row),
+  })
+  return {
+    overProb: pricing.probabilityOver,
+    underProb: 1 - pricing.probabilityOver,
+    overOdds: pricing.oddsOver,
+    underOdds: pricing.oddsUnder,
+  }
 }
 
 function getDetailSliderValue(rawValue, options = []) {
@@ -481,6 +523,14 @@ function buildSlipKey(entry) {
   return entry.customLine != null
     ? `${entry.gameId}::${entry.rowId}::${entry.side}::${entry.customLine}`
     : `${entry.gameId}::${entry.rowId}::${entry.side}`
+}
+
+function normalizeCustomLineSelection(row, customLineOpts) {
+  if (!customLineOpts || customLineOpts.customLine == null) return customLineOpts
+  const defaultLine = row?.line != null ? Number(row.line) : null
+  const customLine = Number(customLineOpts.customLine)
+  if (defaultLine != null && customLine === defaultLine) return null
+  return { ...customLineOpts, customLine }
 }
 
 function normalizeSeasonGame(game, teamsById, stadiumsByName, playersById = {}) {
@@ -804,6 +854,7 @@ export default function BettingTab({ mode = 'tournament' }) {
   const [detailTab, setDetailTab] = useState('game-odds')
   const [loading, setLoading] = useState(true)
   const [altRunLine, setAltRunLine] = useState({})
+  const [altPropLine, setAltPropLine] = useState({})
   const [altTotal, setAltTotal] = useState({})
   const [placingBetId, setPlacingBetId] = useState(null)
   const [expandedSections, setExpandedSections] = useState({})
@@ -1328,6 +1379,54 @@ export default function BettingTab({ mode = 'tournament' }) {
     return tabs
   }, [detailOdds])
 
+  const detailGeneratedOddsByKey = useMemo(() => {
+    if (!detailGame || !isGameReadyForBetting(detailGame, playersById)) return {}
+    const gamePAs = plateAppearances.filter((entry) => entry.game_id === detailGame.id)
+    const gamePitching = pitchingStints.filter((entry) => entry.game_id === detailGame.id)
+    const context = buildOddsGenerationContext({
+      game: detailGame,
+      draftPicks,
+      charactersById,
+      gamePAs,
+      gamePitching,
+      allGames: games,
+      allPAs: plateAppearances,
+      allPitching: pitchingStints,
+      stadiumsById,
+      stadiumGameLog,
+      playersById,
+      totalInnings: normalizeRegulationInnings(sourceContext?.innings, DEFAULT_REGULATION_INNINGS),
+      bets,
+    })
+
+    if (!context?.homeRoster?.length || !context?.awayRoster?.length) return {}
+
+    return Object.fromEntries(
+      generateGameOdds(
+        detailGame,
+        context.homeRoster,
+        context.awayRoster,
+        context.homeHistorical,
+        context.awayHistorical,
+        context.playerProps,
+        weights,
+      ).map((row) => [buildOddsRowKey(row), row]),
+    )
+  }, [
+    bets,
+    charactersById,
+    detailGame,
+    draftPicks,
+    games,
+    pitchingStints,
+    plateAppearances,
+    playersById,
+    sourceContext?.innings,
+    stadiumGameLog,
+    stadiumsById,
+    weights,
+  ])
+
   const boardSourceSignatures = useMemo(
     () =>
       boardGames.map((game) => {
@@ -1408,17 +1507,12 @@ export default function BettingTab({ mode = 'tournament' }) {
       const toUpdate = payload.filter((r) => r.id != null)
       const toInsert = payload.filter((r) => r.id == null)
 
-      let finalPayload = [...toUpdate]
-
-      if (toUpdate.length) {
-        const { error: updateError } = await supabase.from(sourceTables.odds).upsert(toUpdate)
-        if (updateError) throw updateError
-      }
-      if (toInsert.length) {
-        const { data: inserted, error: insertError } = await supabase.from(sourceTables.odds).insert(toInsert).select()
-        if (insertError) throw insertError
-        if (inserted) finalPayload = [...finalPayload, ...inserted]
-      }
+      const finalPayload = await persistOddsRowsWithFallback({
+        supabase,
+        table: sourceTables.odds,
+        updates: toUpdate,
+        inserts: toInsert,
+      })
 
       setGameOdds((current) => mergeOddsIntoState(current, finalPayload, game.id))
       autoSyncRef.current[game.id] = { inFlight: false, signature: sourceSignature }
@@ -1443,23 +1537,24 @@ export default function BettingTab({ mode = 'tournament' }) {
   const toggleSlipSelection = (game, row, side, customLineOpts = null) => {
     if (!game || !row?.id || row.is_locked || !isGameReadyForBetting(game, playersById)) return
 
+    const normalizedCustomLineOpts = normalizeCustomLineSelection(row, customLineOpts)
     const option = getSideOptions(row, game, playersById, identitiesByPlayerId).find((entry) => entry.side === side)
-    if (!option?.odds && !customLineOpts?.customOdds) return
+    if (!option?.odds && !normalizedCustomLineOpts?.customOdds) return
 
     const nextEntry = {
-      key: buildSlipKey({ gameId: game.id, rowId: row.id, side, customLine: customLineOpts?.customLine }),
+      key: buildSlipKey({ gameId: game.id, rowId: row.id, side, customLine: normalizedCustomLineOpts?.customLine }),
       gameId: game.id,
       rowId: row.id,
       row,
       side,
       wagerType: 'dollars',
       wagerSips: 1,
-      ...customLineOpts,
+      ...normalizedCustomLineOpts,
     }
 
-    const isRunLineOrTotal = row.bet_type === 'run_line' || row.bet_type === 'over_under'
+    const isRunLineOrTotal = ['run_line', 'over_under', 'hr_prop', 'hit_prop', 'k_prop'].includes(row.bet_type)
     setBetSlip((current) => {
-      if (isRunLineOrTotal && customLineOpts != null) {
+      if (isRunLineOrTotal && normalizedCustomLineOpts != null) {
         // For alternate lines: replace any existing entry for same game/row/side
         const existingIdx = current.findIndex((e) => e.gameId === game.id && e.rowId === row.id && e.side === side)
         if (existingIdx >= 0) {
@@ -1542,6 +1637,26 @@ export default function BettingTab({ mode = 'tournament' }) {
       })
     })
   }, [games, oddsByGameId, stadiumGameLog, stadiumsById])
+
+  const handleSelectAltProp = useCallback((gameId, row, line, pricingRow = row) => {
+    setAltPropLine((prev) => ({ ...prev, [row.id]: line }))
+    setBetSlip((current) => {
+      if (!current.some((e) => e.gameId === gameId && e.rowId === row.id)) return current
+      const isAlt = line !== Number(row.line)
+      const pricing = isAlt ? getAltPropPricing({ line, row: pricingRow || row }) : null
+      if (isAlt && !pricing) return current
+      return current.map((entry) => {
+        if (entry.gameId !== gameId || entry.rowId !== row.id) return entry
+        const isOver = entry.side === 'over'
+        return {
+          ...entry,
+          customLine: isAlt ? line : undefined,
+          customOdds: isAlt ? (isOver ? pricing.overOdds : pricing.underOdds) : undefined,
+          customProb: isAlt ? (isOver ? pricing.overProb : pricing.underProb) : undefined,
+        }
+      })
+    })
+  }, [])
 
   const handlePlaceBets = async () => {
     if (!betSlip.length || !player?.id || !sourceContext?.id) return
@@ -1739,7 +1854,7 @@ export default function BettingTab({ mode = 'tournament' }) {
     const row = (oddsByGameId[String(entry.gameId)] || []).find((item) => item.id === entry.rowId)
     const option = row && game ? getSideOptions(row, game, playersById, identitiesByPlayerId).find((item) => item.side === entry.side) : null
     const wager = parseDollarWager(entry.wagerSips)
-    return sum + calculatePayout(Number.isFinite(wager) ? wager : 0, option?.odds)
+    return sum + calculatePayout(Number.isFinite(wager) ? wager : 0, entry.customOdds ?? option?.odds)
   }, 0)
   const slipWager = betSlip.reduce((sum, entry) => {
     const wager = parseDollarWager(entry.wagerSips)
@@ -2060,7 +2175,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                     <span className="muted">vs</span>
                     <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_b_player_id} playersById={playersById} />
                   </div>
-                  <span className="muted">{getGameStatusLabel(detailGame)}</span>
+                  <span className="muted">{getGameStatusLabel(detailGame, detailGame?.innings ?? sourceContext?.innings)}</span>
                 </div>
               </div>
 
@@ -2104,7 +2219,11 @@ export default function BettingTab({ mode = 'tournament' }) {
                         <button
                           className="sportsbook-alt-side-card"
                           disabled={!detailRunLinePricing || !detailGame}
-                          onClick={() => toggleSlipSelection(detailGame, detailRunLineRow, 'home', { customLine: detailActiveSpread, customOdds: detailRunLinePricing?.homeOdds })}
+                          onClick={() => toggleSlipSelection(detailGame, detailRunLineRow, 'home', {
+                            customLine: detailActiveSpread,
+                            customOdds: detailRunLinePricing?.homeOdds,
+                            customProb: detailRunLinePricing?.homeProb,
+                          })}
                           type="button"
                         >
                           <span className="sportsbook-alt-side-label">{teamLabels.home}</span>
@@ -2114,7 +2233,11 @@ export default function BettingTab({ mode = 'tournament' }) {
                         <button
                           className="sportsbook-alt-side-card"
                           disabled={!detailRunLinePricing || !detailGame}
-                          onClick={() => toggleSlipSelection(detailGame, detailRunLineRow, 'away', { customLine: detailActiveSpread, customOdds: detailRunLinePricing?.awayOdds })}
+                          onClick={() => toggleSlipSelection(detailGame, detailRunLineRow, 'away', {
+                            customLine: detailActiveSpread,
+                            customOdds: detailRunLinePricing?.awayOdds,
+                            customProb: detailRunLinePricing?.awayProb,
+                          })}
                           type="button"
                         >
                           <span className="sportsbook-alt-side-label">{teamLabels.away}</span>
@@ -2179,7 +2302,11 @@ export default function BettingTab({ mode = 'tournament' }) {
                         <button
                           className="sportsbook-alt-side-card"
                           disabled={!detailTotalPricing || !detailGame}
-                          onClick={() => toggleSlipSelection(detailGame, detailTotalRow, 'over', { customLine: detailActiveTotal, customOdds: detailTotalPricing?.overOdds })}
+                          onClick={() => toggleSlipSelection(detailGame, detailTotalRow, 'over', {
+                            customLine: detailActiveTotal,
+                            customOdds: detailTotalPricing?.overOdds,
+                            customProb: detailTotalPricing?.overProb,
+                          })}
                           type="button"
                         >
                           <span className="sportsbook-alt-side-label">Over</span>
@@ -2189,7 +2316,11 @@ export default function BettingTab({ mode = 'tournament' }) {
                         <button
                           className="sportsbook-alt-side-card"
                           disabled={!detailTotalPricing || !detailGame}
-                          onClick={() => toggleSlipSelection(detailGame, detailTotalRow, 'under', { customLine: detailActiveTotal, customOdds: detailTotalPricing?.underOdds })}
+                          onClick={() => toggleSlipSelection(detailGame, detailTotalRow, 'under', {
+                            customLine: detailActiveTotal,
+                            customOdds: detailTotalPricing?.underOdds,
+                            customProb: detailTotalPricing?.underProb,
+                          })}
                           type="button"
                         >
                           <span className="sportsbook-alt-side-label">Under</span>
@@ -2270,48 +2401,129 @@ export default function BettingTab({ mode = 'tournament' }) {
 
                         {expanded ? (
                           <div className="sportsbook-market-list">
-                            {rows.map((row) => (
-                              <div className="sportsbook-market-row" key={row.id || buildOddsRowKey(row)}>
-                                <div className="sportsbook-market-copy">
-                                  {['hr_prop', 'hit_prop', 'k_prop'].includes(row.bet_type) ? (
-                                    <CharacterPortrait name={getTargetPortraitName(row.target_entity)} size={36} />
-                                  ) : null}
-                                  <div className="sportsbook-market-copy-text">
-                                    <MarketTitle
-                                      game={detailGame}
-                                      identitiesByPlayerId={identitiesByPlayerId}
-                                      playersById={playersById}
-                                      row={row}
-                                    />
-                                    <div className="muted">
-                                      {row.target_entity || row.bet_type.replaceAll('_', ' ')}
+                            {rows.map((row) => {
+                              const isCountProp = ['hr_prop', 'hit_prop', 'k_prop'].includes(row.bet_type)
+                              const propPricingRow = isCountProp
+                                ? (row.prop_lambda != null ? row : detailGeneratedOddsByKey[buildOddsRowKey(row)] || row)
+                                : row
+                              const altPropOptions = isCountProp ? getAltPropLines(Number(row.line)) : []
+                              const activeLine = isCountProp
+                                ? (altPropLine[row.id] != null && altPropOptions.includes(altPropLine[row.id]) ? altPropLine[row.id] : Number(row.line))
+                                : null
+                              const isAltLine = isCountProp && activeLine !== Number(row.line)
+                              const activePricing = isAltLine ? getAltPropPricing({ line: activeLine, row: propPricingRow }) : null
+                              const unit = row.bet_type === 'hr_prop' ? 'HR' : row.bet_type === 'hit_prop' ? 'Hits' : 'K'
+
+                              return (
+                                <div className="sportsbook-market-row" key={row.id || buildOddsRowKey(row)}>
+                                  <div className="sportsbook-market-copy">
+                                    {isCountProp ? (
+                                      <CharacterPortrait name={getTargetPortraitName(row.target_entity)} size={36} />
+                                    ) : null}
+                                    <div className="sportsbook-market-copy-text">
+                                      <MarketTitle
+                                        game={detailGame}
+                                        identitiesByPlayerId={identitiesByPlayerId}
+                                        playersById={playersById}
+                                        row={row}
+                                      />
+                                      <div className="muted">
+                                        {row.target_entity || row.bet_type.replaceAll('_', ' ')}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                                <div className="sportsbook-market-actions">
-                                  {getSideOptions(row, detailGame, playersById, identitiesByPlayerId).map((option) => {
-                                    const selected = betSlip.some(
-                                      (entry) =>
-                                        entry.gameId === detailGame.id &&
-                                        entry.rowId === row.id &&
-                                        entry.side === option.side,
-                                    )
-                                    return (
+
+                                  {isCountProp && altPropOptions.length ? (
+                                    <div className="sportsbook-number-rail sportsbook-prop-rail">
                                       <button
-                                        className={`sportsbook-odds-button ${selected ? 'sportsbook-odds-button-selected' : ''} ${isOddsFlashing(row.id, option.side) ? 'sportsbook-odds-flash' : ''}`}
-                                        disabled={!row.id || row.is_locked || !isGameReadyForBetting(detailGame, playersById)}
-                                        key={option.side}
-                                        onClick={() => toggleSlipSelection(detailGame, row, option.side)}
+                                        className="sportsbook-number-rail-arrow"
+                                        onClick={() => handleSelectAltProp(detailGame.id, row, getSteppedOption(activeLine, altPropOptions, -1), propPricingRow)}
                                         type="button"
                                       >
-                                        <span className="sportsbook-odds-line">{option.label}</span>
-                                        <strong>{formatOdds(option.odds)}</strong>
+                                        <ChevronLeft size={16} />
                                       </button>
-                                    )
-                                  })}
+                                      <div className="sportsbook-number-rail-track">
+                                        {altPropOptions.map((line) => (
+                                          <button
+                                            className={`sportsbook-number-rail-value ${activeLine === line ? 'sportsbook-number-rail-value-active' : ''}`}
+                                            key={line}
+                                            onClick={() => handleSelectAltProp(detailGame.id, row, line, propPricingRow)}
+                                            type="button"
+                                          >
+                                            {line.toFixed(1)}
+                                          </button>
+                                        ))}
+                                      </div>
+                                      <button
+                                        className="sportsbook-number-rail-arrow"
+                                        onClick={() => handleSelectAltProp(detailGame.id, row, getSteppedOption(activeLine, altPropOptions, 1), propPricingRow)}
+                                        type="button"
+                                      >
+                                        <ChevronRight size={16} />
+                                      </button>
+                                    </div>
+                                  ) : null}
+
+                                  <div className="sportsbook-market-actions">
+                                    {isCountProp ? (
+                                      ['over', 'under'].map((side) => {
+                                        const odds = isAltLine
+                                          ? (side === 'over' ? activePricing?.overOdds : activePricing?.underOdds)
+                                          : (side === 'over' ? row.odds_over : row.odds_under)
+                                        const prob = isAltLine
+                                          ? (side === 'over' ? activePricing?.overProb : activePricing?.underProb)
+                                          : (side === 'over' ? row.predicted_probability : 1 - Number(row.predicted_probability || 0.5))
+                                        const selected = betSlip.some(
+                                          (entry) =>
+                                            entry.gameId === detailGame.id &&
+                                            entry.rowId === row.id &&
+                                            entry.side === side &&
+                                            (entry.customLine ?? Number(row.line)) === activeLine,
+                                        )
+                                        return (
+                                          <button
+                                            className={`sportsbook-odds-button ${selected ? 'sportsbook-odds-button-selected' : ''} ${!isAltLine && isOddsFlashing(row.id, side) ? 'sportsbook-odds-flash' : ''}`}
+                                            disabled={!row.id || row.is_locked || !isGameReadyForBetting(detailGame, playersById) || odds == null}
+                                            key={side}
+                                            onClick={() => toggleSlipSelection(
+                                              detailGame,
+                                              row,
+                                              side,
+                                              isAltLine ? { customLine: activeLine, customOdds: odds, customProb: prob } : null,
+                                            )}
+                                            type="button"
+                                          >
+                                            <span className="sportsbook-odds-line">{side === 'over' ? 'Over' : 'Under'} {activeLine.toFixed(1)} {unit}</span>
+                                            <strong>{formatOdds(odds)}</strong>
+                                          </button>
+                                        )
+                                      })
+                                    ) : (
+                                      getSideOptions(row, detailGame, playersById, identitiesByPlayerId).map((option) => {
+                                        const selected = betSlip.some(
+                                          (entry) =>
+                                            entry.gameId === detailGame.id &&
+                                            entry.rowId === row.id &&
+                                            entry.side === option.side,
+                                        )
+                                        return (
+                                          <button
+                                            className={`sportsbook-odds-button ${selected ? 'sportsbook-odds-button-selected' : ''} ${isOddsFlashing(row.id, option.side) ? 'sportsbook-odds-flash' : ''}`}
+                                            disabled={!row.id || row.is_locked || !isGameReadyForBetting(detailGame, playersById)}
+                                            key={option.side}
+                                            onClick={() => toggleSlipSelection(detailGame, row, option.side)}
+                                            type="button"
+                                          >
+                                            <span className="sportsbook-odds-line">{option.label}</span>
+                                            <strong>{formatOdds(option.odds)}</strong>
+                                          </button>
+                                        )
+                                      })
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         ) : null}
                       </div>
@@ -2348,6 +2560,14 @@ export default function BettingTab({ mode = 'tournament' }) {
                   const game = boardGames.find((item) => String(item.id) === String(entry.gameId))
                   const row = (oddsByGameId[String(entry.gameId)] || []).find((item) => item.id === entry.rowId) || entry.row
                   const option = row && game ? getSideOptions(row, game, playersById, identitiesByPlayerId).find((item) => item.side === entry.side) : null
+                  const slipLine = entry.customLine ?? row?.line
+                  const slipOdds = entry.customOdds ?? option?.odds
+                  const slipTitle = row && game
+                    ? formatBetTitle({ ...row, chosen_side: entry.side, line: slipLine }, game, playersById, identitiesByPlayerId)
+                    : entry.side
+                  const slipSubtitle = row && game
+                    ? formatBetDescription({ ...row, line: slipLine }, game, playersById, identitiesByPlayerId)
+                    : ''
                   return (
                     <div className="sportsbook-slip-row" key={entry.key}>
                       <div className="sportsbook-slip-copy sportsbook-slip-copy-with-portrait">
@@ -2355,8 +2575,17 @@ export default function BettingTab({ mode = 'tournament' }) {
                           <CharacterPortrait name={getTargetPortraitName(row?.target_entity)} size={36} />
                         ) : null}
                         <div>
+                          {row && game ? (
+                            <>
+                              <strong>{game?.game_code} · {slipTitle}</strong>
+                              <span className="muted">{slipSubtitle} · {formatOdds(slipOdds)}</span>
+                            </>
+                          ) : (
+                            <>
                           <strong>{game?.game_code} · {formatBetDescription(row, game, playersById, identitiesByPlayerId)}</strong>
                           <span className="muted">{option?.label} · {formatOdds(option?.odds)}</span>
+                            </>
+                          )}
                         </div>
                       </div>
 

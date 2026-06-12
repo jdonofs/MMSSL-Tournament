@@ -120,7 +120,7 @@ function createEmptyFieldingRow(overrides = {}) {
     assists: 0,
     errors: 0,
     cleanPlays: 0,
-    errorRate: 0,
+    fieldingPct: 0,
     positionsPlayed: 0,
     primaryPosition: '-',
     ...overrides,
@@ -437,7 +437,7 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
       ...entry,
       games: entry.gamesSet.size,
       cleanPlays: Math.max(0, entry.chances - entry.errors),
-      errorRate: entry.chances ? entry.errors / entry.chances : 0,
+      fieldingPct: entry.chances ? Math.max(0, entry.chances - entry.errors) / entry.chances : 0,
       positionsPlayed: entry.positionsSet.size,
       primaryPosition,
     }
@@ -1631,10 +1631,7 @@ export default function Stats() {
       { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
       { key: 'assists', group: 'Fielding', label: 'A', sortValue: (row) => row.fielding.assists, value: (row) => row.fielding.assists },
       { key: 'errors', group: 'Fielding', label: 'Errors', sortValue: (row) => row.fielding.errors, value: (row) => row.fielding.errors },
-      { key: 'cleanPlays', group: 'Fielding', label: 'Clean', sortValue: (row) => row.fielding.cleanPlays, value: (row) => row.fielding.cleanPlays },
-      { key: 'errorRate', group: 'Fielding', label: 'Error %', sortValue: (row) => row.fielding.errorRate, value: (row) => formatPercent(row.fielding.errorRate, 1) },
-      { key: 'positionsPlayed', group: 'Fielding', label: 'Positions', sortValue: (row) => row.fielding.positionsPlayed, value: (row) => row.fielding.positionsPlayed },
-      { key: 'primaryPosition', group: 'Fielding', label: 'Primary Pos', type: 'string', sortValue: (row) => row.fielding.primaryPosition, value: (row) => row.fielding.primaryPosition },
+      { key: 'fieldingPct', group: 'Fielding', label: 'Fielding %', sortValue: (row) => row.fielding.fieldingPct, value: (row) => formatAverageStyle(row.fielding.fieldingPct) },
     ],
   }), [identitiesByPlayerId, playersById])
 
@@ -1705,10 +1702,7 @@ export default function Stats() {
       { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
       { key: 'assists', group: 'Fielding', label: 'A', sortValue: (row) => row.fielding.assists, value: (row) => row.fielding.assists },
       { key: 'errors', group: 'Fielding', label: 'Errors', sortValue: (row) => row.fielding.errors, value: (row) => row.fielding.errors },
-      { key: 'cleanPlays', group: 'Fielding', label: 'Clean', sortValue: (row) => row.fielding.cleanPlays, value: (row) => row.fielding.cleanPlays },
-      { key: 'errorRate', group: 'Fielding', label: 'Error %', sortValue: (row) => row.fielding.errorRate, value: (row) => formatPercent(row.fielding.errorRate, 1) },
-      { key: 'positionsPlayed', group: 'Fielding', label: 'Positions', sortValue: (row) => row.fielding.positionsPlayed, value: (row) => row.fielding.positionsPlayed },
-      { key: 'primaryPosition', group: 'Fielding', label: 'Primary Pos', type: 'string', sortValue: (row) => row.fielding.primaryPosition, value: (row) => row.fielding.primaryPosition },
+      { key: 'fieldingPct', group: 'Fielding', label: 'Fielding %', sortValue: (row) => row.fielding.fieldingPct, value: (row) => formatAverageStyle(row.fielding.fieldingPct) },
       { key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName },
     ],
   }), [identitiesByPlayerId, playersById])

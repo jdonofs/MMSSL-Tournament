@@ -2,10 +2,21 @@ import { getPlayerSkillProfile } from './teamIdentity'
 import { buildAppliedStadiumModel } from './stadiumOdds'
 import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules'
 
-const MIN_PROBABILITY = 0.07
-const MAX_PROBABILITY = 0.97
-const MAX_UNDERDOG_ODDS = 900
-const MAX_FAVORITE_ODDS = -900
+const MIN_PROBABILITY = 0.002
+const MAX_PROBABILITY = 0.998
+const MAX_UNDERDOG_ODDS = 50000
+const MAX_FAVORITE_ODDS = -50000
+
+// Sportsbooks don't display every integer once odds get steep — round to a
+// coarser increment as the magnitude grows (matches real-world board behavior).
+function roundOddsMagnitude(odds) {
+  const abs = Math.abs(odds)
+  let rounded = abs
+  if (abs >= 5000) rounded = Math.round(abs / 500) * 500
+  else if (abs >= 1000) rounded = Math.round(abs / 100) * 100
+  else if (abs >= 200) rounded = Math.round(abs / 5) * 5
+  return odds < 0 ? -rounded : rounded
+}
 
 const BET_TYPE_ORDER = [
   'moneyline',
@@ -43,6 +54,21 @@ function roundToNearestHook(value, min = 0.5) {
 function average(values, fallback = 0) {
   if (!values.length) return fallback
   return values.reduce((sum, value) => sum + Number(value || 0), 0) / values.length
+}
+
+function getSampleReliability({
+  plateAppearances = 0,
+  gamesPlayed = 0,
+  paFullTrust = 60,
+  gamesFullTrust = 12,
+} = {}) {
+  const paReliability = paFullTrust > 0 ? Number(plateAppearances || 0) / paFullTrust : 0
+  const gameReliability = gamesFullTrust > 0 ? Number(gamesPlayed || 0) / gamesFullTrust : 0
+  return clamp(Math.max(paReliability, gameReliability), 0, 1)
+}
+
+function shrinkHistoricalProbability(probability, reliability = 0) {
+  return clamp(0.5 + ((Number(probability || 0.5) - 0.5) * clamp(reliability, 0, 1)), MIN_PROBABILITY, MAX_PROBABILITY)
 }
 
 function logistic(value) {
@@ -165,8 +191,14 @@ export function buildOddsRowKey(row = {}) {
 }
 
 export function mergeOddsWithExistingRows(rows = [], existingRows = []) {
+  const dedupedRows = Object.values(
+    (rows || []).reduce((acc, row) => {
+      acc[buildOddsRowKey(row)] = row
+      return acc
+    }, {}),
+  )
   const existingByKey = Object.fromEntries(existingRows.map((entry) => [buildOddsRowKey(entry), entry]))
-  return rows.map((row) => {
+  return dedupedRows.map((row) => {
     if (row.id != null) return row
     const existing = existingByKey[buildOddsRowKey(row)]
     const merged = existing?.id != null ? { ...row, id: existing.id } : row
@@ -190,13 +222,32 @@ function buildMoneylineSources(homeRoster, awayRoster, homeHistorical, awayHisto
   const headToHead = playerProps.headToHead || {}
   const historicalEdge = (Number(headToHead.homeWinRate ?? homeHistorical.winRate ?? 0.5) - 0.5) * 2
   const normalizedSkillDiff = homeProfile.skill - awayProfile.skill
-  const historyReliability = clamp(Number(headToHead.gamesPlayed || 0) / 8, 0, 1)
-  const skillWeight = Math.max(0.35, 0.65 - historyReliability * 0.25)
-  const historyWeight = 0.2 + historyReliability * 0.35
-  const charWeight = Math.max(0.15, 1 - skillWeight - historyWeight)
+  const headToHeadReliability = getSampleReliability({
+    gamesPlayed: Number(headToHead.gamesPlayed || 0),
+    gamesFullTrust: 16,
+  })
+  const rosterHistoryReliability = getSampleReliability({
+    plateAppearances: Math.min(
+      Number(homeHistorical.plateAppearances || 0),
+      Number(awayHistorical.plateAppearances || 0),
+    ),
+    gamesPlayed: Math.min(
+      Number(homeHistorical.gamesPlayed || 0),
+      Number(awayHistorical.gamesPlayed || 0),
+    ),
+    paFullTrust: 120,
+    gamesFullTrust: 20,
+  })
+  const historyReliability = clamp((headToHeadReliability * 0.7) + (rosterHistoryReliability * 0.3), 0, 1)
+  const skillWeight = Math.max(0.42, 0.64 - historyReliability * 0.16)
+  const historyWeight = 0.12 + historyReliability * 0.22
+  const charWeight = Math.max(0.18, 1 - skillWeight - historyWeight)
 
   const char = logistic(charEdge * (1.8 + charWeight))
-  const historical = logistic(historicalEdge * (1.4 + historyWeight))
+  const historical = shrinkHistoricalProbability(
+    logistic(historicalEdge * (1.2 + historyWeight)),
+    historyReliability,
+  )
   const skill = logistic(normalizedSkillDiff * (1.35 + skillWeight * 0.6))
 
   // Live win probability: a lead matters far more with fewer innings left to play it back.
@@ -433,16 +484,26 @@ function buildProjectedScore(homeRoster, awayRoster, liveState, playerProps = {}
   const historicalWeight = clamp(Number(playerProps.weights?.historical_weight ?? 0.333), 0, 1)
   const charWeight = clamp(Number(playerProps.weights?.char_stats_weight ?? 0.333), 0, 1)
   const historySample = Number(historicalTotals.sampleSize || 0)
-  const blendedTotal = historySample < 5
-    ? estimatedTotal
-    : (historicalWeight * Number(historicalTotals.average || 0)) + (charWeight * estimatedTotal) + skillAdjustment
+  const historySampleReliability = getSampleReliability({
+    gamesPlayed: historySample,
+    gamesFullTrust: 18,
+  })
+  const historicalContribution = historicalWeight * historySampleReliability
+  const charContribution = charWeight + (historicalWeight * (1 - historySampleReliability))
+  const blendedTotal =
+    (historicalContribution * Number(historicalTotals.average || 0)) +
+    (charContribution * estimatedTotal) +
+    skillAdjustment
   const adjustedTotal = Math.max(0.5, blendedTotal * scoringFactor)
   const totalScale = adjustedTotal / Math.max(0.5, estimatedTotal)
 
   let projectedHomeRuns = baseHomeRuns * totalScale
   let projectedAwayRuns = baseAwayRuns * totalScale
 
-  const historyReliability = clamp(Number(headToHead.gamesPlayed || 0) / 8, 0, 1)
+  const historyReliability = getSampleReliability({
+    gamesPlayed: Number(headToHead.gamesPlayed || 0),
+    gamesFullTrust: 16,
+  })
   const homeShareBias =
     ((homeProfile.skill - awayProfile.skill) * 0.4) +
     (((Number(headToHead.homeWinRate ?? 0.5) - 0.5) * 2) * historyReliability * 0.35)
@@ -487,10 +548,19 @@ function buildFirstInningSources(homeRoster, awayRoster, homeHistorical, awayHis
   const homeTop = getRosterAverages(homeRoster)
   const charEdge = (((awayTop.bat * awayTop.skill) - homeTop.pitch) + ((homeTop.bat * homeTop.skill) - awayTop.pitch)) / 10
   const historicalEdge = ((homeHistorical.hitRate || 0.25) + (awayHistorical.hitRate || 0.25)) - 0.5
+  const historicalReliability = getSampleReliability({
+    plateAppearances: Number(homeHistorical.plateAppearances || 0) + Number(awayHistorical.plateAppearances || 0),
+    gamesPlayed: Number(homeHistorical.gamesPlayed || 0) + Number(awayHistorical.gamesPlayed || 0),
+    paFullTrust: 80,
+    gamesFullTrust: 18,
+  })
 
   return {
     char: clamp(logistic(charEdge * 1.4), MIN_PROBABILITY, MAX_PROBABILITY),
-    historical: clamp(logistic(historicalEdge * 1.6), MIN_PROBABILITY, MAX_PROBABILITY),
+    historical: shrinkHistoricalProbability(
+      clamp(logistic(historicalEdge * 1.35), MIN_PROBABILITY, MAX_PROBABILITY),
+      historicalReliability,
+    ),
     live: clamp(0.42 - Math.min(liveState.paCount, 1) * 0.32, MIN_PROBABILITY, MAX_PROBABILITY),
   }
 }
@@ -502,15 +572,20 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
   const expectedPAs = getExpectedPAs(entry, liveState)
   const hitterSkill = getSkillScore(entry)
   const pitcherSkill = getSkillScore(opposingPitcher)
-  const historyReliability = clamp(Math.max(historical.plateAppearances, historical.gamesPlayed) / 24, 0, 1)
-  const historyWeight = clamp(0.18 + historyReliability * 0.37, 0.18, 0.55)
-  const skillWeight = Math.max(0.22, 0.4 - historyReliability * 0.18)
-  const charWeight = Math.max(0.18, 1 - historyWeight - skillWeight)
+  const historyReliability = getSampleReliability({
+    plateAppearances: historical.plateAppearances,
+    gamesPlayed: historical.gamesPlayed,
+    paFullTrust: 60,
+    gamesFullTrust: 12,
+  })
+  const historyWeight = clamp(0.12 + historyReliability * 0.23, 0.12, 0.35)
+  const skillWeight = Math.max(0.28, 0.42 - historyReliability * 0.08)
+  const charWeight = Math.max(0.26, 1 - historyWeight - skillWeight)
   const liveWeight = liveState.inning > 1 || Number(entry.paSoFar || 0) > 0 ? 0.12 : 0.05
 
   const hrPerPA = clamp(
     (character.bat * 0.036 * charWeight) +
-      (historical.hrRate * 1.08 * historyWeight) +
+      (historical.hrRate * 0.78 * historyWeight) +
       (hitterSkill * 0.068 * skillWeight) -
       ((pitcher.pitch * pitcherSkill) * 0.014),
     0.012,
@@ -530,7 +605,7 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
   const hitPerPA = clamp(
     (character.bat * 0.19 * charWeight) +
       (character.speed * 0.06 * charWeight) +
-      (historical.hitRate * 0.82 * historyWeight) +
+      (historical.hitRate * 0.58 * historyWeight) +
       (hitterSkill * 0.16 * skillWeight) -
       ((pitcher.pitch * pitcherSkill) * 0.05),
     0.08,
@@ -539,7 +614,7 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
   const liveSkillPressure = Math.max(0, liveState.inning - 1) * 0.015
   const kPerInning = clamp(
     (pitcher.pitch * 0.52 * charWeight) +
-      (historical.strikeoutsPerInning * 0.55 * historyWeight) +
+      (historical.strikeoutsPerInning * 0.4 * historyWeight) +
       (pitcherSkill * 0.38 * skillWeight) -
       (character.bat * hitterSkill * 0.16),
     0.2,
@@ -555,21 +630,22 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
   const hitsSoFar = Number(entry.hitsSoFar || 0)
   const kSoFar = Number(entry.kSoFar || 0)
 
-  const hrSources = hrSoFar > 0
-    ? { char: MAX_PROBABILITY, historical: MAX_PROBABILITY, live: MAX_PROBABILITY }
-    : {
-      char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.036) + (hitterSkill * 0.03), 0.015, 0.24), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
-      historical: clamp(1 - Math.pow(1 - hrEffectiveRate, expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
-      live: clamp(1 - Math.pow(1 - hrPerPA, Math.max(expectedPAs - (entry.paSoFar || 0), 1)) + liveWeight * 0.04, MIN_PROBABILITY, MAX_PROBABILITY),
-    }
+  // PART G — these always price "one more" HR/hit from this point on. Once a
+  // player has already recorded one (hrSoFar/hitsSoFar > 0), the prop's line
+  // is bumped to the next milestone (see generateGameOdds) and this same
+  // probability now represents the chance of reaching THAT milestone, rather
+  // than being pinned to a near-certain sentinel value.
+  const hrSources = {
+    char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.036) + (hitterSkill * 0.03), 0.015, 0.24), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+    historical: clamp(1 - Math.pow(1 - hrEffectiveRate, expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+    live: clamp(1 - Math.pow(1 - hrPerPA, Math.max(expectedPAs, 0.5)) + liveWeight * 0.04, MIN_PROBABILITY, MAX_PROBABILITY),
+  }
 
-  const hitSources = hitsSoFar > 0
-    ? { char: MAX_PROBABILITY, historical: MAX_PROBABILITY, live: MAX_PROBABILITY }
-    : {
-      char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.17) + (character.speed * 0.04) + (hitterSkill * 0.09), 0.1, 0.58), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
-      historical: clamp(1 - Math.pow(1 - clamp(historical.hitRate * (0.95 + hitterSkill * 0.25), 0.1, 0.68), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
-      live: clamp(1 - Math.pow(1 - hitPerPA, Math.max(expectedPAs - (entry.paSoFar || 0), 1)) + liveWeight * 0.03, MIN_PROBABILITY, MAX_PROBABILITY),
-    }
+  const hitSources = {
+    char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.17) + (character.speed * 0.04) + (hitterSkill * 0.09), 0.1, 0.58), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+    historical: clamp(1 - Math.pow(1 - clamp(historical.hitRate * (0.95 + hitterSkill * 0.25), 0.1, 0.68), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+    live: clamp(1 - Math.pow(1 - hitPerPA, Math.max(expectedPAs, 0.5)) + liveWeight * 0.03, MIN_PROBABILITY, MAX_PROBABILITY),
+  }
 
   const strikeoutLine = roundToHalf(clamp((historical.strikeoutsPerGame * historyWeight) + (kPerInning * projectedInningsRemaining) + liveSkillPressure, 0.5, 8.5))
   // PART G — the strikeout line always refers to the FULL-GAME total. Once a
@@ -592,11 +668,22 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
     }
   }
 
+  // Poisson rate parameters for arbitrary over/under count lines (PART I —
+  // props overhaul). hr/hit lambdas project the FULL-GAME total count
+  // (already-recorded + expected remaining); the k lambda is likewise a
+  // full-game projection so it lines up with strikeoutLine.
+  const remainingPAs = Math.max(expectedPAs, 0.5)
+  const hrLambda = Math.max(0.01, hrPerPA * remainingPAs)
+  const hitLambda = Math.max(0.01, hitPerPA * remainingPAs)
+  const kLambda = Math.max(0.01, kPerInning * projectedInningsRemaining)
+
   return {
-    hr: hrSources,
-    hit: hitSources,
+    hr: { ...hrSources, lambda: hrLambda, settledCount: hrSoFar },
+    hit: { ...hitSources, lambda: hitLambda, settledCount: hitsSoFar },
     strikeouts: {
       line: strikeoutLine,
+      lambda: kLambda,
+      settledCount: kSoFar,
       ...strikeoutSources,
     },
   }
@@ -614,6 +701,30 @@ export function computeRunLineCoverProb(spread, margins = []) {
   // Regress toward baseline proportionally to sample size — full trust at 20+ games
   const confidence = clamp(margins.length / 20, 0, 1)
   return clamp(raw * confidence + baseline * (1 - confidence), MIN_PROBABILITY, MAX_PROBABILITY)
+}
+
+function logFactorial(n) {
+  let sum = 0
+  for (let i = 2; i <= n; i++) sum += Math.log(i)
+  return sum
+}
+
+function poissonPmf(k, lambda) {
+  if (lambda <= 0) return k === 0 ? 1 : 0
+  return Math.exp((-lambda) + (k * Math.log(lambda)) - logFactorial(k))
+}
+
+// P(currentCount + X > line) for X ~ Poisson(lambdaRemaining). Lines are
+// always at the X.5 hooks (0.5, 1.5, 2.5, ...), so "over" means the FINAL
+// count is at least floor(line) + 1 after adding the already-recorded count.
+export function poissonOverProbability(lambda, line, settledCount = 0) {
+  const safeLambda = Math.max(0.01, Number(lambda || 0))
+  const targetTotal = Math.max(0, Math.floor(Number(line ?? 0.5)) + 1)
+  const neededRemaining = targetTotal - Math.max(0, Number(settledCount || 0))
+  if (neededRemaining <= 0) return MAX_PROBABILITY
+  let cdf = 0
+  for (let k = 0; k < neededRemaining; k++) cdf += poissonPmf(k, safeLambda)
+  return clamp(1 - cdf, MIN_PROBABILITY, MAX_PROBABILITY)
 }
 
 // Standard sportsbook overround: both sides' implied probabilities sum to ~107%
@@ -640,7 +751,7 @@ export function oddsFromVigProbability(vigProbability) {
     odds = Math.round(((1 - probability) / probability) * 100)
   }
 
-  return clamp(odds, MAX_FAVORITE_ODDS, MAX_UNDERDOG_ODDS)
+  return clamp(roundOddsMagnitude(odds), MAX_FAVORITE_ODDS, MAX_UNDERDOG_ODDS)
 }
 
 // Convenience wrapper: fair probability -> apply vig -> American odds.
@@ -737,6 +848,34 @@ function priceTwoSidedMarket(fairProbabilityA, playerProps, betType, targetEntit
     liabilityB: b.liability,
     liabilityCap: playerProps?.liabilityCap,
   })
+}
+
+// Prices an arbitrary over/under line on a Poisson-distributed REMAINING count
+// (HR/hit/K props) end-to-end: remaining lambda + already-banked count + line
+// -> Poisson over-probability -> variance -> volume-based line movement -> vig
+// -> American odds. `marketVolume` is the `{ over: { money, liability }, under:
+// {...} }` slice for this exact line, if any bets have been placed on it.
+export function priceCountPropLine(lambda, line, options = {}) {
+  const { varianceMultiplier = 1, marketVolume = {}, liabilityCap, overround = TARGET_OVERROUND, settledCount = 0 } = options
+  const rawOverProbability = poissonOverProbability(lambda, line, settledCount)
+  const overProbability = applyVarianceToProbability(rawOverProbability, varianceMultiplier)
+  const over = marketVolume.over || {}
+  const under = marketVolume.under || {}
+  const pricing = priceMarket(overProbability, {
+    moneyA: over.money,
+    moneyB: under.money,
+    liabilityA: over.liability,
+    liabilityB: under.liability,
+    liabilityCap,
+    overround,
+  })
+
+  return {
+    oddsOver: pricing.oddsA,
+    oddsUnder: pricing.oddsB,
+    probabilityOver: pricing.probabilityA,
+    isSuspended: pricing.isSuspended,
+  }
 }
 
 export function generateGameOdds(
@@ -875,26 +1014,39 @@ export function generateGameOdds(
   homeRoster.forEach((entry) => {
     const label = getEntityLabel(entry)
     const sources = buildPlayerPropSources(entry, playerHistorical[label] || playerHistorical[entry.id] || {}, awayPitcher, liveState)
-    const hrProbability = applyVarianceToProbability(
-      clamp(blendSources(sources.hr, normalizedWeights) * stadiumHrBoost, MIN_PROBABILITY, MAX_PROBABILITY),
-      stadiumModifiers.varianceMultiplier,
-    )
-    const hitProbability = applyVarianceToProbability(
-      clamp(blendSources(sources.hit, normalizedWeights) * stadiumHitBoost, MIN_PROBABILITY, MAX_PROBABILITY),
-      stadiumModifiers.varianceMultiplier,
-    )
-
-    const hrPricing = priceTwoSidedMarket(hrProbability, playerProps, 'hr_prop', label, 'yes', 'no')
-    const hitPricing = priceTwoSidedMarket(hitProbability, playerProps, 'hit_prop', label, 'yes', 'no')
+    // PART I — props overhaul: hr/hit props are now Poisson-distributed
+    // over/under count markets, priced from a per-player lambda (expected
+    // full-game total) with stadium HR/scoring factors applied as a boost.
+    const hrLambda = sources.hr.lambda * stadiumHrBoost
+    const hitLambda = sources.hit.lambda * stadiumHitBoost
+    const hrCurrentCount = Number(entry.hrSoFar || 0)
+    const hitCurrentCount = Number(entry.hitsSoFar || 0)
+    const hrLine = 0.5 + hrCurrentCount
+    const hitLine = 0.5 + hitCurrentCount
+    const hrPricing = priceCountPropLine(hrLambda, hrLine, {
+      varianceMultiplier: stadiumModifiers.varianceMultiplier,
+      marketVolume: playerProps?.marketVolume?.[`hr_prop::${label}`],
+      liabilityCap: playerProps?.liabilityCap,
+      settledCount: hrCurrentCount,
+    })
+    const hitPricing = priceCountPropLine(hitLambda, hitLine, {
+      varianceMultiplier: stadiumModifiers.varianceMultiplier,
+      marketVolume: playerProps?.marketVolume?.[`hit_prop::${label}`],
+      liabilityCap: playerProps?.liabilityCap,
+      settledCount: hitCurrentCount,
+    })
 
     rows.push({
       game_id: game.id,
       bet_type: 'hr_prop',
       target_entity: label,
-      line: 0.5,
-      odds_yes: hrPricing.oddsA,
-      odds_no: hrPricing.oddsB,
-      predicted_probability: Number(hrPricing.probabilityA.toFixed(4)),
+      line: hrLine,
+      prop_current_count: hrCurrentCount,
+      prop_lambda: Number(hrLambda.toFixed(3)),
+      prop_variance_multiplier: stadiumModifiers.varianceMultiplier,
+      odds_over: hrPricing.oddsOver,
+      odds_under: hrPricing.oddsUnder,
+      predicted_probability: Number(hrPricing.probabilityOver.toFixed(4)),
       is_locked: hrPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
@@ -903,10 +1055,13 @@ export function generateGameOdds(
       game_id: game.id,
       bet_type: 'hit_prop',
       target_entity: label,
-      line: 0.5,
-      odds_yes: hitPricing.oddsA,
-      odds_no: hitPricing.oddsB,
-      predicted_probability: Number(hitPricing.probabilityA.toFixed(4)),
+      line: hitLine,
+      prop_current_count: hitCurrentCount,
+      prop_lambda: Number(hitLambda.toFixed(3)),
+      prop_variance_multiplier: stadiumModifiers.varianceMultiplier,
+      odds_over: hitPricing.oddsOver,
+      odds_under: hitPricing.oddsUnder,
+      predicted_probability: Number(hitPricing.probabilityOver.toFixed(4)),
       is_locked: hitPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
@@ -915,26 +1070,39 @@ export function generateGameOdds(
   awayRoster.forEach((entry) => {
     const label = getEntityLabel(entry)
     const sources = buildPlayerPropSources(entry, playerHistorical[label] || playerHistorical[entry.id] || {}, homePitcher, liveState)
-    const hrProbability = applyVarianceToProbability(
-      clamp(blendSources(sources.hr, normalizedWeights) * stadiumHrBoost, MIN_PROBABILITY, MAX_PROBABILITY),
-      stadiumModifiers.varianceMultiplier,
-    )
-    const hitProbability = applyVarianceToProbability(
-      clamp(blendSources(sources.hit, normalizedWeights) * stadiumHitBoost, MIN_PROBABILITY, MAX_PROBABILITY),
-      stadiumModifiers.varianceMultiplier,
-    )
-
-    const hrPricing = priceTwoSidedMarket(hrProbability, playerProps, 'hr_prop', label, 'yes', 'no')
-    const hitPricing = priceTwoSidedMarket(hitProbability, playerProps, 'hit_prop', label, 'yes', 'no')
+    // PART I — props overhaul: hr/hit props are now Poisson-distributed
+    // over/under count markets, priced from a per-player lambda (expected
+    // full-game total) with stadium HR/scoring factors applied as a boost.
+    const hrLambda = sources.hr.lambda * stadiumHrBoost
+    const hitLambda = sources.hit.lambda * stadiumHitBoost
+    const hrCurrentCount = Number(entry.hrSoFar || 0)
+    const hitCurrentCount = Number(entry.hitsSoFar || 0)
+    const hrLine = 0.5 + hrCurrentCount
+    const hitLine = 0.5 + hitCurrentCount
+    const hrPricing = priceCountPropLine(hrLambda, hrLine, {
+      varianceMultiplier: stadiumModifiers.varianceMultiplier,
+      marketVolume: playerProps?.marketVolume?.[`hr_prop::${label}`],
+      liabilityCap: playerProps?.liabilityCap,
+      settledCount: hrCurrentCount,
+    })
+    const hitPricing = priceCountPropLine(hitLambda, hitLine, {
+      varianceMultiplier: stadiumModifiers.varianceMultiplier,
+      marketVolume: playerProps?.marketVolume?.[`hit_prop::${label}`],
+      liabilityCap: playerProps?.liabilityCap,
+      settledCount: hitCurrentCount,
+    })
 
     rows.push({
       game_id: game.id,
       bet_type: 'hr_prop',
       target_entity: label,
-      line: 0.5,
-      odds_yes: hrPricing.oddsA,
-      odds_no: hrPricing.oddsB,
-      predicted_probability: Number(hrPricing.probabilityA.toFixed(4)),
+      line: hrLine,
+      prop_current_count: hrCurrentCount,
+      prop_lambda: Number(hrLambda.toFixed(3)),
+      prop_variance_multiplier: stadiumModifiers.varianceMultiplier,
+      odds_over: hrPricing.oddsOver,
+      odds_under: hrPricing.oddsUnder,
+      predicted_probability: Number(hrPricing.probabilityOver.toFixed(4)),
       is_locked: hrPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
@@ -943,10 +1111,13 @@ export function generateGameOdds(
       game_id: game.id,
       bet_type: 'hit_prop',
       target_entity: label,
-      line: 0.5,
-      odds_yes: hitPricing.oddsA,
-      odds_no: hitPricing.oddsB,
-      predicted_probability: Number(hitPricing.probabilityA.toFixed(4)),
+      line: hitLine,
+      prop_current_count: hitCurrentCount,
+      prop_lambda: Number(hitLambda.toFixed(3)),
+      prop_variance_multiplier: stadiumModifiers.varianceMultiplier,
+      odds_over: hitPricing.oddsOver,
+      odds_under: hitPricing.oddsUnder,
+      predicted_probability: Number(hitPricing.probabilityOver.toFixed(4)),
       is_locked: hitPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
@@ -955,20 +1126,25 @@ export function generateGameOdds(
   ;[homePitcher, awayPitcher].filter(Boolean).forEach((entry) => {
     const label = getEntityLabel(entry)
     const sources = buildPlayerPropSources(entry, playerHistorical[label] || playerHistorical[entry.id] || {}, entry, liveState)
-    const strikeoutProbability = applyVarianceToProbability(
-      blendSources(sources.strikeouts, normalizedWeights),
-      stadiumModifiers.varianceMultiplier,
-    )
-    const kPricing = priceTwoSidedMarket(strikeoutProbability, playerProps, 'k_prop', label, 'over', 'under')
+    const kCurrentCount = Number(sources.strikeouts.settledCount || entry.kSoFar || 0)
+    const kPricing = priceCountPropLine(sources.strikeouts.lambda, sources.strikeouts.line, {
+      varianceMultiplier: stadiumModifiers.varianceMultiplier,
+      marketVolume: playerProps?.marketVolume?.[`k_prop::${label}`],
+      liabilityCap: playerProps?.liabilityCap,
+      settledCount: kCurrentCount,
+    })
 
     rows.push({
       game_id: game.id,
       bet_type: 'k_prop',
       target_entity: label,
       line: sources.strikeouts.line,
-      odds_over: kPricing.oddsA,
-      odds_under: kPricing.oddsB,
-      predicted_probability: Number(kPricing.probabilityA.toFixed(4)),
+      prop_current_count: kCurrentCount,
+      prop_lambda: Number(sources.strikeouts.lambda.toFixed(3)),
+      prop_variance_multiplier: stadiumModifiers.varianceMultiplier,
+      odds_over: kPricing.oddsOver,
+      odds_under: kPricing.oddsUnder,
+      predicted_probability: Number(kPricing.probabilityOver.toFixed(4)),
       is_locked: kPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
@@ -1076,16 +1252,12 @@ export function recalculateOdds(currentOdds = [], gameState = {}, pa = {}) {
       nextRow = { ...row, is_locked: true, updated_at: new Date().toISOString() }
     }
 
-    if ((row.bet_type === 'hr_prop' || row.bet_type === 'hit_prop') && row.target_entity && gameState.lockedEntities?.includes(row.target_entity)) {
-      nextRow = { ...row, is_locked: true, updated_at: new Date().toISOString() }
-    }
-
     if (nextRow && JSON.stringify(nextRow) !== JSON.stringify(row)) {
       changedRows.push(nextRow)
     }
   })
 
-  if (gameState.pitcherSwap && gameState.generationContext) {
+  if (gameState.generationContext) {
     const regenerated = generateGameOdds(
       gameState.generationContext.game,
       gameState.generationContext.homeRoster,
@@ -1096,15 +1268,17 @@ export function recalculateOdds(currentOdds = [], gameState = {}, pa = {}) {
       gameState.generationContext.weights,
     )
 
-    // PART H — a pitcher who's been pulled can't add more strikeouts, so lock
-    // their now-stale k_prop market for new bets (their existing bets still
-    // settle against the final total).
-    const regeneratedKPropEntities = new Set(regenerated.filter((row) => row.bet_type === 'k_prop').map((row) => row.target_entity))
-    currentOdds
-      .filter((row) => row.bet_type === 'k_prop' && !row.is_locked && !regeneratedKPropEntities.has(row.target_entity))
-      .forEach((row) => {
-        changedRows.push({ ...row, is_locked: true, updated_at: new Date().toISOString() })
-      })
+    if (gameState.pitcherSwap) {
+      // PART H — a pitcher who's been pulled can't add more strikeouts, so lock
+      // their now-stale k_prop market for new bets (their existing bets still
+      // settle against the final total).
+      const regeneratedKPropEntities = new Set(regenerated.filter((row) => row.bet_type === 'k_prop').map((row) => row.target_entity))
+      currentOdds
+        .filter((row) => row.bet_type === 'k_prop' && !row.is_locked && !regeneratedKPropEntities.has(row.target_entity))
+        .forEach((row) => {
+          changedRows.push({ ...row, is_locked: true, updated_at: new Date().toISOString() })
+        })
+    }
 
     regenerated
       .filter((row) => row.bet_type === 'hr_prop' || row.bet_type === 'hit_prop' || row.bet_type === 'k_prop')
