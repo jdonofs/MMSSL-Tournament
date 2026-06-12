@@ -575,6 +575,7 @@ function SortableStatsTable({
               <th
                 key={`${group.keys[0]}-group`}
                 colSpan={group.colSpan}
+                className={group.label === 'Player' && group.sticky ? 'stats-player-col' : undefined}
                 style={buildGroupHeaderStyle(group, index)}
               >
                 {group.label}
@@ -583,7 +584,11 @@ function SortableStatsTable({
           </tr>
           <tr>
             {columns.map((column) => (
-              <th key={column.key} style={buildHeaderStyle(column)}>
+              <th
+                key={column.key}
+                className={column.key === 'name' && column.group === 'Player' ? 'stats-player-col' : undefined}
+                style={buildHeaderStyle(column)}
+              >
                 <SortHeaderButton
                   active={sortState.key === column.key}
                   direction={sortState.direction}
@@ -602,7 +607,11 @@ function SortableStatsTable({
               style={{ ...(onRowClick ? { cursor: 'pointer' } : {}), ...(typeof rowStyle === 'function' ? rowStyle(row) : null) }}
             >
               {columns.map((column) => (
-                <td key={column.key} style={buildCellStyle(column)}>
+                <td
+                  key={column.key}
+                  className={column.key === 'name' && column.group === 'Player' ? 'stats-player-col' : undefined}
+                  style={buildCellStyle(column)}
+                >
                   {column.render ? column.render(row) : column.value(row)}
                 </td>
               ))}
@@ -618,7 +627,11 @@ function SortableStatsTable({
             {footerRows.map((row) => (
               <tr key={rowKey(row)} style={typeof footerRowStyle === 'function' ? footerRowStyle(row) : undefined}>
                 {columns.map((column) => (
-                  <td key={column.key} style={buildCellStyle(column, 'rgba(234,179,8,0.08)')}>
+                  <td
+                    key={column.key}
+                    className={column.key === 'name' && column.group === 'Player' ? 'stats-player-col' : undefined}
+                    style={buildCellStyle(column, 'rgba(234,179,8,0.08)')}
+                  >
                     {column.render ? column.render(row) : column.value(row)}
                   </td>
                 ))}

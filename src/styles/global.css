@@ -1165,6 +1165,12 @@ body.drawer-open {
     margin-inline: -0.15rem;
   }
 
+  .stats-player-col {
+    width: 84px !important;
+    min-width: 84px !important;
+    max-width: 84px !important;
+  }
+
   .season-standings-table {
     min-width: 470px;
   }
