@@ -1,7 +1,7 @@
 const hitResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
-const plateAppearanceResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'BB', 'HBP', 'K', 'GO', 'FO', 'LO', 'DP', 'SF', 'SH', 'FC', 'ROE'])
-const outResults = new Set(['K', 'GO', 'FO', 'LO', 'DP', 'SF', 'SH'])
-const battedBallResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'GO', 'FO', 'LO', 'DP', 'SF', 'SH', 'FC', 'ROE'])
+const plateAppearanceResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'BB', 'HBP', 'K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
+const outResults = new Set(['K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH'])
+const battedBallResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
 const swingPitchResults = new Set(['swinging_miss', 'foul', 'in_play'])
 
 function isOfficialAtBat(pa = {}) {
@@ -37,6 +37,7 @@ export function inningsAsDecimal(inningsPitched = 0) {
 }
 
 export function getCreditedRbiForPa(pa = {}) {
+  if (pa.is_error || pa.result === 'ROE') return 0
   const base = Number(pa.rbi || 0)
   // Batter always drives themselves in on a home run
   return (pa.result === 'HR' || pa.result === 'IPHR') ? base + 1 : base
@@ -436,6 +437,7 @@ export function buildHeadToHead(games = [], playerOneId, playerTwoId) {
 }
 
 export function calculateOutsForPa(result) {
+  if (result === 'TP') return 3
   if (result === 'DP') return 2
   if (result === 'FC') return 1  // lead runner is out; batter reaches safely
   if (outResults.has(result)) return 1
@@ -535,7 +537,6 @@ export function summarizeAdvancedBatting(plateAppearances = [], leagueConstants 
 
 export function summarizeAdvancedPitching(stints = [], leagueConstants = {}) {
   const { lgERA = 0, lgFIP = 0, FIP_constant = 3.2 } = leagueConstants
-  console.log('summarizeAdvancedPitching leagueConstants', leagueConstants)
 
   const totalOuts = stints.reduce((sum, stint) => sum + outsFromInningsPitched(stint.innings_pitched), 0)
   const ip = totalOuts / 3 || 1

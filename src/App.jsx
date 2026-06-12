@@ -3,6 +3,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import ProtectedRoute from './components/ProtectedRoute'
 import ScorebookRoute from './components/ScorebookRoute'
+import { useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Draft from './pages/Draft'
@@ -22,13 +23,33 @@ import SeasonBracket from './pages/SeasonBracket'
 import SeasonStats from './pages/SeasonStats'
 import Admin from './pages/Admin'
 import TeamProfile from './pages/TeamProfile'
-import { SeasonProvider } from './context/SeasonContext'
-import { TournamentProvider } from './context/TournamentContext'
+import { SeasonProvider, useSeason } from './context/SeasonContext'
+import { TournamentProvider, useTournament } from './context/TournamentContext'
 import { SEASON_SCOREBOOK_PATH, TOURNAMENT_SCOREBOOK_PATH } from './utils/scorebookRouting'
 
 const INTERACTIVE_TAP_SELECTOR = 'button, a, [role="button"], input[type="button"], input[type="submit"], input[type="reset"]'
 
+function AppLoadingScreen() {
+  return (
+    <div className="app-shell">
+      <main className="page-shell">
+        <section className="panel">
+          <p className="muted" style={{ margin: 0 }}>Loading…</p>
+        </section>
+      </main>
+    </div>
+  )
+}
+
 function AppLayout() {
+  const { loading: authLoading } = useAuth()
+  const { loading: seasonLoading } = useSeason()
+  const { loading: tournamentLoading } = useTournament()
+
+  if (authLoading || seasonLoading || tournamentLoading) {
+    return <AppLoadingScreen />
+  }
+
   return (
     <div className="app-shell">
       <Navbar />

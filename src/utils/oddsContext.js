@@ -127,6 +127,26 @@ function buildEntityHistoricalProfile({
   }
 }
 
+// PART C/E — sums wagered money and potential payout liability per market/side
+// from currently-open bets on this game, keyed the same way as buildOddsRowKey
+// (`${bet_type}::${target_entity || 'game'}`), so the odds engine can apply
+// volume-based line movement and liability caps.
+function buildMarketVolume(gameBets = []) {
+  const volume = {}
+  gameBets
+    .filter((bet) => bet.status === 'open' || bet.status === 'pending')
+    .forEach((bet) => {
+      const key = `${bet.bet_type}::${bet.target_entity || 'game'}`
+      const side = bet.chosen_side
+      if (!side) return
+      volume[key] = volume[key] || {}
+      volume[key][side] = volume[key][side] || { money: 0, liability: 0 }
+      volume[key][side].money += Number(bet.wager_dollars || 0)
+      volume[key][side].liability += Number(bet.potential_payout_dollars || 0)
+    })
+  return volume
+}
+
 function buildHeadToHeadSummary(homePlayerId, awayPlayerId, completedGames = []) {
   const matchups = completedGames.filter((game) => {
     const ids = [game.team_a_player_id, game.team_b_player_id]
@@ -159,6 +179,8 @@ export function buildOddsGenerationContext({
   currentInning = null,
   scores = null,
   totalInnings = DEFAULT_REGULATION_INNINGS,
+  bets = [],
+  liabilityCap = null,
 }) {
   if (!game) return null
 
@@ -189,13 +211,17 @@ export function buildOddsGenerationContext({
       .filter((entry) => entry.player_id === playerId)
       .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0]?.character_id
 
-  const toRoster = (playerId, currentPitcherId) =>
+  // PART G — live prop placement needs the player's CURRENT in-game progress
+  // toward the prop line (kSoFar/hitsSoFar/hrSoFar), so odds at placement
+  // reflect "how much more do they need" rather than re-deriving from scratch.
+  const toRoster = (playerId, currentPitcherId, opposingPlayerId) =>
     gamePicks
       .filter((entry) => entry.player_id === playerId && entry.character_id)
       .map((entry) => {
         const character = charactersById[entry.character_id]
         const player = playersById[playerId]
         if (!character) return null
+        const ownPAs = gamePAs.filter((pa) => pa.player_id === playerId && pa.character_id === entry.character_id)
         return {
           ...character,
           id: entry.character_id,
@@ -203,7 +229,12 @@ export function buildOddsGenerationContext({
           playerName: player?.name,
           skillProfile: getPlayerSkillProfile(player),
           entityLabel: buildBettingEntityLabel(character, player),
-          paSoFar: gamePAs.filter((pa) => pa.player_id === playerId && pa.character_id === entry.character_id).length,
+          paSoFar: ownPAs.length,
+          hitsSoFar: ownPAs.filter((pa) => HIT_RESULTS.has(pa.result)).length,
+          hrSoFar: ownPAs.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length,
+          kSoFar: currentPitcherId === entry.character_id
+            ? gamePAs.filter((pa) => pa.player_id === opposingPlayerId && pa.result === 'K').length
+            : 0,
           isPitcher: currentPitcherId === entry.character_id,
           isActivePitcher: currentPitcherId === entry.character_id,
         }
@@ -212,8 +243,8 @@ export function buildOddsGenerationContext({
 
   const awayPitcherId = latestPitcherFor(game.team_a_player_id)
   const homePitcherId = latestPitcherFor(game.team_b_player_id)
-  const awayRoster = toRoster(game.team_a_player_id, awayPitcherId)
-  const homeRoster = toRoster(game.team_b_player_id, homePitcherId)
+  const awayRoster = toRoster(game.team_a_player_id, awayPitcherId, game.team_b_player_id)
+  const homeRoster = toRoster(game.team_b_player_id, homePitcherId, game.team_a_player_id)
   const homePlayer = playersById[game.team_b_player_id]
   const awayPlayer = playersById[game.team_a_player_id]
   const liveInning = Number(currentInning ?? Math.max(...gamePAs.map((entry) => Number(entry.inning || 1)), 1))
@@ -243,6 +274,8 @@ export function buildOddsGenerationContext({
     isNight,
     stadiumGameLog: scopedStadiumLog,
     totalInnings: normalizeRegulationInnings(totalInnings, DEFAULT_REGULATION_INNINGS),
+    marketVolume: buildMarketVolume(bets.filter((bet) => String(bet.game_id) === String(game.id))),
+    ...(liabilityCap != null ? { liabilityCap } : {}),
   }
 
   ;[...homeRoster, ...awayRoster].forEach((entry) => {

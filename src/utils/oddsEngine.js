@@ -516,6 +516,17 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
     0.012,
     0.32,
   )
+  // HR rate is a rare, high-variance event — a single recent game (n=1) is nearly
+  // pure noise, so shrink the historical HR rate toward the intrinsic power-stat
+  // baseline based on plate-appearance sample size (full trust around 40+ PAs).
+  const hrCharBaseline = clamp((character.bat * 0.036) + (hitterSkill * 0.03), 0.015, 0.24)
+  const hrSampleReliability = clamp(historical.plateAppearances / 40, 0, 1)
+  const hrEffectiveRate = clamp(
+    (hrCharBaseline * (1 - hrSampleReliability)) +
+      (clamp(historical.hrRate, 0, 0.4) * (1 + hitterSkill * 0.35)) * hrSampleReliability,
+    0.012,
+    0.28,
+  )
   const hitPerPA = clamp(
     (character.bat * 0.19 * charWeight) +
       (character.speed * 0.06 * charWeight) +
@@ -536,22 +547,57 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
   )
   const projectedInningsRemaining = clamp(3.5 - Math.max(0, liveState.inning - 1) * 0.45, 1, 4.5)
 
-  return {
-    hr: {
+  // PART G — if a prop has effectively already resolved by the time it's
+  // being priced (e.g. the player already has a hit/HR this game, or a
+  // pitcher already has Ks toward a K-prop line), the probability must
+  // reflect that progress rather than re-deriving it from pre-game rates.
+  const hrSoFar = Number(entry.hrSoFar || 0)
+  const hitsSoFar = Number(entry.hitsSoFar || 0)
+  const kSoFar = Number(entry.kSoFar || 0)
+
+  const hrSources = hrSoFar > 0
+    ? { char: MAX_PROBABILITY, historical: MAX_PROBABILITY, live: MAX_PROBABILITY }
+    : {
       char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.036) + (hitterSkill * 0.03), 0.015, 0.24), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
-      historical: clamp(1 - Math.pow(1 - clamp(historical.hrRate * (1 + hitterSkill * 0.35), 0.015, 0.28), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+      historical: clamp(1 - Math.pow(1 - hrEffectiveRate, expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
       live: clamp(1 - Math.pow(1 - hrPerPA, Math.max(expectedPAs - (entry.paSoFar || 0), 1)) + liveWeight * 0.04, MIN_PROBABILITY, MAX_PROBABILITY),
-    },
-    hit: {
+    }
+
+  const hitSources = hitsSoFar > 0
+    ? { char: MAX_PROBABILITY, historical: MAX_PROBABILITY, live: MAX_PROBABILITY }
+    : {
       char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.17) + (character.speed * 0.04) + (hitterSkill * 0.09), 0.1, 0.58), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
       historical: clamp(1 - Math.pow(1 - clamp(historical.hitRate * (0.95 + hitterSkill * 0.25), 0.1, 0.68), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
       live: clamp(1 - Math.pow(1 - hitPerPA, Math.max(expectedPAs - (entry.paSoFar || 0), 1)) + liveWeight * 0.03, MIN_PROBABILITY, MAX_PROBABILITY),
-    },
-    strikeouts: {
-      line: roundToHalf(clamp((historical.strikeoutsPerGame * historyWeight) + (kPerInning * projectedInningsRemaining) + liveSkillPressure, 0.5, 8.5)),
+    }
+
+  const strikeoutLine = roundToHalf(clamp((historical.strikeoutsPerGame * historyWeight) + (kPerInning * projectedInningsRemaining) + liveSkillPressure, 0.5, 8.5))
+  // PART G — the strikeout line always refers to the FULL-GAME total. Once a
+  // pitcher already has Ks recorded (kSoFar > 0), price "over" based on how
+  // many MORE Ks they need (remainingNeeded) vs. the expected number they'll
+  // pick up in the innings left, instead of the pre-game rate-based formula.
+  let strikeoutSources
+  if (kSoFar > 0) {
+    const expectedRemainingKs = kPerInning * projectedInningsRemaining
+    const remainingNeeded = strikeoutLine - kSoFar
+    const kOverProb = remainingNeeded <= 0
+      ? MAX_PROBABILITY
+      : clamp(logistic((expectedRemainingKs - remainingNeeded) * 1.1), MIN_PROBABILITY, MAX_PROBABILITY)
+    strikeoutSources = { char: kOverProb, historical: kOverProb, live: kOverProb }
+  } else {
+    strikeoutSources = {
       char: clamp(logistic((character.pitch + hitterSkill - character.bat) * 0.8), MIN_PROBABILITY, MAX_PROBABILITY),
       historical: clamp(logistic((historical.strikeoutsPerInning * 1.35) - 0.6), MIN_PROBABILITY, MAX_PROBABILITY),
       live: clamp(logistic((kPerInning - 0.9) + liveSkillPressure), MIN_PROBABILITY, MAX_PROBABILITY),
+    }
+  }
+
+  return {
+    hr: hrSources,
+    hit: hitSources,
+    strikeouts: {
+      line: strikeoutLine,
+      ...strikeoutSources,
     },
   }
 }
@@ -570,20 +616,101 @@ export function computeRunLineCoverProb(spread, margins = []) {
   return clamp(raw * confidence + baseline * (1 - confidence), MIN_PROBABILITY, MAX_PROBABILITY)
 }
 
-// Standard sportsbook vig: each side priced ~2.3% above fair value → ~4.6% total overround
-const STANDARD_JUICE = 0.023
+// Standard sportsbook overround: both sides' implied probabilities sum to ~107%
+// (target is configurable; 105-110% is the typical sportsbook range).
+export const TARGET_OVERROUND = 1.07
 
-export function americanOddsFromProbability(probability, juice = STANDARD_JUICE) {
-  const fairProbability = clamp(Number(probability || 0) + Number(juice || 0), MIN_PROBABILITY, MAX_PROBABILITY)
+// Step 1 of the pricing pipeline: take a "fair" probability for one side of a
+// 2-outcome market and apply the house edge. Each side gets half the overround,
+// so probabilityA_vig + probabilityB_vig === overround (always > 1, which keeps
+// any 2-sided market arbitrage-proof — see PART D).
+export function applyVig(probability, overround = TARGET_OVERROUND) {
+  const juice = (Number(overround || TARGET_OVERROUND) - 1) / 2
+  return clamp(Number(probability || 0) + juice, MIN_PROBABILITY, MAX_PROBABILITY)
+}
+
+// Step 2 of the pricing pipeline: convert a vig-adjusted probability to American odds.
+export function oddsFromVigProbability(vigProbability) {
+  const probability = clamp(Number(vigProbability || 0), MIN_PROBABILITY, MAX_PROBABILITY)
   let odds
 
-  if (fairProbability >= 0.5) {
-    odds = Math.round(-((fairProbability / (1 - fairProbability)) * 100))
+  if (probability >= 0.5) {
+    odds = Math.round(-((probability / (1 - probability)) * 100))
   } else {
-    odds = Math.round(((1 - fairProbability) / fairProbability) * 100)
+    odds = Math.round(((1 - probability) / probability) * 100)
   }
 
   return clamp(odds, MAX_FAVORITE_ODDS, MAX_UNDERDOG_ODDS)
+}
+
+// Convenience wrapper: fair probability -> apply vig -> American odds.
+export function americanOddsFromProbability(probability, overround = TARGET_OVERROUND) {
+  return oddsFromVigProbability(applyVig(probability, overround))
+}
+
+// ── PART C/D/E — volume-based line movement, arbitrage-proofing, liability caps ──
+
+// Max probability-point shift the volume adjustment can apply to either side.
+export const MAX_VOLUME_SHIFT = 0.12
+// Below this much total wagered on a market, volume adjustments are ignored
+// (avoids wild swings from a single small bet).
+export const MIN_MARKET_LIQUIDITY = 20
+// Max payout liability the collective bank will carry on one side of a market
+// before that side is suspended for new bets.
+export const DEFAULT_LIABILITY_CAP = 500
+
+// Throws if a 2-sided market's implied probabilities don't sum to >1 (i.e. the
+// market could be arbitraged by betting both sides). Intended for dev-time
+// assertions / tests, not the hot path.
+export function assertNoArbitrage(probabilityA, probabilityB, label = 'market') {
+  const total = Number(probabilityA || 0) + Number(probabilityB || 0)
+  if (total <= 1) {
+    throw new Error(`Arbitrage detected in ${label}: implied probabilities sum to ${total.toFixed(4)} (must be > 1)`)
+  }
+  return total
+}
+
+// Prices a 2-sided market end-to-end:
+//   fair probability (side A) -> volume-based line movement -> vig -> American odds
+// `moneyA`/`moneyB` are total dollars wagered on each side so far (PART C).
+// `liabilityA`/`liabilityB` are the house's potential payout exposure on each
+// side; once either exceeds `liabilityCap` the market is marked suspended
+// (PART E). The volume shift always keeps probabilityA in (0, 1), and vig is
+// applied symmetrically from probabilityA/1-probabilityA, so the arbitrage
+// invariant from PART D holds by construction.
+export function priceMarket(fairProbabilityA, options = {}) {
+  const {
+    moneyA = 0,
+    moneyB = 0,
+    liabilityA = 0,
+    liabilityB = 0,
+    liabilityCap = DEFAULT_LIABILITY_CAP,
+    overround = TARGET_OVERROUND,
+    alreadySuspended = false,
+  } = options
+
+  const totalMoney = Number(moneyA || 0) + Number(moneyB || 0)
+  const liquidity = Math.max(totalMoney, MIN_MARKET_LIQUIDITY)
+  const imbalance = clamp((Number(moneyA || 0) - Number(moneyB || 0)) / liquidity, -1, 1)
+  // More money on side A makes side A's odds worse (higher implied probability).
+  const volumeShift = imbalance * MAX_VOLUME_SHIFT
+  const adjustedProbabilityA = clamp(Number(fairProbabilityA || 0.5) + volumeShift, MIN_PROBABILITY, MAX_PROBABILITY)
+  const adjustedProbabilityB = 1 - adjustedProbabilityA
+
+  const vigA = applyVig(adjustedProbabilityA, overround)
+  const vigB = applyVig(adjustedProbabilityB, overround)
+  assertNoArbitrage(vigA, vigB, 'priceMarket')
+
+  const liabilityExceeded = Number(liabilityA || 0) > liabilityCap || Number(liabilityB || 0) > liabilityCap
+  const volumeMaxedOut = Math.abs(volumeShift) >= MAX_VOLUME_SHIFT && Math.abs(imbalance) >= 1
+  const isSuspended = alreadySuspended || liabilityExceeded || volumeMaxedOut
+
+  return {
+    oddsA: oddsFromVigProbability(vigA),
+    oddsB: oddsFromVigProbability(vigB),
+    probabilityA: adjustedProbabilityA,
+    isSuspended,
+  }
 }
 
 export function calculatePayout(wagerSips, americanOdds) {
@@ -593,6 +720,23 @@ export function calculatePayout(wagerSips, americanOdds) {
 
   const raw = odds > 0 ? (odds / 100) * stake : (100 / Math.abs(odds)) * stake
   return Math.round(raw * 100) / 100
+}
+
+// Looks up tracked wager volume / liability for a 2-sided market (PART C/E),
+// keyed the same way as buildOddsRowKey, then runs it through priceMarket
+// (volume adjustment -> vig -> American odds, with arb-proofing built in).
+function priceTwoSidedMarket(fairProbabilityA, playerProps, betType, targetEntity, sideA, sideB) {
+  const key = `${betType}::${targetEntity || 'game'}`
+  const stats = playerProps?.marketVolume?.[key] || {}
+  const a = stats[sideA] || {}
+  const b = stats[sideB] || {}
+  return priceMarket(fairProbabilityA, {
+    moneyA: a.money,
+    moneyB: b.money,
+    liabilityA: a.liability,
+    liabilityB: b.liability,
+    liabilityCap: playerProps?.liabilityCap,
+  })
 }
 
 export function generateGameOdds(
@@ -625,15 +769,17 @@ export function generateGameOdds(
   )
   const moneylineProbability = applyVarianceToProbability(baseMoneylineProbability, stadiumModifiers.varianceMultiplier)
 
+  const moneylinePricing = priceTwoSidedMarket(moneylineProbability, playerProps, 'moneyline', null, 'home', 'away')
+
   rows.push({
     game_id: game.id,
     bet_type: 'moneyline',
     target_entity: null,
     line: null,
-    odds_home: americanOddsFromProbability(moneylineProbability),
-    odds_away: americanOddsFromProbability(1 - moneylineProbability),
-    predicted_probability: Number(moneylineProbability.toFixed(4)),
-    is_locked: false,
+    odds_home: moneylinePricing.oddsA,
+    odds_away: moneylinePricing.oddsB,
+    predicted_probability: Number(moneylinePricing.probabilityA.toFixed(4)),
+    is_locked: moneylinePricing.isSuspended,
     updated_at: new Date().toISOString(),
   })
 
@@ -653,26 +799,28 @@ export function generateGameOdds(
   const coverTilt = (favWinProb - 0.5) * 0.25
   const fairSpread = projectedMargin + ((coverTilt * marginStdDev) / 3)
   const defaultSpread = roundToNearestHook(fairSpread, 0.5)
-  const baseCoverProb = probabilityFromProjectionGap(
-    projectedMargin - defaultSpread,
-    marginStdDev,
-    coverTilt,
-  )
-  const favCoverProb = applyVarianceToProbability(
-    baseCoverProb,
-    stadiumModifiers.varianceMultiplier,
-  )
+  // A -0.5 run line has the SAME win condition as the moneyline (no ties in
+  // baseball, so "win by any margin" === "win"), so it must price close to the
+  // moneyline rather than through the margin-distribution model.
+  const favCoverProb = defaultSpread <= 0.5
+    ? favWinProb
+    : applyVarianceToProbability(
+      probabilityFromProjectionGap(projectedMargin - defaultSpread, marginStdDev, coverTilt),
+      stadiumModifiers.varianceMultiplier,
+    )
   const dogCoverProb = clamp(1 - favCoverProb, MIN_PROBABILITY, MAX_PROBABILITY)
+  const homeCoverProb = homeIsFav ? favCoverProb : dogCoverProb
+  const runLinePricing = priceTwoSidedMarket(homeCoverProb, playerProps, 'run_line', null, 'home', 'away')
 
   rows.push({
     game_id: game.id,
     bet_type: 'run_line',
     target_entity: null,
     line: defaultSpread,
-    odds_home: homeIsFav ? americanOddsFromProbability(favCoverProb) : americanOddsFromProbability(dogCoverProb),
-    odds_away: homeIsFav ? americanOddsFromProbability(dogCoverProb) : americanOddsFromProbability(favCoverProb),
-    predicted_probability: Number((homeIsFav ? favCoverProb : dogCoverProb).toFixed(4)),
-    is_locked: false,
+    odds_home: runLinePricing.oddsA,
+    odds_away: runLinePricing.oddsB,
+    predicted_probability: Number(runLinePricing.probabilityA.toFixed(4)),
+    is_locked: runLinePricing.isSuspended,
     updated_at: new Date().toISOString(),
   })
 
@@ -683,16 +831,17 @@ export function generateGameOdds(
     probabilityFromProjectionGap(totalRunSources.line - totalLine, totalStdDev),
     stadiumModifiers.varianceMultiplier,
   )
+  const totalPricing = priceTwoSidedMarket(overProbability, playerProps, 'over_under', null, 'over', 'under')
 
   rows.push({
     game_id: game.id,
     bet_type: 'over_under',
     target_entity: null,
     line: totalLine,
-    odds_over: americanOddsFromProbability(overProbability),
-    odds_under: americanOddsFromProbability(1 - overProbability),
-    predicted_probability: Number(overProbability.toFixed(4)),
-    is_locked: false,
+    odds_over: totalPricing.oddsA,
+    odds_under: totalPricing.oddsB,
+    predicted_probability: Number(totalPricing.probabilityA.toFixed(4)),
+    is_locked: totalPricing.isSuspended,
     updated_at: new Date().toISOString(),
   })
 
@@ -703,16 +852,17 @@ export function generateGameOdds(
     ),
     stadiumModifiers.varianceMultiplier,
   )
+  const firstInningPricing = priceTwoSidedMarket(firstInningProbability, playerProps, 'first_inning_run', null, 'yes', 'no')
 
   rows.push({
     game_id: game.id,
     bet_type: 'first_inning_run',
     target_entity: null,
     line: 0.5,
-    odds_yes: americanOddsFromProbability(firstInningProbability),
-    odds_no: americanOddsFromProbability(1 - firstInningProbability),
-    predicted_probability: Number(firstInningProbability.toFixed(4)),
-    is_locked: false,
+    odds_yes: firstInningPricing.oddsA,
+    odds_no: firstInningPricing.oddsB,
+    predicted_probability: Number(firstInningPricing.probabilityA.toFixed(4)),
+    is_locked: firstInningPricing.isSuspended,
     updated_at: new Date().toISOString(),
   })
 
@@ -734,15 +884,18 @@ export function generateGameOdds(
       stadiumModifiers.varianceMultiplier,
     )
 
+    const hrPricing = priceTwoSidedMarket(hrProbability, playerProps, 'hr_prop', label, 'yes', 'no')
+    const hitPricing = priceTwoSidedMarket(hitProbability, playerProps, 'hit_prop', label, 'yes', 'no')
+
     rows.push({
       game_id: game.id,
       bet_type: 'hr_prop',
       target_entity: label,
       line: 0.5,
-      odds_yes: americanOddsFromProbability(hrProbability),
-      odds_no: americanOddsFromProbability(1 - hrProbability),
-      predicted_probability: Number(hrProbability.toFixed(4)),
-      is_locked: false,
+      odds_yes: hrPricing.oddsA,
+      odds_no: hrPricing.oddsB,
+      predicted_probability: Number(hrPricing.probabilityA.toFixed(4)),
+      is_locked: hrPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
 
@@ -751,10 +904,10 @@ export function generateGameOdds(
       bet_type: 'hit_prop',
       target_entity: label,
       line: 0.5,
-      odds_yes: americanOddsFromProbability(hitProbability),
-      odds_no: americanOddsFromProbability(1 - hitProbability),
-      predicted_probability: Number(hitProbability.toFixed(4)),
-      is_locked: false,
+      odds_yes: hitPricing.oddsA,
+      odds_no: hitPricing.oddsB,
+      predicted_probability: Number(hitPricing.probabilityA.toFixed(4)),
+      is_locked: hitPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
   })
@@ -771,15 +924,18 @@ export function generateGameOdds(
       stadiumModifiers.varianceMultiplier,
     )
 
+    const hrPricing = priceTwoSidedMarket(hrProbability, playerProps, 'hr_prop', label, 'yes', 'no')
+    const hitPricing = priceTwoSidedMarket(hitProbability, playerProps, 'hit_prop', label, 'yes', 'no')
+
     rows.push({
       game_id: game.id,
       bet_type: 'hr_prop',
       target_entity: label,
       line: 0.5,
-      odds_yes: americanOddsFromProbability(hrProbability),
-      odds_no: americanOddsFromProbability(1 - hrProbability),
-      predicted_probability: Number(hrProbability.toFixed(4)),
-      is_locked: false,
+      odds_yes: hrPricing.oddsA,
+      odds_no: hrPricing.oddsB,
+      predicted_probability: Number(hrPricing.probabilityA.toFixed(4)),
+      is_locked: hrPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
 
@@ -788,10 +944,10 @@ export function generateGameOdds(
       bet_type: 'hit_prop',
       target_entity: label,
       line: 0.5,
-      odds_yes: americanOddsFromProbability(hitProbability),
-      odds_no: americanOddsFromProbability(1 - hitProbability),
-      predicted_probability: Number(hitProbability.toFixed(4)),
-      is_locked: false,
+      odds_yes: hitPricing.oddsA,
+      odds_no: hitPricing.oddsB,
+      predicted_probability: Number(hitPricing.probabilityA.toFixed(4)),
+      is_locked: hitPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
   })
@@ -803,16 +959,17 @@ export function generateGameOdds(
       blendSources(sources.strikeouts, normalizedWeights),
       stadiumModifiers.varianceMultiplier,
     )
+    const kPricing = priceTwoSidedMarket(strikeoutProbability, playerProps, 'k_prop', label, 'over', 'under')
 
     rows.push({
       game_id: game.id,
       bet_type: 'k_prop',
       target_entity: label,
       line: sources.strikeouts.line,
-      odds_over: americanOddsFromProbability(strikeoutProbability),
-      odds_under: americanOddsFromProbability(1 - strikeoutProbability),
-      predicted_probability: Number(strikeoutProbability.toFixed(4)),
-      is_locked: false,
+      odds_over: kPricing.oddsA,
+      odds_under: kPricing.oddsB,
+      predicted_probability: Number(kPricing.probabilityA.toFixed(4)),
+      is_locked: kPricing.isSuspended,
       updated_at: new Date().toISOString(),
     })
   })
@@ -857,11 +1014,13 @@ export function recalculateOdds(currentOdds = [], gameState = {}, pa = {}) {
       }
 
       if (nextProbability != null) {
+        const pricing = priceTwoSidedMarket(nextProbability, gameState.oddsContext?.playerProps, 'moneyline', null, 'home', 'away')
         nextRow = {
           ...row,
-          odds_home: americanOddsFromProbability(nextProbability),
-          odds_away: americanOddsFromProbability(1 - nextProbability),
-          predicted_probability: Number(nextProbability.toFixed(4)),
+          odds_home: pricing.oddsA,
+          odds_away: pricing.oddsB,
+          predicted_probability: Number(pricing.probabilityA.toFixed(4)),
+          is_locked: pricing.isSuspended,
           updated_at: new Date().toISOString(),
         }
       }
@@ -872,18 +1031,23 @@ export function recalculateOdds(currentOdds = [], gameState = {}, pa = {}) {
       const favWinProb = homeIsFav ? liveMarketState.winProbability : 1 - liveMarketState.winProbability
       const coverTilt = (favWinProb - 0.5) * 0.25
       const projectedMargin = Math.abs(liveMarketState.expectedMargin)
-      const favCoverProb = clamp(
-        probabilityFromProjectionGap(projectedMargin - Number(row.line), liveMarketState.marginVariance, coverTilt),
-        MIN_PROBABILITY,
-        MAX_PROBABILITY,
-      )
+      const favCoverProb = Number(row.line) <= 0.5
+        ? favWinProb
+        : clamp(
+          probabilityFromProjectionGap(projectedMargin - Number(row.line), liveMarketState.marginVariance, coverTilt),
+          MIN_PROBABILITY,
+          MAX_PROBABILITY,
+        )
       const dogCoverProb = clamp(1 - favCoverProb, MIN_PROBABILITY, MAX_PROBABILITY)
+      const homeCoverProb = homeIsFav ? favCoverProb : dogCoverProb
+      const pricing = priceTwoSidedMarket(homeCoverProb, gameState.oddsContext?.playerProps, 'run_line', null, 'home', 'away')
 
       nextRow = {
         ...row,
-        odds_home: homeIsFav ? americanOddsFromProbability(favCoverProb) : americanOddsFromProbability(dogCoverProb),
-        odds_away: homeIsFav ? americanOddsFromProbability(dogCoverProb) : americanOddsFromProbability(favCoverProb),
-        predicted_probability: Number((homeIsFav ? favCoverProb : dogCoverProb).toFixed(4)),
+        odds_home: pricing.oddsA,
+        odds_away: pricing.oddsB,
+        predicted_probability: Number(pricing.probabilityA.toFixed(4)),
+        is_locked: pricing.isSuspended,
         updated_at: new Date().toISOString(),
       }
     }
@@ -894,17 +1058,21 @@ export function recalculateOdds(currentOdds = [], gameState = {}, pa = {}) {
         MIN_PROBABILITY,
         MAX_PROBABILITY,
       )
+      const pricing = priceTwoSidedMarket(overProbability, gameState.oddsContext?.playerProps, 'over_under', null, 'over', 'under')
 
       nextRow = {
         ...row,
-        odds_over: americanOddsFromProbability(overProbability),
-        odds_under: americanOddsFromProbability(1 - overProbability),
-        predicted_probability: Number(overProbability.toFixed(4)),
+        odds_over: pricing.oddsA,
+        odds_under: pricing.oddsB,
+        predicted_probability: Number(pricing.probabilityA.toFixed(4)),
+        is_locked: pricing.isSuspended,
         updated_at: new Date().toISOString(),
       }
     }
 
-    if (row.bet_type === 'first_inning_run' && Number(pa.pa_number || gameState.paCount || 0) >= 1) {
+    // PART H — first-inning props lock for NEW bets once inning 1's window has
+    // closed (i.e. inning 2+ has begun), not after the game's very first PA.
+    if (row.bet_type === 'first_inning_run' && !row.is_locked && Number(gameState.liveState?.currentInning ?? gameState.currentInning ?? 1) >= 2) {
       nextRow = { ...row, is_locked: true, updated_at: new Date().toISOString() }
     }
 
@@ -927,6 +1095,16 @@ export function recalculateOdds(currentOdds = [], gameState = {}, pa = {}) {
       gameState.generationContext.playerProps,
       gameState.generationContext.weights,
     )
+
+    // PART H — a pitcher who's been pulled can't add more strikeouts, so lock
+    // their now-stale k_prop market for new bets (their existing bets still
+    // settle against the final total).
+    const regeneratedKPropEntities = new Set(regenerated.filter((row) => row.bet_type === 'k_prop').map((row) => row.target_entity))
+    currentOdds
+      .filter((row) => row.bet_type === 'k_prop' && !row.is_locked && !regeneratedKPropEntities.has(row.target_entity))
+      .forEach((row) => {
+        changedRows.push({ ...row, is_locked: true, updated_at: new Date().toISOString() })
+      })
 
     regenerated
       .filter((row) => row.bet_type === 'hr_prop' || row.bet_type === 'hit_prop' || row.bet_type === 'k_prop')

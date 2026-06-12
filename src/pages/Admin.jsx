@@ -7,6 +7,13 @@ import { useTournament } from '../context/TournamentContext'
 import { useToast } from '../context/ToastContext'
 import LogoUpload from '../components/LogoUpload'
 import EyeDropperButton from '../components/EyeDropperButton'
+import { buildRoundRobinSchedule, formatSeasonLabel, normalizeSeasonName, SEASON_PLAYOFF_FORMATS, validateSeasonSettings } from '../utils/season'
+import {
+  DEFAULT_MERCY_RULE_DIFFERENTIAL,
+  DEFAULT_REGULATION_INNINGS,
+  normalizeMercyRuleDifferential,
+  normalizeRegulationInnings,
+} from '../utils/gameRules'
 
 function playerEmailFromName(name) {
   return `${name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@sluggers.local`
@@ -78,6 +85,236 @@ function ConfirmButton({ label, confirmLabel, onConfirm, danger = false, disable
     >
       {label}
     </button>
+  )
+}
+
+function buildSeasonEditForm(season) {
+  return {
+    name: season?.name || '',
+    games_per_matchup: Math.trunc(Number(season?.games_per_matchup || 1)),
+    innings: normalizeRegulationInnings(season?.innings, DEFAULT_REGULATION_INNINGS),
+    mercy_rule: season?.mercy_rule === true,
+    mercy_rule_differential: normalizeMercyRuleDifferential(
+      season?.mercy_rule_differential,
+      DEFAULT_MERCY_RULE_DIFFERENTIAL,
+    ),
+    playoff_format: season?.playoff_format || 'double_elimination',
+  }
+}
+
+function EditSeasonModal({
+  season,
+  allSeasons,
+  schedule,
+  seasonTeams,
+  onClose,
+  onSaved,
+  pushToast,
+}) {
+  const [form, setForm] = useState(() => buildSeasonEditForm(season))
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setForm(buildSeasonEditForm(season))
+  }, [season])
+
+  if (!season) return null
+
+  const regularSeasonGames = (schedule || []).filter((game) => !game.stage)
+  const regularSeasonStarted = regularSeasonGames.some((game) => game.status !== 'scheduled')
+  const playoffFormatLocked = season.status === 'playoffs' || (schedule || []).some((game) => Boolean(game.stage))
+
+  const handleSave = async () => {
+    const validationError = validateSeasonSettings(form, allSeasons, season.id)
+    if (validationError) {
+      pushToast({ title: 'Fix season settings', message: validationError, type: 'error' })
+      return
+    }
+
+    const nextGamesPerMatchup = Math.trunc(Number(form.games_per_matchup))
+    if (regularSeasonStarted && nextGamesPerMatchup !== Number(season.games_per_matchup || 0)) {
+      pushToast({
+        title: 'Games per matchup locked',
+        message: 'Change games per matchup before the regular season starts so the existing schedule stays valid.',
+        type: 'error',
+      })
+      return
+    }
+
+    const payload = {
+      name: normalizeSeasonName(form.name),
+      games_per_matchup: nextGamesPerMatchup,
+      innings: normalizeRegulationInnings(form.innings, DEFAULT_REGULATION_INNINGS),
+      mercy_rule: Boolean(form.mercy_rule),
+      mercy_rule_differential: normalizeMercyRuleDifferential(
+        form.mercy_rule_differential,
+        DEFAULT_MERCY_RULE_DIFFERENTIAL,
+      ),
+      playoff_format: playoffFormatLocked ? season.playoff_format : form.playoff_format,
+    }
+
+    setSaving(true)
+    try {
+      const { error: seasonError } = await supabase
+        .from('seasons')
+        .update(payload)
+        .eq('id', season.id)
+      if (seasonError) throw seasonError
+
+      if (!regularSeasonStarted && nextGamesPerMatchup !== Number(season.games_per_matchup || 0)) {
+        const playerIdToTeamId = Object.fromEntries((seasonTeams || []).map((entry) => [entry.player_id, entry.id]))
+        const nextSchedule = buildRoundRobinSchedule(
+          (seasonTeams || []).map((entry) => entry.player_id),
+          nextGamesPerMatchup,
+        ).map((game) => ({
+          season_id: season.id,
+          round_number: game.round_number,
+          home_team_id: playerIdToTeamId[game.home_team_id],
+          away_team_id: playerIdToTeamId[game.away_team_id],
+          stadium_picker_team_id: playerIdToTeamId[game.stadium_picker_team_id],
+          innings: payload.innings,
+          mercy_rule: payload.mercy_rule,
+          mercy_rule_differential: payload.mercy_rule_differential,
+          status: 'scheduled',
+        }))
+
+        const existingRegularSeasonIds = regularSeasonGames.map((game) => game.id)
+        if (existingRegularSeasonIds.length) {
+          const { error: deleteError } = await supabase
+            .from('season_schedule')
+            .delete()
+            .in('id', existingRegularSeasonIds)
+          if (deleteError) throw deleteError
+        }
+
+        if (nextSchedule.length) {
+          const { error: insertError } = await supabase.from('season_schedule').insert(nextSchedule)
+          if (insertError) throw insertError
+        }
+      } else {
+        const { error: scheduledGamesError } = await supabase
+          .from('season_schedule')
+          .update({
+            innings: payload.innings,
+            mercy_rule: payload.mercy_rule,
+            mercy_rule_differential: payload.mercy_rule_differential,
+          })
+          .eq('season_id', season.id)
+          .eq('status', 'scheduled')
+        if (scheduledGamesError) throw scheduledGamesError
+      }
+
+      await onSaved(payload.name)
+    } catch (error) {
+      pushToast({ title: 'Unable to update season', message: error.message, type: 'error' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(event) => event.stopPropagation()} style={{ width: 'min(720px, calc(100vw - 32px))', display: 'grid', gap: 16 }}>
+        <div className="section-head">
+          <div>
+            <span className="brand-kicker">Commissioner</span>
+            <h2 style={{ margin: '6px 0 0' }}>Edit Season</h2>
+          </div>
+          <span className="player-pill">{formatSeasonLabel(season.status || 'draft')}</span>
+        </div>
+
+        <label style={{ display: 'grid', gap: 6 }}>
+          <span className="muted">Season name</span>
+          <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+        </label>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span className="muted">Games per matchup</span>
+            <input
+              min="1"
+              max="10"
+              type="number"
+              value={form.games_per_matchup}
+              onChange={(event) => setForm((current) => ({ ...current, games_per_matchup: Number(event.target.value) }))}
+              disabled={regularSeasonStarted}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span className="muted">Regulation innings</span>
+            <input
+              min="1"
+              max="12"
+              type="number"
+              value={form.innings}
+              onChange={(event) => setForm((current) => ({ ...current, innings: Number(event.target.value) }))}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gap: 12, padding: 14, borderRadius: 12, border: '1px solid #334155', background: 'rgba(15,23,42,0.55)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div>
+              <strong>Mercy rule</strong>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Future scheduled games will use the updated threshold.</div>
+            </div>
+            <button
+              className="ghost-button"
+              onClick={() => setForm((current) => ({ ...current, mercy_rule: !current.mercy_rule }))}
+              type="button"
+              style={{
+                borderColor: form.mercy_rule ? '#22C55E' : '#334155',
+                color: form.mercy_rule ? '#22C55E' : '#94A3B8',
+                background: form.mercy_rule ? 'rgba(34,197,94,0.12)' : 'transparent',
+              }}
+            >
+              {form.mercy_rule ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span className="muted">Mercy differential</span>
+            <input
+              min="1"
+              max="30"
+              type="number"
+              value={form.mercy_rule_differential}
+              onChange={(event) => setForm((current) => ({ ...current, mercy_rule_differential: Number(event.target.value) }))}
+              disabled={!form.mercy_rule}
+            />
+          </label>
+        </div>
+
+        <label style={{ display: 'grid', gap: 6 }}>
+          <span className="muted">Playoff format</span>
+          <select
+            value={playoffFormatLocked ? season.playoff_format : form.playoff_format}
+            onChange={(event) => setForm((current) => ({ ...current, playoff_format: event.target.value }))}
+            disabled={playoffFormatLocked}
+          >
+            {SEASON_PLAYOFF_FORMATS.map((entry) => <option key={entry} value={entry}>{formatSeasonLabel(entry)}</option>)}
+          </select>
+        </label>
+
+        {regularSeasonStarted ? (
+          <div className="muted" style={{ fontSize: 12 }}>
+            Games per matchup is locked once the regular season starts. Name, innings, mercy settings, and the playoff format can still be updated here.
+          </div>
+        ) : null}
+
+        {playoffFormatLocked ? (
+          <div className="muted" style={{ fontSize: 12 }}>
+            Playoff format is locked after playoffs begin or once playoff games exist.
+          </div>
+        ) : null}
+
+        <div className="modal-actions">
+          <button className="ghost-button" onClick={onClose} type="button">Cancel</button>
+          <button className="solid-button" disabled={saving} onClick={handleSave} type="button">
+            {saving ? 'Saving...' : 'Save Season'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -256,7 +493,7 @@ export default function Admin() {
   const navigate = useNavigate()
   const { player } = useAuth()
   const { pushToast } = useToast()
-  const { currentSeason, viewedSeason, refreshSeasons } = useSeason()
+  const { allSeasons, currentSeason, viewedSeason, refreshSeasons, schedule, seasonTeams } = useSeason()
   const { viewedTournament, currentTournament, refreshTournaments } = useTournament()
   const [players, setPlayers] = useState([])
   const [togglingId, setTogglingId] = useState(null)
@@ -268,6 +505,7 @@ export default function Admin() {
   const [awardAmount, setAwardAmount] = useState('')
   const [awardNote, setAwardNote] = useState('')
   const [awardingBalance, setAwardingBalance] = useState(false)
+  const [editingSeason, setEditingSeason] = useState(false)
 
   const isCommissioner = player?.is_commissioner === true
 
@@ -307,7 +545,12 @@ export default function Admin() {
     if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
     pushToast({ title: 'Season deleted', message: `${activeSeason.name} has been deleted.`, type: 'success' })
     await refreshSeasons()
-    navigate('/season')
+  }
+
+  const handleSeasonSaved = async (seasonName) => {
+    await refreshSeasons(activeSeason?.id)
+    setEditingSeason(false)
+    pushToast({ title: 'Season updated', message: `${seasonName} saved.`, type: 'success' })
   }
 
   const handleDeleteTournament = async () => {
@@ -616,6 +859,11 @@ export default function Admin() {
             action={<button className="ghost-button" onClick={() => navigate('/season/create')} type="button">Create</button>}
           />
           <Row
+            label="Edit Season"
+            description={activeSeason ? `Update ${activeSeason.name} settings without leaving Admin.` : 'No active season.'}
+            action={<button className="ghost-button" onClick={() => setEditingSeason(true)} disabled={!activeSeason} type="button">Edit</button>}
+          />
+          <Row
             label="Resolve Waivers"
             description={activeSeason ? `Process all pending waiver claims for ${activeSeason.name}.` : 'No active season.'}
             action={
@@ -682,6 +930,16 @@ export default function Admin() {
         </Section>
 
       </div>
+
+      <EditSeasonModal
+        season={editingSeason ? activeSeason : null}
+        allSeasons={allSeasons}
+        schedule={schedule}
+        seasonTeams={seasonTeams}
+        onClose={() => setEditingSeason(false)}
+        onSaved={handleSeasonSaved}
+        pushToast={pushToast}
+      />
     </div>
   )
 }

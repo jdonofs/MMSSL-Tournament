@@ -51,7 +51,7 @@ export default function Bracket() {
         supabase.from('stadiums').select('*'),
       ])
       let nextGames = gamesData || []
-      if (tournament?.bracket_format === 'double') {
+      if (tournament?.bracket_format === 'double' || tournament?.bracket_format === 'single') {
         const tournamentGames = nextGames.filter((game) => game.tournament_id === tournament.id)
         const synced = await syncBracketStructure({ supabase, tournament, games: tournamentGames })
         if (synced.length) {

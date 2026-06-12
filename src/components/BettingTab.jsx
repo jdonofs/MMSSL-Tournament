@@ -201,9 +201,10 @@ function mergeOddsIntoState(currentRows, incomingRows, gameId) {
 function getSideOptions(row, game, playersById, identitiesByPlayerId = {}) {
   const labels = getTeamLabels(game, playersById, identitiesByPlayerId)
   if (row.bet_type === 'moneyline' || row.bet_type === 'run_line') {
+    // PART J — away listed first, home second (home always on the bottom)
     return [
-      { side: 'home', label: labels.home, odds: row.odds_home, probability: row.predicted_probability },
       { side: 'away', label: labels.away, odds: row.odds_away, probability: 1 - Number(row.predicted_probability || 0.5) },
+      { side: 'home', label: labels.home, odds: row.odds_home, probability: row.predicted_probability },
     ]
   }
 
@@ -323,9 +324,9 @@ function MarketTitle({ row, game, playersById, identitiesByPlayerId }) {
   if (row.bet_type === 'moneyline' || row.bet_type === 'run_line') {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} />
-        <span className="muted">vs</span>
         <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} />
+        <span className="muted">vs</span>
+        <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} />
       </div>
     )
   }
@@ -574,17 +575,6 @@ const BoardGameCard = memo(function BoardGameCard({
   return (
     <div
       className={`sportsbook-game-card ${ready ? '' : 'sportsbook-game-card-disabled'}`}
-      onClick={() => {
-        if (!ready) return
-        onOpenDetail(game.id)
-      }}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if ((event.key === 'Enter' || event.key === ' ') && ready) {
-          onOpenDetail(game.id)
-        }
-      }}
     >
       <div className="sportsbook-game-meta">
         <div className="sportsbook-game-meta-main">
@@ -644,7 +634,8 @@ const BoardGameCard = memo(function BoardGameCard({
         ))}
       </div>
 
-      {[{ key: 'home', isHome: true }, { key: 'away', isHome: false }].map(({ key, isHome }) => {
+      {/* PART J — home team is always rendered on the bottom of the card (away on top) */}
+      {[{ key: 'away', isHome: false }, { key: 'home', isHome: true }].map(({ key, isHome }) => {
         const rl = getRunLineSide(isHome)
         const tot = getTotalSide(isHome)
         const ml = isHome ? homeRow.moneyline : awayRow.moneyline
@@ -729,10 +720,19 @@ const BoardGameCard = memo(function BoardGameCard({
           {(game.status === 'in_progress' || game.status === 'active') && game.current_inning ? (
             <span className="sportsbook-card-footer-pill">{getInningLabel(game)}</span>
           ) : null}
-          <span className="sportsbook-more-bets">
+          <button
+            type="button"
+            className="sportsbook-more-bets"
+            disabled={!ready}
+            onClick={(event) => {
+              event.stopPropagation()
+              if (!ready) return
+              onOpenDetail(game.id)
+            }}
+          >
             <span>More Bets</span>
             <ChevronRight size={16} />
-          </span>
+          </button>
         </div>
       </div>
     </div>
@@ -740,7 +740,7 @@ const BoardGameCard = memo(function BoardGameCard({
 }, boardGameCardEqual)
 
 export default function BettingTab({ mode = 'tournament' }) {
-  const { player, isScorekeeper } = useAuth()
+  const { player, isScorekeeper, is_logged_in } = useAuth()
   const { currentTournament } = useTournament()
   const { currentSeason, seasonTeams } = useSeason()
   const { pushToast } = useToast()
@@ -808,6 +808,7 @@ export default function BettingTab({ mode = 'tournament' }) {
   const [placingBetId, setPlacingBetId] = useState(null)
   const [expandedSections, setExpandedSections] = useState({})
   const [betSlip, setBetSlip] = useState([])
+  const [slipError, setSlipError] = useState('')
   const [stadiumModalGameId, setStadiumModalGameId] = useState(null)
   const [myBetsFilter, setMyBetsFilter] = useState('all')
   const hasLoadedOnceRef = useRef(false)
@@ -1375,9 +1376,8 @@ export default function BettingTab({ mode = 'tournament' }) {
         stadiumsById,
         stadiumGameLog,
         playersById,
-        totalInnings: isSeasonMode
-          ? DEFAULT_REGULATION_INNINGS
-          : normalizeRegulationInnings(sourceContext?.innings, DEFAULT_REGULATION_INNINGS),
+        totalInnings: normalizeRegulationInnings(sourceContext?.innings, DEFAULT_REGULATION_INNINGS),
+        bets,
       })
 
       if (!context.homeRoster.length || !context.awayRoster.length) {
@@ -1550,7 +1550,8 @@ export default function BettingTab({ mode = 'tournament' }) {
       return
     }
     if (slipWager > myBalance) {
-      pushToast({ title: 'Not enough balance', message: 'Reduce your wagers or add funds before placing this slip.', type: 'error' })
+      setSlipError('Insufficient balance')
+      setTimeout(() => setSlipError(''), 4000)
       return
     }
     setPlacingBetId('slip')
@@ -1793,13 +1794,15 @@ export default function BettingTab({ mode = 'tournament' }) {
         >
           Board
         </button>
-        <button
-          className={`tab-button ${viewMode === 'my-bets' ? 'tab-button-active' : ''}`}
-          onClick={() => setViewMode('my-bets')}
-          type="button"
-        >
-          My Bets{myAllBets.some((bet) => bet.status === 'open') ? ` (${myAllBets.filter((bet) => bet.status === 'open').length})` : ''}
-        </button>
+        {is_logged_in ? (
+          <button
+            className={`tab-button ${viewMode === 'my-bets' ? 'tab-button-active' : ''}`}
+            onClick={() => setViewMode('my-bets')}
+            type="button"
+          >
+            My Bets{myAllBets.some((bet) => bet.status === 'open') ? ` (${myAllBets.filter((bet) => bet.status === 'open').length})` : ''}
+          </button>
+        ) : null}
         <button
           className={`tab-button ${viewMode === 'leaderboard' ? 'tab-button-active' : ''}`}
           onClick={() => setViewMode('leaderboard')}
@@ -1807,13 +1810,15 @@ export default function BettingTab({ mode = 'tournament' }) {
         >
           Leaderboard
         </button>
-        <button
-          className={`tab-button ${viewMode === 'sips' ? 'tab-button-active' : ''}`}
-          onClick={() => setViewMode('sips')}
-          type="button"
-        >
-          Buy Sips
-        </button>
+        {is_logged_in ? (
+          <button
+            className={`tab-button ${viewMode === 'sips' ? 'tab-button-active' : ''}`}
+            onClick={() => setViewMode('sips')}
+            type="button"
+          >
+            Buy Sips
+          </button>
+        ) : null}
         <button
           className={`tab-button ${viewMode === 'sips-history' ? 'tab-button-active' : ''}`}
           onClick={() => setViewMode('sips-history')}
@@ -2051,9 +2056,9 @@ export default function BettingTab({ mode = 'tournament' }) {
                   <span className="brand-kicker">Game Detail</span>
                   <h2>{detailGame.game_code}</h2>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_b_player_id} playersById={playersById} />
-                    <span className="muted">vs</span>
                     <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_a_player_id} playersById={playersById} />
+                    <span className="muted">vs</span>
+                    <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_b_player_id} playersById={playersById} />
                   </div>
                   <span className="muted">{getGameStatusLabel(detailGame)}</span>
                 </div>
@@ -2378,8 +2383,9 @@ export default function BettingTab({ mode = 'tournament' }) {
                 <div>
                   <span className="muted">Potential payout</span>
                   <strong>{`$${slipPayout.toFixed(2)}`}</strong>
+                  {slipError ? <div className="sportsbook-slip-error">{slipError}</div> : null}
                 </div>
-                <button className="solid-button" disabled={placingBetId === 'slip' || slipHasInvalidWager || slipWager > myBalance} onClick={handlePlaceBets} type="button">
+                <button className="solid-button" disabled={placingBetId === 'slip' || slipHasInvalidWager} onClick={handlePlaceBets} type="button">
                   {placingBetId === 'slip' ? 'Placing...' : 'Place Bets'}
                 </button>
               </div>

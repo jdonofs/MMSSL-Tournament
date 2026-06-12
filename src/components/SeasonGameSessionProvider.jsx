@@ -3,7 +3,18 @@ import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { GameSessionProvider } from '../context/GameSessionContext'
 import { useSeason } from '../context/SeasonContext'
-import { DEFAULT_REGULATION_INNINGS } from '../utils/gameRules'
+import { buildSeasonStandings } from '../utils/competitionStandings'
+import {
+  DEFAULT_MERCY_RULE_DIFFERENTIAL,
+  DEFAULT_REGULATION_INNINGS,
+  normalizeMercyRuleDifferential,
+  normalizeRegulationInnings,
+} from '../utils/gameRules'
+import {
+  advanceSeasonPlayoffs,
+  reopenSeasonPlayoffs,
+  seedSeasonPlayoffs,
+} from '../utils/seasonPlayoffs'
 
 const SEASON_TABLES = {
   games: 'season_schedule',
@@ -24,8 +35,12 @@ const SEASON_TABLES = {
 
 export default function SeasonGameSessionProvider({ children }) {
   const [searchParams] = useSearchParams()
-  const { currentSeason, refreshSeasons, seasonTeams } = useSeason()
+  const { currentSeason, refreshSeasons, schedule, seasonTeams } = useSeason()
   const gameId = Number(searchParams.get('game') || 0)
+  const selectedScheduleGame = useMemo(
+    () => (schedule || []).find((entry) => Number(entry.id) === gameId) || null,
+    [gameId, schedule],
+  )
   const teamIdByPlayerId = useMemo(
     () => Object.fromEntries((seasonTeams || []).map((entry) => [entry.player_id, entry.id])),
     [seasonTeams],
@@ -37,8 +52,15 @@ export default function SeasonGameSessionProvider({ children }) {
 
   const value = useMemo(() => ({
     gameId,
-    innings: DEFAULT_REGULATION_INNINGS,
-    mercyRule: currentSeason?.mercy_rule !== false,
+    innings: normalizeRegulationInnings(
+      selectedScheduleGame?.innings ?? currentSeason?.innings,
+      DEFAULT_REGULATION_INNINGS,
+    ),
+    mercyRule: (selectedScheduleGame?.mercy_rule ?? currentSeason?.mercy_rule) === true,
+    mercyRuleDifferential: normalizeMercyRuleDifferential(
+      selectedScheduleGame?.mercy_rule_differential ?? currentSeason?.mercy_rule_differential,
+      DEFAULT_MERCY_RULE_DIFFERENTIAL,
+    ),
     sourceType: 'season',
     sourceId: currentSeason?.id || null,
     tables: SEASON_TABLES,
@@ -188,9 +210,11 @@ export default function SeasonGameSessionProvider({ children }) {
 
       const { data: allGames } = await supabase.from(SEASON_TABLES.games).select('*').eq('season_id', currentSeason.id)
       const { data: allTeams } = await supabase.from('season_teams').select('*').eq('season_id', currentSeason.id)
+      const { data: bettingLedgerData } = await supabase.from(SEASON_TABLES.bettingLedger).select('*').eq('season_id', currentSeason.id)
+      const regularSeasonGames = (allGames || []).filter((game) => !game.stage)
 
       const nextTeams = (allTeams || []).map((team) => {
-        const teamGames = (allGames || []).filter((game) => game.home_team_id === team.id || game.away_team_id === team.id)
+        const teamGames = regularSeasonGames.filter((game) => game.home_team_id === team.id || game.away_team_id === team.id)
         let wins = 0
         let losses = 0
         let runDiff = 0
@@ -243,12 +267,32 @@ export default function SeasonGameSessionProvider({ children }) {
           .eq('id', team.id)
       )))
 
-      const allRegularSeasonComplete = (allGames || [])
-        .filter((game) => !game.stage)
-        .every((game) => game.status === 'completed')
+      const allRegularSeasonComplete = regularSeasonGames.length > 0
+        && regularSeasonGames.every((game) => game.status === 'completed')
+      const hasPlayoffGames = (allGames || []).some((game) => Boolean(game.stage))
+      const updatedStandings = buildSeasonStandings(nextTeams, allGames || [], bettingLedgerData || [])
 
-      if (allRegularSeasonComplete) {
-        await supabase.from('seasons').update({ status: 'playoffs' }).eq('id', currentSeason.id)
+      if (selectedGame.stage) {
+        await advanceSeasonPlayoffs({
+          supabase,
+          season: currentSeason,
+          standings: updatedStandings,
+          schedule: allGames || [],
+          seasonTeams: allTeams || [],
+        })
+      } else if (allRegularSeasonComplete) {
+        if (!hasPlayoffGames) {
+          await seedSeasonPlayoffs({
+            supabase,
+            season: currentSeason,
+            standings: updatedStandings,
+            schedule: allGames || [],
+          })
+        }
+        await supabase
+          .from('seasons')
+          .update({ champion_player_id: null, status: 'playoffs' })
+          .eq('id', currentSeason.id)
       }
 
       await refreshSeasons(currentSeason.id)
@@ -258,9 +302,11 @@ export default function SeasonGameSessionProvider({ children }) {
 
       const { data: allGames } = await supabase.from(SEASON_TABLES.games).select('*').eq('season_id', currentSeason.id)
       const { data: allTeams } = await supabase.from('season_teams').select('*').eq('season_id', currentSeason.id)
+      const { data: bettingLedgerData } = await supabase.from(SEASON_TABLES.bettingLedger).select('*').eq('season_id', currentSeason.id)
+      const regularSeasonGames = (allGames || []).filter((game) => !game.stage)
 
       const nextTeams = (allTeams || []).map((team) => {
-        const teamGames = (allGames || []).filter((game) => game.home_team_id === team.id || game.away_team_id === team.id)
+        const teamGames = regularSeasonGames.filter((game) => game.home_team_id === team.id || game.away_team_id === team.id)
         let wins = 0
         let losses = 0
         let runDiff = 0
@@ -313,22 +359,44 @@ export default function SeasonGameSessionProvider({ children }) {
           .eq('id', team.id)
       )))
 
-      const allRegularSeasonComplete = (allGames || [])
-        .filter((game) => !game.stage)
-        .every((game) => game.status === 'completed')
+      const allRegularSeasonComplete = regularSeasonGames.length > 0
+        && regularSeasonGames.every((game) => game.status === 'completed')
       const hasPlayoffGames = (allGames || []).some((game) => Boolean(game.stage))
+      const updatedStandings = buildSeasonStandings(nextTeams, allGames || [], bettingLedgerData || [])
 
-      await supabase
-        .from('seasons')
-        .update({
-          champion_player_id: null,
-          status: allRegularSeasonComplete || hasPlayoffGames ? 'playoffs' : 'active',
+      if (selectedGame.stage) {
+        await reopenSeasonPlayoffs({
+          supabase,
+          season: currentSeason,
+          standings: updatedStandings,
+          schedule: allGames || [],
+          seasonTeams: allTeams || [],
         })
-        .eq('id', currentSeason.id)
+      } else {
+        await supabase
+          .from('seasons')
+          .update({
+            champion_player_id: null,
+            status: allRegularSeasonComplete || hasPlayoffGames ? 'playoffs' : 'active',
+          })
+          .eq('id', currentSeason.id)
+      }
 
       await refreshSeasons(currentSeason.id)
     },
-  }), [gameId, currentSeason?.id, currentSeason?.innings, currentSeason?.mercy_rule, refreshSeasons, teamIdByPlayerId, playerIdByTeamId])
+  }), [
+    gameId,
+    currentSeason?.id,
+    currentSeason?.innings,
+    currentSeason?.mercy_rule,
+    currentSeason?.mercy_rule_differential,
+    refreshSeasons,
+    selectedScheduleGame?.innings,
+    selectedScheduleGame?.mercy_rule,
+    selectedScheduleGame?.mercy_rule_differential,
+    teamIdByPlayerId,
+    playerIdByTeamId,
+  ])
 
   return <GameSessionProvider value={value}>{children}</GameSessionProvider>
 }

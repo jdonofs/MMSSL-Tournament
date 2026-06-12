@@ -33,6 +33,7 @@ function buildResolutionConfig(config = {}) {
     enableCalibrationLogging: true,
     enableWeightAdjustment: true,
     ledgerTable: 'points_ledger',
+    plateAppearancesTable: 'plate_appearances',
     wagerField: 'wager_dollars',
     payoutField: 'potential_payout_dollars',
     ledgerChangeField: 'points_change',
@@ -148,6 +149,22 @@ async function syncLedger(bets, config = {}) {
   if (error) throw error
 }
 
+// PART F — checks whether any run has been recorded in inning 1 of this game,
+// excluding `excludePaId` (the PA currently being processed). Used to decide
+// whether a first_inning_run bet can be settled yet via the "confirm via next
+// play" rule: a run in inning 1 settles "yes" once a LATER play is recorded,
+// and "no runs" settles once the first play of inning 2+ is recorded.
+async function hasInning1Run(gameId, excludePaId, config) {
+  const resolvedConfig = buildResolutionConfig(config)
+  const { data, error } = await supabase
+    .from(resolvedConfig.plateAppearancesTable)
+    .select('id, inning, rbi, run_scored')
+    .eq('game_id', gameId)
+    .eq('inning', 1)
+  if (error) throw error
+  return (data || []).some((entry) => String(entry.id) !== String(excludePaId) && (Number(entry.rbi || 0) > 0 || entry.run_scored))
+}
+
 async function lockOdds(gameId, betType, targetEntity = null, config = {}) {
   const resolvedConfig = buildResolutionConfig(config)
   let query = supabase
@@ -183,11 +200,24 @@ export async function resolveOnPA(gameId, pa, config = {}) {
     }
   }
 
-  if (Number(pa.inning) === 1 && Number(pa.rbi || 0) > 0) {
-    openBets
-      .filter((bet) => bet.bet_type === 'first_inning_run')
-      .forEach((bet) => updates.push(buildUpsertPayload(bet, bet.chosen_side === 'yes')))
-    await lockOdds(gameId, 'first_inning_run', null, resolvedConfig)
+  // PART F — "confirm via next play": a first-inning-run bet settles once a
+  // play AFTER the potentially-deciding moment has been recorded. If a run
+  // already scored in inning 1 on an earlier play, this play confirms it
+  // (settle "yes"). Otherwise, once the first play of inning 2+ is recorded,
+  // that confirms inning 1 ended without a run (settle "no").
+  const firstInningBets = openBets.filter((bet) => bet.bet_type === 'first_inning_run')
+  if (firstInningBets.length) {
+    const priorRun = await hasInning1Run(gameId, pa.id, resolvedConfig)
+    let inning1Scored = null
+    if (priorRun) {
+      inning1Scored = true
+    } else if (Number(pa.inning) >= 2) {
+      inning1Scored = false
+    }
+    if (inning1Scored != null) {
+      firstInningBets.forEach((bet) => updates.push(buildUpsertPayload(bet, (bet.chosen_side === 'yes') === inning1Scored)))
+      await lockOdds(gameId, 'first_inning_run', null, resolvedConfig)
+    }
   }
 
   if (updates.length) {
@@ -232,25 +262,26 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
   if (error) throw error
 
   const updates = []
+  let inning1RunFallback = null
 
-  ;(openBets || []).forEach((bet) => {
+  for (const bet of openBets || []) {
     if (bet.bet_type === 'moneyline') {
       updates.push(buildUpsertPayload(bet, bet.chosen_side === winningSide))
-      return
+      continue
     }
 
     if (bet.bet_type === 'run_line') {
       const spread = Number(bet.line || 1.5)
       const homeCovers = winningSide === 'home' && margin > spread
       updates.push(buildUpsertPayload(bet, bet.chosen_side === 'home' ? homeCovers : !homeCovers))
-      return
+      continue
     }
 
     if (bet.bet_type === 'over_under') {
       const line = Number(bet.line || 0)
       const isCorrect = bet.chosen_side === 'over' ? totalRuns > line : totalRuns < line
       updates.push(buildUpsertPayload(bet, isCorrect))
-      return
+      continue
     }
 
     if (bet.bet_type === 'k_prop') {
@@ -258,7 +289,18 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
       const line = Number(bet.line || 0)
       const isCorrect = bet.chosen_side === 'over' ? actualKs > line : actualKs < line
       updates.push(buildUpsertPayload(bet, isCorrect))
-      return
+      continue
+    }
+
+    if (bet.bet_type === 'first_inning_run') {
+      // PART F fallback — normally resolved via resolveOnPA's "confirm via
+      // next play" check; this only fires for games that ended before any
+      // inning-2 play was recorded (e.g. shortened games).
+      if (inning1RunFallback == null) {
+        inning1RunFallback = await hasInning1Run(gameId, null, resolvedConfig)
+      }
+      updates.push(buildUpsertPayload(bet, (bet.chosen_side === 'yes') === inning1RunFallback))
+      continue
     }
 
     updates.push({
@@ -267,7 +309,7 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
       result_correct: null,
       resolved_at: new Date().toISOString(),
     })
-  })
+  }
 
   await updateBets(updates, resolvedConfig)
   await syncLedger((openBets || []).map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) })), resolvedConfig)

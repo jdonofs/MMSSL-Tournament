@@ -1,4 +1,4 @@
-const outcomes = ['1B', '2B', '3B', 'HR', 'K', 'GO', 'FO', 'LO', 'BB', 'HBP', 'DP', 'SF', 'SH', 'FC', 'ROE']
+const outcomes = ['1B', '2B', '3B', 'HR', 'K', 'GO', 'FO', 'LO', 'BB', 'HBP', 'SF', 'SH', 'FC', 'ROE']
 
 export default function PlateAppearanceButtons({ value, onSelect }) {
   return (

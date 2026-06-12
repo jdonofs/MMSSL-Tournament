@@ -6,7 +6,7 @@ function normalizeStageLabel(stage = '') {
   return stage
 }
 
-function getStageBucket(stage = '') {
+function getDoubleElimStageBucket(stage = '') {
   if (stage.includes('Winners R1')) return 'Winners R1'
   if (stage.includes('Winners R2')) return 'Winners R2'
   if (stage.includes('Winners Final')) return 'Winners Final'
@@ -21,32 +21,42 @@ function getStageBucket(stage = '') {
   return stage || 'Other'
 }
 
-const WINNERS_COLS = ['Winners R1', 'Winners R2', 'Winners Final']
-const LOSERS_COLS  = ['Losers R1',  'Losers R2',  'Losers R3', 'Losers Final']
+function getRoundBucket(stage = '') {
+  const match = normalizeStageLabel(stage).match(/^Round (\d+)-\d+$/)
+  return match ? `Round ${match[1]}` : null
+}
 
-export default function BracketView({ games, playersById, identitiesByPlayerId = {}, onSelectGame, compact = false }) {
+const WINNERS_COLS = ['Winners R1', 'Winners R2', 'Winners Final']
+const LOSERS_COLS = ['Losers R1', 'Losers R2', 'Losers R3', 'Losers Final']
+
+export default function BracketView({ games, playersById, identitiesByPlayerId = {}, onSelectGame, compact = false, bracketFormat = 'double_elimination' }) {
+  const isRoundBracket = bracketFormat === 'single' || bracketFormat === 'single_elimination' || bracketFormat === 'round_robin'
   const groupedGames = games.reduce((acc, game) => {
-    const bucket = getStageBucket(game.stage)
-    acc[bucket] = acc[bucket] || []
-    acc[bucket].push(game)
+    const bucket = isRoundBracket
+      ? getRoundBucket(game.stage)
+      : getDoubleElimStageBucket(game.stage)
+    const safeBucket = bucket || 'Other'
+    acc[safeBucket] = acc[safeBucket] || []
+    acc[safeBucket].push(game)
     return acc
   }, {})
 
   const renderGame = (game) => {
+    const isCompleted = game.status === 'complete' || game.status === 'completed'
     const teamAColor =
-      game.status === 'complete'
+      isCompleted
         ? game.winner_player_id === game.team_a_player_id ? '#4ade80' : '#fb7185'
         : undefined
     const teamBColor =
-      game.status === 'complete'
+      isCompleted
         ? game.winner_player_id === game.team_b_player_id ? '#4ade80' : '#fb7185'
         : undefined
 
-    return (
-      <button className="bracket-game" key={game.id} onClick={() => onSelectGame?.(game)} type="button">
+    const content = (
+      <>
         <div className="bracket-game-head">
           <span>{game.game_code}</span>
-          {game.status === 'active' ? <span className="live-badge">LIVE</span> : null}
+          {game.status === 'active' || game.status === 'in_progress' ? <span className="live-badge">LIVE</span> : null}
         </div>
         <strong>{normalizeStageLabel(game.stage)}</strong>
         <div className="bracket-team-line">
@@ -57,6 +67,16 @@ export default function BracketView({ games, playersById, identitiesByPlayerId =
           <span style={{ color: teamBColor }}><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} /></span>
           <span>{game.team_b_runs}</span>
         </div>
+      </>
+    )
+
+    if (!onSelectGame) {
+      return <div className="bracket-game" key={game.id}>{content}</div>
+    }
+
+    return (
+      <button className="bracket-game" key={game.id} onClick={() => onSelectGame(game)} type="button">
+        {content}
       </button>
     )
   }
@@ -79,18 +99,31 @@ export default function BracketView({ games, playersById, identitiesByPlayerId =
         className="bracket-lane-cols"
         style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}
       >
-        {columns.map((col) => renderColumn(col))}
+        {columns.map((column) => renderColumn(column))}
       </div>
     </section>
   )
 
+  if (isRoundBracket) {
+    const roundColumns = Object.keys(groupedGames)
+      .filter((bucket) => bucket.startsWith('Round '))
+      .sort((a, b) => Number(a.replace('Round ', '')) - Number(b.replace('Round ', '')))
+
+    return (
+      <div className="bracket-board">
+        <div className="bracket-layout">
+          {renderLane('Bracket', roundColumns.length ? roundColumns : ['Round 1'])}
+        </div>
+      </div>
+    )
+  }
+
   const hasReset = (groupedGames['Championship Reset'] || []).length > 0
-  const activeLosersColumns = LOSERS_COLS.filter(col => groupedGames[col]?.length > 0)
+  const activeLosersColumns = LOSERS_COLS.filter((column) => groupedGames[column]?.length > 0)
 
   return (
     <div className="bracket-board">
       <div className="bracket-layout">
-
         <div className="bracket-sides">
           {renderLane("Winner's Side", WINNERS_COLS)}
           {renderLane("Loser's Side", activeLosersColumns)}
@@ -103,7 +136,6 @@ export default function BracketView({ games, playersById, identitiesByPlayerId =
             {!compact && renderColumn('Championship Reset', false)}
           </div>
         </section>
-
       </div>
     </div>
   )

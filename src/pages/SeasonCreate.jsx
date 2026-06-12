@@ -5,8 +5,20 @@ import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useSeason } from '../context/SeasonContext'
-import { buildRoundRobinSchedule, formatSeasonLabel, SLUGGERS_PLAYER_ORDER } from '../utils/season'
-import { DEFAULT_REGULATION_INNINGS } from '../utils/gameRules'
+import {
+  buildRoundRobinSchedule,
+  formatSeasonLabel,
+  normalizeSeasonName,
+  SEASON_PLAYOFF_FORMATS,
+  SLUGGERS_PLAYER_ORDER,
+  validateSeasonSettings,
+} from '../utils/season'
+import {
+  DEFAULT_MERCY_RULE_DIFFERENTIAL,
+  DEFAULT_REGULATION_INNINGS,
+  normalizeMercyRuleDifferential,
+  normalizeRegulationInnings,
+} from '../utils/gameRules'
 
 const C = {
   bg: '#0F172A',
@@ -19,7 +31,6 @@ const C = {
 }
 
 const LEAGUE_TYPES = ['draft', 'auction', 'keeper']
-const PLAYOFF_FORMATS = ['single_elimination', 'double_elimination']
 const STEPS = ['Setup', 'Players', 'Draft Order', 'Review']
 
 function StepIndicator({ current }) {
@@ -47,7 +58,7 @@ function StepIndicator({ current }) {
                   fontSize: 12,
                 }}
               >
-                {done ? '✓' : step}
+                {done ? 'v' : step}
               </div>
               <span style={{ color: active ? C.accent : C.muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</span>
             </div>
@@ -81,11 +92,27 @@ function ReorderList({ items, onMove }) {
   )
 }
 
+function getSeasonPayload(form) {
+  return {
+    ...form,
+    name: normalizeSeasonName(form.name),
+    games_per_matchup: Math.trunc(Number(form.games_per_matchup)),
+    innings: normalizeRegulationInnings(form.innings, DEFAULT_REGULATION_INNINGS),
+    mercy_rule: Boolean(form.mercy_rule),
+    mercy_rule_differential: normalizeMercyRuleDifferential(
+      form.mercy_rule_differential,
+      DEFAULT_MERCY_RULE_DIFFERENTIAL,
+    ),
+    keeper_count: Math.max(0, Math.trunc(Number(form.keeper_count || 0))),
+    auction_budget: Math.max(1, Math.trunc(Number(form.auction_budget || 1))),
+  }
+}
+
 export default function SeasonCreate() {
   const navigate = useNavigate()
   const { player } = useAuth()
   const { pushToast } = useToast()
-  const { refreshSeasons } = useSeason()
+  const { allSeasons, refreshSeasons } = useSeason()
   const [step, setStep] = useState(1)
   const [players, setPlayers] = useState([])
   const [loadingPlayers, setLoadingPlayers] = useState(true)
@@ -98,6 +125,8 @@ export default function SeasonCreate() {
     league_type: 'draft',
     games_per_matchup: 3,
     innings: DEFAULT_REGULATION_INNINGS,
+    mercy_rule: false,
+    mercy_rule_differential: DEFAULT_MERCY_RULE_DIFFERENTIAL,
     keeper_count: 2,
     auction_budget: 100,
     playoff_format: 'double_elimination',
@@ -138,11 +167,12 @@ export default function SeasonCreate() {
   }, [selectedPlayers, selectedPlayerIds])
 
   useEffect(() => {
-    if (!selectedPlayers.length) {
+    const matchupCount = Math.trunc(Number(form.games_per_matchup))
+    if (!selectedPlayers.length || matchupCount < 1) {
       setPreviewGames([])
       return
     }
-    setPreviewGames(buildRoundRobinSchedule(selectedPlayers.map((entry) => entry.id), Number(form.games_per_matchup || 3)))
+    setPreviewGames(buildRoundRobinSchedule(selectedPlayers.map((entry) => entry.id), matchupCount))
   }, [selectedPlayers, form.games_per_matchup])
 
   const moveDraftOrder = (from, to) => {
@@ -161,14 +191,28 @@ export default function SeasonCreate() {
     ))
   }
 
-  const regenerateSchedule = () => {
-    setPreviewGames(buildRoundRobinSchedule(selectedPlayers.map((entry) => entry.id), Number(form.games_per_matchup || 3)))
-  }
-
   const closeModal = () => navigate('/season')
 
+  const handleNextStep = () => {
+    if (step === 1) {
+      const validationError = validateSeasonSettings(form, allSeasons)
+      if (validationError) {
+        pushToast({ title: 'Fix season settings', message: validationError, type: 'error' })
+        return
+      }
+    }
+
+    setStep((current) => current + 1)
+  }
+
   const handleCreate = async () => {
-    if (!player?.is_commissioner) return
+    if (!player?.is_commissioner || creating) return
+
+    const validationError = validateSeasonSettings(form, allSeasons)
+    if (validationError) {
+      pushToast({ title: 'Fix season settings', message: validationError, type: 'error' })
+      return
+    }
     if (selectedPlayers.length < 2) {
       pushToast({ title: 'Select players', message: 'Choose at least two players for the season.', type: 'error' })
       return
@@ -178,12 +222,14 @@ export default function SeasonCreate() {
       return
     }
 
+    const seasonPayload = getSeasonPayload(form)
+
     setCreating(true)
     try {
       const { data: season, error: seasonError } = await supabase
         .from('seasons')
         .insert({
-          ...form,
+          ...seasonPayload,
           status: 'draft',
         })
         .select()
@@ -213,13 +259,16 @@ export default function SeasonCreate() {
         home_team_id: playerIdToTeamId[game.home_team_id],
         away_team_id: playerIdToTeamId[game.away_team_id],
         stadium_picker_team_id: playerIdToTeamId[game.stadium_picker_team_id],
+        innings: seasonPayload.innings,
+        mercy_rule: seasonPayload.mercy_rule,
+        mercy_rule_differential: seasonPayload.mercy_rule_differential,
         status: 'scheduled',
       }))
       const { error: scheduleError } = await supabase.from('season_schedule').insert(schedulePayload)
       if (scheduleError) throw scheduleError
 
       await refreshSeasons(season.id)
-      pushToast({ title: 'Season created', message: `${season.name} is ready.`, type: 'success' })
+      pushToast({ title: 'Season created', message: `${seasonPayload.name} is ready.`, type: 'success' })
       navigate('/season/draft')
     } catch (error) {
       pushToast({ title: 'Unable to create season', message: error.message, type: 'error' })
@@ -269,6 +318,49 @@ export default function SeasonCreate() {
               </label>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="muted">Regulation innings</span>
+                <input min="1" max="12" type="number" value={form.innings} onChange={(e) => setForm((current) => ({ ...current, innings: Number(e.target.value) }))} />
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="muted">Playoff format</span>
+                <select value={form.playoff_format} onChange={(e) => setForm((current) => ({ ...current, playoff_format: e.target.value }))}>
+                  {SEASON_PLAYOFF_FORMATS.map((entry) => <option key={entry} value={entry}>{formatSeasonLabel(entry)}</option>)}
+                </select>
+              </label>
+            </div>
+            <div style={{ display: 'grid', gap: 12, padding: 14, borderRadius: 12, border: `1px solid ${C.border}`, background: C.bg }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div>
+                  <strong>Mercy rule</strong>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>End games early once the run differential reaches the configured threshold.</div>
+                </div>
+                <button
+                  className="ghost-button"
+                  onClick={() => setForm((current) => ({ ...current, mercy_rule: !current.mercy_rule }))}
+                  type="button"
+                  style={{
+                    borderColor: form.mercy_rule ? C.green : C.border,
+                    color: form.mercy_rule ? C.green : C.muted,
+                    background: form.mercy_rule ? 'rgba(34,197,94,0.12)' : 'transparent',
+                  }}
+                >
+                  {form.mercy_rule ? 'Enabled' : 'Disabled'}
+                </button>
+              </div>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="muted">Mercy differential</span>
+                <input
+                  min="1"
+                  max="30"
+                  type="number"
+                  value={form.mercy_rule_differential}
+                  onChange={(e) => setForm((current) => ({ ...current, mercy_rule_differential: Number(e.target.value) }))}
+                  disabled={!form.mercy_rule}
+                />
+              </label>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
               {form.league_type === 'auction' ? (
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className="muted">Auction budget</span>
@@ -282,12 +374,6 @@ export default function SeasonCreate() {
                 </label>
               ) : <div />}
             </div>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className="muted">Playoff format</span>
-              <select value={form.playoff_format} onChange={(e) => setForm((current) => ({ ...current, playoff_format: e.target.value }))}>
-                {PLAYOFF_FORMATS.map((entry) => <option key={entry} value={entry}>{formatSeasonLabel(entry)}</option>)}
-              </select>
-            </label>
           </div>
         ) : null}
 
@@ -297,7 +383,7 @@ export default function SeasonCreate() {
               <h2 style={{ margin: 0, fontSize: 20 }}>Season Players</h2>
               <span style={{ color: selectedPlayers.length >= 2 ? C.green : '#EF4444', fontWeight: 700 }}>{selectedPlayers.length} selected</span>
             </div>
-            {loadingPlayers ? <span className="muted">Loading players…</span> : (
+            {loadingPlayers ? <span className="muted">Loading players...</span> : (
               <div style={{ display: 'grid', gap: 8 }}>
                 {players.map((entry) => {
                   const active = selectedPlayerIds.includes(entry.id)
@@ -347,11 +433,13 @@ export default function SeasonCreate() {
           <div style={{ display: 'grid', gap: 16 }}>
             <h2 style={{ margin: 0, fontSize: 20 }}>Review</h2>
             <div className="feed-list">
-              <div className="feed-row"><span>Name</span><strong>{form.name}</strong></div>
+              <div className="feed-row"><span>Name</span><strong>{normalizeSeasonName(form.name) || '-'}</strong></div>
               <div className="feed-row"><span>League Type</span><strong>{formatSeasonLabel(form.league_type)}</strong></div>
               <div className="feed-row"><span>Players</span><strong>{selectedPlayers.map((entry) => entry.name).join(', ')}</strong></div>
-              <div className="feed-row"><span>Draft Order</span><strong>{draftOrder.map((entry, index) => `${index + 1}. ${entry.name}`).join(' · ')}</strong></div>
+              <div className="feed-row"><span>Draft Order</span><strong>{draftOrder.map((entry, index) => `${index + 1}. ${entry.name}`).join(' | ')}</strong></div>
               <div className="feed-row"><span>Games Per Matchup</span><strong>{form.games_per_matchup}</strong></div>
+              <div className="feed-row"><span>Regulation Innings</span><strong>{form.innings}</strong></div>
+              <div className="feed-row"><span>Mercy Rule</span><strong>{form.mercy_rule ? `On at ${form.mercy_rule_differential} runs` : 'Off'}</strong></div>
               <div className="feed-row"><span>Playoff Format</span><strong>{formatSeasonLabel(form.playoff_format)}</strong></div>
               <div className="feed-row"><span>Total Games</span><strong>{previewGames.length}</strong></div>
             </div>
@@ -365,7 +453,7 @@ export default function SeasonCreate() {
           {step < 4 ? (
             <button
               className="solid-button"
-              onClick={() => setStep((current) => current + 1)}
+              onClick={handleNextStep}
               disabled={(step === 2 && selectedPlayers.length < 2) || (step === 3 && draftOrder.length !== selectedPlayers.length)}
               type="button"
             >
@@ -373,7 +461,7 @@ export default function SeasonCreate() {
             </button>
           ) : (
             <button className="solid-button" disabled={creating} onClick={handleCreate} type="button">
-              {creating ? 'Creating…' : 'Create Season'}
+              {creating ? 'Creating...' : 'Create Season'}
             </button>
           )}
         </div>

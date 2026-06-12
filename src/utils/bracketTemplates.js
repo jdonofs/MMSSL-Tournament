@@ -146,27 +146,63 @@ export function buildDoubleElimBracket(seeding) {
   return resolveTemplateStages(template, seeding, [])
 }
 
-function getSeededMatchups(seeding) {
-  const n = seeding.length
+function buildSingleElimSeedOrder(size) {
+  if (size <= 1) return [1]
+  const previous = buildSingleElimSeedOrder(size / 2)
+  const order = []
+  previous.forEach((seed) => {
+    order.push(seed)
+    order.push(size + 1 - seed)
+  })
+  return order
+}
+
+export function getSingleElimTemplate(playerCount) {
+  const totalPlayers = Math.max(0, Math.trunc(Number(playerCount || 0)))
+  if (totalPlayers < 2) return []
+
   let bracketSize = 1
-  while (bracketSize < n) bracketSize *= 2
-  const byes = bracketSize - n
-  const playing = seeding.slice(byes)
-  const half = playing.length / 2
-  const pairs = []
-  for (let i = 0; i < half; i++) {
-    pairs.push({ teamA: playing[i], teamB: playing[playing.length - 1 - i] })
+  while (bracketSize < totalPlayers) bracketSize *= 2
+
+  const seededSlots = buildSingleElimSeedOrder(bracketSize)
+    .map((seedNumber) => (seedNumber <= totalPlayers ? `Seed${seedNumber}` : null))
+
+  const template = []
+  let currentRoundRefs = seededSlots
+  const totalRounds = Math.log2(bracketSize)
+
+  for (let roundNumber = 1; roundNumber <= totalRounds; roundNumber += 1) {
+    const nextRoundRefs = []
+    let gameNumber = 1
+
+    for (let slotIndex = 0; slotIndex < currentRoundRefs.length; slotIndex += 2) {
+      const teamARef = currentRoundRefs[slotIndex] || null
+      const teamBRef = currentRoundRefs[slotIndex + 1] || null
+
+      if (!teamARef && !teamBRef) {
+        nextRoundRefs.push(null)
+        continue
+      }
+
+      if (roundNumber < totalRounds && (!teamARef || !teamBRef)) {
+        nextRoundRefs.push(teamARef || teamBRef)
+        continue
+      }
+
+      const stage = `Round ${roundNumber}-${gameNumber}`
+      template.push({ stage, teamARef, teamBRef })
+      nextRoundRefs.push(`W:${stage}`)
+      gameNumber += 1
+    }
+
+    currentRoundRefs = nextRoundRefs
   }
-  return pairs
+
+  return template
 }
 
 export function generateSingleElimBracket(seeding) {
-  const games = []
-  const n = seeding.length
-  if (n < 2) return games
-  const pairs = getSeededMatchups(seeding)
-  pairs.forEach((pair, i) => {
-    games.push({ stage: `Round 1-${i + 1}`, teamA: pair.teamA, teamB: pair.teamB })
-  })
-  return games
+  const template = getSingleElimTemplate(seeding.length)
+  if (!template.length) return []
+  return resolveTemplateStages(template, seeding, [])
 }

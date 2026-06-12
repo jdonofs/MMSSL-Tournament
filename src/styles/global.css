@@ -636,6 +636,7 @@ body.drawer-open {
 
 .modal-card {
   width: min(720px, 100%);
+  max-height: 90vh;
   padding: 1.25rem;
   border-radius: 24px;
   background: linear-gradient(180deg, #1f2d46, #152036);
@@ -643,6 +644,16 @@ body.drawer-open {
   box-shadow: var(--shadow);
   display: grid;
   gap: 1rem;
+  overflow-y: auto;
+}
+
+.modal-card .modal-actions {
+  position: sticky;
+  bottom: -1.25rem;
+  margin: 0 -1.25rem -1.25rem;
+  padding: 0.85rem 1.25rem;
+  background: linear-gradient(180deg, rgba(31, 45, 70, 0), #152036 35%);
+  border-top: 1px solid var(--line);
 }
 
 .modal-card input,
@@ -1554,6 +1565,7 @@ button, a, select, input, textarea, label, [role="button"] {
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    overflow-y: auto;
   }
 
   .mobile-drawer-open {
@@ -1680,6 +1692,13 @@ button, a, select, input, textarea, label, [role="button"] {
 .sportsbook-slip-head,
 .sportsbook-slip-footer {
   grid-template-columns: 1fr auto;
+}
+
+.sportsbook-slip-error {
+  color: #F87171;
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin-top: 0.2rem;
 }
 
 .sportsbook-columns {
@@ -1941,6 +1960,16 @@ button, a, select, input, textarea, label, [role="button"] {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sportsbook-more-bets:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .alt-line-selector {
@@ -2400,6 +2429,11 @@ button, a, select, input, textarea, label, [role="button"] {
   .sportsbook-slip-head,
   .sportsbook-slip-footer {
     gap: 0.45rem;
+  }
+
+  .roster-item-stats,
+  .roster-item-badge {
+    display: none;
   }
 
   .sportsbook-team-row {

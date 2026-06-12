@@ -13,6 +13,8 @@ export default function BracketContainer({
   compact = false,
   headerNote = '',
 }) {
+  const isSingleElim = bracketFormat === 'single' || bracketFormat === 'single_elimination'
+  const isRoundRobin = bracketFormat === 'round_robin'
   const completedGames = useMemo(
     () => games.filter((game) => game.status === 'complete' || game.status === 'completed'),
     [games],
@@ -22,7 +24,7 @@ export default function BracketContainer({
   const seedLabel = useMemo(
     () => seeding
       .map((playerId, index) => getTeamShortName(identitiesByPlayerId[playerId]) || playersById[playerId]?.name || `Seed ${index + 1}`)
-      .join(' · '),
+      .join(' | '),
     [seeding, identitiesByPlayerId, playersById],
   )
 
@@ -30,7 +32,7 @@ export default function BracketContainer({
     <div className="page-stack" style={{ gap: 12 }}>
       <div className="panel" style={{ padding: 12 }}>
         <div className="section-head">
-          <h2>{bracketFormat === 'single_elimination' ? 'Single Elimination' : 'Double Elimination'} Bracket</h2>
+          <h2>{isRoundRobin ? 'Round Robin' : isSingleElim ? 'Single Elimination' : 'Double Elimination'} Bracket</h2>
           <span className="muted">{seedLabel ? `Seeds: ${seedLabel}` : 'Bracket seeded from standings.'}</span>
         </div>
         {headerNote ? (
@@ -39,6 +41,7 @@ export default function BracketContainer({
           </div>
         ) : null}
         <BracketView
+          bracketFormat={bracketFormat}
           compact={compact}
           games={games}
           identitiesByPlayerId={identitiesByPlayerId}

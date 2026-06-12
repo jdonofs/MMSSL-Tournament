@@ -116,12 +116,39 @@ function createEmptyFieldingRow(overrides = {}) {
   return {
     games: 0,
     chances: 0,
+    putouts: 0,
+    assists: 0,
     errors: 0,
     cleanPlays: 0,
     errorRate: 0,
     positionsPlayed: 0,
     primaryPosition: '-',
     ...overrides,
+  }
+}
+
+function sanitizeMetricValue(value) {
+  return typeof value === 'number' && !Number.isFinite(value) ? null : value
+}
+
+function sanitizeMetrics(metrics = {}) {
+  return Object.fromEntries(
+    Object.entries(metrics).map(([key, value]) => [key, sanitizeMetricValue(value)]),
+  )
+}
+
+function parseFieldingSequence(pa = {}) {
+  const notation = String(pa.error_notation || pa.hit_notation || '')
+  const baseNotation = notation.split('-E')[0]
+  const positions = (baseNotation.match(/\d+/g) || [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0)
+  const errorMatch = notation.match(/E(\d+)/)
+  const parsedErrorPosition = errorMatch ? Number(errorMatch[1]) : Number(pa.error_position || 0)
+
+  return {
+    positions,
+    errorPosition: Number.isFinite(parsedErrorPosition) && parsedErrorPosition > 0 ? parsedErrorPosition : null,
   }
 }
 
@@ -289,17 +316,8 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
   const playerNameById = Object.fromEntries(players.map((player) => [String(player.id), player.name]))
   const playerIdByName = Object.fromEntries(players.map((player) => [player.name, player.id]))
 
-  const findFielderForPa = (pa = {}) => gameFielders.find((fielder) => (
-    String(fielder.game_id) === String(pa.game_id) &&
-    Number(fielder.position) === Number(pa.hit_location || pa.error_position) &&
-    Number(fielder.inning_from || 1) <= Number(pa.inning || 1) &&
-    (fielder.inning_to == null || Number(fielder.inning_to) >= Number(pa.inning || 1)) &&
-    String(fielder.team_id) === String(pa.defensive_team_id)
-  ))
-
   const playerMap = {}
   const characterMap = {}
-  const matchedErrorIds = new Set()
 
   const ensureEntry = (collection, key, base) => {
     if (!collection[key]) {
@@ -309,59 +327,107 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
         positionsSet: new Set(),
         positionCounts: {},
         chances: 0,
+        putouts: 0,
+        assists: 0,
         errors: 0,
       }
     }
     return collection[key]
   }
 
-  plateAppearances
-    .filter((pa) => pa.hit_location)
-    .forEach((pa) => {
-      const fielder = findFielderForPa(pa)
-      if (!fielder) return
+  const findFielder = (pa = {}, positionNumber = null) => gameFielders.find((fielder) => (
+    String(fielder.game_id) === String(pa.game_id) &&
+    Number(fielder.position) === Number(positionNumber) &&
+    Number(fielder.inning_from || 1) <= Number(pa.inning || 1) &&
+    (fielder.inning_to == null || Number(fielder.inning_to) >= Number(pa.inning || 1)) &&
+    String(fielder.team_id) === String(pa.defensive_team_id)
+  ))
 
-      const gameId = String(pa.game_id)
-      const position = POSITION_LABELS[Number(fielder.position)] || String(fielder.position || '-')
-      const playerId = String(fielder.team_id)
-      const playerName = fielder.player_name || playerNameById[playerId] || 'Unknown'
-      const characterName = fielder.character || 'Unknown'
-      const isError = Boolean(pa.is_error) && String(pa.error_character) === String(fielder.character)
+  const applyCredit = ({
+    playerId,
+    playerName,
+    characterName,
+    gameId,
+    positionNumber,
+    chances = 0,
+    putouts = 0,
+    assists = 0,
+    errors = 0,
+  }) => {
+    const position = POSITION_LABELS[Number(positionNumber)] || String(positionNumber || '-')
+    const resolvedPlayerId = String(playerId || playerIdByName[playerName] || playerName || 'unknown')
+    const resolvedPlayerName = playerName || playerNameById[resolvedPlayerId] || 'Unknown'
+    const resolvedCharacterName = characterName || 'Unknown'
 
-      const playerEntry = ensureEntry(playerMap, playerId, { playerId, name: playerName })
-      playerEntry.gamesSet.add(gameId)
-      playerEntry.positionsSet.add(position)
-      playerEntry.positionCounts[position] = (playerEntry.positionCounts[position] || 0) + 1
-      playerEntry.chances += 1
-      if (isError) playerEntry.errors += 1
+    const playerEntry = ensureEntry(playerMap, resolvedPlayerId, { playerId: resolvedPlayerId, name: resolvedPlayerName })
+    playerEntry.gamesSet.add(gameId)
+    playerEntry.positionsSet.add(position)
+    playerEntry.positionCounts[position] = (playerEntry.positionCounts[position] || 0) + 1
+    playerEntry.chances += chances
+    playerEntry.putouts += putouts
+    playerEntry.assists += assists
+    playerEntry.errors += errors
 
-      const characterId = charactersByName[characterName]?.id || null
-      const characterEntry = ensureEntry(characterMap, characterName, { id: characterId, name: characterName })
-      characterEntry.gamesSet.add(gameId)
-      characterEntry.positionsSet.add(position)
-      characterEntry.positionCounts[position] = (characterEntry.positionCounts[position] || 0) + 1
-      characterEntry.chances += 1
-      if (isError) characterEntry.errors += 1
+    const characterId = charactersByName[resolvedCharacterName]?.id || null
+    const characterEntry = ensureEntry(characterMap, resolvedCharacterName, { id: characterId, name: resolvedCharacterName })
+    characterEntry.gamesSet.add(gameId)
+    characterEntry.positionsSet.add(position)
+    characterEntry.positionCounts[position] = (characterEntry.positionCounts[position] || 0) + 1
+    characterEntry.chances += chances
+    characterEntry.putouts += putouts
+    characterEntry.assists += assists
+    characterEntry.errors += errors
+  }
 
-      if (isError) matchedErrorIds.add(String(pa.id))
+  const applyCreditFromFielder = (pa, positionNumber, counts) => {
+    const fielder = findFielder(pa, positionNumber)
+    if (!fielder) return false
+    applyCredit({
+      playerId: fielder.player_id || fielder.team_id,
+      playerName: fielder.player_name || playerNameById[String(fielder.player_id || fielder.team_id)] || 'Unknown',
+      characterName: fielder.character || 'Unknown',
+      gameId: String(pa.game_id),
+      positionNumber,
+      ...counts,
     })
+    return true
+  }
 
-  plateAppearances
-    .filter((pa) => pa.is_error && !matchedErrorIds.has(String(pa.id)))
-    .forEach((pa) => {
-      const playerName = pa.error_player || playerNameById[String(pa.defensive_team_id)] || 'Unknown'
-      const playerId = String(playerIdByName[playerName] || pa.defensive_team_id || playerName)
-      const characterName = pa.error_character || 'Unknown'
+  plateAppearances.forEach((pa) => {
+    const gameId = String(pa.game_id)
+    const { positions, errorPosition } = parseFieldingSequence(pa)
 
-      const playerEntry = ensureEntry(playerMap, playerId, { playerId, name: playerName })
-      playerEntry.gamesSet.add(String(pa.game_id))
-      playerEntry.errors += 1
+    if (pa.is_error) {
+      const errorIndex = errorPosition ? positions.lastIndexOf(errorPosition) : -1
+      const assistPositions = errorIndex >= 0 ? positions.slice(0, errorIndex) : positions
+      assistPositions.forEach((positionNumber) => {
+        applyCreditFromFielder(pa, positionNumber, { chances: 1, assists: 1 })
+      })
 
-      const characterId = charactersByName[characterName]?.id || null
-      const characterEntry = ensureEntry(characterMap, characterName, { id: characterId, name: characterName })
-      characterEntry.gamesSet.add(String(pa.game_id))
-      characterEntry.errors += 1
+      const matchedError = errorPosition
+        ? applyCreditFromFielder(pa, errorPosition, { chances: 1, errors: 1 })
+        : false
+      if (!matchedError) {
+        applyCredit({
+          playerId: pa.defensive_team_id || playerIdByName[pa.error_player] || pa.error_player,
+          playerName: pa.error_player || playerNameById[String(pa.defensive_team_id)] || 'Unknown',
+          characterName: pa.error_character || 'Unknown',
+          gameId,
+          positionNumber: errorPosition,
+          chances: 1,
+          errors: 1,
+        })
+      }
+      return
+    }
+
+    if (!positions.length) return
+
+    positions.slice(0, -1).forEach((positionNumber) => {
+      applyCreditFromFielder(pa, positionNumber, { chances: 1, assists: 1 })
     })
+    applyCreditFromFielder(pa, positions[positions.length - 1], { chances: 1, putouts: 1 })
+  })
 
   const finalize = (entry) => {
     const primaryPosition = Object.entries(entry.positionCounts)
@@ -1009,6 +1075,7 @@ export default function Stats() {
         { data: tournamentsData },
         { data: seasonsData },
         { data: seasonGamesData },
+        { data: seasonTeamsData },
         { data: seasonRosterData },
         { data: seasonPaData },
         { data: seasonPitchingData },
@@ -1028,6 +1095,7 @@ export default function Stats() {
         supabase.from('tournaments').select('*').order('tournament_number', { ascending: false }),
         supabase.from('seasons').select('*').order('created_at', { ascending: false }),
         supabase.from('season_schedule').select('*'),
+        supabase.from('season_teams').select('*'),
         supabase.from('season_roster').select('*'),
         supabase.from('season_plate_appearances').select('*'),
         supabase.from('season_pitching_stints').select('*'),
@@ -1037,14 +1105,17 @@ export default function Stats() {
 
       const allPAs = paData || []
       const allPitchingStints = pitchingData || []
+      const seasonTeamPlayerById = Object.fromEntries(
+        (seasonTeamsData || []).map((team) => [String(team.id), team.player_id]),
+      )
       const normalizedSeasonGames = (seasonGamesData || []).map((game) => ({
         ...game,
         id: `season-${game.id}`,
         source_game_id: game.id,
         tournament_id: game.season_id,
-        team_a_player_id: null,
-        team_b_player_id: null,
-        winner_player_id: null,
+        team_a_player_id: seasonTeamPlayerById[String(game.away_team_id)] || null,
+        team_b_player_id: seasonTeamPlayerById[String(game.home_team_id)] || null,
+        winner_player_id: seasonTeamPlayerById[String(game.winner_team_id)] || null,
         team_a_runs: Number(game.away_score || 0),
         team_b_runs: Number(game.home_score || 0),
         status: game.status === 'completed' ? 'complete' : game.status,
@@ -1052,7 +1123,11 @@ export default function Stats() {
       const normalizedSeasonPas = (seasonPaData || []).map((entry) => ({ ...entry, game_id: `season-${entry.game_id}` }))
       const normalizedSeasonPitching = (seasonPitchingData || []).map((entry) => ({ ...entry, game_id: `season-${entry.game_id}` }))
       const normalizedSeasonPitches = (seasonPitchData || []).map((entry) => ({ ...entry, game_id: `season-${entry.game_id}` }))
-      const normalizedSeasonFielders = (seasonFieldersData || []).map((entry) => ({ ...entry, game_id: `season-${entry.game_id}` }))
+      const normalizedSeasonFielders = (seasonFieldersData || []).map((entry) => ({
+        ...entry,
+        game_id: `season-${entry.game_id}`,
+        player_id: seasonTeamPlayerById[String(entry.team_id)] || entry.player_id || null,
+      }))
 
       setPlayers(playersData || [])
       setCharacters(charactersRaw || [])
@@ -1090,6 +1165,7 @@ export default function Stats() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, loadStats)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'seasons' }, loadStats)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_schedule' }, loadStats)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams' }, loadStats)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster' }, loadStats)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances' }, loadStats)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, loadStats)
@@ -1341,8 +1417,8 @@ export default function Stats() {
     const batting = summarizeBatting(battingPas)
     batting.ops = batting.obp + batting.slg
     const pitching = summarizePitching(playerStints)
-    const advancedBatting = summarizeAdvancedBatting(battingPas, leagueConstants)
-    const advancedPitching = summarizeAdvancedPitching(playerStints, leagueConstants)
+    const advancedBatting = sanitizeMetrics(summarizeAdvancedBatting(battingPas, leagueConstants))
+    const advancedPitching = sanitizeMetrics(summarizeAdvancedPitching(playerStints, leagueConstants))
     const starHit = summarizeStarHits(battingPas)
     const pitchingPaIds = new Set(pitchingPas.map((pa) => String(pa.id)))
     const starPitch = summarizeStarPitching(
@@ -1403,8 +1479,8 @@ export default function Stats() {
       pitching,
       allTimeBatting,
       allTimePitching,
-      advancedBatting: summarizeAdvancedBatting(battingPas, leagueConstants),
-      advancedPitching: summarizeAdvancedPitching(characterStints, leagueConstants),
+      advancedBatting: sanitizeMetrics(summarizeAdvancedBatting(battingPas, leagueConstants)),
+      advancedPitching: sanitizeMetrics(summarizeAdvancedPitching(characterStints, leagueConstants)),
       pitchingThresholdIp: inningsAsDecimal(pitching.innings || 0),
       starHit: summarizeStarHits(battingPas),
       starPitch: summarizeStarPitching(pitchingPas, filteredPitches.filter((pitch) => pitch.pitcher_id === character.name)),
@@ -1425,7 +1501,10 @@ export default function Stats() {
 
   const advancedBattingQualifiers = useMemo(() => playerRows.filter(qualifiesAdvancedBatting), [playerRows])
   const advancedPitchingQualifiers = useMemo(() => playerRows.filter(qualifiesAdvancedPitching), [playerRows])
-  const leaguePitchingSummary = useMemo(() => summarizeAdvancedPitching(filteredPitching, leagueConstants), [filteredPitching, leagueConstants])
+  const leaguePitchingSummary = useMemo(
+    () => sanitizeMetrics(summarizeAdvancedPitching(filteredPitching, leagueConstants)),
+    [filteredPitching, leagueConstants],
+  )
 
   const leagueBattingRow = useMemo(() => ({
     playerId: 'league-batting',
@@ -1458,9 +1537,6 @@ export default function Stats() {
     batting: [
       { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} /> },
       { key: 'gamesPlayed', group: 'Record', label: 'G', sortValue: (row) => row.gamesPlayed, value: (row) => row.gamesPlayed },
-      { key: 'wins', group: 'Record', label: 'W', sortValue: (row) => row.wins, value: (row) => row.wins },
-      { key: 'losses', group: 'Record', label: 'L', sortValue: (row) => row.losses, value: (row) => row.losses },
-      { key: 'winPct', group: 'Record', label: 'Win %', sortValue: (row) => row.winPct, value: (row) => formatPercent(row.winPct, 1) },
       { key: 'runsFor', group: 'Runs', label: 'RS', sortValue: (row) => row.runsFor, value: (row) => row.runsFor },
       { key: 'runsAgainst', group: 'Runs', label: 'RA', sortValue: (row) => row.runsAgainst, value: (row) => row.runsAgainst },
       { key: 'runDiff', group: 'Runs', label: 'RD', sortValue: (row) => row.runDiff, value: (row) => row.runDiff },
@@ -1539,6 +1615,8 @@ export default function Stats() {
       { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} /> },
       { key: 'games', group: 'Fielding', label: 'G', sortValue: (row) => row.fielding.games, value: (row) => row.fielding.games },
       { key: 'chances', group: 'Fielding', label: 'Chances', sortValue: (row) => row.fielding.chances, value: (row) => row.fielding.chances },
+      { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
+      { key: 'assists', group: 'Fielding', label: 'A', sortValue: (row) => row.fielding.assists, value: (row) => row.fielding.assists },
       { key: 'errors', group: 'Fielding', label: 'Errors', sortValue: (row) => row.fielding.errors, value: (row) => row.fielding.errors },
       { key: 'cleanPlays', group: 'Fielding', label: 'Clean', sortValue: (row) => row.fielding.cleanPlays, value: (row) => row.fielding.cleanPlays },
       { key: 'errorRate', group: 'Fielding', label: 'Error %', sortValue: (row) => row.fielding.errorRate, value: (row) => formatPercent(row.fielding.errorRate, 1) },
@@ -1611,6 +1689,8 @@ export default function Stats() {
       { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 64, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
       { key: 'games', group: 'Fielding', label: 'G', sortValue: (row) => row.fielding.games, value: (row) => row.fielding.games },
       { key: 'chances', group: 'Fielding', label: 'Chances', sortValue: (row) => row.fielding.chances, value: (row) => row.fielding.chances },
+      { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
+      { key: 'assists', group: 'Fielding', label: 'A', sortValue: (row) => row.fielding.assists, value: (row) => row.fielding.assists },
       { key: 'errors', group: 'Fielding', label: 'Errors', sortValue: (row) => row.fielding.errors, value: (row) => row.fielding.errors },
       { key: 'cleanPlays', group: 'Fielding', label: 'Clean', sortValue: (row) => row.fielding.cleanPlays, value: (row) => row.fielding.cleanPlays },
       { key: 'errorRate', group: 'Fielding', label: 'Error %', sortValue: (row) => row.fielding.errorRate, value: (row) => formatPercent(row.fielding.errorRate, 1) },

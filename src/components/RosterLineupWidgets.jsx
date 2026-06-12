@@ -99,10 +99,10 @@ export function DraggableRosterItem({
         <Portrait name={character.name} size={compact ? 36 : 48} showChemistryNote={showChemistryNote} highlighted={highlighted} />
       </button>
       <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer' }}>
-        <div style={{ fontWeight: 700, fontSize: compact ? 13 : 15, lineHeight: 1.2, whiteSpace: 'normal', wordBreak: 'break-word' }}>{character.displayName || character.name}</div>
+        <div style={{ fontWeight: 700, fontSize: compact ? 13 : 15, lineHeight: 1.2, whiteSpace: 'normal', overflowWrap: 'break-word' }}>{character.displayName || character.name}</div>
       </button>
       {lineupNumber !== null ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+        <div className="roster-item-stats" style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           {[
             { stat: 'batting', value: character.batting },
             { stat: 'pitching', value: character.pitching },
@@ -118,6 +118,7 @@ export function DraggableRosterItem({
       ) : null}
       {lineupNumber !== null ? (
         <span
+          className="roster-item-badge"
           style={{
             flexShrink: 0,
             fontSize: 10,

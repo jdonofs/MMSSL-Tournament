@@ -339,7 +339,7 @@ export default function Draft() {
 }
 
 export function DraftExperience({ mode = 'tournament' }) {
-  const { player } = useAuth()
+  const { player, is_logged_in } = useAuth()
   const { pushToast } = useToast()
   const { currentTournament, allTournaments } = useTournament()
   const { currentSeason, seasonTeams } = useSeason()
@@ -591,12 +591,45 @@ export function DraftExperience({ mode = 'tournament' }) {
   }, [pitchingStints, games, allTournaments])
 
   // Draft order
-  const { currentPickNumber, round, pickInRound, totalPicks, isDraftComplete, currentDrafter } = useMemo(
+  const baseDraftState = useMemo(
     () => getCurrentDraftState(players, draftPicks),
     [players, draftPicks]
   )
+  const seasonRosterCountsByTeamId = useMemo(() => {
+    if (!isSeasonMode) return {}
+    return draftPicks.reduce((acc, pick) => {
+      const teamId = String(pick.team_id || '')
+      if (!teamId) return acc
+      acc[teamId] = (acc[teamId] || 0) + 1
+      return acc
+    }, {})
+  }, [draftPicks, isSeasonMode])
+  const seasonTeamsMissingRosterSpots = useMemo(() => {
+    if (!isSeasonMode) return []
+    return (seasonTeams || [])
+      .map((team) => ({
+        ...team,
+        rosterCount: Number(seasonRosterCountsByTeamId[String(team.id)] || 0),
+      }))
+      .filter((team) => team.rosterCount < 9)
+  }, [isSeasonMode, seasonTeams, seasonRosterCountsByTeamId])
+  const seasonMissingRosterSlots = useMemo(
+    () => seasonTeamsMissingRosterSpots.reduce((sum, team) => sum + Math.max(0, 9 - team.rosterCount), 0),
+    [seasonTeamsMissingRosterSpots],
+  )
+  const seasonDraftCompletionBlocked = Boolean(isSeasonMode && baseDraftState.isDraftComplete && seasonTeamsMissingRosterSpots.length > 0)
+  const totalPicks = baseDraftState.totalPicks
+  const currentPickNumber = seasonDraftCompletionBlocked ? draftPicks.length + 1 : baseDraftState.currentPickNumber
+  const round = seasonDraftCompletionBlocked ? Math.ceil(currentPickNumber / Math.max(players.length, 1)) : baseDraftState.round
+  const pickInRound = seasonDraftCompletionBlocked ? (currentPickNumber - 1) % Math.max(players.length, 1) : baseDraftState.pickInRound
+  const currentDrafter = seasonDraftCompletionBlocked
+    ? players.find((entry) => String(entry.id) === String(seasonTeamsMissingRosterSpots[0]?.player_id)) || null
+    : baseDraftState.currentDrafter
+  const isDraftComplete = baseDraftState.isDraftComplete && !seasonDraftCompletionBlocked
   const draftStatusOpen = isSeasonMode ? activeDraftContext?.status === 'draft' : activeDraftContext?.status === 'drafting'
-  const picksRemaining = Math.max(0, totalPicks - draftPicks.length)
+  const picksRemaining = seasonDraftCompletionBlocked
+    ? seasonMissingRosterSlots
+    : Math.max(0, totalPicks - draftPicks.length)
   const isYourTurn = !isDraftComplete && currentDrafter?.id === player?.id
   const canDraft = draftStatusOpen && !isDraftComplete
   const playersWithCaptainPick = useMemo(
@@ -1131,6 +1164,12 @@ export function DraftExperience({ mode = 'tournament' }) {
         </div>
       </div>
 
+      {seasonDraftCompletionBlocked ? (
+        <div style={{ margin: '10px 16px 0', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(248,113,113,0.45)', background: 'rgba(127,29,29,0.22)', color: '#FCA5A5', fontSize: 13, fontWeight: 700 }}>
+          Draft completion blocked: {seasonTeamsMissingRosterSpots.map((team) => `${getTeamShortName(teamIdentitiesByPlayerId[team.player_id]) || playersById[team.player_id]?.name || 'Unknown team'} needs ${9 - team.rosterCount}`).join(', ')}.
+        </div>
+      ) : null}
+
       {pendingReveal && player?.is_commissioner ? (
         <div style={{ margin: '10px 16px 0', background: '#1E293B', border: '1px solid #EAB30855', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <Portrait name={charactersById[pendingReveal.characterId]?.name} size={36} />
@@ -1257,14 +1296,16 @@ export function DraftExperience({ mode = 'tournament' }) {
               {showDraftedMetadata ? <span style={{ textAlign: 'center', fontSize: draftBoardValueFontSize, color: '#CBD5E1' }}>{pick?.pick_number || '—'}</span> : null}
               {!isDrafted
                 ? (
-                  player?.is_commissioner && !isYourTurn && canDraft && currentDrafter ? (
-                    <button onClick={e => { e.stopPropagation(); beginForcePick(c, currentDrafter.id) }} type="button" style={{ padding: isMobileBoard ? '4px 2px' : '4px 6px', borderRadius: 6, fontSize: isMobileBoard ? 10 : 11, fontWeight: 700, border: '1px solid #EAB308', background: 'transparent', color: '#EAB308', cursor: 'pointer' }}>
-                      {isMobileBoard ? 'Frc' : 'Force'}
-                    </button>
-                  ) : (
-                    <button onClick={e => { e.stopPropagation(); beginDraftPick(c) }} type="button" disabled={!isYourTurn || !canDraft || !!myPendingPick} style={{ padding: isMobileBoard ? '4px 2px' : '4px 6px', borderRadius: 6, fontSize: isMobileBoard ? 10 : 11, fontWeight: 700, border: 'none', background: isYourTurn && canDraft && !myPendingPick ? '#EAB308' : '#1E293B', color: isYourTurn && canDraft && !myPendingPick ? '#000' : '#334155', cursor: isYourTurn && canDraft && !myPendingPick ? 'pointer' : 'default' }}>
-                      {isMobileBoard ? 'Pick' : 'Draft'}
-                    </button>
+                  !is_logged_in ? <span /> : (
+                    player?.is_commissioner && !isYourTurn && canDraft && currentDrafter ? (
+                      <button onClick={e => { e.stopPropagation(); beginForcePick(c, currentDrafter.id) }} type="button" style={{ padding: isMobileBoard ? '4px 2px' : '4px 6px', borderRadius: 6, fontSize: isMobileBoard ? 10 : 11, fontWeight: 700, border: '1px solid #EAB308', background: 'transparent', color: '#EAB308', cursor: 'pointer' }}>
+                        {isMobileBoard ? 'Frc' : 'Force'}
+                      </button>
+                    ) : (
+                      <button onClick={e => { e.stopPropagation(); beginDraftPick(c) }} type="button" disabled={!isYourTurn || !canDraft || !!myPendingPick} style={{ padding: isMobileBoard ? '4px 2px' : '4px 6px', borderRadius: 6, fontSize: isMobileBoard ? 10 : 11, fontWeight: 700, border: 'none', background: isYourTurn && canDraft && !myPendingPick ? '#EAB308' : '#1E293B', color: isYourTurn && canDraft && !myPendingPick ? '#000' : '#334155', cursor: isYourTurn && canDraft && !myPendingPick ? 'pointer' : 'default' }}>
+                        {isMobileBoard ? 'Pick' : 'Draft'}
+                      </button>
+                    )
                   )
                 )
                 : <span style={{ fontSize: draftBoardMetaFontSize, color: '#334155', textAlign: 'center' }}>—</span>}

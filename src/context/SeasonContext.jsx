@@ -1,7 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { buildSeasonStandings } from '../utils/competitionStandings'
-import { DEFAULT_REGULATION_INNINGS } from '../utils/gameRules'
+import {
+  DEFAULT_MERCY_RULE_DIFFERENTIAL,
+  DEFAULT_REGULATION_INNINGS,
+  normalizeMercyRuleDifferential,
+  normalizeRegulationInnings,
+} from '../utils/gameRules'
 
 const SeasonContext = createContext(null)
 const STORAGE_KEY = 'sluggers-selected-season'
@@ -10,6 +15,7 @@ export function SeasonProvider({ children }) {
   const [allSeasons, setAllSeasons] = useState([])
   const [seasonTeams, setSeasonTeams] = useState([])
   const [schedule, setSchedule] = useState([])
+  const [seasonBettingLedger, setSeasonBettingLedger] = useState([])
   const [players, setPlayers] = useState([])
   const [selectedSeasonId, setSelectedSeasonId] = useState(() => localStorage.getItem(STORAGE_KEY) || '')
   const [loading, setLoading] = useState(true)
@@ -31,8 +37,12 @@ export function SeasonProvider({ children }) {
 
     const seasons = (seasonsData || []).map((season) => ({
       ...season,
-      // Season mode currently uses the standard 3-inning game length.
-      innings: DEFAULT_REGULATION_INNINGS,
+      innings: normalizeRegulationInnings(season?.innings, DEFAULT_REGULATION_INNINGS),
+      mercy_rule: season?.mercy_rule === true,
+      mercy_rule_differential: normalizeMercyRuleDifferential(
+        season?.mercy_rule_differential,
+        DEFAULT_MERCY_RULE_DIFFERENTIAL,
+      ),
     }))
     setAllSeasons(seasons)
 
@@ -45,18 +55,21 @@ export function SeasonProvider({ children }) {
     if (!nextSelection) {
       setSeasonTeams([])
       setSchedule([])
+      setSeasonBettingLedger([])
       if (!silent) setLoading(false)
       return seasons
     }
 
-    const [{ data: teamsData }, { data: scheduleData }, { data: playersData }] = await Promise.all([
+    const [{ data: teamsData }, { data: scheduleData }, { data: bettingLedgerData }, { data: playersData }] = await Promise.all([
       supabase.from('season_teams').select('*').eq('season_id', nextSelection).order('created_at'),
       supabase.from('season_schedule').select('*').eq('season_id', nextSelection).order('round_number').order('id'),
+      supabase.from('season_betting_ledger').select('*').eq('season_id', nextSelection).order('created_at'),
       supabase.from('players').select('id, name, color').order('name'),
     ])
 
     setSeasonTeams(teamsData || [])
     setSchedule(scheduleData || [])
+    setSeasonBettingLedger(bettingLedgerData || [])
     setPlayers(playersData || [])
     if (!silent) setLoading(false)
     return seasons
@@ -100,6 +113,9 @@ export function SeasonProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams', filter: `season_id=eq.${selectedSeasonId}` }, () => {
         refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_betting_ledger', filter: `season_id=eq.${selectedSeasonId}` }, () => {
+        refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster', filter: `season_id=eq.${selectedSeasonId}` }, () => {
         refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
       })
@@ -112,7 +128,10 @@ export function SeasonProvider({ children }) {
   const activeSeason = allSeasons.find((season) => ['active', 'playoffs'].includes(season.status)) || null
   const currentSeason = viewedSeason || activeSeason || null
 
-  const standings = useMemo(() => buildSeasonStandings(seasonTeams, schedule), [seasonTeams, schedule])
+  const standings = useMemo(
+    () => buildSeasonStandings(seasonTeams, schedule, seasonBettingLedger),
+    [seasonTeams, schedule, seasonBettingLedger],
+  )
   const currentRound = useMemo(() => {
     const relevantRounds = schedule
       .filter((game) => ['in_progress', 'completed'].includes(game.status))

@@ -1,5 +1,5 @@
 import { ArrowLeft, Eye, EyeOff, LogIn } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -16,12 +16,19 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [signingIn, setSigningIn] = useState(false)
+  const passwordSectionRef = useRef(null)
 
   useEffect(() => {
     if (is_logged_in) {
-      navigate('/', { replace: true })
+      navigate('/season', { replace: true })
     }
   }, [is_logged_in, navigate])
+
+  useEffect(() => {
+    if (selectedPlayer && passwordSectionRef.current) {
+      passwordSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [selectedPlayer])
 
   useEffect(() => {
     supabase
@@ -69,7 +76,6 @@ export default function Login() {
             <span className="brand-kicker">Sluggers</span>
             <h1>Tournament Tracker</h1>
           </div>
-          <p className="muted">Select your name to sign in.</p>
         </div>
 
         {loading || playersLoading ? (
@@ -124,7 +130,7 @@ export default function Login() {
             </section>
 
             {selectedPlayer && (
-              <section className="panel" style={{ marginTop: 0 }}>
+              <section className="panel" style={{ marginTop: 0 }} ref={passwordSectionRef}>
                 <form onSubmit={handleSignIn} style={{ display: 'grid', gap: 14 }}>
                   <div className="section-head" style={{ marginBottom: 0 }}>
                     <h2>

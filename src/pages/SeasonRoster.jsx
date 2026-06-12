@@ -609,7 +609,7 @@ function TradeBuilderWorkspace({
 }
 
 export default function SeasonRoster() {
-  const { player } = useAuth()
+  const { player, is_logged_in } = useAuth()
   const { currentSeason, seasonTeams, standings, tradeDeadlinePassed, seasonPlayersById } = useSeason()
   const { pushToast } = useToast()
   const [players, setPlayers] = useState([])
@@ -1557,6 +1557,12 @@ export default function SeasonRoster() {
       return
     }
 
+    const myCaptainName = identitiesByPlayerId[myTeam.player_id]?.captainCharacterName
+    if (myCaptainName && dropRow.character_name === myCaptainName) {
+      pushToast({ title: 'Cannot drop captain', message: 'Your team captain cannot be dropped to free agency or waivers.', type: 'error' })
+      return
+    }
+
     if (pickupModal.type === 'free_agent') {
       const { error: addError } = await supabase.from('season_roster').insert({
         season_id: currentSeason.id,
@@ -1675,7 +1681,7 @@ export default function SeasonRoster() {
   return (
     <div className="page-stack">
       <div className="tab-row">
-        {TABS.map((tab) => (
+        {TABS.filter((tab) => is_logged_in || tab !== 'Trade Center').map((tab) => (
           <button key={tab} className={`tab-button ${activeTab === tab ? 'tab-button-active' : ''}`} onClick={() => setActiveTab(tab)} type="button">
             {tab}
           </button>
@@ -1792,7 +1798,7 @@ export default function SeasonRoster() {
         </div>
       ) : null}
 
-      {activeTab === 'Trade Center' ? (
+      {activeTab === 'Trade Center' && is_logged_in ? (
         <div className="page-stack" style={{ gap: 12 }}>
           <div className="inline-actions">
             <StatusChip value={tradeDeadlinePassed ? 'rejected' : 'pending'} />
@@ -1800,10 +1806,6 @@ export default function SeasonRoster() {
               <span>Pending For You</span>
               <strong>{pendingTradeCount}</strong>
             </div>
-            <button className="solid-button" onClick={() => openTradeBuilder()} type="button" disabled={!myTeam || tradeDeadlinePassed}>
-              <ArrowRightLeft size={16} />
-              <span>New Trade</span>
-            </button>
           </div>
           <TradeBuilderWorkspace
           step={tradeBuilderStep}
@@ -1822,6 +1824,43 @@ export default function SeasonRoster() {
           onSubmit={submitTradeProposal}
           tradeDeadlinePassed={tradeDeadlinePassed}
           />
+
+          <section className="panel" style={{ padding: 18 }}>
+            <div className="section-head">
+              <div>
+                <h2>Pending Trades</h2>
+                <span className="muted">{pendingTrades.length} open proposal{pendingTrades.length === 1 ? '' : 's'}</span>
+              </div>
+            </div>
+            <div className="feed-list">
+              {pendingTrades.map((trade) => {
+                const myParticipant = trade.participants.find((entry) => String(entry.team_id) === String(myTeam?.id || ''))
+                const canRespond = myParticipant?.decision_status === 'pending'
+                const canCancel = !canRespond && String(trade.created_by_team_id) === String(myTeam?.id || '')
+                return (
+                  <div key={trade.id} style={{ padding: 14, borderRadius: 14, background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(51,65,85,0.9)', display: 'grid', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {trade.participants.map((participant) => (
+                          <PlayerTag key={`${trade.id}-${participant.team_id}`} height={26} identitiesByPlayerId={identitiesByPlayerId} playerId={teamsById[String(participant.team_id)]?.player_id} playersById={playersById} />
+                        ))}
+                      </div>
+                      <StatusChip value={myParticipant?.decision_status || trade.status} />
+                    </div>
+                    <span className="muted" style={{ fontSize: 13 }}>{trade.moves.map((move) => move.character_name).join(' • ')}</span>
+                    {canRespond || canCancel ? (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {canRespond ? <button className="solid-button" onClick={() => resolveTrade(trade, 'accepted')} type="button">Accept</button> : null}
+                        {canRespond ? <button className="ghost-button" onClick={() => resolveTrade(trade, 'rejected')} type="button">Reject</button> : null}
+                        {canCancel ? <button className="ghost-button" onClick={() => resolveTrade(trade, 'cancelled')} type="button">Cancel</button> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+              {!pendingTrades.length ? <span className="muted">No pending trades.</span> : null}
+            </div>
+          </section>
         </div>
       ) : null}
 
@@ -1907,7 +1946,7 @@ export default function SeasonRoster() {
                       )}
                     </div>
                     <div style={{ display: 'grid', gap: 6, justifyItems: 'center' }}>
-                      {isWaiver ? (
+                      {!is_logged_in ? null : isWaiver ? (
                         <>
                           <button
                             type="button"
@@ -2020,14 +2059,14 @@ export default function SeasonRoster() {
                   <strong>{pickupModal.characterName}</strong>
                   {pickupModal.type === 'waiver' ? (
                     <span className="muted" style={{ fontSize: 12 }}>Waiver award if the priority line reaches your team.</span>
-                  ) : (
-                    <span className="muted" style={{ fontSize: 12 }}>Immediate free-agent pickup.</span>
-                  )}
+                  ) : null}
                 </div>
               </div>
               <select value={pickupDropCharacter} onChange={(event) => setPickupDropCharacter(event.target.value)}>
                 <option value="">Drop character</option>
-                {(activeRosterByTeamId[String(myTeam?.id)] || []).map((entry) => <option key={entry.id} value={entry.character_name}>{entry.character_name}</option>)}
+                {(activeRosterByTeamId[String(myTeam?.id)] || [])
+                  .filter((entry) => entry.character_name !== identitiesByPlayerId[myTeam?.player_id]?.captainCharacterName)
+                  .map((entry) => <option key={entry.id} value={entry.character_name}>{entry.character_name}</option>)}
               </select>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                 <button className="ghost-button" onClick={closePickupModal} type="button">Cancel</button>

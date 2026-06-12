@@ -222,6 +222,8 @@ export default function CompetitionOverviewTables({
                   <th>W</th>
                   <th>L</th>
                   <th>GB</th>
+                  <th>RS</th>
+                  <th>RA</th>
                   <th>RD</th>
                   <th>Home</th>
                   <th>Away</th>
@@ -234,6 +236,8 @@ export default function CompetitionOverviewTables({
                     <td>{row.wins}</td>
                     <td>{row.losses}</td>
                     <td>{row.gamesBack}</td>
+                    <td>{row.runs_scored}</td>
+                    <td>{row.runs_allowed}</td>
                     <td>{row.run_differential}</td>
                     <td>{row.home_wins}-{row.home_losses}</td>
                     <td>{row.away_wins}-{row.away_losses}</td>
