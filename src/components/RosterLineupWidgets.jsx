@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ArrowRightLeft } from 'lucide-react'
 import CharacterPortrait from './CharacterPortrait'
 import StatIcon from './StatIcon'
@@ -195,6 +195,19 @@ export function FieldingView({
   editable = true,
   chemistryHighlightIds,
 }) {
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 640 : false))
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onResize = () => setIsMobile(window.innerWidth <= 640)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const portraitSize = isMobile ? 38 : 52
+  const placeholderSize = isMobile ? 34 : 48
+  const positionBoxSize = isMobile ? 64 : 90
+
   const assignCharToPos = useCallback((posId, characterId) => {
     if (!editable) return
     setFieldingPositions((current) => {
@@ -236,14 +249,14 @@ export function FieldingView({
   }
 
   return (
-    <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 14, padding: 16, display: 'grid', gap: 10 }}>
+    <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 14, padding: isMobile ? 8 : 16, display: 'grid', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
         <h3 style={{ fontSize: 14, fontWeight: 800, color: '#EFF6FF', letterSpacing: '.04em', textTransform: 'uppercase', margin: 0 }}>Fielding Positions</h3>
         <div style={{ fontSize: 11, fontWeight: 700, color: fieldingAssignMode ? '#A78BFA' : '#DBEAFE', background: '#0F172A55', padding: '4px 8px', borderRadius: 999 }}>
           {editable ? (fieldingAssignMode ? (selectedForFielding ? 'Tap position to place' : 'Tap roster player first') : (selectedPlayer ? 'Tap position to move selected player' : 'Tap player, then tap position to swap')) : 'View only'}
         </div>
       </div>
-      <div style={{ position: 'relative', width: '100%', maxWidth: 460, aspectRatio: '1/1.02', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: '0 8px 24px #00000040', border: '1px solid #1E293B' }}>
+      <div style={{ position: 'relative', width: '100%', maxWidth: isMobile ? 560 : 460, aspectRatio: '1/1.02', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: '0 8px 24px #00000040', border: '1px solid #1E293B' }}>
         <img src="/baseball-field.jpg" alt="Baseball field" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
         {FIELD_POSITIONS.map((pos) => {
           const charId = fieldingPositions[pos.id]
@@ -253,13 +266,13 @@ export function FieldingView({
             <div
               key={pos.id}
               onClick={() => handlePositionClick(pos.id)}
-              style={{ position: 'absolute', left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)', width: 90, height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: character ? 'pointer' : 'default' }}
+              style={{ position: 'absolute', left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)', width: positionBoxSize, height: positionBoxSize, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: character ? 'pointer' : 'default' }}
             >
               {character ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                   <Portrait
                     name={character.name}
-                    size={52}
+                    size={portraitSize}
                     showChemistryNote={chemistryHighlightIds.has(charId)}
                     highlighted={selectedPlayer === charId}
                     style={{ boxShadow: `0 6px 14px #00000040, 0 0 0 2px ${groupColor}`, background: 'transparent', borderRadius: '50%' }}
@@ -267,7 +280,7 @@ export function FieldingView({
                   <div style={{ fontSize: 10, fontWeight: 800, color: '#0F172A', background: groupColor, padding: '2px 6px', borderRadius: 999 }}>{pos.label}</div>
                 </div>
               ) : (
-                <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#0F172A66', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#E2E8F0', border: `2px dashed ${groupColor}99` }}>{pos.label}</div>
+                <div style={{ width: placeholderSize, height: placeholderSize, borderRadius: '50%', background: '#0F172A66', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#E2E8F0', border: `2px dashed ${groupColor}99` }}>{pos.label}</div>
               )}
             </div>
           )

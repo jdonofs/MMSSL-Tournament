@@ -155,7 +155,7 @@ function parseFieldingSequence(pa = {}) {
 function CharacterCell({ name, compact = false }) {
   if (compact) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 40, minHeight: 40 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28, minHeight: 28 }}>
         <CharacterPortrait name={name} size={28} />
       </div>
     )
@@ -1651,7 +1651,7 @@ export default function Stats() {
 
   const characterColumns = useMemo(() => ({
     batting: [
-      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 64, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
+      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 48, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
       { key: 'plateAppearances', group: 'Batting', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
       { key: 'atBats', group: 'Batting', label: 'AB', sortValue: (row) => row.batting.atBats, value: (row) => row.batting.atBats },
       { key: 'hits', group: 'Batting', label: 'H', sortValue: (row) => row.batting.hits, value: (row) => row.batting.hits },
@@ -1682,7 +1682,7 @@ export default function Stats() {
       { key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName },
     ],
     pitching: [
-      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 64, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
+      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 48, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
       { key: 'games', group: 'Usage', label: 'G', sortValue: (row) => row.pitching.games, value: (row) => row.pitching.games },
       { key: 'innings', group: 'Usage', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
       { key: 'wins', group: 'Decisions', label: 'W', sortValue: (row) => row.pitching.wins, value: (row) => row.pitching.wins },
@@ -1710,7 +1710,7 @@ export default function Stats() {
       { key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName },
     ],
     fielding: [
-      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 64, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
+      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 48, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
       { key: 'games', group: 'Fielding', label: 'G', sortValue: (row) => row.fielding.games, value: (row) => row.fielding.games },
       { key: 'chances', group: 'Fielding', label: 'Chances', sortValue: (row) => row.fielding.chances, value: (row) => row.fielding.chances },
       { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
@@ -1806,7 +1806,6 @@ export default function Stats() {
     <div className="page-stack">
       <div className="page-head">
         <div>
-          <span className="brand-kicker">Historical Stats</span>
           {isCombinedView ? <p className="muted">Stats include all tournaments and seasons.</p> : null}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

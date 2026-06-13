@@ -1135,29 +1135,31 @@ function LineupColumn({
   wrap = false,
 }) {
   const isHorizontal = orientation === 'horizontal'
+  const isCompact = isHorizontal && wrap
+  const avatarSize = isCompact ? 30 : 36
   return (
     <div style={{
       display: 'flex',
       flexDirection: isHorizontal ? 'row' : 'column',
       alignItems: isHorizontal ? 'center' : 'center',
-      gap: isHorizontal ? 8 : 2,
+      gap: isHorizontal ? (isCompact ? 4 : 8) : 2,
       minWidth: 0,
       width: '100%',
     }}>
       <div style={{
         marginBottom: isHorizontal ? 0 : 2,
         flexShrink: 0,
-        width: isHorizontal ? 28 : 'auto',
+        width: isHorizontal ? (isCompact ? 20 : 28) : 'auto',
         display: 'flex',
         justifyContent: 'center',
       }}>
-        <StatIcon stat={stat} size={16} style={{ opacity: 0.75 }} />
+        <StatIcon stat={stat} size={isCompact ? 14 : 16} style={{ opacity: 0.75 }} />
       </div>
       <div style={{
         display: 'flex',
         flexDirection: isHorizontal ? 'row' : 'column',
         flexWrap: isHorizontal && wrap ? 'wrap' : 'nowrap',
-        gap: 3,
+        gap: isCompact ? 2 : 3,
         overflowX: isHorizontal && !wrap ? 'auto' : 'visible',
         overflowY: isHorizontal ? 'hidden' : 'auto',
         scrollbarWidth: 'none',
@@ -1186,8 +1188,8 @@ function LineupColumn({
               title={char?.name}
               style={{ position: 'relative', cursor: handleClick ? 'pointer' : 'default', opacity: (isCurrent || isPending) ? 1 : 0.45, flexShrink: 0 }}
             >
-              <div style={{ width: 36, height: 36, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${borderColor}`, boxShadow: shadow, transition: 'border-color 0.15s, box-shadow 0.15s' }}>
-                <Avatar name={char?.name} size={36} />
+              <div style={{ width: avatarSize, height: avatarSize, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${borderColor}`, boxShadow: shadow, transition: 'border-color 0.15s, box-shadow 0.15s' }}>
+                <Avatar name={char?.name} size={avatarSize} />
               </div>
               <div style={{ position: 'absolute', bottom: -1, right: -1, width: 13, height: 13, borderRadius: '50%', background: isPending ? '#A78BFA' : isCurrent ? teamColor : C.card, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 900, color: (isCurrent || isPending) ? '#000' : C.muted }}>
                 {i + 1}

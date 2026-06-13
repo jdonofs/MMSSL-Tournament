@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Moon, Sun, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Moon, Sun, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
@@ -529,7 +529,11 @@ function normalizeCustomLineSelection(row, customLineOpts) {
   if (!customLineOpts || customLineOpts.customLine == null) return customLineOpts
   const defaultLine = row?.line != null ? Number(row.line) : null
   const customLine = Number(customLineOpts.customLine)
-  if (defaultLine != null && customLine === defaultLine) return null
+  if (defaultLine != null && customLine === defaultLine) {
+    // Same line as the board's default, but keep customOdds/customProb so the slip
+    // matches whatever the alt-market panel displayed when the user clicked.
+    return { ...customLineOpts, customLine: undefined }
+  }
   return { ...customLineOpts, customLine }
 }
 
@@ -860,6 +864,8 @@ export default function BettingTab({ mode = 'tournament' }) {
   const [expandedSections, setExpandedSections] = useState({})
   const [betSlip, setBetSlip] = useState([])
   const [slipError, setSlipError] = useState('')
+  const [slipCollapsed, setSlipCollapsed] = useState(false)
+  const [activeWagerKey, setActiveWagerKey] = useState(null)
   const [stadiumModalGameId, setStadiumModalGameId] = useState(null)
   const [myBetsFilter, setMyBetsFilter] = useState('all')
   const hasLoadedOnceRef = useRef(false)
@@ -1574,11 +1580,46 @@ export default function BettingTab({ mode = 'tournament' }) {
     setBetSlip((current) => current.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry)))
   }
 
+  useEffect(() => {
+    if (!betSlip.length) {
+      if (activeWagerKey != null) setActiveWagerKey(null)
+      return
+    }
+    if (!betSlip.some((entry) => entry.key === activeWagerKey)) {
+      setActiveWagerKey(betSlip[0].key)
+    }
+  }, [betSlip, activeWagerKey])
+
   const handleSlipWagerChange = useCallback((key, rawValue) => {
     const sanitized = sanitizeDollarWagerInput(rawValue)
     if (sanitized == null) return
     updateSlipEntry(key, { wagerSips: sanitized })
   }, [])
+
+  const handleNumpadKeyPress = useCallback((key) => {
+    if (!activeWagerKey) return
+    setBetSlip((current) => current.map((entry) => {
+      if (entry.key !== activeWagerKey) return entry
+      const value = String(entry.wagerSips ?? '')
+      const next = key === 'back'
+        ? value.slice(0, -1)
+        : key === '.'
+          ? (value.includes('.') ? value : `${value}.`)
+          : `${value}${key}`
+      const sanitized = sanitizeDollarWagerInput(next)
+      return sanitized == null ? entry : { ...entry, wagerSips: sanitized }
+    }))
+  }, [activeWagerKey])
+
+  const handleNumpadQuickAdd = useCallback((amount) => {
+    if (!activeWagerKey) return
+    setBetSlip((current) => current.map((entry) => {
+      if (entry.key !== activeWagerKey) return entry
+      const base = parseDollarWager(entry.wagerSips)
+      const next = (Number.isFinite(base) ? base : 0) + amount
+      return { ...entry, wagerSips: String(Number(next.toFixed(2))) }
+    }))
+  }, [activeWagerKey])
 
   const completedGameMargins = useMemo(
     () =>
@@ -1605,8 +1646,8 @@ export default function BettingTab({ mode = 'tournament' }) {
         return {
           ...entry,
           customLine: isAlt ? spread : undefined,
-          customOdds: isAlt ? (isHome ? pricing.homeOdds : pricing.awayOdds) : undefined,
-          customProb: isAlt ? (isHome ? pricing.homeProb : pricing.awayProb) : undefined,
+          customOdds: isHome ? pricing.homeOdds : pricing.awayOdds,
+          customProb: isHome ? pricing.homeProb : pricing.awayProb,
         }
       })
     })
@@ -1631,8 +1672,8 @@ export default function BettingTab({ mode = 'tournament' }) {
         return {
           ...entry,
           customLine: isAlt ? line : undefined,
-          customOdds: isAlt ? (isOver ? pricing.overOdds : pricing.underOdds) : undefined,
-          customProb: isAlt ? (isOver ? pricing.overProb : pricing.underProb) : undefined,
+          customOdds: isOver ? pricing.overOdds : pricing.underOdds,
+          customProb: isOver ? pricing.overProb : pricing.underProb,
         }
       })
     })
@@ -2108,13 +2149,6 @@ export default function BettingTab({ mode = 'tournament' }) {
         <Fragment key={viewMode}>
           {viewMode === 'board' ? (
           <section className="panel sportsbook-board">
-              <div className="sportsbook-board-head">
-                <div>
-                  <h2>Game Lines</h2>
-                </div>
-                <span className="muted">{boardCards.length} game{boardCards.length === 1 ? '' : 's'}</span>
-            </div>
-
             <div className="sportsbook-game-list">
               {boardCards.map((card) => (
                 <BoardGameCard
@@ -2545,80 +2579,126 @@ export default function BettingTab({ mode = 'tournament' }) {
           ) : null}
 
           {betSlip.length ? (
-            <div className="sportsbook-slip">
-              <div className="sportsbook-slip-head">
-                <div>
-                  <span className="brand-kicker">Bet Slip</span>
-                  <h3>{betSlip.length} selection{betSlip.length === 1 ? '' : 's'}</h3>
+            <div className={`sportsbook-slip ${slipCollapsed ? 'sportsbook-slip-collapsed' : ''}`}>
+              <button
+                aria-label={slipCollapsed ? 'Expand bet slip' : 'Collapse bet slip'}
+                className="sportsbook-slip-drag"
+                onClick={() => setSlipCollapsed((current) => !current)}
+                type="button"
+              >
+                <span className="sportsbook-slip-drag-bar" />
+              </button>
+
+              <div className="sportsbook-slip-head" onClick={() => setSlipCollapsed((current) => !current)}>
+                <div className="sportsbook-slip-head-title">
+                  <span className="sportsbook-slip-count">{betSlip.length}</span>
+                  <h3>Bet Slip</h3>
                 </div>
-                <button className="icon-button" onClick={() => setBetSlip([])} type="button">
-                  <X size={16} />
-                </button>
+                <div className="sportsbook-slip-head-meta">
+                  {slipCollapsed ? <span className="muted">{`$${slipWager.toFixed(2)} staked`}</span> : null}
+                  <button
+                    className="link-button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setBetSlip([])
+                      setActiveWagerKey(null)
+                    }}
+                    type="button"
+                  >
+                    Clear All
+                  </button>
+                  {slipCollapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </div>
               </div>
 
-              <div className="sportsbook-slip-list">
-                {betSlip.map((entry) => {
-                  const game = boardGames.find((item) => String(item.id) === String(entry.gameId))
-                  const row = (oddsByGameId[String(entry.gameId)] || []).find((item) => item.id === entry.rowId) || entry.row
-                  const option = row && game ? getSideOptions(row, game, playersById, identitiesByPlayerId).find((item) => item.side === entry.side) : null
-                  const slipLine = entry.customLine ?? row?.line
-                  const slipOdds = entry.customOdds ?? option?.odds
-                  const slipTitle = row && game
-                    ? formatBetTitle({ ...row, chosen_side: entry.side, line: slipLine }, game, playersById, identitiesByPlayerId)
-                    : entry.side
-                  const slipSubtitle = row && game
-                    ? formatBetDescription({ ...row, line: slipLine }, game, playersById, identitiesByPlayerId)
-                    : ''
-                  return (
-                    <div className="sportsbook-slip-row" key={entry.key}>
-                      <div className="sportsbook-slip-copy sportsbook-slip-copy-with-portrait">
-                        {['hr_prop', 'hit_prop', 'k_prop'].includes(row?.bet_type) ? (
-                          <CharacterPortrait name={getTargetPortraitName(row?.target_entity)} size={36} />
-                        ) : null}
-                        <div>
-                          {row && game ? (
-                            <>
-                              <strong>{game?.game_code} · {slipTitle}</strong>
-                              <span className="muted">{slipSubtitle} · {formatOdds(slipOdds)}</span>
-                            </>
-                          ) : (
-                            <>
-                          <strong>{game?.game_code} · {formatBetDescription(row, game, playersById, identitiesByPlayerId)}</strong>
-                          <span className="muted">{option?.label} · {formatOdds(option?.odds)}</span>
-                            </>
-                          )}
+              {!slipCollapsed ? (
+                <>
+                  <div className="sportsbook-slip-list">
+                    {betSlip.map((entry) => {
+                      const game = boardGames.find((item) => String(item.id) === String(entry.gameId))
+                      const row = (oddsByGameId[String(entry.gameId)] || []).find((item) => item.id === entry.rowId) || entry.row
+                      const option = row && game ? getSideOptions(row, game, playersById, identitiesByPlayerId).find((item) => item.side === entry.side) : null
+                      const slipLine = entry.customLine ?? row?.line
+                      const slipOdds = entry.customOdds ?? option?.odds
+                      const slipTitle = row && game
+                        ? formatBetTitle({ ...row, chosen_side: entry.side, line: slipLine }, game, playersById, identitiesByPlayerId)
+                        : entry.side
+                      const slipSubtitle = row && game
+                        ? formatBetDescription({ ...row, line: slipLine }, game, playersById, identitiesByPlayerId)
+                        : ''
+                      return (
+                        <div className="sportsbook-slip-row" key={entry.key}>
+                          <div className="sportsbook-slip-copy sportsbook-slip-copy-with-portrait">
+                            {['hr_prop', 'hit_prop', 'k_prop'].includes(row?.bet_type) ? (
+                              <CharacterPortrait name={getTargetPortraitName(row?.target_entity)} size={36} />
+                            ) : null}
+                            <div>
+                              {row && game ? (
+                                <>
+                                  <strong>{game?.game_code} · {slipTitle}</strong>
+                                  <span className="muted">{slipSubtitle} · {formatOdds(slipOdds)}</span>
+                                </>
+                              ) : (
+                                <>
+                              <strong>{game?.game_code} · {formatBetDescription(row, game, playersById, identitiesByPlayerId)}</strong>
+                              <span className="muted">{option?.label} · {formatOdds(option?.odds)}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="sportsbook-slip-controls">
+                            <button
+                              className={`sportsbook-slip-input ${activeWagerKey === entry.key ? 'sportsbook-slip-input-active' : ''}`}
+                              onClick={() => setActiveWagerKey(entry.key)}
+                              type="button"
+                            >
+                              <span className="sportsbook-slip-input-prefix">$</span>
+                              {entry.wagerSips === '' ? '0' : entry.wagerSips}
+                            </button>
+
+                            <button
+                              className="icon-button"
+                              onClick={() => setBetSlip((current) => current.filter((item) => item.key !== entry.key))}
+                              type="button"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
                         </div>
-                      </div>
+                      )
+                    })}
+                  </div>
 
-                      <div className="sportsbook-slip-controls">
-                        <input
-                          className="sportsbook-slip-input"
-                          inputMode="decimal"
-                          onChange={(event) => handleSlipWagerChange(entry.key, event.target.value)}
-                          pattern="^\d*(\.\d{0,2})?$"
-                          type="text"
-                          value={entry.wagerSips}
-                        />
-
-                        <button className="icon-button" onClick={() => setBetSlip((current) => current.filter((item) => item.key !== entry.key))} type="button">
-                          <X size={16} />
+                  <div className="sportsbook-numpad">
+                    <div className="sportsbook-numpad-quick">
+                      {[1, 5, 20].map((amount) => (
+                        <button key={amount} onClick={() => handleNumpadQuickAdd(amount)} type="button">
+                          {`+$${amount}`}
                         </button>
-                      </div>
+                      ))}
                     </div>
-                  )
-                })}
-              </div>
+                    <div className="sportsbook-numpad-grid">
+                      {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'back'].map((key) => (
+                        <button key={key} onClick={() => handleNumpadKeyPress(key)} type="button">
+                          {key === 'back' ? '⌫' : key}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="sportsbook-slip-footer">
-                <div>
-                  <span className="muted">Potential payout</span>
-                  <strong>{`$${slipPayout.toFixed(2)}`}</strong>
-                  {slipError ? <div className="sportsbook-slip-error">{slipError}</div> : null}
-                </div>
-                <button className="solid-button" disabled={placingBetId === 'slip' || slipHasInvalidWager} onClick={handlePlaceBets} type="button">
-                  {placingBetId === 'slip' ? 'Placing...' : 'Place Bets'}
-                </button>
-              </div>
+                  <div className="sportsbook-slip-footer">
+                    <div>
+                      <span className="muted">Potential payout</span>
+                      <strong>{`$${slipPayout.toFixed(2)}`}</strong>
+                      {slipError ? <div className="sportsbook-slip-error">{slipError}</div> : null}
+                    </div>
+                    <button className="solid-button" disabled={placingBetId === 'slip' || slipHasInvalidWager} onClick={handlePlaceBets} type="button">
+                      {placingBetId === 'slip' ? 'Placing...' : 'Place Bets'}
+                    </button>
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : null}
 

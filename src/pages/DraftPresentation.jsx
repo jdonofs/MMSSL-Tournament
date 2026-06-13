@@ -24,6 +24,104 @@ const PIXELATED = { imageRendering: 'pixelated' }
 const DEFAULT_CROWD_NOISE_URL = '/audio/default-crowd-noise.mp3'
 const PICK_IN_CHIME_URL = '/audio/nfl-draft-chime.mp3'
 const PICK_IN_BASS_CHIME_URL = '/audio/nfl-draft-chime-bass-boosted.mp3'
+const CUSTOM_PICK_IN_AUDIO_CONFIGS = Object.freeze({
+  Mario: { url: '/audio/into-the-pipe-theme.mp3', volume: 0.92 },
+  'Funky Kong': { url: '/audio/funky-kong.wav', volume: 0.92 },
+  Luigi: { url: '/audio/weegee-time.wav', volume: 0.92 },
+  'Monty Mole': { url: '/audio/stinky-sound-effect.mp3', volume: 0.92 },
+  Bowser: { url: '/audio/bowser-peaches-cut.mp3', volume: 0.92 },
+  'Bowser Jr.': { url: '/audio/cuppa-jr.wav', volume: 0.92 },
+  Birdo: { url: '/audio/cather.wav', volume: 0.92 },
+  'King K. Rool': { url: '/audio/fat-tuba.mp3', volume: 0.92 },
+  'King Boo': { url: '/audio/k-teresa.wav', volume: 0.92 },
+  Mii: { url: '/audio/mii-channel-theme-cut.mp3', volume: 0.92 },
+  Yoshi: { url: '/audio/yossy.wav', volume: 0.92 },
+  'Red Yoshi': { url: '/audio/yossy.wav', volume: 0.92 },
+  'Blue Yoshi': { url: '/audio/yossy.wav', volume: 0.92 },
+  'Yellow Yoshi': { url: '/audio/yossy.wav', volume: 0.92 },
+  'Pink Yoshi': { url: '/audio/yossy.wav', volume: 0.92 },
+  'Light-Blue Yoshi': { url: '/audio/yossy.wav', volume: 0.92 },
+  Wiggler: { url: '/audio/wiggler.wav', volume: 0.92 },
+  Kritter: { url: '/audio/kurittar.wav', volume: 0.92 },
+  'Red Kritter': { url: '/audio/kurittar.wav', volume: 0.92 },
+  'Blue Kritter': { url: '/audio/kurittar.wav', volume: 0.92 },
+  'Brown Kritter': { url: '/audio/kurittar.wav', volume: 0.92 },
+  Blooper: { url: '/audio/ges.wav', volume: 0.92 },
+  'Dry Bones': { url: '/audio/karon.wav', volume: 0.92 },
+  'Green Dry Bones': { url: '/audio/karon.wav', volume: 0.92 },
+  'Blue Dry Bones': { url: '/audio/karon.wav', volume: 0.92 },
+  'Dark Bones': { url: '/audio/karon.wav', volume: 0.92 },
+  Peach: { url: '/audio/peach-combined.mp3', volume: 0.92 },
+  Wario: { url: '/audio/wario.wav', volume: 0.92 },
+  Waluigi: { url: '/audio/waluigi.wav', volume: 0.92 },
+  Daisy: { url: '/audio/daisy.wav', volume: 0.92 },
+  'Donkey Kong': { url: '/audio/donkey-kong-okay.mp3', volume: 0.92 },
+  Toad: { url: '/audio/kinopio.wav', volume: 0.92 },
+  Toadette: { url: '/audio/kinopico.wav', volume: 0.92 },
+  'Hammer Bro': { url: '/audio/h-bros.wav', volume: 0.92 },
+  'Fire Bro': { url: '/audio/h-bros.wav', volume: 0.92 },
+  'Boomerang Bro': { url: '/audio/h-bros.wav', volume: 0.92 },
+  'Shy Guy': { url: '/audio/heyho.wav', volume: 0.92 },
+  'Red Shy Guy': { url: '/audio/heyho.wav', volume: 0.92 },
+  'Blue Shy Guy': { url: '/audio/heyho.wav', volume: 0.92 },
+  'Green Shy Guy': { url: '/audio/heyho.wav', volume: 0.92 },
+  'Yellow Shy Guy': { url: '/audio/heyho.wav', volume: 0.92 },
+  'Gray Shy Guy': { url: '/audio/heyho.wav', volume: 0.92 },
+  Magikoopa: { url: '/audio/kameku.wav', volume: 0.92 },
+  'Red Magikoopa': { url: '/audio/kameku.wav', volume: 0.92 },
+  'Green Magikoopa': { url: '/audio/kameku.wav', volume: 0.92 },
+  'Yellow Magikoopa': { url: '/audio/kameku.wav', volume: 0.92 },
+  'Blue Pianta': { url: '/audio/delfino-plaza-theme.mp3', volume: 0.92 },
+  'Red Pianta': { url: '/audio/delfino-plaza-theme.mp3', volume: 0.92 },
+  'Yellow Pianta': { url: '/audio/delfino-plaza-theme.mp3', volume: 0.92 },
+  'Diddy Kong': {
+    urls: [
+      '/audio/big-d-voice-lines/BASK IN STARLIGHT.mp3',
+      '/audio/big-d-voice-lines/BUILDING A WORMHOLE.mp3',
+      '/audio/big-d-voice-lines/ENOUGH.mp3',
+      '/audio/big-d-voice-lines/GET CLOSE TO ME.mp3',
+      '/audio/big-d-voice-lines/GIVE UP.mp3',
+      '/audio/big-d-voice-lines/HEALING.mp3',
+      '/audio/big-d-voice-lines/HERE WE GO.mp3',
+      '/audio/big-d-voice-lines/HOPE I REASSEMBLE.mp3',
+      '/audio/big-d-voice-lines/I AM THE COSMOS.mp3',
+      "/audio/big-d-voice-lines/I CAN'T FAIL.mp3",
+      '/audio/big-d-voice-lines/I COULD USE SOME HELP.mp3',
+      '/audio/big-d-voice-lines/I GOTCHA.mp3',
+      '/audio/big-d-voice-lines/I WONT QUIT.mp3',
+      "/audio/big-d-voice-lines/I'LL HOLD THEM AS LONG AS I CAN.mp3",
+      "/audio/big-d-voice-lines/I'M DOIN IT.mp3",
+      "/audio/big-d-voice-lines/I'M HELPING.mp3",
+      "/audio/big-d-voice-lines/I'M HOLDING THEM.mp3",
+      "/audio/big-d-voice-lines/I'M NOT DEAD YET.mp3",
+      "/audio/big-d-voice-lines/IT'S YOU OR ME.mp3",
+      '/audio/big-d-voice-lines/LEAVE ME ALONE.mp3',
+      '/audio/big-d-voice-lines/MY CONDITION HAS ITS ADVANTAGES.mp3',
+      '/audio/big-d-voice-lines/NOW OR NEVER.mp3',
+      "/audio/big-d-voice-lines/NOW'S OUR CHANCE.mp3",
+      '/audio/big-d-voice-lines/OPENING BLACK HOLE.mp3',
+      '/audio/big-d-voice-lines/PLEASE HELP ME.mp3',
+      '/audio/big-d-voice-lines/PLEASE WORK .mp3',
+      '/audio/big-d-voice-lines/REARRANGING ATOMS.mp3',
+      '/audio/big-d-voice-lines/RELEASING SINGULARITY.mp3',
+      '/audio/big-d-voice-lines/SENDING SHOCKWAVE.mp3',
+      '/audio/big-d-voice-lines/SHOCKWAVE OUT.mp3',
+      '/audio/big-d-voice-lines/STAY BACK.mp3',
+      '/audio/big-d-voice-lines/TELEPORTING.mp3',
+      "/audio/big-d-voice-lines/THEY CAN'T SHOOT AN ATOM.mp3",
+      '/audio/big-d-voice-lines/TIME FOR APPLIED SCIENCE.mp3',
+      '/audio/big-d-voice-lines/TIME FOR SOME APPLIED PHYSICS.mp3',
+      '/audio/big-d-voice-lines/TRANSLOCATING.mp3',
+      "/audio/big-d-voice-lines/WE'LL MAKE IT THROUGH THIS....mp3",
+      "/audio/big-d-voice-lines/YOU CAN'T GIVE UP.mp3",
+      "/audio/big-d-voice-lines/YOU'RE SAFE WITH ME.mp3",
+    ],
+    volume: 0.92,
+  },
+  'Dixie Kong': { randomFromCharacter: 'Diddy Kong' },
+  'Tiny Kong': { randomFromCharacter: 'Diddy Kong' },
+  'Baby DK': { randomFromCharacter: 'Diddy Kong' },
+})
 const REVEAL_REACTION_AUDIO_URLS = Object.freeze({
   'cheers-1': '/audio/crowd-cheers-1.mp3',
   'cheers-2': '/audio/crowd-cheers-2.mp3',
@@ -31,10 +129,13 @@ const REVEAL_REACTION_AUDIO_URLS = Object.freeze({
   'bad-boos': '/audio/crowd-boooooo.mp3',
 })
 const RANDOM_BAD_CROWD_AUDIO_KEYS = Object.freeze(['bad-angry', 'bad-boos'])
-const AMBIENT_CROWD_VOLUME = 0.34
+const AMBIENT_CROWD_VOLUME = 0.16
 const PICK_IN_CHIME_VOLUME = 0.88
 const REVEAL_CROWD_VOLUME = 0.92
 const CROWD_FADE_OUT_DURATION_MS = 850
+const CUSTOM_REVEAL_CROWD_FADE_IN_MS = 900
+const CUSTOM_REVEAL_CROWD_DELAY_MS = 2000
+const AMBIENT_CROWD_CROSSFADE_MS = 1200
 const MIN_REACTION_PLAY_DURATION_MS = 7000
 const MAX_REACTION_PLAY_DURATION_MS = 12000
 const LEAGUE_LOGO_URL = '/MSL.png'
@@ -225,6 +326,25 @@ function safePlayAudio(audio, { restart = true, volume } = {}) {
   }
 }
 
+function getCustomPickInAudioConfig(characterName) {
+  if (!characterName) return null
+  const config = CUSTOM_PICK_IN_AUDIO_CONFIGS[characterName] || null
+  if (!config?.randomFromCharacter) return config
+  return CUSTOM_PICK_IN_AUDIO_CONFIGS[config.randomFromCharacter] || null
+}
+
+function getCustomPickInAudioUrls(config) {
+  if (!config) return []
+  if (Array.isArray(config.urls)) return config.urls
+  return config.url ? [config.url] : []
+}
+
+function pickRandomCustomPickInAudioUrl(config) {
+  const urls = getCustomPickInAudioUrls(config)
+  if (!urls.length) return null
+  return urls[Math.floor(Math.random() * urls.length)]
+}
+
 function fadeAudioVolume(audio, targetVolume, durationMs, onComplete) {
   if (!audio) return () => {}
 
@@ -260,6 +380,135 @@ function fadeAudioVolume(audio, targetVolume, durationMs, onComplete) {
   return () => {
     cancelled = true
     window.cancelAnimationFrame(frameId)
+  }
+}
+
+// Loops an audio clip with sample-accurate, gapless crossfading via the Web
+// Audio API. A single decoded buffer is scheduled as overlapping copies, each
+// fading in/out over `crossfadeMs`, so there's no re-buffering pause or click
+// at the loop seam (the kind of gap that <audio loop> / re-triggering play()
+// produces due to mp3 encoder padding and playback start latency).
+class SeamlessLoopAudio {
+  constructor(url, { volume = 1, crossfadeMs = 1000 } = {}) {
+    this.targetVolume = clamp(volume, 0, 1)
+    this.crossfadeSec = crossfadeMs / 1000
+    this.buffer = null
+    this.sources = []
+    this.scheduleTimer = null
+    this.nextStartTime = 0
+    this.started = false
+    this.destroyed = false
+
+    const ContextClass = window.AudioContext || window.webkitAudioContext
+    this.context = ContextClass ? new ContextClass() : null
+    if (!this.context) return
+
+    this.masterGain = this.context.createGain()
+    this.masterGain.gain.value = this.targetVolume
+    this.masterGain.connect(this.context.destination)
+
+    fetch(url)
+      .then((response) => response.arrayBuffer())
+      .then((arrayBuffer) => this.context.decodeAudioData(arrayBuffer))
+      .then((buffer) => {
+        if (this.destroyed) return
+        this.buffer = buffer
+        if (this.started) this._scheduleLoop()
+      })
+      .catch(() => {})
+  }
+
+  get paused() {
+    return !this.context || this.context.state !== 'running'
+  }
+
+  get volume() {
+    return this.targetVolume
+  }
+
+  set volume(value) {
+    this.targetVolume = clamp(value, 0, 1)
+    if (this.masterGain) this.masterGain.gain.value = this.targetVolume
+  }
+
+  // Stops the current loop sequence so the next play() reschedules fresh.
+  set currentTime(_value) {
+    this._stopScheduledSources()
+    this.nextStartTime = 0
+    this.started = false
+  }
+
+  play() {
+    if (!this.context) return
+    this.started = true
+    if (this.context.state === 'suspended') {
+      this.context.resume().catch(() => {})
+    }
+    if (this.buffer && this.sources.length === 0) {
+      this._scheduleLoop()
+    }
+  }
+
+  pause() {
+    this.context?.suspend().catch(() => {})
+  }
+
+  _scheduleLoop() {
+    const duration = this.buffer.duration
+    const crossfade = Math.min(this.crossfadeSec, duration / 2)
+    const interval = duration - crossfade
+
+    if (this.nextStartTime === 0) {
+      this.nextStartTime = this.context.currentTime
+    }
+
+    const scheduleAhead = () => {
+      while (this.nextStartTime < this.context.currentTime + interval * 2) {
+        this._scheduleSource(this.nextStartTime, duration, crossfade)
+        this.nextStartTime += interval
+      }
+    }
+
+    scheduleAhead()
+    this.scheduleTimer = window.setInterval(scheduleAhead, Math.max(interval * 500, 250))
+  }
+
+  _scheduleSource(startTime, duration, crossfade) {
+    const source = this.context.createBufferSource()
+    source.buffer = this.buffer
+
+    const gain = this.context.createGain()
+    source.connect(gain)
+    gain.connect(this.masterGain)
+
+    gain.gain.setValueAtTime(0, startTime)
+    gain.gain.linearRampToValueAtTime(1, startTime + crossfade)
+    gain.gain.setValueAtTime(1, startTime + duration - crossfade)
+    gain.gain.linearRampToValueAtTime(0, startTime + duration)
+
+    source.start(startTime)
+    source.stop(startTime + duration + 0.05)
+    this.sources.push(source)
+    source.onended = () => {
+      this.sources = this.sources.filter((entry) => entry !== source)
+    }
+  }
+
+  _stopScheduledSources() {
+    this.sources.forEach((source) => {
+      try { source.stop() } catch { /* already stopped */ }
+    })
+    this.sources = []
+    if (this.scheduleTimer != null) {
+      window.clearInterval(this.scheduleTimer)
+      this.scheduleTimer = null
+    }
+  }
+
+  destroy() {
+    this.destroyed = true
+    this._stopScheduledSources()
+    this.context?.close().catch(() => {})
   }
 }
 
@@ -1514,13 +1763,18 @@ function DraftPresentation({ mode = 'tournament' }) {
   const ambientCrowdRef = useRef(null)
   const standardChimeRef = useRef(null)
   const bassChimeRef = useRef(null)
+  const customPickInAudioRefs = useRef({})
   const reactionAudioRefs = useRef({})
   const ambientFadeCancelRef = useRef(null)
   const reactionFadeCancelRef = useRef(null)
   const reactionAutoFadeTimeoutRef = useRef(null)
   const activeReactionAudioRef = useRef(null)
+  const customRevealCrowdTimeoutRef = useRef(null)
+  const activeCustomRevealAudioRef = useRef(null)
   const pickInAudioStateRef = useRef({ slideKey: null, played: false })
   const revealAudioStateRef = useRef({ slideKey: null, played: false })
+  const currentSlideKindRef = useRef(null)
+  const requestAdvanceRef = useRef(() => {})
 
   useEffect(() => {
     let active = true
@@ -1555,11 +1809,10 @@ function DraftPresentation({ mode = 'tournament' }) {
   }, [isSeasonMode, activeDraftContext?.id, activeDraftContext?.draft_order, activeDraftContext?.player_ids, seasonTeams])
 
   useEffect(() => {
-    const ambientCrowd = new Audio(DEFAULT_CROWD_NOISE_URL)
-    ambientCrowd.preload = 'auto'
-    ambientCrowd.loop = true
-    ambientCrowd.playsInline = true
-    ambientCrowd.volume = AMBIENT_CROWD_VOLUME
+    const ambientCrowd = new SeamlessLoopAudio(DEFAULT_CROWD_NOISE_URL, {
+      volume: AMBIENT_CROWD_VOLUME,
+      crossfadeMs: AMBIENT_CROWD_CROSSFADE_MS,
+    })
 
     const standardChime = new Audio(PICK_IN_CHIME_URL)
     standardChime.preload = 'auto'
@@ -1570,6 +1823,19 @@ function DraftPresentation({ mode = 'tournament' }) {
     bassChime.preload = 'auto'
     bassChime.playsInline = true
     bassChime.volume = PICK_IN_CHIME_VOLUME
+
+    const customPickInUrls = [...new Set(
+      Object.values(CUSTOM_PICK_IN_AUDIO_CONFIGS).flatMap((config) => getCustomPickInAudioUrls(config)),
+    )]
+    const customPickInAudios = Object.fromEntries(
+      customPickInUrls.map((url) => {
+        const audio = new Audio(url)
+        audio.preload = 'auto'
+        audio.playsInline = true
+        audio.volume = PICK_IN_CHIME_VOLUME
+        return [url, audio]
+      }),
+    )
 
     const reactionAudios = Object.fromEntries(
       Object.entries(REVEAL_REACTION_AUDIO_URLS).map(([key, url]) => {
@@ -1584,7 +1850,23 @@ function DraftPresentation({ mode = 'tournament' }) {
     ambientCrowdRef.current = ambientCrowd
     standardChimeRef.current = standardChime
     bassChimeRef.current = bassChime
+    customPickInAudioRefs.current = customPickInAudios
     reactionAudioRefs.current = reactionAudios
+
+    // Browsers won't let an AudioContext run until the user has interacted
+    // with the page. Unlock it on the very first interaction anywhere (using
+    // the capture phase so an in-app stopPropagation can't swallow it) so
+    // ambient crowd noise starts immediately instead of waiting for the user
+    // to navigate slides.
+    const unlockAmbientAudio = () => {
+      if (currentSlideKindRef.current === 'clock') {
+        safePlayAudio(ambientCrowd, { restart: false, volume: AMBIENT_CROWD_VOLUME })
+      }
+    }
+    const unlockEvents = ['pointerdown', 'keydown', 'touchstart']
+    unlockEvents.forEach((eventName) => {
+      window.addEventListener(eventName, unlockAmbientAudio, { capture: true, once: true })
+    })
 
     return () => {
       ambientFadeCancelRef.current?.()
@@ -1593,13 +1875,18 @@ function DraftPresentation({ mode = 'tournament' }) {
         window.clearTimeout(reactionAutoFadeTimeoutRef.current)
         reactionAutoFadeTimeoutRef.current = null
       }
-      stopAudio(ambientCrowd)
+      unlockEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, unlockAmbientAudio, { capture: true })
+      })
+      ambientCrowd.destroy()
       stopAudio(standardChime)
       stopAudio(bassChime)
+      Object.values(customPickInAudios).forEach((audio) => stopAudio(audio))
       Object.values(reactionAudios).forEach((audio) => stopAudio(audio))
       ambientCrowdRef.current = null
       standardChimeRef.current = null
       bassChimeRef.current = null
+      customPickInAudioRefs.current = {}
       reactionAudioRefs.current = {}
     }
   }, [])
@@ -1664,13 +1951,19 @@ function DraftPresentation({ mode = 'tournament' }) {
     }
     stopAudio(standardChimeRef.current)
     stopAudio(bassChimeRef.current)
+    Object.values(customPickInAudioRefs.current).forEach((audio) => stopAudio(audio))
     reactionFadeCancelRef.current?.()
     reactionFadeCancelRef.current = null
     if (reactionAutoFadeTimeoutRef.current != null) {
       window.clearTimeout(reactionAutoFadeTimeoutRef.current)
       reactionAutoFadeTimeoutRef.current = null
     }
+    if (customRevealCrowdTimeoutRef.current != null) {
+      window.clearTimeout(customRevealCrowdTimeoutRef.current)
+      customRevealCrowdTimeoutRef.current = null
+    }
     activeReactionAudioRef.current = null
+    activeCustomRevealAudioRef.current = null
     Object.values(reactionAudioRefs.current).forEach((audio) => {
       stopAudio(audio)
       audio.volume = REVEAL_CROWD_VOLUME
@@ -1698,20 +1991,20 @@ function DraftPresentation({ mode = 'tournament' }) {
     const channelName = isSeasonMode ? `season-presentation-${activeDraftContext.id}` : `presentation-${activeDraftContext.id}`
     const channel = supabase
       .channel(channelName)
-      .on('broadcast', { event: 'advance' }, advanceSlide)
+      .on('broadcast', { event: 'advance' }, () => requestAdvanceRef.current())
       .on('broadcast', { event: 'back' }, retreatSlide)
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [activeDraftContext?.id, advanceSlide, isSeasonMode, retreatSlide])
+  }, [activeDraftContext?.id, isSeasonMode, retreatSlide])
 
   useEffect(() => {
     const onKeyDown = (event) => {
       if (ADVANCE_KEYS.has(event.key)) {
         event.preventDefault()
-        advanceSlide()
+        requestAdvanceRef.current()
         return
       }
 
@@ -1723,12 +2016,14 @@ function DraftPresentation({ mode = 'tournament' }) {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [advanceSlide, retreatSlide])
+  }, [retreatSlide])
 
   const currentSlide = slideDeck[slideIndex] || null
+  currentSlideKindRef.current = currentSlide?.kind || null
   const currentPickMeta = currentSlide?.pickMeta || null
   const submittedPick = currentPickMeta ? submittedPicksByNumber[currentPickMeta.pickNumber] || null : null
   const submittedCharacter = submittedPick ? charactersById[submittedPick.character_id] : null
+  const customPickInAudioConfig = getCustomPickInAudioConfig(submittedCharacter?.name)
   const submittedCharacterAnalysis = submittedCharacter ? characterAnalysesById[submittedCharacter.id] || null : null
   const submittedTeamChemistry = useMemo(() => {
     if (!currentPickMeta?.pickNumber || !submittedPick?.player_id || !submittedCharacter) return null
@@ -1763,6 +2058,10 @@ function DraftPresentation({ mode = 'tournament' }) {
   const captainName = captainPick
     ? formatCharacterDisplayName(charactersById[captainPick.character_id]?.name, captainPick.mii_color)
     : null
+  const requestAdvance = useCallback(() => {
+    advanceSlide()
+  }, [advanceSlide])
+  requestAdvanceRef.current = requestAdvance
 
   useEffect(() => {
     const ambientCrowd = ambientCrowdRef.current
@@ -1826,10 +2125,14 @@ function DraftPresentation({ mode = 'tournament' }) {
     const shouldUseBassBoosted = character?.name === 'Monty Mole'
     const audio = shouldUseBassBoosted ? bassChimeRef.current : standardChimeRef.current
 
+    stopAudio(standardChimeRef.current)
+    stopAudio(bassChimeRef.current)
+    Object.values(customPickInAudioRefs.current).forEach((entry) => stopAudio(entry))
     stopAudio(audio)
     Object.values(reactionAudioRefs.current).forEach((entry) => stopAudio(entry))
     safePlayAudio(audio, { volume: PICK_IN_CHIME_VOLUME })
     pickInAudioStateRef.current = { slideKey: currentSlide.key, played: true }
+    return undefined
   }, [charactersById, currentSlide?.key, currentSlide?.kind, submittedPick])
 
   useEffect(() => {
@@ -1856,8 +2159,10 @@ function DraftPresentation({ mode = 'tournament' }) {
       overallRankByCharacterId,
     })
     const audio = reaction?.soundKey ? reactionAudioRefs.current[reaction.soundKey] : null
+    const customAudioUrl = pickRandomCustomPickInAudioUrl(customPickInAudioConfig)
+    const customAudio = customAudioUrl ? customPickInAudioRefs.current[customAudioUrl] : null
 
-    if (!audio) return undefined
+    if (!audio && !customAudio) return undefined
 
     reactionFadeCancelRef.current?.()
     reactionFadeCancelRef.current = null
@@ -1865,6 +2170,26 @@ function DraftPresentation({ mode = 'tournament' }) {
       window.clearTimeout(reactionAutoFadeTimeoutRef.current)
       reactionAutoFadeTimeoutRef.current = null
     }
+    if (customRevealCrowdTimeoutRef.current != null) {
+      window.clearTimeout(customRevealCrowdTimeoutRef.current)
+      customRevealCrowdTimeoutRef.current = null
+    }
+    Object.values(customPickInAudioRefs.current).forEach((entry) => stopAudio(entry))
+    activeCustomRevealAudioRef.current = customAudio || null
+    if (customAudio) {
+      safePlayAudio(customAudio, { volume: customPickInAudioConfig?.volume ?? REVEAL_CROWD_VOLUME })
+    }
+
+    if (!audio) {
+      revealAudioStateRef.current = { slideKey: currentSlide.key, played: true }
+      return () => {
+        if (activeCustomRevealAudioRef.current) {
+          stopAudio(activeCustomRevealAudioRef.current)
+          activeCustomRevealAudioRef.current = null
+        }
+      }
+    }
+
     stopAudio(audio)
     audio.loop = true
     Object.values(reactionAudioRefs.current).forEach((entry) => {
@@ -1873,26 +2198,55 @@ function DraftPresentation({ mode = 'tournament' }) {
         entry.loop = false
       }
     })
-    safePlayAudio(audio, { volume: REVEAL_CROWD_VOLUME })
     activeReactionAudioRef.current = audio
     revealAudioStateRef.current = { slideKey: currentSlide.key, played: true }
-    reactionAutoFadeTimeoutRef.current = window.setTimeout(() => {
-      reactionAutoFadeTimeoutRef.current = null
+    const startCrowdReaction = () => {
       if (activeReactionAudioRef.current !== audio) return
-      reactionFadeCancelRef.current?.()
-      reactionFadeCancelRef.current = fadeAudioVolume(audio, 0, CROWD_FADE_OUT_DURATION_MS, () => {
-        if (activeReactionAudioRef.current === audio) {
-          activeReactionAudioRef.current = null
-        }
-        stopAudio(audio)
-        audio.loop = false
-        audio.volume = REVEAL_CROWD_VOLUME
-      })
-    }, pickRandomInteger(MIN_REACTION_PLAY_DURATION_MS, MAX_REACTION_PLAY_DURATION_MS))
+
+      if (customAudio) {
+        safePlayAudio(audio, { volume: 0 })
+        reactionFadeCancelRef.current?.()
+        reactionFadeCancelRef.current = fadeAudioVolume(audio, REVEAL_CROWD_VOLUME, CUSTOM_REVEAL_CROWD_FADE_IN_MS)
+      } else {
+        safePlayAudio(audio, { volume: REVEAL_CROWD_VOLUME })
+      }
+
+      reactionAutoFadeTimeoutRef.current = window.setTimeout(() => {
+        reactionAutoFadeTimeoutRef.current = null
+        if (activeReactionAudioRef.current !== audio) return
+        reactionFadeCancelRef.current?.()
+        reactionFadeCancelRef.current = fadeAudioVolume(audio, 0, CROWD_FADE_OUT_DURATION_MS, () => {
+          if (activeReactionAudioRef.current === audio) {
+            activeReactionAudioRef.current = null
+          }
+          stopAudio(audio)
+          audio.loop = false
+          audio.volume = REVEAL_CROWD_VOLUME
+        })
+      }, pickRandomInteger(MIN_REACTION_PLAY_DURATION_MS, MAX_REACTION_PLAY_DURATION_MS))
+    }
+
+    if (customAudio) {
+      customRevealCrowdTimeoutRef.current = window.setTimeout(() => {
+        customRevealCrowdTimeoutRef.current = null
+        startCrowdReaction()
+      }, CUSTOM_REVEAL_CROWD_DELAY_MS)
+    } else {
+      startCrowdReaction()
+    }
 
     // Fade the crowd reaction out when the slide changes/exits, instead of
     // cutting it off abruptly.
     return () => {
+      if (customRevealCrowdTimeoutRef.current != null) {
+        window.clearTimeout(customRevealCrowdTimeoutRef.current)
+        customRevealCrowdTimeoutRef.current = null
+      }
+      const activeCustomAudio = activeCustomRevealAudioRef.current
+      if (activeCustomAudio) {
+        stopAudio(activeCustomAudio)
+        activeCustomRevealAudioRef.current = null
+      }
       const activeAudio = activeReactionAudioRef.current
       if (!activeAudio) return
       if (reactionAutoFadeTimeoutRef.current != null) {
@@ -1914,6 +2268,7 @@ function DraftPresentation({ mode = 'tournament' }) {
     currentPickMeta,
     currentSlide?.key,
     currentSlide?.kind,
+    customPickInAudioConfig,
     draftPicks,
     overallRankByCharacterId,
     submittedPick,
@@ -1958,7 +2313,7 @@ function DraftPresentation({ mode = 'tournament' }) {
         round={currentPickMeta?.round}
         pickNumber={currentPickMeta?.pickNumber}
         isCaptainRound={currentPickMeta?.round === 1}
-        onAdvance={advanceSlide}
+        onAdvance={requestAdvance}
       />
     )
   }
@@ -1970,7 +2325,7 @@ function DraftPresentation({ mode = 'tournament' }) {
         submittedPick={submittedPick}
         identity={slideIdentity}
         drafterName={currentPickMeta?.drafter?.name}
-        onAdvance={advanceSlide}
+        onAdvance={requestAdvance}
       />
     )
   }
@@ -1985,7 +2340,7 @@ function DraftPresentation({ mode = 'tournament' }) {
         teamChemistry={submittedTeamChemistry}
         identity={slideIdentity}
         drafterName={currentPickMeta?.drafter?.name}
-        onAdvance={advanceSlide}
+        onAdvance={requestAdvance}
       />
     )
   }
@@ -1996,7 +2351,7 @@ function DraftPresentation({ mode = 'tournament' }) {
       identitiesByPlayerId={resolvedIdentitiesByPlayerId}
       draftPicks={draftPicks}
       characterAnalysesById={characterAnalysesById}
-      onAdvance={advanceSlide}
+      onAdvance={requestAdvance}
     />
   )
 }

@@ -19,6 +19,7 @@ import { summarizeBatting, summarizePitching } from '../utils/statsCalculator'
 
 const TABS = ['Rosters', 'Trade Center', 'Free Agents', 'Transactions']
 const WAIVER_DURATION_MS = 7 * 24 * 60 * 60 * 1000
+const SUPPORTS_WAIVER_CLAIMS_SCHEMA = false
 
 function sortNewestFirst(rows = []) {
   return [...rows].sort((a, b) => new Date(b.created_at || b.proposed_at || 0) - new Date(a.created_at || a.proposed_at || 0))
@@ -663,7 +664,6 @@ export default function SeasonRoster() {
       charactersResponse,
       rosterResponse,
       waiversResponse,
-      waiverClaimsResponse,
       legacyTradesResponse,
       legacyTradePlayersResponse,
       modernTradesResponse,
@@ -674,7 +674,6 @@ export default function SeasonRoster() {
       supabase.from('characters').select('*').order('name'),
       supabase.from('season_roster').select('*').eq('season_id', currentSeason.id).order('created_at'),
       supabase.from('season_waivers').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
-      supabase.from('season_waiver_claims').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
       supabase.from('season_trades').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
       supabase.from('season_trade_players').select('*').order('id'),
       supabase.from('season_trade_proposals').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
@@ -697,7 +696,7 @@ export default function SeasonRoster() {
     setCharacters(charactersResponse.data || [])
     setRoster(rosterResponse.data || [])
     setWaivers(waiversResponse.data || [])
-    setWaiverClaims(waiverClaimsResponse.data || [])
+    setWaiverClaims([])
     setLegacyTrades(legacyTradesResponse.data || [])
     setLegacyTradePlayers(legacyTradePlayersResponse.data || [])
     setTradeProposals(modernTradeSchemaMissing ? [] : (modernTradesResponse.data || []))
@@ -833,7 +832,6 @@ export default function SeasonRoster() {
       .channel(`season-roster-${currentSeason.id}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_waivers', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_waiver_claims', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trades', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_players' }, loadRosterData)
     if (supportsModernTradeSchema) {
@@ -1645,6 +1643,15 @@ export default function SeasonRoster() {
       return
     }
 
+    if (!SUPPORTS_WAIVER_CLAIMS_SCHEMA) {
+      pushToast({
+        title: 'Waiver claims unavailable',
+        message: 'This database does not have the waiver claims table yet, so roster-page claims are disabled for now.',
+        type: 'error',
+      })
+      return
+    }
+
     const priority = reverseStandings.findIndex((entry) => String(entry.id) === String(myTeam.id)) + 1 || reverseStandings.length
     const { error } = await supabase.from('season_waiver_claims').upsert({
       waiver_id: pickupModal.waiverId,
@@ -2008,6 +2015,7 @@ export default function SeasonRoster() {
                         <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
                           {row.claimCount ? <span className="muted" style={{ fontSize: 12 }}>{row.claimCount} claim{row.claimCount === 1 ? '' : 's'} filed</span> : <span className="muted" style={{ fontSize: 12 }}>No claims filed yet</span>}
                           {row.myClaim ? <span className="muted" style={{ fontSize: 12 }}>Your drop: {row.myClaim.dropping_character}</span> : null}
+                          {!SUPPORTS_WAIVER_CLAIMS_SCHEMA ? <span className="muted" style={{ fontSize: 12 }}>Claim queue unavailable on this database schema.</span> : null}
                         </div>
                       ) : (
                         <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
@@ -2021,11 +2029,12 @@ export default function SeasonRoster() {
                           <button
                             type="button"
                             onClick={() => {
+                              if (!SUPPORTS_WAIVER_CLAIMS_SCHEMA) return
                               setPickupModal({ type: 'waiver', waiverId: row.waiver.id, characterName: row.character.name })
                               setPickupDropCharacter(row.myClaim?.dropping_character || '')
                             }}
-                            disabled={!myTeam || (!row.canClaim && !row.myClaim)}
-                            style={{ minWidth: 56, minHeight: 36, borderRadius: 10, border: '1px solid rgba(234,179,8,0.45)', background: 'rgba(234,179,8,0.14)', color: '#FDE68A', fontWeight: 800, display: 'grid', placeItems: 'center', cursor: !myTeam || (!row.canClaim && !row.myClaim) ? 'not-allowed' : 'pointer' }}
+                            disabled={!SUPPORTS_WAIVER_CLAIMS_SCHEMA || !myTeam || (!row.canClaim && !row.myClaim)}
+                            style={{ minWidth: 56, minHeight: 36, borderRadius: 10, border: '1px solid rgba(234,179,8,0.45)', background: 'rgba(234,179,8,0.14)', color: '#FDE68A', fontWeight: 800, display: 'grid', placeItems: 'center', cursor: !SUPPORTS_WAIVER_CLAIMS_SCHEMA || !myTeam || (!row.canClaim && !row.myClaim) ? 'not-allowed' : 'pointer' }}
                           >
                             <span style={{ fontSize: 18, lineHeight: 1 }}>W</span>
                           </button>

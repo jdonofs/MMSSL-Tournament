@@ -426,7 +426,6 @@ export default function Bracket() {
               }}
               onSelectGame={handleOpenScorebook}
               playersById={playersById}
-              seeding={seeding}
             />
           </section>
           <section className="panel">
