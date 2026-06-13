@@ -5042,7 +5042,7 @@ export default function Scorebook() {
         .map((row) => `${row.player_id}:${row.character_id}:${row.batting_order}`)
         .join('|')
 
-      if (currentSignature === desiredSignature) return
+      if (currentSignature === desiredSignature && gameFielderRows.length > 0) return
       // Avoid re-running the delete/insert cycle while the realtime echo of our own
       // previous sync is still propagating back (which would otherwise transiently
       // empty `lineups` and re-trigger this effect, causing the lineup to flicker).
@@ -5091,7 +5091,7 @@ export default function Scorebook() {
     } finally {
       isSyncingLineupsRef.current = false
     }
-  }, [canEditScorebook, selectedGame, isGameComplete, gamePAs.length, gameLineups, teamRosters, gameSession, addSourceFields, playersById, charactersById, scorebookTables.lineups, scorebookTables.gameFielders, pushToast, isSeasonGame])
+  }, [canEditScorebook, selectedGame, isGameComplete, gamePAs.length, gameLineups, gameFielderRows.length, teamRosters, gameSession, addSourceFields, playersById, charactersById, scorebookTables.lineups, scorebookTables.gameFielders, pushToast, isSeasonGame])
 
   useEffect(() => {
     lastSyncedLineupSignatureRef.current = null
@@ -5103,25 +5103,7 @@ export default function Scorebook() {
     const total = teamRosters.teamA.length + teamRosters.teamB.length
     if (total === 0) return
     syncGameLineupsFromRoster()
-  }, [canEditScorebook, selectedGame?.id, teamRosters.teamA.length, teamRosters.teamB.length, gameLineups.length, gamePAs.length, syncGameLineupsFromRoster])
-
-  useEffect(() => {
-    if (!canEditScorebook) return
-    if (!selectedGame || isGameComplete || !gameLineups.length || gameFielderRows.length) return
-    const positions = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    const payload = gameLineups.map((row, index) => ({
-      game_id: selectedGame.id,
-      team_id: isSeasonGame ? gameSession.teamIdByPlayerId?.[row.player_id] || null : row.player_id,
-      player_name: playersById[row.player_id]?.name || '',
-      character: charactersById[row.character_id]?.name || '',
-      position: positions[index % positions.length],
-      inning_from: 1,
-      inning_to: null,
-    }))
-    supabase.from(scorebookTables.gameFielders).insert(payload.map(addSourceFields)).select().then(({ data, error }) => {
-      if (!error) setGameFielders((current) => [...current, ...(data || payload)])
-    })
-  }, [canEditScorebook, selectedGame, isGameComplete, gameLineups, gameFielderRows.length, playersById, charactersById, isSeasonGame, gameSession.teamIdByPlayerId])
+  }, [canEditScorebook, selectedGame?.id, teamRosters.teamA.length, teamRosters.teamB.length, gameLineups.length, gamePAs.length, gameFielderRows.length, syncGameLineupsFromRoster])
 
   // ── Mark game complete ─────────────────────────────────────────────────────
   const markGameComplete = useCallback(async (winnerId, finalInning, isExtra) => {

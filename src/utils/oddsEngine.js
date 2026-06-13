@@ -617,7 +617,7 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
       (historical.strikeoutsPerInning * 0.4 * historyWeight) +
       (pitcherSkill * 0.38 * skillWeight) -
       (character.bat * hitterSkill * 0.16),
-    0.2,
+    0.85,
     2.4,
   )
   const projectedInningsRemaining = clamp(3.5 - Math.max(0, liveState.inning - 1) * 0.45, 1, 4.5)

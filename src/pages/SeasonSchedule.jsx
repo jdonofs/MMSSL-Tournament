@@ -422,8 +422,8 @@ export default function SeasonSchedule() {
   const canEditStadiumForGame = useCallback((game) => {
     if (!game) return false
     const pickerTeam = teamsById[game.stadium_picker_team_id] || teamsById[game.home_team_id]
-    return Boolean(player?.is_commissioner || (pickerTeam?.player_id && String(pickerTeam.player_id) === String(player?.id)))
-  }, [player, teamsById])
+    return Boolean(isScorekeeper || (pickerTeam?.player_id && String(pickerTeam.player_id) === String(player?.id)))
+  }, [isScorekeeper, player, teamsById])
 
   const playoffMetaByGameId = useMemo(() => {
     const meta = {}

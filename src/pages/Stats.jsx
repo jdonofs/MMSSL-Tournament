@@ -400,7 +400,9 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
     if (pa.is_error) {
       const errorIndex = errorPosition ? positions.lastIndexOf(errorPosition) : -1
       const assistPositions = errorIndex >= 0 ? positions.slice(0, errorIndex) : positions
-      assistPositions.forEach((positionNumber) => {
+      // A fielder is credited with at most one assist per out, even if he
+      // touches the ball more than once (e.g. a rundown).
+      new Set(assistPositions).forEach((positionNumber) => {
         applyCreditFromFielder(pa, positionNumber, { chances: 1, assists: 1 })
       })
 
@@ -421,9 +423,21 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
       return
     }
 
-    if (!positions.length) return
+    if (!positions.length) {
+      // Strikeouts (and caught-looking strikeouts) aren't recorded with a
+      // fielding chain, but the catcher still receives the putout for
+      // catching the third strike. Pitchers never get an assist on a K.
+      if (pa.result === 'K') {
+        applyCreditFromFielder(pa, 2, { chances: 1, putouts: 1 })
+      }
+      return
+    }
 
-    positions.slice(0, -1).forEach((positionNumber) => {
+    // Everyone in the chain before the last fielder gets credit for an
+    // assist (capped at one per player, even if he touched the ball more
+    // than once on the play, e.g. a rundown). The last fielder in the chain
+    // is the one who recorded the putout.
+    new Set(positions.slice(0, -1)).forEach((positionNumber) => {
       applyCreditFromFielder(pa, positionNumber, { chances: 1, assists: 1 })
     })
     applyCreditFromFielder(pa, positions[positions.length - 1], { chances: 1, putouts: 1 })

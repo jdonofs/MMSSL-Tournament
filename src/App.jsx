@@ -26,6 +26,7 @@ import TeamProfile from './pages/TeamProfile'
 import { SeasonProvider, useSeason } from './context/SeasonContext'
 import { TournamentProvider, useTournament } from './context/TournamentContext'
 import { SEASON_SCOREBOOK_PATH, TOURNAMENT_SCOREBOOK_PATH } from './utils/scorebookRouting'
+import { getModeStorageValue } from './utils/season'
 
 const INTERACTIVE_TAP_SELECTOR = 'button, a, [role="button"], input[type="button"], input[type="submit"], input[type="reset"]'
 
@@ -70,6 +71,10 @@ function AppWithProviders() {
   )
 }
 
+function RootRoute() {
+  return getModeStorageValue() === 'season' ? <Navigate to="/season" replace /> : <Home />
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -77,7 +82,7 @@ function AppRoutes() {
       <Route path="/draft/presentation" element={<TournamentDraftPresentation />} />
       <Route path="/season/draft/presentation" element={<SeasonDraftPresentation />} />
       <Route element={<AppLayout />}>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<RootRoute />} />
         <Route path="/draft" element={<Draft />} />
         <Route path="/roster" element={<Roster />} />
         <Route path={TOURNAMENT_SCOREBOOK_PATH} element={<ScorebookRoute />} />

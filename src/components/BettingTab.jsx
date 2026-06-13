@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Moon, Sun, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -1945,6 +1945,7 @@ export default function BettingTab({ mode = 'tournament' }) {
 
       {viewMode === 'my-bets' ? (
         <MyBetsView
+          key={viewMode}
           bets={myAllBets}
           charactersById={charactersById}
           filter={myBetsFilter}
@@ -1958,7 +1959,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           playersById={playersById}
         />
       ) : viewMode === 'leaderboard' ? (
-        <div className="panel">
+        <div className="panel" key={viewMode}>
           <div className="section-head">
             <h2>Leaderboard</h2>
           </div>
@@ -1984,7 +1985,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           )}
         </div>
       ) : viewMode === 'sips' ? (
-        <div className="panel">
+        <div className="panel" key={viewMode}>
           <div className="section-head">
             <h2>Buy Sips</h2>
             <strong>{mySipCount} sip{mySipCount === 1 ? '' : 's'} owned</strong>
@@ -2065,7 +2066,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           ) : null}
         </div>
       ) : viewMode === 'sips-history' ? (
-        <div className="panel">
+        <div className="panel" key={viewMode}>
           <div className="section-head">
             <h2>Sips History</h2>
           </div>
@@ -2099,12 +2100,12 @@ export default function BettingTab({ mode = 'tournament' }) {
           )}
         </div>
       ) : !boardGames.length ? (
-        <div className="panel empty-state">
+        <div className="panel empty-state" key={viewMode}>
           <strong>No active games</strong>
           <span className="muted">Create or activate a matchup to publish lines.</span>
         </div>
       ) : (
-        <>
+        <Fragment key={viewMode}>
           {viewMode === 'board' ? (
           <section className="panel sportsbook-board">
               <div className="sportsbook-board-head">
@@ -2641,7 +2642,7 @@ export default function BettingTab({ mode = 'tournament' }) {
             pushToast={pushToast}
             settlements={selectedSettlements}
           />
-        </>
+        </Fragment>
       )}
     </div>
   )

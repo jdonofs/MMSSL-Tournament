@@ -193,9 +193,9 @@ export function formatSeasonLabel(value = '') {
 
 export function getModeStorageValue() {
   try {
-    return localStorage.getItem('sluggers_mode') || 'tournament'
+    return localStorage.getItem('sluggers_mode') || 'season'
   } catch {
-    return 'tournament'
+    return 'season'
   }
 }
 
