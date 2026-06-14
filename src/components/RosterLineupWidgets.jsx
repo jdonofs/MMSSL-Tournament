@@ -155,13 +155,13 @@ export const POSITION_GROUP_COLORS = {
 export const FIELD_POSITIONS = [
   { id: 'pitcher', label: 'P', x: 50, y: 68, group: 'battery' },
   { id: 'catcher', label: 'C', x: 50, y: 85, group: 'battery' },
-  { id: 'firstBase', label: '1B', x: 66, y: 64, group: 'infield' },
-  { id: 'secondBase', label: '2B', x: 62, y: 48, group: 'infield' },
-  { id: 'thirdBase', label: '3B', x: 34, y: 64, group: 'infield' },
-  { id: 'shortStop', label: 'SS', x: 38, y: 48, group: 'infield' },
-  { id: 'leftField', label: 'LF', x: 22, y: 38, group: 'outfield' },
-  { id: 'centerField', label: 'CF', x: 50, y: 27, group: 'outfield' },
-  { id: 'rightField', label: 'RF', x: 78, y: 38, group: 'outfield' },
+  { id: 'firstBase', label: '1B', x: 69, y: 66, group: 'infield' },
+  { id: 'secondBase', label: '2B', x: 64, y: 46, group: 'infield' },
+  { id: 'thirdBase', label: '3B', x: 31, y: 66, group: 'infield' },
+  { id: 'shortStop', label: 'SS', x: 36, y: 46, group: 'infield' },
+  { id: 'leftField', label: 'LF', x: 18, y: 34, group: 'outfield' },
+  { id: 'centerField', label: 'CF', x: 50, y: 22, group: 'outfield' },
+  { id: 'rightField', label: 'RF', x: 82, y: 34, group: 'outfield' },
 ]
 
 export const FIELD_POSITIONS_BY_ID = Object.fromEntries(FIELD_POSITIONS.map((p) => [p.id, p]))
@@ -204,9 +204,9 @@ export function FieldingView({
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  const portraitSize = isMobile ? 38 : 52
-  const placeholderSize = isMobile ? 34 : 48
-  const positionBoxSize = isMobile ? 64 : 90
+  const portraitSize = isMobile ? 40 : 54
+  const placeholderSize = isMobile ? 36 : 50
+  const positionBoxSize = isMobile ? 70 : 96
 
   const assignCharToPos = useCallback((posId, characterId) => {
     if (!editable) return
@@ -256,7 +256,7 @@ export function FieldingView({
           {editable ? (fieldingAssignMode ? (selectedForFielding ? 'Tap position to place' : 'Tap roster player first') : (selectedPlayer ? 'Tap position to move selected player' : 'Tap player, then tap position to swap')) : 'View only'}
         </div>
       </div>
-      <div style={{ position: 'relative', width: '100%', maxWidth: isMobile ? 560 : 460, aspectRatio: '1/1.02', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: '0 8px 24px #00000040', border: '1px solid #1E293B' }}>
+      <div style={{ position: 'relative', width: '100%', maxWidth: isMobile ? 600 : 500, aspectRatio: '1/1.04', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: '0 8px 24px #00000040', border: '1px solid #1E293B' }}>
         <img src="/baseball-field.jpg" alt="Baseball field" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
         {FIELD_POSITIONS.map((pos) => {
           const charId = fieldingPositions[pos.id]

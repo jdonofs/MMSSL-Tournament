@@ -150,9 +150,13 @@ function deriveOffense(game, outsRecorded) {
   const halfInning = Math.floor(outsRecorded / 3)
   const isTop = halfInning % 2 === 0
   const inning = Math.floor(halfInning / 2) + 1
+  // `home_away_swapped` flips which team bats in the top vs bottom of the inning
+  // (i.e. who's "away"/"home") without touching team_a/team_b assignments.
+  const awayPlayerId = game.home_away_swapped ? game.team_b_player_id : game.team_a_player_id
+  const homePlayerId = game.home_away_swapped ? game.team_a_player_id : game.team_b_player_id
   return {
-    battingPlayerId:  isTop ? game.team_a_player_id : game.team_b_player_id,
-    pitchingPlayerId: isTop ? game.team_b_player_id : game.team_a_player_id,
+    battingPlayerId:  isTop ? awayPlayerId : homePlayerId,
+    pitchingPlayerId: isTop ? homePlayerId : awayPlayerId,
     inning, isTop, halfLabel: `${isTop ? 'Top' : 'Bot'} ${inning}`,
   }
 }
@@ -1466,37 +1470,36 @@ function BoxScoreTable({
   const cellFontSize = compact ? 11 : 13
   const headerFontSize = compact ? 10 : 11
   const teamColMinWidth = compact ? 76 : 112
-  const rows = [
-    {
-      key: 'away',
-      abbreviation: teamAAbbreviation,
-      color: teamAColor,
-      logoKey: teamALogoKey,
-      logoUrl: teamALogoUrl,
-      teamName: teamAName,
-      scoreMap: scores.aByInning,
-      runs: scores.a,
-      hits: scores.aHits,
-      errors: scores.aErrors,
-      battingSide: 'away',
-    },
-    {
-      key: 'home',
-      abbreviation: teamBAbbreviation,
-      color: teamBColor,
-      logoKey: teamBLogoKey,
-      logoUrl: teamBLogoUrl,
-      teamName: teamBName,
-      scoreMap: scores.bByInning,
-      runs: scores.b,
-      hits: scores.bHits,
-      errors: scores.bErrors,
-      battingSide: 'home',
-    },
-  ]
-  // Swapping only changes display order/labels (which row reads "Home" vs "Away")
-  // — the underlying per-inning batting side (top/bottom) stays the same.
-  const displayRows = swapped ? [rows[1], rows[0]] : rows
+  // `swapped` reflects the game's `home_away_swapped` flag — it determines which
+  // team actually bats in the top of the inning. The "away" row is always shown
+  // first, "home" second.
+  const teamARow = {
+    key: 'teamA',
+    abbreviation: teamAAbbreviation,
+    color: teamAColor,
+    logoKey: teamALogoKey,
+    logoUrl: teamALogoUrl,
+    teamName: teamAName,
+    scoreMap: scores.aByInning,
+    runs: scores.a,
+    hits: scores.aHits,
+    errors: scores.aErrors,
+    battingSide: swapped ? 'home' : 'away',
+  }
+  const teamBRow = {
+    key: 'teamB',
+    abbreviation: teamBAbbreviation,
+    color: teamBColor,
+    logoKey: teamBLogoKey,
+    logoUrl: teamBLogoUrl,
+    teamName: teamBName,
+    scoreMap: scores.bByInning,
+    runs: scores.b,
+    hits: scores.bHits,
+    errors: scores.bErrors,
+    battingSide: swapped ? 'away' : 'home',
+  }
+  const displayRows = teamARow.battingSide === 'away' ? [teamARow, teamBRow] : [teamBRow, teamARow]
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', minWidth: compact ? 320 : 520, borderCollapse: 'collapse' }}>
@@ -1840,10 +1843,6 @@ export default function Scorebook() {
   // ── UI state ───────────────────────────────────────────────────────────────
   const [selectedGameId, setSelectedGameId] = useState(gameSession?.gameId ? String(gameSession.gameId) : '')
   const [viewMode, setViewMode] = useState(() => (player && (player.is_commissioner || player.scorebook_access) ? 'scorebook' : 'game'))
-  // Display-only swap of which team appears as "home"/"away" in the scorebook —
-  // does not change team_a/team_b assignments, half-inning order, or anything
-  // visible outside the scorebook. Persisted per-device per-game.
-  const [homeAwaySwapped, setHomeAwaySwapped] = useState(false)
   const [viewedInning, setViewedInning] = useState(null)
   const [overrideBatterIdx, setOverrideBatterIdx] = useState(null)
   const [showOutsBanner, setShowOutsBanner] = useState(false)
@@ -2010,24 +2009,6 @@ export default function Scorebook() {
   useEffect(() => {
     setSelectedGameId(gameSession?.gameId ? String(gameSession.gameId) : '')
   }, [gameSession?.gameId])
-
-  // Restore the local home/away display swap for this game (per-device only).
-  useEffect(() => {
-    if (!selectedGameId) {
-      setHomeAwaySwapped(false)
-      return
-    }
-    setHomeAwaySwapped(localStorage.getItem(`scorebook-home-away-swap-${selectedGameId}`) === '1')
-  }, [selectedGameId])
-
-  const toggleHomeAwaySwap = useCallback(() => {
-    if (!selectedGameId) return
-    setHomeAwaySwapped((current) => {
-      const next = !current
-      localStorage.setItem(`scorebook-home-away-swap-${selectedGameId}`, next ? '1' : '0')
-      return next
-    })
-  }, [selectedGameId])
 
   // PART C — load currently-open bets for this game so live odds recalculation
   // can apply volume-based line movement/liability caps, same as BettingTab.
@@ -2265,6 +2246,27 @@ export default function Scorebook() {
     () => lineups.filter(l => String(l.game_id) === String(selectedGameId)).sort((a, b) => a.batting_order - b.batting_order),
     [lineups, selectedGameId],
   )
+
+  // Which team bats first (top of inning 1) — stored on the game row so it's
+  // shared across every scorekeeper's device and every recorded plate appearance
+  // uses the same batting order. Can only be flipped before the first PA is
+  // recorded, since changing it mid-game would re-attribute completed innings to
+  // the wrong team.
+  const homeAwaySwapped = !!selectedGame?.home_away_swapped
+  const toggleHomeAwaySwap = useCallback(async () => {
+    if (!selectedGame) return
+    if (gamePAs.length > 0) {
+      pushToast({ title: 'Cannot swap now', message: 'Home/Away can only be swapped before the first plate appearance is recorded.', type: 'error' })
+      return
+    }
+    const next = !selectedGame.home_away_swapped
+    const { error } = await supabase.from(scorebookTables.games).update({ home_away_swapped: next }).eq('id', selectedGame.id)
+    if (error) {
+      pushToast({ title: 'Swap failed', message: error.message, type: 'error' })
+      return
+    }
+    setGames((current) => current.map((g) => (String(g.id) === String(selectedGame.id) ? { ...g, home_away_swapped: next } : g)))
+  }, [selectedGame, gamePAs.length, scorebookTables.games, pushToast])
 
   const outsRecorded = useMemo(() => gamePAs.reduce((s, pa) => s + calculateOutsForPa(pa.result), 0), [gamePAs])
   useEffect(() => { outsRef.current = outsRecorded }, [outsRecorded])
@@ -2580,15 +2582,13 @@ export default function Scorebook() {
     }
   }, [gamePAs, selectedGame, inningScoreMaps, gameRuns])
 
-  // Display-only home/away ordering for the line score strip. Team A always
-  // bats in the top of the inning (battingSide 'away') — `homeAwaySwapped`
-  // only changes which row is drawn first / labeled Home vs Away.
+  // Home/Away ordering for the line score strip. `homeAwaySwapped` (from the
+  // game row) determines which team actually bats in the top of the inning —
+  // the "away" row is always drawn first, "home" second.
   const lineScoreRows = useMemo(() => {
-    const rows = [
-      { battingSide: 'away', abbreviation: teamAAbbreviation, color: teamAColor, logoKey: teamALogoKey, logoUrl: teamALogoUrl, teamName: teamAName, scoreMap: scores.aByInning, runs: scores.a, hits: scores.aHits, errors: scores.aErrors },
-      { battingSide: 'home', abbreviation: teamBAbbreviation, color: teamBColor, logoKey: teamBLogoKey, logoUrl: teamBLogoUrl, teamName: teamBName, scoreMap: scores.bByInning, runs: scores.b, hits: scores.bHits, errors: scores.bErrors },
-    ]
-    return homeAwaySwapped ? [rows[1], rows[0]] : rows
+    const teamARow = { battingSide: homeAwaySwapped ? 'home' : 'away', abbreviation: teamAAbbreviation, color: teamAColor, logoKey: teamALogoKey, logoUrl: teamALogoUrl, teamName: teamAName, scoreMap: scores.aByInning, runs: scores.a, hits: scores.aHits, errors: scores.aErrors }
+    const teamBRow = { battingSide: homeAwaySwapped ? 'away' : 'home', abbreviation: teamBAbbreviation, color: teamBColor, logoKey: teamBLogoKey, logoUrl: teamBLogoUrl, teamName: teamBName, scoreMap: scores.bByInning, runs: scores.b, hits: scores.bHits, errors: scores.bErrors }
+    return teamARow.battingSide === 'away' ? [teamARow, teamBRow] : [teamBRow, teamARow]
   }, [homeAwaySwapped, teamAAbbreviation, teamAColor, teamALogoKey, teamALogoUrl, teamAName, teamBAbbreviation, teamBColor, teamBLogoKey, teamBLogoUrl, teamBName, scores])
 
   const tournamentGameIds = useMemo(
@@ -2944,11 +2944,16 @@ export default function Scorebook() {
     gameBets,
   ])
 
+  // estimateHomeWinProbability assumes "away" = team A and "home" = team B, with
+  // `isTop` meaning the away team (team A) is batting. `offense.isTop` only tells
+  // us whether it's structurally the top of the inning, which (when swapped) can
+  // mean team B is batting — so derive isTop from which team is actually batting.
+  const isTeamABatting = offense ? String(offense.battingPlayerId) === String(selectedGame?.team_a_player_id) : true
   const currentWinProbability = useMemo(() => estimateHomeWinProbability({
     homeScore: scores.b,
     awayScore: scores.a,
     currentInning,
-    isTop: offense?.isTop !== false,
+    isTop: isTeamABatting,
     outsInHalf: displayOutsInHalf,
     regulationInnings,
     runnersOccupied: [displayRunners.first, displayRunners.second, displayRunners.third].filter(Boolean).length,
@@ -2961,7 +2966,7 @@ export default function Scorebook() {
     scores.b,
     scores.a,
     currentInning,
-    offense?.isTop,
+    isTeamABatting,
     displayOutsInHalf,
     regulationInnings,
     displayRunners.first,
@@ -2992,36 +2997,39 @@ export default function Scorebook() {
       description: 'Game start',
       score: `${teamAAbbreviation} 0 - ${teamBAbbreviation} 0`,
     }]
-    let awayScore = 0
-    let homeScore = 0
+    let teamAScore = 0
+    let teamBScore = 0
     let outsBefore = 0
+    const swapped = !!selectedGame.home_away_swapped
 
     gamePAs.forEach((pa, index) => {
       const scoringRuns = getPaScoringRuns(pa, runsByPaId)
-      const isAwayBatting = String(pa.player_id) === String(selectedGame.team_a_player_id)
+      const isTeamABatting = String(pa.player_id) === String(selectedGame.team_a_player_id)
+      // Team A bats in the top of the inning unless home/away is swapped.
+      const isTop = swapped ? !isTeamABatting : isTeamABatting
       const outsAfter = outsBefore + calculateOutsForPa(pa.result)
       if (scoringRuns) {
-        if (isAwayBatting) awayScore += scoringRuns
-        else homeScore += scoringRuns
+        if (isTeamABatting) teamAScore += scoringRuns
+        else teamBScore += scoringRuns
       }
       const batterName = charactersById[pa.character_id]?.name || 'Unknown'
       points.push({
-        label: `${isAwayBatting ? 'Top' : 'Bot'} ${Number(pa.inning || 1)}`,
+        label: `${isTop ? 'Top' : 'Bot'} ${Number(pa.inning || 1)}`,
         description: scoringRuns > 0
           ? buildScoringPlayDescription(pa, scoringRuns, runsByPaId[String(pa.id)] || [], charactersById)
           : `${batterName} ${formatPlayResultText(pa)}`,
         probability: estimateHomeWinProbability({
-          homeScore,
-          awayScore,
+          homeScore: swapped ? teamAScore : teamBScore,
+          awayScore: swapped ? teamBScore : teamAScore,
           currentInning: Number(pa.inning || 1),
-          isTop: isAwayBatting,
+          isTop,
           outsInHalf: outsAfter % 3,
           regulationInnings,
           status: 'active',
           paCount: index + 1,
           oddsContext: gameWinProbabilityContext,
         }),
-        score: `${teamAAbbreviation} ${awayScore} - ${teamBAbbreviation} ${homeScore}`,
+        score: `${teamAAbbreviation} ${teamAScore} - ${teamBAbbreviation} ${teamBScore}`,
       })
       outsBefore = outsAfter
     })
@@ -3029,16 +3037,20 @@ export default function Scorebook() {
     const finalLabel = effectiveGameStatus === 'complete'
       ? getFinalStatusLabel(selectedGame, regulationInnings)
       : (offense?.halfLabel || 'Live')
+    // currentWinProbability is team B's win probability (swap-independent); the
+    // chart's home/away labels and colors flip with the swap, so the plotted
+    // probability needs to flip too — same conversion as `currentHomeProbability`.
+    const currentHomeProbability = swapped ? 1 - currentWinProbability : currentWinProbability
     if (points.length > 1) {
       const lastPoint = points[points.length - 1]
       lastPoint.label = finalLabel
-      lastPoint.probability = currentWinProbability
+      lastPoint.probability = currentHomeProbability
       lastPoint.score = `${teamAAbbreviation} ${scores.a} - ${teamBAbbreviation} ${scores.b}`
       if (effectiveGameStatus === 'complete') lastPoint.description = 'Game complete'
     } else {
       points.push({
         label: finalLabel,
-        probability: currentWinProbability,
+        probability: currentHomeProbability,
         description: effectiveGameStatus === 'complete' ? 'Game complete' : 'Game start',
         score: `${teamAAbbreviation} ${scores.a} - ${teamBAbbreviation} ${scores.b}`,
       })
@@ -3575,12 +3587,16 @@ export default function Scorebook() {
     if (!selectedGame) return []
     const groups = []
     const groupByKey = {}
+    const swapped = !!selectedGame.home_away_swapped
     displayedPAs.forEach((pa) => {
       const inning = Number(pa.inning || 1)
-      const isTop = String(pa.player_id) === String(selectedGame.team_a_player_id)
-      const key = `${inning}-${isTop ? 'T' : 'B'}`
+      const isTeamABatting = String(pa.player_id) === String(selectedGame.team_a_player_id)
+      // `isTop` (top/bottom of the inning) flips with the swap, but
+      // `isTeamABatting` always reflects which team actually made the PA.
+      const isTop = swapped ? !isTeamABatting : isTeamABatting
+      const key = `${inning}-${isTeamABatting ? 'A' : 'B'}`
       if (!groupByKey[key]) {
-        const group = { key, inning, isTop, pas: [], runs: 0 }
+        const group = { key, inning, isTop, isTeamABatting, pas: [], runs: 0 }
         groupByKey[key] = group
         groups.push(group)
       }
@@ -3619,13 +3635,19 @@ export default function Scorebook() {
   }) => {
     if (!selectedGame || isGameComplete || !currentScores) return null
 
-    const awayScore = Number(currentScores.a || 0)
-    const homeScore = Number(currentScores.b || 0)
+    // `isTop`/`currentScores.a`/`currentScores.b` are swap-independent (team A /
+    // team B totals, top of inning is structural). Map them to away/home using
+    // the swap flag so "home" always means the team batting in the bottom half.
+    const swapped = !!selectedGame.home_away_swapped
+    const awayPlayerId = swapped ? selectedGame.team_b_player_id : selectedGame.team_a_player_id
+    const homePlayerId = swapped ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
+    const awayScore = Number((swapped ? currentScores.b : currentScores.a) || 0)
+    const homeScore = Number((swapped ? currentScores.a : currentScores.b) || 0)
     if (awayScore === homeScore) return null
 
-    const awayBefore = Number(previousScores?.a || 0)
-    const homeBefore = Number(previousScores?.b || 0)
-    const winnerId = awayScore > homeScore ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
+    const awayBefore = Number((swapped ? previousScores?.b : previousScores?.a) || 0)
+    const homeBefore = Number((swapped ? previousScores?.a : previousScores?.b) || 0)
+    const winnerId = awayScore > homeScore ? awayPlayerId : homePlayerId
     const diff = Math.abs(awayScore - homeScore)
     const homeWonAfterTop = Boolean(halfCompleted && isTop && Number(inning || 0) >= regulationInnings && homeScore > awayScore)
     const homeWalkOff = Boolean(!halfCompleted && !isTop && Number(inning || 0) >= regulationInnings && homeScore > awayScore && homeBefore <= awayBefore)
@@ -3641,7 +3663,7 @@ export default function Scorebook() {
     )
 
     if (homeWalkOff) {
-      return { type: 'regulation', winnerId: selectedGame.team_b_player_id, inning }
+      return { type: 'regulation', winnerId: homePlayerId, inning }
     }
     if (mercyEndedGame) {
       return { type: 'mercy', winnerId, inning }
@@ -3841,7 +3863,7 @@ export default function Scorebook() {
           homeScore: scores.b,
           awayScore: scores.a,
           currentInning,
-          isTop: offense?.isTop !== false,
+          isTop: isTeamABatting,
           outsInHalf,
           regulationInnings,
           runnersOccupied: [runners?.first, runners?.second, runners?.third].filter(Boolean).length,
@@ -3855,7 +3877,7 @@ export default function Scorebook() {
     } catch (bettingError) {
       pushToast({ title: 'Odds refresh failed', message: bettingError.message, type: 'error' })
     }
-  }, [selectedGame, effectiveGameStatus, gameWinProbabilityContext, ensureLiveOdds, gamePitching, gamePAs, scores.a, scores.b, currentInning, offense?.isTop, outsInHalf, regulationInnings, runners, upsertChangedOdds, pushToast])
+  }, [selectedGame, effectiveGameStatus, gameWinProbabilityContext, ensureLiveOdds, gamePitching, gamePAs, scores.a, scores.b, currentInning, isTeamABatting, outsInHalf, regulationInnings, runners, upsertChangedOdds, pushToast])
 
   const recomputePitchingStatsForGame = useCallback(async (overridePAs, overridePitching = gamePitching, overrideRuns = gameRuns) => {
     if (!selectedGame || !overridePitching.length) return
@@ -3973,6 +3995,10 @@ export default function Scorebook() {
         const currentOdds = await ensureLiveOdds(gamePitching, allPAs)
         const recalcOuts = allPAs.reduce((s, pa) => s + calculateOutsForPa(pa.result), 0)
         const recalcOffense = deriveOffense(selectedGame, recalcOuts)
+        // The odds model's "home"/"away"/isTop convention is team-A=away/team-B=home,
+        // independent of the swap — so derive these from which team is batting,
+        // not the structural top/bottom of the inning.
+        const recalcIsTeamABatting = String(recalcOffense.battingPlayerId) === String(selectedGame.team_a_player_id)
         const recalcHomeScore = runsFromPAs(allPAs, selectedGame.team_b_player_id, allRuns)
         const recalcAwayScore = runsFromPAs(allPAs, selectedGame.team_a_player_id, allRuns)
         const freshOddsContext = buildSharedOddsGenerationContext({
@@ -3993,8 +4019,8 @@ export default function Scorebook() {
           bets: gameBets,
         })
         const changedRows = recalculateOdds(currentOdds || [], {
-          battingSide: offense.isTop ? 'away' : 'home',
-          isTop: offense.isTop,
+          battingSide: isTeamABatting ? 'away' : 'home',
+          isTop: isTeamABatting,
           paCount: allPAs.length,
           runsThisHalf: runsThisHalfFromPAs(allPAs, currentBatter.player_id, offense.inning, allRuns),
           generationContext: { ...freshOddsContext, weights: { char_stats_weight: 0.333, historical_weight: 0.333, live_weight: 0.334 } },
@@ -4003,7 +4029,7 @@ export default function Scorebook() {
             homeScore: recalcHomeScore,
             awayScore: recalcAwayScore,
             currentInning: recalcOffense.inning,
-            isTop: recalcOffense.isTop,
+            isTop: recalcIsTeamABatting,
             outsInHalf: recalcOuts % 3,
             regulationInnings,
             runnersOccupied: [nextRunners?.first, nextRunners?.second, nextRunners?.third].filter(Boolean).length,
@@ -4775,6 +4801,10 @@ export default function Scorebook() {
         const currentOdds = await ensureLiveOdds(gamePitching, allPAs)
         const recalcOuts = allPAs.reduce((s, pa) => s + calculateOutsForPa(pa.result), 0)
         const recalcOffense = deriveOffense(selectedGame, recalcOuts)
+        // The odds model's "home"/"away"/isTop convention is team-A=away/team-B=home,
+        // independent of the swap — so derive these from which team is batting,
+        // not the structural top/bottom of the inning.
+        const recalcIsTeamABatting = String(recalcOffense.battingPlayerId) === String(selectedGame.team_a_player_id)
         const recalcHomeScore = runsFromPAs(allPAs, selectedGame.team_b_player_id, allRuns)
         const recalcAwayScore = runsFromPAs(allPAs, selectedGame.team_a_player_id, allRuns)
         const freshOddsContext = buildSharedOddsGenerationContext({
@@ -4795,8 +4825,8 @@ export default function Scorebook() {
           bets: gameBets,
         })
         const changedRows = recalculateOdds(currentOdds || [], {
-          battingSide: offense.isTop ? 'away' : 'home',
-          isTop: offense.isTop,
+          battingSide: isTeamABatting ? 'away' : 'home',
+          isTop: isTeamABatting,
           paCount: allPAs.length,
           runsThisHalf: runsThisHalfFromPAs(allPAs, currentBatter.player_id, offense.inning, allRuns),
           generationContext: { ...freshOddsContext, weights: { char_stats_weight: 0.333, historical_weight: 0.333, live_weight: 0.334 } },
@@ -4805,7 +4835,7 @@ export default function Scorebook() {
             homeScore: recalcHomeScore,
             awayScore: recalcAwayScore,
             currentInning: recalcOffense.inning,
-            isTop: recalcOffense.isTop,
+            isTop: recalcIsTeamABatting,
             outsInHalf: recalcOuts % 3,
             regulationInnings,
             runnersOccupied: [nextRunners?.first, nextRunners?.second, nextRunners?.third].filter(Boolean).length,
@@ -5639,11 +5669,9 @@ export default function Scorebook() {
             </div>
             <div style={{ display: 'grid', gap: 10 }}>
               {(() => {
-                const teamRows = [
-                  { key: 'away', abbreviation: teamAAbbreviation, name: teamAName, color: teamAColor, logoKey: teamALogoKey, logoUrl: teamALogoUrl, score: scores.a, playerId: selectedGame.team_a_player_id },
-                  { key: 'home', abbreviation: teamBAbbreviation, name: teamBName, color: teamBColor, logoKey: teamBLogoKey, logoUrl: teamBLogoUrl, score: scores.b, playerId: selectedGame.team_b_player_id },
-                ]
-                return homeAwaySwapped ? [teamRows[1], teamRows[0]] : teamRows
+                const teamARow = { key: homeAwaySwapped ? 'home' : 'away', abbreviation: teamAAbbreviation, name: teamAName, color: teamAColor, logoKey: teamALogoKey, logoUrl: teamALogoUrl, score: scores.a, playerId: selectedGame.team_a_player_id }
+                const teamBRow = { key: homeAwaySwapped ? 'away' : 'home', abbreviation: teamBAbbreviation, name: teamBName, color: teamBColor, logoKey: teamBLogoKey, logoUrl: teamBLogoUrl, score: scores.b, playerId: selectedGame.team_b_player_id }
+                return teamARow.key === 'away' ? [teamARow, teamBRow] : [teamBRow, teamARow]
               })().map((team) => (
                 <div key={team.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -6079,8 +6107,11 @@ export default function Scorebook() {
                 type="button"
                 className="ghost-button"
                 onClick={toggleHomeAwaySwap}
-                title="Swap which team is shown as Home/Away in the scorebook and game view — does not affect the official game record."
-                style={{ fontSize: 11, padding: '6px 10px' }}
+                disabled={gamePAs.length > 0}
+                title={gamePAs.length > 0
+                  ? 'Home/Away can only be swapped before the first plate appearance is recorded.'
+                  : 'Swap which team bats first (top of the inning) — updates the batting order, line score, and game view for everyone.'}
+                style={{ fontSize: 11, padding: '6px 10px', opacity: gamePAs.length > 0 ? 0.5 : 1 }}
               >
                 ⇄ Swap Home/Away
               </button>
@@ -6467,8 +6498,8 @@ export default function Scorebook() {
           {halfInningPaGroups.map((group) => {
             const isExpanded = halfInningOverrides[group.key] ?? !group.isCompleted
             const sideLabel = group.isTop ? `Top ${group.inning}` : `Bottom ${group.inning}`
-            const sideAbbreviation = group.isTop ? teamAAbbreviation : teamBAbbreviation
-            const sideColor = group.isTop ? teamAColor : teamBColor
+            const sideAbbreviation = group.isTeamABatting ? teamAAbbreviation : teamBAbbreviation
+            const sideColor = group.isTeamABatting ? teamAColor : teamBColor
             return (
               <div key={group.key} style={{ marginBottom: 6, border: `1px solid ${C.border}33`, borderRadius: 10, overflow: 'hidden' }}>
                 <div
