@@ -1980,14 +1980,24 @@ export default function Scorebook() {
       setPlayers(playersData || [])
       // Lineups/characters are refetched on every season-data refresh (e.g. live_state
       // pushes during scoring). A transient empty result shouldn't blank out the
-      // already-rendered lineup/batter — keep the previous data in that case.
-      setLineups(prev => (lineupsData && lineupsData.length) ? lineupsData : (prev.length ? prev : lineupsData))
+      // already-rendered lineup/batter — keep the previous data in that case. And if
+      // we just saved a lineup/fielding change locally, this refetch may hit a
+      // lagging replica — keep our optimistic rows for the selected game until the
+      // defer window passes so the recording page doesn't revert to stale data.
+      const preserveSelectedGameRows = (prevRows, nextRows) => {
+        if (!selectedGameId) return nextRows
+        if (Date.now() >= deferRealtimeUntilRef.current) return nextRows
+        const currentGameRows = prevRows.filter((row) => String(row.game_id) === String(selectedGameId))
+        if (!currentGameRows.length) return nextRows
+        return [...nextRows.filter((row) => String(row.game_id) !== String(selectedGameId)), ...currentGameRows]
+      }
+      setLineups(prev => preserveSelectedGameRows(prev, (lineupsData && lineupsData.length) ? lineupsData : (prev.length ? prev : lineupsData)))
       setCharacters(prev => (charsData && charsData.length) ? charsData : (prev.length ? prev : charsData))
       setDraftPicks(picksData || [])
       setPlateAppearances(pasData || [])
       setPitchingStints(pitchData || [])
       setPitches(pitchRowsData || [])
-      setGameFielders(fieldersData || [])
+      setGameFielders(prev => preserveSelectedGameRows(prev, (fieldersData && fieldersData.length) ? fieldersData : (prev.length ? prev : fieldersData)))
       setRunsScored(runsData || [])
       setInningScores(inningScoresData || [])
       setStadiums(getOrderedStadiums(stadiumsData || []))
