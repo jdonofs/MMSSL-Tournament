@@ -371,6 +371,7 @@ export function DraftExperience({ mode = 'tournament' }) {
   const [skipReveal, setSkipReveal] = useState(() => {
     try { return localStorage.getItem('draft-skip-reveal') === 'true' } catch { return false }
   })
+  const latestPendingPickRef = useRef(null)
 
   const hasLoadedRef = useRef(false)
   useEffect(() => {
@@ -481,6 +482,10 @@ export function DraftExperience({ mode = 'tournament' }) {
     presentationChannelRef.current?.send({ type: 'broadcast', event: 'back', payload: {} })
   }, [])
 
+  useEffect(() => {
+    latestPendingPickRef.current = myPendingPick
+  }, [myPendingPick])
+
   // Channel used to send a player's pick to the commissioner for manual reveal (no spoilers on the presentation).
   const pendingPickChannelRef = useRef(null)
   useEffect(() => {
@@ -497,13 +502,23 @@ export function DraftExperience({ mode = 'tournament' }) {
       setPendingReveal(null)
       setMyPendingPick(null)
     })
-    ch.subscribe()
+    ch.on('broadcast', { event: 'sync-pending-request' }, () => {
+      if (player?.is_commissioner) return
+      const pendingPick = latestPendingPickRef.current
+      if (!pendingPick) return
+      ch.send({ type: 'broadcast', event: 'pick-pending', payload: pendingPick })
+    })
+    ch.subscribe((status) => {
+      if (status === 'SUBSCRIBED' && player?.is_commissioner) {
+        ch.send({ type: 'broadcast', event: 'sync-pending-request', payload: {} })
+      }
+    })
     pendingPickChannelRef.current = ch
     return () => {
       supabase.removeChannel(ch)
       pendingPickChannelRef.current = null
     }
-  }, [activeDraftContext?.id, isSeasonMode])
+  }, [activeDraftContext?.id, isSeasonMode, player?.is_commissioner])
 
   const draftPicks = useMemo(
     () => allDraftPicks.filter(p => p.tournament_id === activeDraftContext?.id),
@@ -863,9 +878,10 @@ export function DraftExperience({ mode = 'tournament' }) {
       if (ok) { setPendingMiiPick(null); closeCard() }
       return
     }
-    pendingPickChannelRef.current?.send({ type: 'broadcast', event: 'pick-pending', payload: { playerId: currentDrafter.id, characterId: character.id, miiColor } })
-    setPendingReveal({ playerId: currentDrafter.id, characterId: character.id, miiColor })
-    setMyPendingPick({ characterId: character.id, miiColor })
+    const pendingPickPayload = { playerId: currentDrafter.id, characterId: character.id, miiColor }
+    pendingPickChannelRef.current?.send({ type: 'broadcast', event: 'pick-pending', payload: pendingPickPayload })
+    setPendingReveal(pendingPickPayload)
+    setMyPendingPick(pendingPickPayload)
     setDraftError('')
     pushToast({ title: 'Pick sent', message: `Your pick has been sent to the commissioner to reveal.`, type: 'success' })
     setPendingMiiPick(null)

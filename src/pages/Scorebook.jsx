@@ -1460,11 +1460,43 @@ function BoxScoreTable({
   teamAName,
   teamBName,
   compact = false,
+  swapped = false,
 }) {
   const cellPad = compact ? '7px 0' : '10px 0'
   const cellFontSize = compact ? 11 : 13
   const headerFontSize = compact ? 10 : 11
   const teamColMinWidth = compact ? 76 : 112
+  const rows = [
+    {
+      key: 'away',
+      abbreviation: teamAAbbreviation,
+      color: teamAColor,
+      logoKey: teamALogoKey,
+      logoUrl: teamALogoUrl,
+      teamName: teamAName,
+      scoreMap: scores.aByInning,
+      runs: scores.a,
+      hits: scores.aHits,
+      errors: scores.aErrors,
+      battingSide: 'away',
+    },
+    {
+      key: 'home',
+      abbreviation: teamBAbbreviation,
+      color: teamBColor,
+      logoKey: teamBLogoKey,
+      logoUrl: teamBLogoUrl,
+      teamName: teamBName,
+      scoreMap: scores.bByInning,
+      runs: scores.b,
+      hits: scores.bHits,
+      errors: scores.bErrors,
+      battingSide: 'home',
+    },
+  ]
+  // Swapping only changes display order/labels (which row reads "Home" vs "Away")
+  // — the underlying per-inning batting side (top/bottom) stays the same.
+  const displayRows = swapped ? [rows[1], rows[0]] : rows
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', minWidth: compact ? 320 : 520, borderCollapse: 'collapse' }}>
@@ -1480,32 +1512,7 @@ function BoxScoreTable({
           </tr>
         </thead>
         <tbody>
-          {[
-            {
-              key: 'away',
-              abbreviation: teamAAbbreviation,
-              color: teamAColor,
-              logoKey: teamALogoKey,
-              logoUrl: teamALogoUrl,
-              teamName: teamAName,
-              scoreMap: scores.aByInning,
-              runs: scores.a,
-              hits: scores.aHits,
-              errors: scores.aErrors,
-            },
-            {
-              key: 'home',
-              abbreviation: teamBAbbreviation,
-              color: teamBColor,
-              logoKey: teamBLogoKey,
-              logoUrl: teamBLogoUrl,
-              teamName: teamBName,
-              scoreMap: scores.bByInning,
-              runs: scores.b,
-              hits: scores.bHits,
-              errors: scores.bErrors,
-            },
-          ].map((team) => (
+          {displayRows.map((team) => (
             <tr key={team.key}>
               <td style={{ padding: cellPad, borderTop: `1px solid ${C.border}44` }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 6 : 8, minWidth: teamColMinWidth }}>
@@ -1515,7 +1522,7 @@ function BoxScoreTable({
               </td>
               {innings.map((inning) => (
                 <td key={`${team.key}-${inning}`} style={{ padding: cellPad, borderTop: `1px solid ${C.border}44`, textAlign: 'center', color: inning === currentInning ? '#F8FAFC' : '#CBD5E1', fontSize: cellFontSize, fontWeight: 700 }}>
-                  {getLineScoreCellValue({ inning, side: team.key === 'away' ? 'away' : 'home', scoreMap: team.scoreMap, completedHalfCount })}
+                  {getLineScoreCellValue({ inning, side: team.battingSide, scoreMap: team.scoreMap, completedHalfCount })}
                 </td>
               ))}
               <td style={{ padding: cellPad, borderTop: `1px solid ${C.border}44`, textAlign: 'center', color: team.color, fontSize: cellFontSize, fontWeight: 900 }}>{team.runs}</td>
@@ -1833,6 +1840,10 @@ export default function Scorebook() {
   // ── UI state ───────────────────────────────────────────────────────────────
   const [selectedGameId, setSelectedGameId] = useState(gameSession?.gameId ? String(gameSession.gameId) : '')
   const [viewMode, setViewMode] = useState(() => (player && (player.is_commissioner || player.scorebook_access) ? 'scorebook' : 'game'))
+  // Display-only swap of which team appears as "home"/"away" in the scorebook —
+  // does not change team_a/team_b assignments, half-inning order, or anything
+  // visible outside the scorebook. Persisted per-device per-game.
+  const [homeAwaySwapped, setHomeAwaySwapped] = useState(false)
   const [viewedInning, setViewedInning] = useState(null)
   const [overrideBatterIdx, setOverrideBatterIdx] = useState(null)
   const [showOutsBanner, setShowOutsBanner] = useState(false)
@@ -1990,6 +2001,24 @@ export default function Scorebook() {
     setSelectedGameId(gameSession?.gameId ? String(gameSession.gameId) : '')
   }, [gameSession?.gameId])
 
+  // Restore the local home/away display swap for this game (per-device only).
+  useEffect(() => {
+    if (!selectedGameId) {
+      setHomeAwaySwapped(false)
+      return
+    }
+    setHomeAwaySwapped(localStorage.getItem(`scorebook-home-away-swap-${selectedGameId}`) === '1')
+  }, [selectedGameId])
+
+  const toggleHomeAwaySwap = useCallback(() => {
+    if (!selectedGameId) return
+    setHomeAwaySwapped((current) => {
+      const next = !current
+      localStorage.setItem(`scorebook-home-away-swap-${selectedGameId}`, next ? '1' : '0')
+      return next
+    })
+  }, [selectedGameId])
+
   // PART C — load currently-open bets for this game so live odds recalculation
   // can apply volume-based line movement/liability caps, same as BettingTab.
   useEffect(() => {
@@ -2029,7 +2058,12 @@ export default function Scorebook() {
       .channel(`sb-${selectedGameId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.lineups, filter: `game_id=eq.${selectedGameId}` }, async () => {
         const { data } = await supabase.from(scorebookTables.lineups).select('*').eq('game_id', selectedGameId).order('batting_order')
-        setLineups(cur => [...cur.filter(l => String(l.game_id) !== String(selectedGameId)), ...(data || [])])
+        const nextRows = data || []
+        setLineups((current) => {
+          const currentGameRows = current.filter((row) => String(row.game_id) === String(selectedGameId))
+          if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
+          return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
+        })
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.plateAppearances, filter: `game_id=eq.${selectedGameId}` }, async () => {
         const { data } = await supabase.from(scorebookTables.plateAppearances).select('*').eq('game_id', selectedGameId).order('created_at')
@@ -2060,7 +2094,12 @@ export default function Scorebook() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.gameFielders, filter: `game_id=eq.${selectedGameId}` }, async () => {
         const { data } = await supabase.from(scorebookTables.gameFielders).select('*').eq('game_id', selectedGameId).order('created_at')
-        setGameFielders(cur => [...cur.filter(p => String(p.game_id) !== String(selectedGameId)), ...(data || [])])
+        const nextRows = data || []
+        setGameFielders((current) => {
+          const currentGameRows = current.filter((row) => String(row.game_id) === String(selectedGameId))
+          if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
+          return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
+        })
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.runsScored, filter: `game_id=eq.${selectedGameId}` }, async () => {
         const { data } = await supabase.from(scorebookTables.runsScored).select('*').eq('game_id', selectedGameId).order('created_at')
@@ -2531,6 +2570,17 @@ export default function Scorebook() {
     }
   }, [gamePAs, selectedGame, inningScoreMaps, gameRuns])
 
+  // Display-only home/away ordering for the line score strip. Team A always
+  // bats in the top of the inning (battingSide 'away') — `homeAwaySwapped`
+  // only changes which row is drawn first / labeled Home vs Away.
+  const lineScoreRows = useMemo(() => {
+    const rows = [
+      { battingSide: 'away', abbreviation: teamAAbbreviation, color: teamAColor, logoKey: teamALogoKey, logoUrl: teamALogoUrl, teamName: teamAName, scoreMap: scores.aByInning, runs: scores.a, hits: scores.aHits, errors: scores.aErrors },
+      { battingSide: 'home', abbreviation: teamBAbbreviation, color: teamBColor, logoKey: teamBLogoKey, logoUrl: teamBLogoUrl, teamName: teamBName, scoreMap: scores.bByInning, runs: scores.b, hits: scores.bHits, errors: scores.bErrors },
+    ]
+    return homeAwaySwapped ? [rows[1], rows[0]] : rows
+  }, [homeAwaySwapped, teamAAbbreviation, teamAColor, teamALogoKey, teamALogoUrl, teamAName, teamBAbbreviation, teamBColor, teamBLogoKey, teamBLogoUrl, teamBName, scores])
+
   const tournamentGameIds = useMemo(
     () => new Set(filteredGames.map(g => String(g.id))),
     [filteredGames],
@@ -2739,6 +2789,10 @@ export default function Scorebook() {
       insertedFielderRows = data || newFielderRows.map(addSourceFields)
     }
 
+    // Hold off on merging the realtime echo of this save — a read against a lagging
+    // replica could otherwise return pre-update rows and clobber the optimistic state below.
+    deferRealtimeHydration()
+
     const closedIds = new Set(toClose.map((r) => String(r.id)))
     const deletedIds = new Set(toDelete.map((r) => String(r.id)))
     setLineups((current) => current.map((row) => {
@@ -2754,7 +2808,7 @@ export default function Scorebook() {
     ])
 
     pushToast({ title: 'Lineup updated', message: `${team === 'A' ? teamAName : teamBName} lineup saved.`, type: 'success' })
-  }, [selectedGame, teamAId, teamBId, teamALineup, teamBLineup, lineupDrafts, scorebookTables.lineups, scorebookTables.gameFielders, gameFielderRows, currentInning, playersById, charactersById, addSourceFields, pushToast, teamAName, teamBName])
+  }, [selectedGame, teamAId, teamBId, teamALineup, teamBLineup, lineupDrafts, scorebookTables.lineups, scorebookTables.gameFielders, gameFielderRows, currentInning, playersById, charactersById, addSourceFields, pushToast, teamAName, teamBName, deferRealtimeHydration])
 
   const currentEntryKey = currentBatter ? `${currentBatter.player_id}:${currentBatter.character_id}` : null
   const lineupStatsByEntryKey = useMemo(() => {
@@ -5007,6 +5061,10 @@ export default function Scorebook() {
     if (!canEditScorebook) return
     if (!selectedGame || isGameComplete) return
     if (gamePAs.length > 0) return
+    // Once a lineup and its fielding assignments exist for this game, leave them
+    // alone — re-running the roster-based seed here would silently overwrite any
+    // manual edits made in the Lineups tab (e.g. after navigating away and back).
+    if (gameLineups.length > 0 && gameFielderRows.length > 0) return
     if (isSyncingLineupsRef.current) return
     isSyncingLineupsRef.current = true
     try {
@@ -5087,13 +5145,14 @@ export default function Scorebook() {
         return
       }
 
+      deferRealtimeHydration()
       setLineups((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGame.id)), ...(insertedLineups || lineupPayload)])
       setGameFielders((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGame.id)), ...(insertedFielders || fielderPayload)])
       lastSyncedLineupSignatureRef.current = desiredSignature
     } finally {
       isSyncingLineupsRef.current = false
     }
-  }, [canEditScorebook, selectedGame, isGameComplete, gamePAs.length, gameLineups, gameFielderRows.length, teamRosters, gameSession, addSourceFields, playersById, charactersById, scorebookTables.lineups, scorebookTables.gameFielders, pushToast, isSeasonGame])
+  }, [canEditScorebook, selectedGame, isGameComplete, gamePAs.length, gameLineups, gameFielderRows.length, teamRosters, gameSession, addSourceFields, playersById, charactersById, scorebookTables.lineups, scorebookTables.gameFielders, pushToast, isSeasonGame, deferRealtimeHydration])
 
   useEffect(() => {
     lastSyncedLineupSignatureRef.current = null
@@ -5569,16 +5628,19 @@ export default function Scorebook() {
               <StadiumHeaderPill stadium={selectedStadium} isNight={selectedGame?.is_night} />
             </div>
             <div style={{ display: 'grid', gap: 10 }}>
-              {[
-                { key: 'away', abbreviation: teamAAbbreviation, name: teamAName, color: teamAColor, logoKey: teamALogoKey, logoUrl: teamALogoUrl, score: scores.a },
-                { key: 'home', abbreviation: teamBAbbreviation, name: teamBName, color: teamBColor, logoKey: teamBLogoKey, logoUrl: teamBLogoUrl, score: scores.b },
-              ].map((team) => (
+              {(() => {
+                const teamRows = [
+                  { key: 'away', abbreviation: teamAAbbreviation, name: teamAName, color: teamAColor, logoKey: teamALogoKey, logoUrl: teamALogoUrl, score: scores.a, playerId: selectedGame.team_a_player_id },
+                  { key: 'home', abbreviation: teamBAbbreviation, name: teamBName, color: teamBColor, logoKey: teamBLogoKey, logoUrl: teamBLogoUrl, score: scores.b, playerId: selectedGame.team_b_player_id },
+                ]
+                return homeAwaySwapped ? [teamRows[1], teamRows[0]] : teamRows
+              })().map((team) => (
                 <div key={team.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                     <TeamLogo logoKey={team.logoKey} logoUrl={team.logoUrl} teamName={team.name} height={30} />
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ color: team.color, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>{team.abbreviation}</div>
-                      <div style={{ color: '#F8FAFC', fontSize: 16, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getTeamShortName(identitiesByPlayerId[team.key === 'away' ? selectedGame.team_a_player_id : selectedGame.team_b_player_id]) || team.name}</div>
+                      <div style={{ color: team.color, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>{team.abbreviation} · {team.key === 'away' ? 'Away' : 'Home'}</div>
+                      <div style={{ color: '#F8FAFC', fontSize: 16, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getTeamShortName(identitiesByPlayerId[team.playerId]) || team.name}</div>
                     </div>
                   </div>
                   <div style={{ color: team.color, fontSize: 34, fontWeight: 900, lineHeight: 1 }}>{team.score}</div>
@@ -5678,15 +5740,16 @@ export default function Scorebook() {
               teamAName={teamAName}
               teamBName={teamBName}
               compact={isNarrowViewport}
+              swapped={homeAwaySwapped}
             />
           </SectionCard>
           <WinProbabilityCard
             points={winProbabilityPoints}
-            currentHomeProbability={currentWinProbability}
-            homeLabel={teamBAbbreviation}
-            awayLabel={teamAAbbreviation}
-            homeColor={teamBColor}
-            awayColor={teamAColor}
+            currentHomeProbability={homeAwaySwapped ? 1 - currentWinProbability : currentWinProbability}
+            homeLabel={homeAwaySwapped ? teamAAbbreviation : teamBAbbreviation}
+            awayLabel={homeAwaySwapped ? teamBAbbreviation : teamAAbbreviation}
+            homeColor={homeAwaySwapped ? teamAColor : teamBColor}
+            awayColor={homeAwaySwapped ? teamBColor : teamAColor}
           />
         </div>
 
@@ -5999,8 +6062,19 @@ export default function Scorebook() {
       {/* ── Sticky header: score + inning strip ── */}
       <div style={{ background: C.bg, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ padding: '8px 12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
             <StadiumHeaderPill stadium={selectedStadium} isNight={selectedGame?.is_night} />
+            {isScorekeeper && (
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={toggleHomeAwaySwap}
+                title="Swap which team is shown as Home/Away in the scorebook and game view — does not affect the official game record."
+                style={{ fontSize: 11, padding: '6px 10px' }}
+              >
+                ⇄ Swap Home/Away
+              </button>
+            )}
           </div>
         </div>
 
@@ -6085,14 +6159,12 @@ export default function Scorebook() {
         <div style={{ overflowX: 'auto', scrollbarWidth: 'none' }}>
           <div style={{ display: 'flex', minWidth: 'max-content', padding: '2px 8px 4px', gap: 1, alignItems: 'flex-start' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginRight: 6, paddingTop: 18 }}>
-              <div style={{ height: 26, display: 'flex', alignItems: 'center', gap: 4, color: teamAColor, fontSize: 10, fontWeight: 700 }}>
-                <TeamLogo logoKey={teamALogoKey} logoUrl={teamALogoUrl} teamName={teamAName} height={18} />
-                <span>{teamAAbbreviation}</span>
-              </div>
-              <div style={{ height: 26, display: 'flex', alignItems: 'center', gap: 4, color: teamBColor, fontSize: 10, fontWeight: 700 }}>
-                <TeamLogo logoKey={teamBLogoKey} logoUrl={teamBLogoUrl} teamName={teamBName} height={18} />
-                <span>{teamBAbbreviation}</span>
-              </div>
+              {lineScoreRows.map((team) => (
+                <div key={team.battingSide} style={{ height: 26, display: 'flex', alignItems: 'center', gap: 4, color: team.color, fontSize: 10, fontWeight: 700 }}>
+                  <TeamLogo logoKey={team.logoKey} logoUrl={team.logoUrl} teamName={team.teamName} height={18} />
+                  <span>{team.abbreviation}</span>
+                </div>
+              ))}
             </div>
             {innings.map(inn => {
               const isActive = inn === (viewedInning ?? currentInning)
@@ -6100,24 +6172,22 @@ export default function Scorebook() {
               return (
                 <div key={inn} onClick={() => setViewedInning(viewedInning === inn ? null : inn)} style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer', width: 30 }}>
                   <div style={{ height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: inn === currentInning ? 700 : 400, color: inn === currentInning ? C.accent : isExtra ? '#F97316' : C.muted, borderBottom: isActive ? `2px solid ${C.accent}` : isExtra ? '2px solid #F97316' : '2px solid transparent' }}>{inn}</div>
-                  <div style={{ height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isActive ? `${C.accent}20` : 'transparent', border: isExtra ? '1px solid #F9731644' : 'none', borderRadius: 3, fontSize: 13, fontWeight: 700, color: C.text }}>{getLineScoreCellValue({ inning: inn, side: 'away', scoreMap: scores.aByInning, completedHalfCount })}</div>
-                  <div style={{ height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isActive ? `${C.accent}20` : 'transparent', border: isExtra ? '1px solid #F9731644' : 'none', borderRadius: 3, fontSize: 13, fontWeight: 700, color: C.text }}>{getLineScoreCellValue({ inning: inn, side: 'home', scoreMap: scores.bByInning, completedHalfCount })}</div>
+                  {lineScoreRows.map((team) => (
+                    <div key={team.battingSide} style={{ height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isActive ? `${C.accent}20` : 'transparent', border: isExtra ? '1px solid #F9731644' : 'none', borderRadius: 3, fontSize: 13, fontWeight: 700, color: C.text }}>{getLineScoreCellValue({ inning: inn, side: team.battingSide, scoreMap: team.scoreMap, completedHalfCount })}</div>
+                  ))}
                 </div>
               )
             })}
             {/* R / H / E totals */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginLeft: 8 }}>
               <div style={{ height: 18, display: 'flex', gap: 4 }}>{['R', 'H', 'E'].map(l => <div key={l} style={{ width: 24, textAlign: 'center', fontSize: 10, color: C.muted, fontWeight: 700 }}>{l}</div>)}</div>
-              <div style={{ height: 26, display: 'flex', gap: 4, alignItems: 'center' }}>
-                <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 800, color: teamAColor }}>{scores.a}</div>
-                <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{scores.aHits}</div>
-                <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{scores.aErrors}</div>
-              </div>
-              <div style={{ height: 26, display: 'flex', gap: 4, alignItems: 'center' }}>
-                <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 800, color: teamBColor }}>{scores.b}</div>
-                <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{scores.bHits}</div>
-                <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{scores.bErrors}</div>
-              </div>
+              {lineScoreRows.map((team) => (
+                <div key={team.battingSide} style={{ height: 26, display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 800, color: team.color }}>{team.runs}</div>
+                  <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{team.hits}</div>
+                  <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{team.errors}</div>
+                </div>
+              ))}
             </div>
             <div style={{ marginLeft: 10, padding: '8px 10px', borderRadius: 12, border: `1px solid ${C.border}`, background: `${C.card}DD`, display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'center' }}>
               <CountDotRow label="B" count={Math.min(displayBalls, 3)} total={3} activeColor={C.green} inactiveColor={C.border} />
