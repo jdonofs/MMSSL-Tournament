@@ -1165,12 +1165,11 @@ export default function SeasonRoster() {
       })
       .subscribe()
 
-    // Browsers throttle/suspend websockets on backgrounded tabs, so a
-    // lineup/fielding change made elsewhere while this tab was hidden can be
-    // missed entirely. Re-fetch the saved lineup as soon as the tab becomes
-    // visible again.
-    const handleVisibility = () => {
-      if (document.visibilityState !== 'visible') return
+    // Realtime postgres_changes can silently fail to deliver in some
+    // environments (and browsers throttle/suspend websockets on backgrounded
+    // tabs), so poll for the saved lineup as a fallback to guarantee it stays
+    // in sync even if the live channel above never fires.
+    const syncFromDb = () => {
       fetchTeamLineup({ ...SEASON_TEAM_LINEUPS, sourceId: currentSeason.id, playerId: viewedPlayerId }).then((saved) => {
         if (!saved) return
         const lineupOrder = Array.isArray(saved.lineupOrder) ? saved.lineupOrder : []
@@ -1182,11 +1181,16 @@ export default function SeasonRoster() {
         setFieldingPositions(fieldingPositions)
       })
     }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') syncFromDb()
+    }
     document.addEventListener('visibilitychange', handleVisibility)
+    const pollInterval = setInterval(syncFromDb, 5000)
 
     return () => {
       supabase.removeChannel(channel)
       document.removeEventListener('visibilitychange', handleVisibility)
+      clearInterval(pollInterval)
     }
   }, [currentSeason?.id, viewedPlayerId])
 

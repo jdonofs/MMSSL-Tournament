@@ -1898,7 +1898,6 @@ export default function Scorebook() {
   const deferRealtimeUntilRef = useRef(0)
   const isSyncingLineupsRef = useRef(false)
   const lastSyncedLineupSignatureRef = useRef(null)
-  const autoPitcherAssignRef = useRef(null)
   const [isPitchActionPending, setIsPitchActionPending] = useState(false)
 
   // Tournament settings

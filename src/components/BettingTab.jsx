@@ -1022,16 +1022,25 @@ export default function BettingTab({ mode = 'tournament' }) {
   // can be missed entirely. Re-sync the data that drives the betting board
   // as soon as the tab becomes visible again, without a full page reload.
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState !== 'visible') return
+    const refreshAll = () => {
       refetchOdds()
       refetchBets()
       refetchPitching()
       refetchGames()
       refetchPicks()
     }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshAll()
+    }
     document.addEventListener('visibilitychange', handleVisibility)
-    return () => document.removeEventListener('visibilitychange', handleVisibility)
+    // Realtime postgres_changes can silently fail to deliver in some
+    // environments, so also poll periodically as a fallback to guarantee the
+    // board (odds, pitcher props, bets) stays live without manual refresh.
+    const pollInterval = setInterval(refreshAll, 5000)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      clearInterval(pollInterval)
+    }
   }, [refetchOdds, refetchBets, refetchPitching, refetchGames, refetchPicks])
 
   useEffect(() => {
