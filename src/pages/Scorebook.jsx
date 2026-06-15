@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftRight, ChevronDown, ChevronLeft, ChevronRight, Moon, RotateCcw, RotateCw, Sun, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { fetchTeamLineup, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
 import { useGameSession } from '../context/GameSessionContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
@@ -1849,6 +1850,7 @@ export default function Scorebook() {
   const deferRealtimeUntilRef = useRef(0)
   const isSyncingLineupsRef = useRef(false)
   const lastSyncedLineupSignatureRef = useRef(null)
+  const autoPitcherAssignRef = useRef(null)
   const [isPitchActionPending, setIsPitchActionPending] = useState(false)
 
   // Tournament settings
@@ -2538,6 +2540,15 @@ export default function Scorebook() {
   const [lineupDrafts, setLineupDrafts] = useState({ A: { order: [], fielding: {} }, B: { order: [], fielding: {} } })
   const [selectedLineupMoveId, setSelectedLineupMoveId] = useState({ A: null, B: null })
   const [selectedFieldingPlayer, setSelectedFieldingPlayer] = useState({ A: null, B: null })
+  const [lineupSaveStatus, setLineupSaveStatus] = useState({ A: 'idle', B: 'idle' })
+  // Tracks whether each team's draft has unsaved local edits, so realtime-driven
+  // draft rebuilds (from someone else's edits) don't clobber our in-flight edit.
+  const lineupDirtyRef = useRef({ A: false, B: false })
+  // Tracks the last { lineupOrder, fieldingPositions } JSON synced to/from
+  // team_lineups/season_team_lineups for each team, to avoid save loops with
+  // the Roster/SeasonRoster realtime sync.
+  const lastSyncedTeamLineupRef = useRef({ A: null, B: null })
+  const changePitcherRef = useRef(null)
 
   const buildLineupDraft = useCallback((team) => {
     const lineupRows = team === 'A' ? teamALineup : teamBLineup
@@ -2569,13 +2580,25 @@ export default function Scorebook() {
     return { order, fielding }
   }, [teamALineup, teamBLineup, teamAId, teamBId, charactersById, gameFielderRows, currentInning])
 
+  // Rebuild the draft for a team whenever the underlying lineup/fielder rows
+  // change (including via realtime updates from other editors) — unless that
+  // team's draft has unsaved local edits in flight.
   useEffect(() => {
     if (viewMode !== 'lineups' || !selectedGame) return
-    setLineupDrafts({ A: buildLineupDraft('A'), B: buildLineupDraft('B') })
+    setLineupDrafts((current) => ({
+      A: lineupDirtyRef.current.A ? current.A : buildLineupDraft('A'),
+      B: lineupDirtyRef.current.B ? current.B : buildLineupDraft('B'),
+    }))
+  }, [viewMode, selectedGame?.id, buildLineupDraft])
+
+  useEffect(() => {
+    if (viewMode !== 'lineups' || !selectedGame) return
     setSelectedLineupMoveId({ A: null, B: null })
     setSelectedFieldingPlayer({ A: null, B: null })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    lineupDirtyRef.current = { A: false, B: false }
+    setLineupSaveStatus({ A: 'idle', B: 'idle' })
   }, [viewMode, selectedGame?.id])
+
 
   const handleLineupDragStart = useCallback((characterId) => (e) => {
     e.dataTransfer.effectAllowed = 'move'
@@ -2590,6 +2613,7 @@ export default function Scorebook() {
       if (sourceIdx === -1) return current
       order.splice(sourceIdx, 1)
       order.splice(targetIndex, 0, characterId)
+      lineupDirtyRef.current = { ...lineupDirtyRef.current, [team]: true }
       return { ...current, [team]: { ...current[team], order } }
     })
   }, [])
@@ -2613,6 +2637,7 @@ export default function Scorebook() {
   const setFieldingPositionsForTeam = useCallback((team) => (updater) => {
     setLineupDrafts((current) => {
       const fielding = typeof updater === 'function' ? updater(current[team].fielding) : updater
+      lineupDirtyRef.current = { ...lineupDirtyRef.current, [team]: true }
       return { ...current, [team]: { ...current[team], fielding } }
     })
   }, [])
@@ -2624,12 +2649,15 @@ export default function Scorebook() {
     })
   }, [])
 
-  const saveTeamLineup = useCallback(async (team) => {
+  // Applies a lineup order + fielding assignment for `team` to the
+  // lineups/game_fielders tables (and mirrors it into team_lineups unless
+  // `skipMirror` is set, e.g. when the change originated from team_lineups
+  // itself via the Roster/SeasonRoster realtime sync below).
+  const applyLineupToGame = useCallback(async (team, order, fielding, { skipMirror = false } = {}) => {
     if (!selectedGame) return
     const teamId = team === 'A' ? teamAId : teamBId
     const playerId = team === 'A' ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
     const lineupRows = team === 'A' ? teamALineup : teamBLineup
-    const { order, fielding } = lineupDrafts[team]
 
     const lineupUpdates = order
       .map((characterId, i) => {
@@ -2657,24 +2685,16 @@ export default function Scorebook() {
     const toDelete = openRows.filter((r) => Number(r.inning_from || 1) >= Number(currentInning))
 
     if (toClose.length) {
-      const { data, error } = await supabase.from(scorebookTables.gameFielders).update({ inning_to: Number(currentInning) - 1 }).in('id', toClose.map((r) => r.id)).select()
+      const { error } = await supabase.from(scorebookTables.gameFielders).update({ inning_to: Number(currentInning) - 1 }).in('id', toClose.map((r) => r.id)).select()
       if (error) {
         pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
-        return
-      }
-      if (!data || data.length !== toClose.length) {
-        pushToast({ title: 'Lineup save failed', message: 'Could not update existing fielder assignments. You may not have permission to edit this lineup.', type: 'error' })
         return
       }
     }
     if (toDelete.length) {
-      const { data, error } = await supabase.from(scorebookTables.gameFielders).delete().in('id', toDelete.map((r) => r.id)).select()
+      const { error } = await supabase.from(scorebookTables.gameFielders).delete().in('id', toDelete.map((r) => r.id)).select()
       if (error) {
         pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
-        return
-      }
-      if (!data || data.length !== toDelete.length) {
-        pushToast({ title: 'Lineup save failed', message: 'Could not remove old fielder assignments. You may not have permission to edit this lineup.', type: 'error' })
         return
       }
     }
@@ -2715,8 +2735,103 @@ export default function Scorebook() {
       ...insertedFielderRows,
     ])
 
-    pushToast({ title: 'Lineup updated', message: `${team === 'A' ? teamAName : teamBName} lineup saved.`, type: 'success' })
-  }, [selectedGame, teamAId, teamBId, teamALineup, teamBLineup, lineupDrafts, scorebookTables.lineups, scorebookTables.gameFielders, gameFielderRows, currentInning, playersById, charactersById, addSourceFields, pushToast, teamAName, teamBName])
+    // Mirror this lineup/fielding change into team_lineups (or
+    // season_team_lineups), so Roster/SeasonRoster pick it up live, and the
+    // other team's Scorebook session re-syncs its draft. Skipped when the
+    // change originated from team_lineups itself, to avoid an echo loop.
+    if (!skipMirror) {
+      const teamLineupsTable = isSeasonGame ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
+      const teamLineupPayload = JSON.stringify({ lineupOrder: order, fieldingPositions: fielding })
+      if (teamLineupPayload !== lastSyncedTeamLineupRef.current[team]) {
+        lastSyncedTeamLineupRef.current[team] = teamLineupPayload
+        upsertTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId, lineupOrder: order, fieldingPositions: fielding })
+      }
+    }
+
+    // If this team is currently on defense and the pitcher assignment
+    // changed, record an actual pitching change so the mound, game view,
+    // scorebook field diagram, and bets tab all update.
+    const newPitcherCharId = fielding.pitcher ? Number(fielding.pitcher) : null
+    if (newPitcherCharId && offense?.pitchingPlayerId === playerId && newPitcherCharId !== Number(currentPitcherStint?.character_id)) {
+      changePitcherRef.current?.(playerId, newPitcherCharId)
+    }
+  }, [selectedGame, teamAId, teamBId, teamALineup, teamBLineup, scorebookTables.lineups, scorebookTables.gameFielders, gameFielderRows, currentInning, playersById, charactersById, addSourceFields, pushToast, teamAName, teamBName, isSeasonGame, gameSession, offense, currentPitcherStint])
+
+  const saveTeamLineup = useCallback((team) => {
+    const { order, fielding } = lineupDrafts[team]
+    return applyLineupToGame(team, order, fielding)
+  }, [lineupDrafts, applyLineupToGame])
+
+  const applyLineupToGameRef = useRef(null)
+  useEffect(() => { applyLineupToGameRef.current = applyLineupToGame }, [applyLineupToGame])
+
+  // Realtime: pick up lineup/fielding edits made via Roster/SeasonRoster (or
+  // another Scorebook session) for either team in this game, and apply them
+  // to lineups/game_fielders so the Lineups tab, field diagram, game view,
+  // and bets tab all update live.
+  useEffect(() => {
+    const sourceId = gameSession?.sourceId
+    const teamAPlayerId = selectedGame?.team_a_player_id
+    const teamBPlayerId = selectedGame?.team_b_player_id
+    if (!sourceId || (!teamAPlayerId && !teamBPlayerId)) return
+
+    const teamLineupsTable = isSeasonGame ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
+    const channel = supabase
+      .channel(`scorebook-team-lineups-${sourceId}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: teamLineupsTable.table,
+        filter: `${teamLineupsTable.idField}=eq.${sourceId}`,
+      }, (payload) => {
+        const row = payload.new
+        if (!row) return
+        let team = null
+        if (String(row.player_id) === String(teamAPlayerId)) team = 'A'
+        else if (String(row.player_id) === String(teamBPlayerId)) team = 'B'
+        if (!team) return
+
+        const lineupOrder = Array.isArray(row.lineup_order) ? row.lineup_order : []
+        const fieldingPositions = row.fielding_positions && typeof row.fielding_positions === 'object' ? row.fielding_positions : {}
+        const payloadJson = JSON.stringify({ lineupOrder, fieldingPositions })
+        if (payloadJson === lastSyncedTeamLineupRef.current[team]) return
+        lastSyncedTeamLineupRef.current[team] = payloadJson
+
+        if (!lineupDirtyRef.current[team]) {
+          setLineupDrafts((current) => ({ ...current, [team]: { order: lineupOrder, fielding: fieldingPositions } }))
+        }
+        // Only a scorekeeper/commissioner session can write to
+        // lineups/game_fielders (per RLS) — other viewers just update their
+        // local draft above and pick up the lineups/game_fielders rows via
+        // those tables' own realtime subscriptions once a scorekeeper
+        // session applies the change.
+        if (canEditScorebook) {
+          applyLineupToGameRef.current?.(team, lineupOrder, fieldingPositions, { skipMirror: true })
+        }
+      })
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }, [gameSession?.sourceId, isSeasonGame, selectedGame?.team_a_player_id, selectedGame?.team_b_player_id, canEditScorebook])
+
+  // Auto-save lineup/fielding edits a moment after the user stops editing —
+  // every other viewer's Lineups tab picks this up via the realtime
+  // subscriptions on `lineups`/`game_fielders` (and rebuilds its draft above).
+  useEffect(() => {
+    if (viewMode !== 'lineups' || !selectedGame) return
+    const teams = ['A', 'B'].filter((team) => lineupDirtyRef.current[team])
+    if (!teams.length) return
+
+    const timeout = setTimeout(() => {
+      teams.forEach((team) => {
+        setLineupSaveStatus((current) => ({ ...current, [team]: 'saving' }))
+        saveTeamLineup(team).finally(() => {
+          lineupDirtyRef.current = { ...lineupDirtyRef.current, [team]: false }
+          setLineupSaveStatus((current) => ({ ...current, [team]: 'saved' }))
+        })
+      })
+    }, 600)
+
+    return () => clearTimeout(timeout)
+  }, [viewMode, selectedGame, lineupDrafts, saveTeamLineup])
 
   const currentEntryKey = currentBatter ? `${currentBatter.player_id}:${currentBatter.character_id}` : null
   const lineupStatsByEntryKey = useMemo(() => {
@@ -4903,17 +5018,19 @@ export default function Scorebook() {
     isSyncingLineupsRef.current = true
     try {
       const defaultPositions = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-      const buildRows = (roster, playerId) => {
+      const teamLineupsTable = isSeasonGame ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
+      const [savedTeamA, savedTeamB] = await Promise.all([
+        fetchTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId: selectedGame.team_a_player_id }),
+        fetchTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId: selectedGame.team_b_player_id }),
+      ])
+      const buildRows = (roster, playerId, saved) => {
         let picks = roster.filter(p => p.character_id)
-        try {
-          const saved = JSON.parse(localStorage.getItem(gameSession.getLineupKey(playerId)) || 'null')
-          if (saved && Array.isArray(saved)) {
-            const byCharId = Object.fromEntries(picks.map(p => [p.character_id, p]))
-            const ordered = saved.map(id => byCharId[id]).filter(Boolean)
-            const rest = picks.filter(p => !saved.includes(p.character_id))
-            picks = [...ordered, ...rest]
-          }
-        } catch {}
+        if (saved && Array.isArray(saved.lineupOrder) && saved.lineupOrder.length) {
+          const byCharId = Object.fromEntries(picks.map(p => [p.character_id, p]))
+          const ordered = saved.lineupOrder.map(id => byCharId[id]).filter(Boolean)
+          const rest = picks.filter(p => !saved.lineupOrder.includes(p.character_id))
+          picks = [...ordered, ...rest]
+        }
         return picks.slice(0, 9).map((pick, i) => ({
           game_id: selectedGame.id,
           player_id: playerId,
@@ -4923,8 +5040,8 @@ export default function Scorebook() {
       }
 
       const desiredPayload = [
-        ...buildRows(teamRosters.teamA, selectedGame.team_a_player_id),
-        ...buildRows(teamRosters.teamB, selectedGame.team_b_player_id),
+        ...buildRows(teamRosters.teamA, selectedGame.team_a_player_id, savedTeamA),
+        ...buildRows(teamRosters.teamB, selectedGame.team_b_player_id, savedTeamB),
       ]
 
       if (!desiredPayload.length) return
@@ -5233,6 +5350,8 @@ export default function Scorebook() {
   // ── Pitcher change (drag to mound or double-tap) ──────────────────────────
   const changePitcher = useCallback(async (playerId, characterId) => {
     if (!selectedGame || !canEditScorebook) return
+    if (Number(currentPitcherStint?.character_id) === Number(characterId)) return
+    const previousPitcherStint = currentPitcherStint
     const newStint = {
       game_id: selectedGame.id, player_id: playerId, character_id: characterId,
       innings_pitched: 0, hits_allowed: 0, runs_allowed: 0, earned_runs: 0, walks: 0, strikeouts: 0, hr_allowed: 0,
@@ -5250,11 +5369,33 @@ export default function Scorebook() {
         generationContext: generationContext ? { ...generationContext, weights: { char_stats_weight: 0.333, historical_weight: 0.333, live_weight: 0.334 } } : null,
       })
       await upsertChangedOdds(changedRows)
+
+      // The old pitcher can no longer rack up strikeouts — if nobody has bet
+      // on their k_prop yet, remove it entirely instead of leaving it locked.
+      if (previousPitcherStint && Number(previousPitcherStint.character_id) !== Number(characterId)) {
+        const oldChar = charactersById[previousPitcherStint.character_id]
+        const oldPlayer = playersById[previousPitcherStint.player_id]
+        const oldLabel = oldChar ? buildBettingEntityLabel(oldChar, oldPlayer) : null
+        const staleKProp = oldLabel
+          ? (currentOdds || []).find((row) => row.bet_type === 'k_prop' && row.target_entity === oldLabel)
+          : null
+        if (staleKProp?.id) {
+          const { data: relatedBets } = await supabase.from(scorebookTables.bets).select('id').eq('game_odds_id', staleKProp.id).limit(1)
+          if (!relatedBets || relatedBets.length === 0) {
+            await supabase.from(scorebookTables.gameOdds).delete().eq('id', staleKProp.id)
+          }
+        }
+      }
     } catch (bettingError) {
       pushToast({ title: 'Odds refresh failed', message: bettingError.message, type: 'error' })
     }
     pushToast({ title: `Pitcher → ${charactersById[characterId]?.name}`, type: 'success' })
-  }, [selectedGame, canEditScorebook, charactersById, pushToast, gamePitching, buildOddsGenerationContext, gamePAs, upsertChangedOdds, ensureLiveOdds, scorebookTables.pitchingStints, addSourceFields])
+  }, [selectedGame, canEditScorebook, charactersById, playersById, pushToast, gamePitching, currentPitcherStint, buildOddsGenerationContext, gamePAs, upsertChangedOdds, ensureLiveOdds, scorebookTables.pitchingStints, scorebookTables.bets, scorebookTables.gameOdds, addSourceFields])
+
+  // Keep a stable ref to the latest changePitcher so saveTeamLineup (defined
+  // earlier in the component) can trigger pitcher changes without a circular
+  // dependency.
+  useEffect(() => { changePitcherRef.current = changePitcher }, [changePitcher])
 
   const handleMoundDragOver = useCallback((e) => { e.preventDefault(); setIsDragOverMound(true) }, [])
   const handleMoundDragLeave = useCallback(() => setIsDragOverMound(false), [])
@@ -5309,24 +5450,24 @@ export default function Scorebook() {
   useEffect(() => {
     if (!selectedGame || isGameComplete || !offense?.pitchingPlayerId || currentPitcherStint || !defensiveLineup.length) return
 
-    const fieldingStorageKey = isSeasonGame
-      ? `season-fielding-${gameSession?.sourceId}-${offense.pitchingPlayerId}`
-      : `roster-fielding-${gameSession?.sourceId}-${offense.pitchingPlayerId}`
+    const assignKey = `${selectedGame.id}-${offense.pitchingPlayerId}`
+    if (autoPitcherAssignRef.current === assignKey) return
 
-    let savedPitcherCharId = null
-    try {
-      const savedPositions = JSON.parse(localStorage.getItem(fieldingStorageKey) || 'null')
-      if (savedPositions && typeof savedPositions === 'object' && savedPositions.pitcher) {
-        savedPitcherCharId = Number(savedPositions.pitcher)
+    autoPitcherAssignRef.current = assignKey
+    const teamLineupsTable = isSeasonGame ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
+    fetchTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId: offense.pitchingPlayerId }).then((saved) => {
+      const savedPitcherCharId = saved?.fieldingPositions?.pitcher ? Number(saved.fieldingPositions.pitcher) : null
+      const savedPitcher = defensiveLineup.find((entry) => Number(entry.character_id) === Number(savedPitcherCharId))
+      const fallbackPitcher = defensiveLineup[0] || null
+      const pitcherToUse = savedPitcher || fallbackPitcher
+      if (!pitcherToUse?.character_id) {
+        autoPitcherAssignRef.current = null
+        return
       }
-    } catch {}
-
-    const savedPitcher = defensiveLineup.find((entry) => Number(entry.character_id) === Number(savedPitcherCharId))
-    const fallbackPitcher = defensiveLineup[0] || null
-    const pitcherToUse = savedPitcher || fallbackPitcher
-    if (!pitcherToUse?.character_id) return
-
-    changePitcher(offense.pitchingPlayerId, pitcherToUse.character_id)
+      changePitcher(offense.pitchingPlayerId, pitcherToUse.character_id).finally(() => {
+        if (autoPitcherAssignRef.current === assignKey) autoPitcherAssignRef.current = null
+      })
+    })
   }, [selectedGame?.id, isGameComplete, offense?.pitchingPlayerId, currentPitcherStint?.id, defensiveLineup, isSeasonGame, gameSession?.sourceId, changePitcher])
 
   // ── Add game ───────────────────────────────────────────────────────────────
@@ -5702,15 +5843,9 @@ export default function Scorebook() {
             chemistryHighlightIds={chemistryHighlightIds}
           />
         </div>
-        <button
-          type="button"
-          className="solid-button"
-          onClick={() => saveTeamLineup(team)}
-          disabled={!draft.order.length}
-          style={{ marginTop: 12 }}
-        >
-          Save {teamName} Lineup
-        </button>
+        <div style={{ marginTop: 12, fontSize: 12, color: C.muted, textAlign: 'right' }}>
+          {lineupSaveStatus[team] === 'saving' ? 'Saving…' : lineupSaveStatus[team] === 'saved' ? 'Saved' : ''}
+        </div>
       </SectionCard>
     )
   }

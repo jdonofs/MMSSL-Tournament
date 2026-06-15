@@ -15,6 +15,7 @@ import { buildChemistryHighlightSet } from '../utils/chemistryHighlights'
 import { formatCharacterDisplayName, getCharacterChemistryName } from '../utils/mii'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import { getTeamShortName } from '../utils/teamIdentity'
+import { fetchTeamLineup, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS } from '../utils/teamLineups'
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 function baseScore(c) {
@@ -484,7 +485,7 @@ function TournamentTradeBuilderWorkspace({
 }
 
 export default function Roster() {
-  const { player, isCommissioner } = useAuth()
+  const { player, isCommissioner, isScorekeeper } = useAuth()
   const { currentTournament, allTournaments, selectedTournamentId: ctxTournamentId } = useTournament()
   const { identitiesByPlayerId } = useTournamentTeamIdentity(currentTournament?.id)
   const [players, setPlayers] = useState([])
@@ -615,11 +616,22 @@ export default function Roster() {
       .filter(Boolean)
   }, [draftPicks, selectedTeamId, charactersById])
 
-  // Auto-populate fielding positions and lineup when team roster changes
+  const canEditRoster = String(selectedTeamId) === String(player?.id) || isCommissioner || isScorekeeper
+
+  // Tracks the most recently loaded/saved { lineupOrder, fieldingPositions } JSON
+  // for the current team, so the autosave effect can skip redundant writes
+  // (including writes triggered by our own realtime echo).
+  const lastSyncedLineupRef = useRef(null)
+  const lineupLoadKeyRef = useRef(null)
+
+  // Load saved lineup order + fielding positions from the database when the
+  // team roster changes, falling back to draft-pick order / first-9 fielding.
   useEffect(() => {
     if (teamRoster.length === 0) {
       setFieldingPositions({})
       setLineupOrder([])
+      lastSyncedLineupRef.current = null
+      lineupLoadKeyRef.current = null
       return
     }
 
@@ -628,13 +640,18 @@ export default function Roster() {
     for (let i = 0; i < Math.min(9, teamRoster.length); i++) {
       defaultFielding[positions[i]] = teamRoster[i].id
     }
-    const fieldingStorageKey = `roster-fielding-${selectedTournamentId}-${selectedTeamId}`
-    try {
-      const saved = JSON.parse(localStorage.getItem(fieldingStorageKey) || 'null')
-      if (saved && typeof saved === 'object') {
+    const defaultLineup = teamRoster.map(c => c.id)
+    const loadKey = `${selectedTournamentId}-${selectedTeamId}`
+
+    let cancelled = false
+    fetchTeamLineup({ ...TOURNAMENT_TEAM_LINEUPS, sourceId: selectedTournamentId, playerId: selectedTeamId }).then((saved) => {
+      if (cancelled) return
+
+      let fieldingPositionsResult = defaultFielding
+      if (saved && saved.fieldingPositions && Object.keys(saved.fieldingPositions).length) {
         const rosterIds = new Set(teamRoster.map((character) => character.id))
         const savedPositions = Object.fromEntries(
-          Object.entries(saved).filter(([, value]) => rosterIds.has(value)),
+          Object.entries(saved.fieldingPositions).filter(([, value]) => rosterIds.has(value)),
         )
         const placedIds = new Set(Object.values(savedPositions))
         const unplaced = teamRoster.map((character) => character.id).filter((id) => !placedIds.has(id))
@@ -642,33 +659,95 @@ export default function Roster() {
         unplaced.forEach((id, index) => {
           if (emptyPositions[index]) savedPositions[emptyPositions[index]] = id
         })
-        setFieldingPositions(savedPositions)
-      } else {
-        setFieldingPositions(defaultFielding)
+        fieldingPositionsResult = savedPositions
       }
-    } catch {
-      setFieldingPositions(defaultFielding)
-    }
 
-    // Load saved lineup order from localStorage, falling back to draft pick order
-    const savedKey = `roster-lineup-${selectedTournamentId}-${selectedTeamId}`
-    try {
-      const saved = JSON.parse(localStorage.getItem(savedKey) || 'null')
-      if (saved && Array.isArray(saved)) {
+      let lineupOrderResult = defaultLineup
+      if (saved && Array.isArray(saved.lineupOrder) && saved.lineupOrder.length) {
         const rosterIds = new Set(teamRoster.map(c => c.id))
-        const ordered = saved.filter(id => rosterIds.has(id))
+        const ordered = saved.lineupOrder.filter(id => rosterIds.has(id))
         const remaining = teamRoster.map(c => c.id).filter(id => !ordered.includes(id))
-        setLineupOrder([...ordered, ...remaining])
-        return
+        lineupOrderResult = [...ordered, ...remaining]
       }
-    } catch {}
-    setLineupOrder(teamRoster.map(c => c.id))
+
+      lastSyncedLineupRef.current = JSON.stringify({ lineupOrder: lineupOrderResult, fieldingPositions: fieldingPositionsResult })
+      lineupLoadKeyRef.current = loadKey
+      setFieldingPositions(fieldingPositionsResult)
+      setLineupOrder(lineupOrderResult)
+    })
+
+    return () => { cancelled = true }
   }, [teamRoster, selectedTournamentId, selectedTeamId])
 
+  // Autosave lineup order + fielding positions to the database (debounced),
+  // so every viewer of this team's roster sees edits in real time.
   useEffect(() => {
-    if (!selectedTournamentId || !selectedTeamId || !Object.keys(fieldingPositions).length) return
-    localStorage.setItem(`roster-fielding-${selectedTournamentId}-${selectedTeamId}`, JSON.stringify(fieldingPositions))
-  }, [selectedTournamentId, selectedTeamId, fieldingPositions])
+    if (!selectedTournamentId || !selectedTeamId) return
+    if (!canEditRoster) return
+    if (lineupLoadKeyRef.current !== `${selectedTournamentId}-${selectedTeamId}`) return
+    if (!lineupOrder.length && !Object.keys(fieldingPositions).length) return
+
+    const payload = JSON.stringify({ lineupOrder, fieldingPositions })
+    if (payload === lastSyncedLineupRef.current) return
+
+    const timeout = setTimeout(() => {
+      lastSyncedLineupRef.current = payload
+      upsertTeamLineup({
+        ...TOURNAMENT_TEAM_LINEUPS,
+        sourceId: selectedTournamentId,
+        playerId: selectedTeamId,
+        lineupOrder,
+        fieldingPositions,
+      })
+    }, 500)
+
+    return () => clearTimeout(timeout)
+  }, [selectedTournamentId, selectedTeamId, lineupOrder, fieldingPositions, canEditRoster])
+
+  // Realtime: pick up lineup/fielding edits made by anyone else (or from
+  // another device) for the currently viewed team.
+  useEffect(() => {
+    if (!selectedTournamentId || !selectedTeamId) return
+    const channel = supabase
+      .channel(`team-lineup-${selectedTournamentId}-${selectedTeamId}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'team_lineups',
+        filter: `tournament_id=eq.${selectedTournamentId}`,
+      }, (payload) => {
+        const row = payload.new
+        if (!row || String(row.player_id) !== String(selectedTeamId)) return
+        const lineupOrder = Array.isArray(row.lineup_order) ? row.lineup_order : []
+        const fieldingPositions = row.fielding_positions && typeof row.fielding_positions === 'object' ? row.fielding_positions : {}
+        lastSyncedLineupRef.current = JSON.stringify({ lineupOrder, fieldingPositions })
+        setLineupOrder(lineupOrder)
+        setFieldingPositions(fieldingPositions)
+      })
+      .subscribe()
+
+    // Browsers throttle/suspend websockets on backgrounded tabs, so a
+    // lineup/fielding change made elsewhere while this tab was hidden can be
+    // missed entirely. Re-fetch the saved lineup as soon as the tab becomes
+    // visible again.
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      fetchTeamLineup({ ...TOURNAMENT_TEAM_LINEUPS, sourceId: selectedTournamentId, playerId: selectedTeamId }).then((saved) => {
+        if (!saved) return
+        const lineupOrder = Array.isArray(saved.lineupOrder) ? saved.lineupOrder : []
+        const fieldingPositions = saved.fieldingPositions && typeof saved.fieldingPositions === 'object' ? saved.fieldingPositions : {}
+        const payload = JSON.stringify({ lineupOrder, fieldingPositions })
+        if (payload === lastSyncedLineupRef.current) return
+        lastSyncedLineupRef.current = payload
+        setLineupOrder(lineupOrder)
+        setFieldingPositions(fieldingPositions)
+      })
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      supabase.removeChannel(channel)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [selectedTournamentId, selectedTeamId])
 
   const rosterNames = useMemo(() => teamRoster.map(c => c.chemistryName || c.name), [teamRoster])
   const rosterCharacterMetaById = useMemo(() => Object.fromEntries(teamRoster.map(c => [c.id, c])), [teamRoster])
@@ -759,9 +838,6 @@ export default function Roster() {
       if (sourceIdx === -1) return prev
       newOrder.splice(sourceIdx, 1)
       newOrder.splice(index, 0, selectedLineupMoveId)
-      if (selectedTournamentId && selectedTeamId) {
-        localStorage.setItem(`roster-lineup-${selectedTournamentId}-${selectedTeamId}`, JSON.stringify(newOrder))
-      }
       return newOrder
     })
     setSelectedLineupMoveId(null)
@@ -775,15 +851,11 @@ export default function Roster() {
         if (!prev.includes(characterId)) return prev
         const newOrder = prev.filter(id => id !== characterId)
         newOrder.splice(index, 0, characterId)
-        if (selectedTournamentId && selectedTeamId) {
-          localStorage.setItem(`roster-lineup-${selectedTournamentId}-${selectedTeamId}`, JSON.stringify(newOrder))
-        }
         return newOrder
       })
     }
   }
 
-  const canEditRoster = String(selectedTeamId) === String(player?.id)
   const myPlayer = useMemo(() => players.find(p => String(p.id) === String(player?.id)), [players, player?.id])
   const playersById = useMemo(() => Object.fromEntries(players.map(p => [String(p.id), p])), [players])
   const teamLabel = useCallback(

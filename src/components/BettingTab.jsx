@@ -749,7 +749,7 @@ export default function BettingTab({ mode = 'tournament' }) {
   const wagerUnitLabel = 'dollars'
   const wagerUnitShort = '$'
   const payoutFormatter = (value) => `$${Number(value || 0).toFixed(2)}`
-  const sourceTables = isSeasonMode ? {
+  const sourceTables = useMemo(() => (isSeasonMode ? {
     games: 'season_schedule',
     picks: 'season_roster',
     pas: 'season_plate_appearances',
@@ -777,7 +777,7 @@ export default function BettingTab({ mode = 'tournament' }) {
     payoutField: 'potential_payout_dollars',
     ledgerTable: 'points_ledger',
     ledgerChangeField: 'points_change',
-  }
+  }), [isSeasonMode])
   const [games, setGames] = useState([])
   const [players, setPlayers] = useState([])
   const [characters, setCharacters] = useState([])
@@ -813,6 +813,15 @@ export default function BettingTab({ mode = 'tournament' }) {
   const [myBetsFilter, setMyBetsFilter] = useState('all')
   const hasLoadedOnceRef = useRef(false)
   const autoSyncRef = useRef({})
+  // Keep refs to frequently-changing values so the realtime subscription
+  // effect below doesn't need them as dependencies (which would tear down
+  // and recreate the channel on every update, dropping live events).
+  const stadiumsRef = useRef(stadiums)
+  useEffect(() => { stadiumsRef.current = stadiums }, [stadiums])
+  const playersRef = useRef(players)
+  useEffect(() => { playersRef.current = players }, [players])
+  const seasonTeamsRef = useRef(seasonTeams)
+  useEffect(() => { seasonTeamsRef.current = seasonTeams }, [seasonTeams])
   const runLineRailRef = useRef(null)
   const totalRailRef = useRef(null)
   const { identitiesByPlayerId: tournamentIdentitiesByPlayerId } = useTournamentTeamIdentity(currentTournament?.id)
@@ -907,52 +916,79 @@ export default function BettingTab({ mode = 'tournament' }) {
     load()
   }, [currentTournament?.id, currentSeason?.id, isSeasonMode, seasonTeams, sourceContext?.id])
 
+  const refetchOdds = useCallback(async () => {
+    const { data } = await supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }).range(0, 49999)
+    setGameOdds(data || [])
+  }, [sourceTables])
+
+  const refetchBets = useCallback(async () => {
+    const query = supabase.from(sourceTables.bets).select('*').order('placed_at', { ascending: false })
+    const { data } = isSeasonMode ? await query.eq('season_id', sourceContext?.id || -1) : await query
+    setBets(data || [])
+  }, [sourceTables, isSeasonMode, sourceContext?.id])
+
+  const refetchGames = useCallback(async () => {
+    const { data } = isSeasonMode
+      ? await supabase.from(sourceTables.games).select('*').eq('season_id', sourceContext?.id || -1).order('id')
+      : await supabase.from(sourceTables.games).select('*').order('id')
+    if (isSeasonMode) {
+      const teamsById = Object.fromEntries((seasonTeamsRef.current || []).map((entry) => [entry.id, entry]))
+      const stadiumsByName = Object.fromEntries(stadiumsRef.current.map((entry) => [entry.name, entry]))
+      const playersById = Object.fromEntries(playersRef.current.map((entry) => [entry.id, entry]))
+      setGames((data || []).map((entry) => normalizeSeasonGame(entry, teamsById, stadiumsByName, playersById)))
+    } else {
+      setGames((data || []).filter((entry) => GAME_STATUSES.has(entry.status)))
+    }
+  }, [sourceTables, isSeasonMode, sourceContext?.id])
+
+  const refetchPitching = useCallback(async () => {
+    const { data } = await supabase.from(sourceTables.pitching).select('*').order('created_at')
+    setPitchingStints(data || [])
+  }, [sourceTables])
+
+  const refetchPicks = useCallback(async () => {
+    if (isSeasonMode) {
+      const [{ data }, { data: charsData }] = await Promise.all([
+        supabase.from(sourceTables.picks).select('*').eq('season_id', sourceContext?.id || -1).order('created_at'),
+        supabase.from('characters').select('*'),
+      ])
+      const charactersByName = Object.fromEntries((charsData || []).map((entry) => [entry.name, entry]))
+      setDraftPicks(normalizeSeasonDraftPicks(data || [], sourceContext?.id, seasonTeamsRef.current, charactersByName))
+      return
+    }
+    const { data } = await supabase.from(sourceTables.picks).select('*')
+    setDraftPicks(data || [])
+  }, [sourceTables, isSeasonMode, sourceContext?.id])
+
+  // Browsers throttle/suspend websockets on backgrounded tabs, so realtime
+  // events for lineup/pitcher/odds changes that happen while a tab is hidden
+  // can be missed entirely. Re-sync the data that drives the betting board
+  // as soon as the tab becomes visible again, without a full page reload.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      refetchOdds()
+      refetchBets()
+      refetchPitching()
+      refetchGames()
+      refetchPicks()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [refetchOdds, refetchBets, refetchPitching, refetchGames, refetchPicks])
+
   useEffect(() => {
     const channel = supabase
       .channel(`betting-board-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.odds }, async () => {
-        const { data } = await supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }).range(0, 49999)
-        setGameOdds(data || [])
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.bets }, async () => {
-        const query = supabase.from(sourceTables.bets).select('*').order('placed_at', { ascending: false })
-        const { data } = isSeasonMode ? await query.eq('season_id', sourceContext?.id || -1) : await query
-        setBets(data || [])
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.games }, async () => {
-        const { data } = isSeasonMode
-          ? await supabase.from(sourceTables.games).select('*').eq('season_id', sourceContext?.id || -1).order('id')
-          : await supabase.from(sourceTables.games).select('*').order('id')
-        if (isSeasonMode) {
-          const teamsById = Object.fromEntries((seasonTeams || []).map((entry) => [entry.id, entry]))
-          const stadiumsByName = Object.fromEntries(stadiums.map((entry) => [entry.name, entry]))
-          const playersById = Object.fromEntries(players.map((entry) => [entry.id, entry]))
-          setGames((data || []).map((entry) => normalizeSeasonGame(entry, teamsById, stadiumsByName, playersById)))
-        } else {
-          setGames((data || []).filter((entry) => GAME_STATUSES.has(entry.status)))
-        }
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.odds }, refetchOdds)
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.bets }, refetchBets)
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.games }, refetchGames)
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pas }, async () => {
         const { data } = await supabase.from(sourceTables.pas).select('*').order('created_at')
         setPlateAppearances(data || [])
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pitching }, async () => {
-        const { data } = await supabase.from(sourceTables.pitching).select('*').order('created_at')
-        setPitchingStints(data || [])
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.picks }, async () => {
-        if (isSeasonMode) {
-          const [{ data }, { data: charsData }] = await Promise.all([
-            supabase.from(sourceTables.picks).select('*').eq('season_id', sourceContext?.id || -1).order('created_at'),
-            supabase.from('characters').select('*'),
-          ])
-          const charactersByName = Object.fromEntries((charsData || []).map((entry) => [entry.name, entry]))
-          setDraftPicks(normalizeSeasonDraftPicks(data || [], sourceContext?.id, seasonTeams, charactersByName))
-          return
-        }
-        const { data } = await supabase.from(sourceTables.picks).select('*')
-        setDraftPicks(data || [])
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pitching }, refetchPitching)
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.picks }, refetchPicks)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'odds_engine_weights' }, async () => {
         const { data } = await supabase.from('odds_engine_weights').select('*').eq('id', 1).maybeSingle()
         if (data) setWeights(data)
@@ -995,7 +1031,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           ? await supabase.from(sourceTables.stadiumLog).select('*').eq('season_id', sourceContext?.id || -1).order('created_at')
           : await supabase.from(sourceTables.stadiumLog).select('*').order('created_at')
         if (isSeasonMode) {
-          const stadiumsByName = Object.fromEntries(stadiums.map((entry) => [entry.name, entry]))
+          const stadiumsByName = Object.fromEntries(stadiumsRef.current.map((entry) => [entry.name, entry]))
           setStadiumGameLog((data || []).map((entry) => ({ ...entry, stadium_id: stadiumsByName[entry.stadium]?.id || null })))
         } else {
           setStadiumGameLog(data || [])
@@ -1004,7 +1040,7 @@ export default function BettingTab({ mode = 'tournament' }) {
       .subscribe()
 
     return () => supabase.removeChannel(channel)
-  }, [isSeasonMode, seasonTeams, sourceContext?.id, stadiums, sourceTables, players])
+  }, [isSeasonMode, sourceContext?.id, sourceTables, refetchOdds, refetchBets, refetchGames, refetchPitching, refetchPicks])
 
   const playersById = useMemo(() => Object.fromEntries(players.map((entry) => [entry.id, entry])), [players])
 
@@ -1321,6 +1357,11 @@ export default function BettingTab({ mode = 'tournament' }) {
     const tabs = Object.fromEntries(DETAIL_TABS.map((tab) => [tab.id, {}]))
     detailOdds.forEach((row) => {
       if (row.bet_type === 'custom') return
+      // Locked player props (e.g. a pitcher who's been pulled) are stale —
+      // hide them from the active board. Anyone who already bet on them can
+      // still see/settle the bet via My Bets, which reads from `bets`
+      // directly rather than this prop list.
+      if (row.is_locked && ['k_prop', 'hr_prop', 'hit_prop'].includes(row.bet_type)) return
       const bucket = getDetailBucket(row)
       tabs[bucket.tab][bucket.section] = tabs[bucket.tab][bucket.section] || []
       tabs[bucket.tab][bucket.section].push(row)

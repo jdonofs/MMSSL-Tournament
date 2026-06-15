@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 
 const AuthContext = createContext(null)
@@ -38,6 +38,7 @@ async function fetchLinkedPlayer(userId) {
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
+  const sessionRef = useRef(null)
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -79,6 +80,7 @@ export function AuthProvider({ children }) {
         return
       }
       setSession(data.session || null)
+      sessionRef.current = data.session || null
       try {
         await resolvePlayerForSession(data.session || null)
       } finally {
@@ -90,8 +92,21 @@ export function AuthProvider({ children }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      // TOKEN_REFRESHED fires whenever the tab regains focus/visibility, for
+      // the same signed-in user. Re-running setLoading(true) + re-resolving
+      // the player on every one of these caused the whole app to flash a
+      // loading state (feeling like a forced refresh) every time someone
+      // switched tabs. Only treat it as a real session change if the user
+      // actually changed.
+      if (event === 'TOKEN_REFRESHED' && nextSession?.user?.id === sessionRef.current?.user?.id) {
+        setSession(nextSession || null)
+        sessionRef.current = nextSession || null
+        return
+      }
+
       setSession(nextSession || null)
+      sessionRef.current = nextSession || null
       setLoading(true)
       resolvePlayerForSession(nextSession || null)
         .catch(() => {

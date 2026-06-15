@@ -16,6 +16,7 @@ import { buildChemistryHighlightSet } from '../utils/chemistryHighlights'
 import { formatSeasonLabel } from '../utils/season'
 import { buildSeasonTeamIdentity, getTeamShortName } from '../utils/teamIdentity'
 import { summarizeBatting, summarizePitching } from '../utils/statsCalculator'
+import { fetchTeamLineup, upsertTeamLineup, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
 
 const TABS = ['Rosters', 'Trade Center', 'Free Agents', 'Transactions']
 const WAIVER_DURATION_MS = 7 * 24 * 60 * 60 * 1000
@@ -609,7 +610,7 @@ function TradeBuilderWorkspace({
 }
 
 export default function SeasonRoster() {
-  const { player, is_logged_in } = useAuth()
+  const { player, is_logged_in, isScorekeeper } = useAuth()
   const { currentSeason, seasonTeams, standings, tradeDeadlinePassed, seasonPlayersById } = useSeason()
   const { pushToast } = useToast()
   const [players, setPlayers] = useState([])
@@ -637,6 +638,8 @@ export default function SeasonRoster() {
   const [cardCharacterStats, setCardCharacterStats] = useState(null)
   const [selectedLineupMoveId, setSelectedLineupMoveId] = useState(null)
   const processingWaiversRef = useRef(false)
+  const lastSyncedLineupRef = useRef(null)
+  const lineupLoadKeyRef = useRef(null)
 
   const loadRosterData = useCallback(async () => {
     if (!currentSeason?.id) return
@@ -882,7 +885,7 @@ export default function SeasonRoster() {
   const viewedPlayerId = viewedTeam?.player_id || null
   const isViewingOwnTeam = String(viewedTeam?.id || '') === String(myTeam?.id || '')
   const isCommissioner = Boolean(player?.is_commissioner)
-  const canEditRoster = isViewingOwnTeam || isCommissioner
+  const canEditRoster = isViewingOwnTeam || isCommissioner || isScorekeeper
   // The Rosters tab always shows the currently-selected team (viewedTeam)
   const lineupTeam = viewedTeam || myTeam || null
   const lineupRoster = activeRosterByTeamId[String(lineupTeam?.id)] || []
@@ -1030,6 +1033,8 @@ export default function SeasonRoster() {
     }
   }, [myTeam?.id, seasonTeams, viewedTeamId])
 
+  // Load saved lineup order + fielding positions from the database when the
+  // viewed team's roster changes, falling back to roster order / first-9 fielding.
   useEffect(() => {
     if (!viewedRosterCharacters.length || !currentSeason?.id || !viewedPlayerId) {
       setFieldingPositions({})
@@ -1037,60 +1042,118 @@ export default function SeasonRoster() {
       setSelectedPlayer(null)
       setCardCharacterId(null)
       setSelectedLineupMoveId(null)
+      lastSyncedLineupRef.current = null
+      lineupLoadKeyRef.current = null
       return
     }
 
     const defaultLineup = viewedRosterCharacters.map((entry) => entry.id)
-    const lineupStorageKey = `season-lineup-${currentSeason.id}-${viewedPlayerId}`
-    try {
-      const saved = JSON.parse(localStorage.getItem(lineupStorageKey) || 'null')
-      if (saved && Array.isArray(saved)) {
-        const rosterIds = new Set(defaultLineup)
-        const ordered = saved.filter((id) => rosterIds.has(id))
-        const remaining = defaultLineup.filter((id) => !ordered.includes(id))
-        setLineupOrder([...ordered, ...remaining])
-      } else {
-        setLineupOrder(defaultLineup)
-      }
-    } catch {
-      setLineupOrder(defaultLineup)
-    }
-
-    const fieldingStorageKey = `season-fielding-${currentSeason.id}-${viewedPlayerId}`
     const allowedIds = new Set(defaultLineup)
+    const loadKey = `${currentSeason.id}-${viewedPlayerId}`
 
-    // Load saved positions, strip out removed characters, then auto-fill any new ones
-    let savedPositions = {}
-    try {
-      const saved = JSON.parse(localStorage.getItem(fieldingStorageKey) || 'null')
-      if (saved && typeof saved === 'object') {
+    let cancelled = false
+    fetchTeamLineup({ ...SEASON_TEAM_LINEUPS, sourceId: currentSeason.id, playerId: viewedPlayerId }).then((saved) => {
+      if (cancelled) return
+
+      let lineupOrderResult = defaultLineup
+      if (saved && Array.isArray(saved.lineupOrder) && saved.lineupOrder.length) {
+        const ordered = saved.lineupOrder.filter((id) => allowedIds.has(id))
+        const remaining = defaultLineup.filter((id) => !ordered.includes(id))
+        lineupOrderResult = [...ordered, ...remaining]
+      }
+
+      // Load saved positions, strip out removed characters, then auto-fill any new ones
+      let savedPositions = {}
+      if (saved && saved.fieldingPositions && Object.keys(saved.fieldingPositions).length) {
         savedPositions = Object.fromEntries(
-          Object.entries(saved).filter(([, value]) => allowedIds.has(value)),
+          Object.entries(saved.fieldingPositions).filter(([, value]) => allowedIds.has(value)),
         )
       }
-    } catch {
-      // start fresh
-    }
+      const placedIds = new Set(Object.values(savedPositions))
+      const unplaced = defaultLineup.filter((id) => !placedIds.has(id))
+      const emptyPositions = FIELD_POSITIONS.filter((pos) => !savedPositions[pos.id])
+      unplaced.forEach((id, i) => {
+        if (emptyPositions[i]) savedPositions[emptyPositions[i].id] = id
+      })
 
-    const placedIds = new Set(Object.values(savedPositions))
-    const unplaced = defaultLineup.filter((id) => !placedIds.has(id))
-    const emptyPositions = FIELD_POSITIONS.filter((pos) => !savedPositions[pos.id])
-    unplaced.forEach((id, i) => {
-      if (emptyPositions[i]) savedPositions[emptyPositions[i].id] = id
+      lastSyncedLineupRef.current = JSON.stringify({ lineupOrder: lineupOrderResult, fieldingPositions: savedPositions })
+      lineupLoadKeyRef.current = loadKey
+      setLineupOrder(lineupOrderResult)
+      setFieldingPositions(savedPositions)
     })
 
-    setFieldingPositions(savedPositions)
+    return () => { cancelled = true }
   }, [currentSeason?.id, viewedPlayerId, viewedRosterCharacters])
 
+  // Autosave lineup order + fielding positions to the database (debounced),
+  // so every viewer of this team's roster sees edits in real time.
   useEffect(() => {
-    if (!currentSeason?.id || !viewedPlayerId || !lineupOrder.length) return
-    localStorage.setItem(`season-lineup-${currentSeason.id}-${viewedPlayerId}`, JSON.stringify(lineupOrder))
-  }, [currentSeason?.id, lineupOrder, viewedPlayerId])
+    if (!currentSeason?.id || !viewedPlayerId) return
+    if (!canEditRoster) return
+    if (lineupLoadKeyRef.current !== `${currentSeason.id}-${viewedPlayerId}`) return
+    if (!lineupOrder.length && !Object.keys(fieldingPositions).length) return
 
+    const payload = JSON.stringify({ lineupOrder, fieldingPositions })
+    if (payload === lastSyncedLineupRef.current) return
+
+    const timeout = setTimeout(() => {
+      lastSyncedLineupRef.current = payload
+      upsertTeamLineup({
+        ...SEASON_TEAM_LINEUPS,
+        sourceId: currentSeason.id,
+        playerId: viewedPlayerId,
+        lineupOrder,
+        fieldingPositions,
+      })
+    }, 500)
+
+    return () => clearTimeout(timeout)
+  }, [currentSeason?.id, viewedPlayerId, lineupOrder, fieldingPositions, canEditRoster])
+
+  // Realtime: pick up lineup/fielding edits made by anyone else (or from
+  // another device) for the currently viewed team.
   useEffect(() => {
-    if (!currentSeason?.id || !viewedPlayerId || !Object.keys(fieldingPositions).length) return
-    localStorage.setItem(`season-fielding-${currentSeason.id}-${viewedPlayerId}`, JSON.stringify(fieldingPositions))
-  }, [currentSeason?.id, fieldingPositions, viewedPlayerId])
+    if (!currentSeason?.id || !viewedPlayerId) return
+    const channel = supabase
+      .channel(`season-team-lineup-${currentSeason.id}-${viewedPlayerId}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'season_team_lineups',
+        filter: `season_id=eq.${currentSeason.id}`,
+      }, (payload) => {
+        const row = payload.new
+        if (!row || String(row.player_id) !== String(viewedPlayerId)) return
+        const lineupOrder = Array.isArray(row.lineup_order) ? row.lineup_order : []
+        const fieldingPositions = row.fielding_positions && typeof row.fielding_positions === 'object' ? row.fielding_positions : {}
+        lastSyncedLineupRef.current = JSON.stringify({ lineupOrder, fieldingPositions })
+        setLineupOrder(lineupOrder)
+        setFieldingPositions(fieldingPositions)
+      })
+      .subscribe()
+
+    // Browsers throttle/suspend websockets on backgrounded tabs, so a
+    // lineup/fielding change made elsewhere while this tab was hidden can be
+    // missed entirely. Re-fetch the saved lineup as soon as the tab becomes
+    // visible again.
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      fetchTeamLineup({ ...SEASON_TEAM_LINEUPS, sourceId: currentSeason.id, playerId: viewedPlayerId }).then((saved) => {
+        if (!saved) return
+        const lineupOrder = Array.isArray(saved.lineupOrder) ? saved.lineupOrder : []
+        const fieldingPositions = saved.fieldingPositions && typeof saved.fieldingPositions === 'object' ? saved.fieldingPositions : {}
+        const payload = JSON.stringify({ lineupOrder, fieldingPositions })
+        if (payload === lastSyncedLineupRef.current) return
+        lastSyncedLineupRef.current = payload
+        setLineupOrder(lineupOrder)
+        setFieldingPositions(fieldingPositions)
+      })
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      supabase.removeChannel(channel)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [currentSeason?.id, viewedPlayerId])
 
   const handleDragStartRoster = (characterId) => (event) => {
     if (!canEditRoster) return
