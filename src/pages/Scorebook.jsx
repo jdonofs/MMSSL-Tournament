@@ -2866,6 +2866,28 @@ export default function Scorebook() {
   const applyLineupToGameRef = useRef(null)
   useEffect(() => { applyLineupToGameRef.current = applyLineupToGame }, [applyLineupToGame])
 
+  // Shared handler for an incoming team_lineups/season_team_lineups row
+  // (from realtime or from the polling fallback below): updates this
+  // Scorebook session's draft, and — if this session can write to
+  // lineups/game_fielders — applies it there too.
+  const applyIncomingTeamLineup = useCallback((team, lineupOrder, fieldingPositions) => {
+    const payloadJson = JSON.stringify({ lineupOrder, fieldingPositions })
+    if (payloadJson === lastSyncedTeamLineupRef.current[team]) return
+    lastSyncedTeamLineupRef.current[team] = payloadJson
+
+    if (!lineupDirtyRef.current[team]) {
+      setLineupDrafts((current) => ({ ...current, [team]: { order: lineupOrder, fielding: fieldingPositions } }))
+    }
+    // Only a scorekeeper/commissioner session can write to
+    // lineups/game_fielders (per RLS) — other viewers just update their
+    // local draft above and pick up the lineups/game_fielders rows via
+    // those tables' own realtime subscriptions once a scorekeeper
+    // session applies the change.
+    if (canEditScorebook) {
+      applyLineupToGameRef.current?.(team, lineupOrder, fieldingPositions, { skipMirror: true })
+    }
+  }, [canEditScorebook])
+
   // Realtime: pick up lineup/fielding edits made via Roster/SeasonRoster (or
   // another Scorebook session) for either team in this game, and apply them
   // to lineups/game_fielders so the Lineups tab, field diagram, game view,
@@ -2892,26 +2914,53 @@ export default function Scorebook() {
 
         const lineupOrder = Array.isArray(row.lineup_order) ? row.lineup_order : []
         const fieldingPositions = row.fielding_positions && typeof row.fielding_positions === 'object' ? row.fielding_positions : {}
-        const payloadJson = JSON.stringify({ lineupOrder, fieldingPositions })
-        if (payloadJson === lastSyncedTeamLineupRef.current[team]) return
-        lastSyncedTeamLineupRef.current[team] = payloadJson
-
-        if (!lineupDirtyRef.current[team]) {
-          setLineupDrafts((current) => ({ ...current, [team]: { order: lineupOrder, fielding: fieldingPositions } }))
-        }
-        // Only a scorekeeper/commissioner session can write to
-        // lineups/game_fielders (per RLS) — other viewers just update their
-        // local draft above and pick up the lineups/game_fielders rows via
-        // those tables' own realtime subscriptions once a scorekeeper
-        // session applies the change.
-        if (canEditScorebook) {
-          applyLineupToGameRef.current?.(team, lineupOrder, fieldingPositions, { skipMirror: true })
-        }
+        applyIncomingTeamLineup(team, lineupOrder, fieldingPositions)
       })
       .subscribe()
 
-    return () => supabase.removeChannel(channel)
-  }, [gameSession?.sourceId, isSeasonGame, selectedGame?.team_a_player_id, selectedGame?.team_b_player_id, canEditScorebook])
+    // Realtime postgres_changes can silently fail to deliver in some
+    // environments (and browsers throttle websockets on backgrounded tabs),
+    // so poll both teams' saved lineup/fielding as a fallback to guarantee
+    // they stay in sync everywhere — including a pitcher change made while
+    // that team was batting, which gets applied the moment they take the
+    // mound via the offense-change effect below.
+    const pollTeamLineups = () => {
+      const teams = [
+        ['A', teamAPlayerId],
+        ['B', teamBPlayerId],
+      ]
+      teams.forEach(([team, playerId]) => {
+        if (!playerId) return
+        fetchTeamLineup({ ...teamLineupsTable, sourceId, playerId }).then((saved) => {
+          if (!saved) return
+          const lineupOrder = Array.isArray(saved.lineupOrder) ? saved.lineupOrder : []
+          const fieldingPositions = saved.fieldingPositions && typeof saved.fieldingPositions === 'object' ? saved.fieldingPositions : {}
+          applyIncomingTeamLineup(team, lineupOrder, fieldingPositions)
+        })
+      })
+    }
+    const pollInterval = setInterval(pollTeamLineups, 5000)
+
+    return () => {
+      supabase.removeChannel(channel)
+      clearInterval(pollInterval)
+    }
+  }, [gameSession?.sourceId, isSeasonGame, selectedGame?.team_a_player_id, selectedGame?.team_b_player_id, applyIncomingTeamLineup])
+
+  // A pitcher swap made while a team was batting can't be applied to
+  // pitching_stints right away (they're not the pitching team yet). Once
+  // that team takes the mound, check their saved fielding.pitcher against
+  // the active pitching stint and apply the change then.
+  useEffect(() => {
+    if (!offense?.pitchingPlayerId || !canEditScorebook) return
+    const team = String(offense.pitchingPlayerId) === String(selectedGame?.team_a_player_id) ? 'A'
+      : String(offense.pitchingPlayerId) === String(selectedGame?.team_b_player_id) ? 'B' : null
+    if (!team) return
+    const desiredPitcherCharId = lineupDrafts[team]?.fielding?.pitcher ? Number(lineupDrafts[team].fielding.pitcher) : null
+    if (desiredPitcherCharId && desiredPitcherCharId !== Number(currentPitcherStint?.character_id)) {
+      changePitcherRef.current?.(offense.pitchingPlayerId, desiredPitcherCharId)
+    }
+  }, [offense?.pitchingPlayerId, canEditScorebook, lineupDrafts, currentPitcherStint, selectedGame?.team_a_player_id, selectedGame?.team_b_player_id])
 
   // Auto-save lineup/fielding edits a moment after the user stops editing —
   // every other viewer's Lineups tab picks this up via the realtime
