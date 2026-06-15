@@ -60,11 +60,11 @@ export default function BracketView({ games, playersById, identitiesByPlayerId =
         </div>
         <strong>{normalizeStageLabel(game.stage)}</strong>
         <div className="bracket-team-line">
-          <span style={{ color: teamAColor }}><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} /></span>
+          <span style={{ color: teamAColor }}><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} responsiveAbbreviation /></span>
           <span>{game.team_a_runs}</span>
         </div>
         <div className="bracket-team-line">
-          <span style={{ color: teamBColor }}><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} /></span>
+          <span style={{ color: teamBColor }}><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} responsiveAbbreviation /></span>
           <span>{game.team_b_runs}</span>
         </div>
       </>

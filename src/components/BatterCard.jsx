@@ -1,4 +1,5 @@
 import CharacterPortrait from './CharacterPortrait'
+import { formatPlateAppearanceResult } from '../utils/plateAppearance'
 
 export default function BatterCard({
   batter,
@@ -38,7 +39,7 @@ export default function BatterCard({
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
           {gameResults.map((result) => (
             <span key={result.id} style={{ borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', padding: '4px 8px', fontSize: 11, fontWeight: 700, color: '#E2E8F0' }}>
-              {result.result}
+              {formatPlateAppearanceResult(result)}
             </span>
           ))}
         </div>

@@ -7,6 +7,7 @@ import { useSeason } from '../context/SeasonContext'
 import { useToast } from '../context/ToastContext'
 import PlayerTag from '../components/PlayerTag'
 import TeamLogo from '../components/TeamLogo'
+import { getFinalStatusLabel } from '../utils/gameRules'
 import { formatSeasonLabel } from '../utils/season'
 import { buildScorebookPath } from '../utils/scorebookRouting'
 import { getOrderedStadiums, getStadiumTimeLabel, normalizeIsNightForStadium, stadiumTimeToggleDisabled } from '../utils/stadiums'
@@ -29,9 +30,9 @@ function deriveLiveInningState(outsRecorded = 0) {
   }
 }
 
-function getGameUpdateText(game, liveOutsByGameId = {}) {
+function getGameUpdateText(game, liveOutsByGameId = {}, regulationInnings) {
   if (!game) return 'Unavailable'
-  if (game.status === 'completed') return 'Final'
+  if (game.status === 'completed') return getFinalStatusLabel(game, regulationInnings)
   if (game.status === 'in_progress') {
     const { inning, isTop } = deriveLiveInningState(liveOutsByGameId[String(game.id)] || 0)
     return `${isTop ? 'Top' : 'Bottom'} ${inning}`
@@ -102,9 +103,11 @@ function SeasonGameDetail({
   savePending,
   startPending,
   canEditStadium,
+  canShowStartGame = false,
   canStartGame = true,
   lockReason = '',
   showSetup = false,
+  regulationInnings,
 }) {
   const orderedStadiums = useMemo(() => getOrderedStadiums(stadiums), [stadiums])
   const [selectedStadiumName, setSelectedStadiumName] = useState('')
@@ -137,6 +140,9 @@ function SeasonGameDetail({
   const hasResolvedMatchup = Boolean(homeTeam && awayTeam)
   const canSaveSetup = Boolean(displayStadium) && canEditStadium
   const canStart = Boolean(displayStadium && hasResolvedMatchup && canStartGame)
+  const statusLabel = game.status === 'completed'
+    ? getFinalStatusLabel(game, regulationInnings)
+    : formatSeasonLabel(game.status)
 
   return (
     <div className="modal-backdrop">
@@ -158,7 +164,7 @@ function SeasonGameDetail({
             </h2>
           </div>
           <span className="player-pill" style={{ borderColor: getStatusTone(game.status).border, color: getStatusTone(game.status).color }}>
-            {formatSeasonLabel(game.status)}
+            {statusLabel}
           </span>
         </div>
         <div style={{ display: 'grid', gap: 12, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
@@ -189,46 +195,50 @@ function SeasonGameDetail({
                       : 'The home team controls the stadium selection for this game.'}
                   </span>
                 </div>
-                <select
-                  value={selectedStadiumName}
-                  onChange={(event) => {
-                    const stadium = orderedStadiums.find((entry) => entry.name === event.target.value)
-                    setSelectedStadiumName(event.target.value)
-                    setSelectedIsNight(normalizeIsNightForStadium(stadium, selectedIsNight))
-                  }}
-                  disabled={savePending || !canEditStadium}
-                  style={{ width: '100%', borderRadius: 10, border: '1px solid #334155', background: '#0F172A', color: '#E2E8F0', padding: '10px 12px', fontSize: 14 }}
-                >
-                  <option value="">Select a stadium</option>
-                  {orderedStadiums.map((stadium) => (
-                    <option key={stadium.id || stadium.name} value={stadium.name}>
-                      {stadium.name}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                  <button
-                    className="ghost-button"
-                    onClick={() => setSelectedIsNight((current) => !normalizeIsNightForStadium(selectedStadium, current))}
-                    type="button"
-                    disabled={savePending || !canEditStadium || !selectedStadium || stadiumTimeToggleDisabled(selectedStadium)}
-                  >
-                    {normalizedIsNight ? <Moon size={16} /> : <Sun size={16} />}
-                    <span>{normalizedIsNight ? 'Night Game' : 'Day Game'}</span>
-                  </button>
-                  {selectedStadium && (selectedStadium.day_only || selectedStadium.night_only) ? (
-                    <span className="muted" style={{ fontSize: 12 }}>
-                      {selectedStadium.night_only ? 'This stadium is night-only.' : 'This stadium is day-only.'}
-                    </span>
-                  ) : null}
-                </div>
+                {canEditStadium ? (
+                  <>
+                    <select
+                      value={selectedStadiumName}
+                      onChange={(event) => {
+                        const stadium = orderedStadiums.find((entry) => entry.name === event.target.value)
+                        setSelectedStadiumName(event.target.value)
+                        setSelectedIsNight(normalizeIsNightForStadium(stadium, selectedIsNight))
+                      }}
+                      disabled={savePending}
+                      style={{ width: '100%', borderRadius: 10, border: '1px solid #334155', background: '#0F172A', color: '#E2E8F0', padding: '10px 12px', fontSize: 14 }}
+                    >
+                      <option value="">Select a stadium</option>
+                      {orderedStadiums.map((stadium) => (
+                        <option key={stadium.id || stadium.name} value={stadium.name}>
+                          {stadium.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                      <button
+                        className="ghost-button"
+                        onClick={() => setSelectedIsNight((current) => !normalizeIsNightForStadium(selectedStadium, current))}
+                        type="button"
+                        disabled={savePending || !selectedStadium || stadiumTimeToggleDisabled(selectedStadium)}
+                      >
+                        {normalizedIsNight ? <Moon size={16} /> : <Sun size={16} />}
+                        <span>{normalizedIsNight ? 'Night Game' : 'Day Game'}</span>
+                      </button>
+                      {selectedStadium && (selectedStadium.day_only || selectedStadium.night_only) ? (
+                        <span className="muted" style={{ fontSize: 12 }}>
+                          {selectedStadium.night_only ? 'This stadium is night-only.' : 'This stadium is day-only.'}
+                        </span>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
               </div>
             </section>
           ) : null}
         </div>
         <div className="modal-actions">
           <button className="ghost-button" onClick={onClose} type="button">Close</button>
-          {showSetup && onSaveSetup ? (
+          {showSetup && onSaveSetup && canEditStadium ? (
             <button
               className="ghost-button"
               disabled={!canSaveSetup || savePending}
@@ -242,7 +252,7 @@ function SeasonGameDetail({
               {savePending ? 'Saving...' : 'Save Setup'}
             </button>
           ) : null}
-          {['scheduled', 'in_progress'].includes(game.status) ? (
+          {canShowStartGame && ['scheduled', 'in_progress'].includes(game.status) ? (
             <button
               className="solid-button"
               disabled={!canStart || savePending || startPending}
@@ -291,7 +301,7 @@ export default function SeasonSchedule() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { pushToast } = useToast()
-  const { player, is_logged_in } = useAuth()
+  const { player, is_logged_in, isScorekeeper } = useAuth()
   const { currentSeason, schedule, seasonTeams, seasonPlayersById, refreshSeasons, selectedSeasonId } = useSeason()
   const [selectedWeek, setSelectedWeek] = useState(1)
   const [stadiums, setStadiums] = useState([])
@@ -412,8 +422,8 @@ export default function SeasonSchedule() {
   const canEditStadiumForGame = useCallback((game) => {
     if (!game) return false
     const pickerTeam = teamsById[game.stadium_picker_team_id] || teamsById[game.home_team_id]
-    return Boolean(player?.is_commissioner || (pickerTeam?.player_id && String(pickerTeam.player_id) === String(player?.id)))
-  }, [player, teamsById])
+    return Boolean(isScorekeeper || (pickerTeam?.player_id && String(pickerTeam.player_id) === String(player?.id)))
+  }, [isScorekeeper, player, teamsById])
 
   const playoffMetaByGameId = useMemo(() => {
     const meta = {}
@@ -616,7 +626,7 @@ export default function SeasonSchedule() {
             const homeValue = showScore ? Number(game.home_score || 0) : (homeTeam ? `${homeTeam.wins}-${homeTeam.losses}` : '--')
             const awayValue = showScore ? Number(game.away_score || 0) : (awayTeam ? `${awayTeam.wins}-${awayTeam.losses}` : '--')
             const winningTeamId = getWinningTeamId(game)
-            const updateText = getGameUpdateText(game, liveOutsByGameId)
+            const updateText = getGameUpdateText(game, liveOutsByGameId, game.innings ?? currentSeason?.innings)
             const playoffMeta = game.stage ? playoffMetaByGameId[String(game.id)] : null
             return (
               <button
@@ -779,9 +789,11 @@ export default function SeasonSchedule() {
         savePending={savePending}
         startPending={String(openingGameId) === String(gameModal?.game?.id)}
         canEditStadium={canEditStadiumForGame(gameModal?.game)}
+        canShowStartGame={isScorekeeper}
         canStartGame={gameModal?.canStartGame ?? true}
         lockReason={gameModal?.lockReason || ''}
         showSetup={gameModal?.editStadium || false}
+        regulationInnings={gameModal?.game?.innings ?? currentSeason?.innings}
       />
     </div>
   )

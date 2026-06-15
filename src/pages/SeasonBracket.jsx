@@ -3,7 +3,7 @@ import BracketContainer from '../components/BracketContainer'
 import { useSeason } from '../context/SeasonContext'
 import { buildDoubleElimBracket, generateSingleElimBracket } from '../utils/bracketTemplates'
 import { sortSeasonPlayoffGames } from '../utils/seasonPlayoffs'
-import { buildSeasonTeamIdentity, getTeamShortName } from '../utils/teamIdentity'
+import { buildSeasonTeamIdentity } from '../utils/teamIdentity'
 
 function buildPlayoffPicture(seeding, bracketFormat) {
   const templateGames = bracketFormat === 'single_elimination'
@@ -61,17 +61,6 @@ export default function SeasonBracket() {
     () => (showPlayoffPicture ? buildPlayoffPicture(seeding, currentSeason?.playoff_format || 'double_elimination') : actualPlayoffGames),
     [showPlayoffPicture, seeding, currentSeason?.playoff_format, actualPlayoffGames],
   )
-  const championLabel = useMemo(() => {
-    const championId = currentSeason?.champion_player_id
-    if (!championId) return ''
-    return getTeamShortName(identitiesByPlayerId[championId]) || playersById[championId]?.name || 'Champion'
-  }, [currentSeason?.champion_player_id, identitiesByPlayerId, playersById])
-  const headerNote = showPlayoffPicture
-    ? 'Playoff Picture: if the season ended today, this would be the bracket based on current standings.'
-    : championLabel
-      ? `Champion: ${championLabel}. Play postseason games from Season Schedule > Playoffs.`
-      : 'Play postseason games from Season Schedule > Playoffs.'
-
   if (!currentSeason) {
     return <div className="page-stack"><div className="page-head"><h1>No season selected.</h1></div></div>
   }
@@ -87,10 +76,8 @@ export default function SeasonBracket() {
       <BracketContainer
         bracketFormat={currentSeason.playoff_format}
         games={displayGames}
-        headerNote={headerNote}
         identitiesByPlayerId={identitiesByPlayerId}
         playersById={playersById}
-        seeding={seeding}
       />
     </div>
   )

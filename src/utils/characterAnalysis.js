@@ -544,12 +544,18 @@ function computeTalentAnalysis(character, history = []) {
     (starSwingBonus * 0.6),
   )
 
+  // Velocity ceiling bonus: a fastball dramatically faster than the rest of the cast
+  // (150+ composite velocity) is a weapon on its own, beyond the linear weight below.
+  // Only the hardest throwers (e.g. Petey Piranha) clear this threshold.
+  const velocityCeilingBonus = Math.max(0, normalized.velocity - 150) * 1.2
+
   // Pitching: same weights, star pitch ability added on top.
   const pitching = clamp(
     (normalized.velocity * 0.32) +
     (normalized.curve * 0.46) +
     (normalized.stamina * 0.22) +
-    (starPitchBonus * 0.6),
+    (starPitchBonus * 0.6) +
+    velocityCeilingBonus,
   )
 
   // Defense: base weights unchanged; speed contributes range bonus; field ability is additive
@@ -576,6 +582,11 @@ function computeTalentAnalysis(character, history = []) {
   const balanceBonus = Math.max(0, 10 - categoryStdDev) / 3
   const versatilityBonus = Math.max(0, versatilityCount - 1) * 1.8
 
+  // Elite specialist bonus: a truly standout bat or arm (top of the scale) carries
+  // more total value than the raw weighted average implies, since a roster can lean
+  // on that one elite tool. Only kicks in once offense/pitching is in elite territory.
+  const eliteSpecialistBonus = Math.max(0, Math.max(offense, pitching) - 80) * 0.35
+
   const talentScore = clamp(
     (offense * 0.35) +
     (pitching * 0.35) +
@@ -583,7 +594,8 @@ function computeTalentAnalysis(character, history = []) {
     (speed * 0.12) +
     starBonus +
     balanceBonus +
-    versatilityBonus,
+    versatilityBonus +
+    eliteSpecialistBonus,
   )
 
   // Chemistry: small adjustment to final score based on partner quality

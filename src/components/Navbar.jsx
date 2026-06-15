@@ -128,10 +128,12 @@ export default function Navbar() {
     }
 
     loadPendingTrades()
+    window.addEventListener('season-trades-updated', loadPendingTrades)
 
     if (mode !== 'season' || !currentSeason?.id || !player?.id) {
       return () => {
         active = false
+        window.removeEventListener('season-trades-updated', loadPendingTrades)
       }
     }
 
@@ -145,6 +147,7 @@ export default function Navbar() {
 
     return () => {
       active = false
+      window.removeEventListener('season-trades-updated', loadPendingTrades)
       supabase.removeChannel(channel)
     }
   }, [mode, currentSeason?.id, player?.id])

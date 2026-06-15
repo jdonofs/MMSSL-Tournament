@@ -120,7 +120,7 @@ function createEmptyFieldingRow(overrides = {}) {
     assists: 0,
     errors: 0,
     cleanPlays: 0,
-    errorRate: 0,
+    fieldingPct: 0,
     positionsPlayed: 0,
     primaryPosition: '-',
     ...overrides,
@@ -155,7 +155,7 @@ function parseFieldingSequence(pa = {}) {
 function CharacterCell({ name, compact = false }) {
   if (compact) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 40, minHeight: 40 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28, minHeight: 28 }}>
         <CharacterPortrait name={name} size={28} />
       </div>
     )
@@ -400,7 +400,9 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
     if (pa.is_error) {
       const errorIndex = errorPosition ? positions.lastIndexOf(errorPosition) : -1
       const assistPositions = errorIndex >= 0 ? positions.slice(0, errorIndex) : positions
-      assistPositions.forEach((positionNumber) => {
+      // A fielder is credited with at most one assist per out, even if he
+      // touches the ball more than once (e.g. a rundown).
+      new Set(assistPositions).forEach((positionNumber) => {
         applyCreditFromFielder(pa, positionNumber, { chances: 1, assists: 1 })
       })
 
@@ -421,9 +423,21 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
       return
     }
 
-    if (!positions.length) return
+    if (!positions.length) {
+      // Strikeouts (and caught-looking strikeouts) aren't recorded with a
+      // fielding chain, but the catcher still receives the putout for
+      // catching the third strike. Pitchers never get an assist on a K.
+      if (pa.result === 'K') {
+        applyCreditFromFielder(pa, 2, { chances: 1, putouts: 1 })
+      }
+      return
+    }
 
-    positions.slice(0, -1).forEach((positionNumber) => {
+    // Everyone in the chain before the last fielder gets credit for an
+    // assist (capped at one per player, even if he touched the ball more
+    // than once on the play, e.g. a rundown). The last fielder in the chain
+    // is the one who recorded the putout.
+    new Set(positions.slice(0, -1)).forEach((positionNumber) => {
       applyCreditFromFielder(pa, positionNumber, { chances: 1, assists: 1 })
     })
     applyCreditFromFielder(pa, positions[positions.length - 1], { chances: 1, putouts: 1 })
@@ -437,7 +451,7 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
       ...entry,
       games: entry.gamesSet.size,
       cleanPlays: Math.max(0, entry.chances - entry.errors),
-      errorRate: entry.chances ? entry.errors / entry.chances : 0,
+      fieldingPct: entry.chances ? Math.max(0, entry.chances - entry.errors) / entry.chances : 0,
       positionsPlayed: entry.positionsSet.size,
       primaryPosition,
     }
@@ -1631,16 +1645,13 @@ export default function Stats() {
       { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
       { key: 'assists', group: 'Fielding', label: 'A', sortValue: (row) => row.fielding.assists, value: (row) => row.fielding.assists },
       { key: 'errors', group: 'Fielding', label: 'Errors', sortValue: (row) => row.fielding.errors, value: (row) => row.fielding.errors },
-      { key: 'cleanPlays', group: 'Fielding', label: 'Clean', sortValue: (row) => row.fielding.cleanPlays, value: (row) => row.fielding.cleanPlays },
-      { key: 'errorRate', group: 'Fielding', label: 'Error %', sortValue: (row) => row.fielding.errorRate, value: (row) => formatPercent(row.fielding.errorRate, 1) },
-      { key: 'positionsPlayed', group: 'Fielding', label: 'Positions', sortValue: (row) => row.fielding.positionsPlayed, value: (row) => row.fielding.positionsPlayed },
-      { key: 'primaryPosition', group: 'Fielding', label: 'Primary Pos', type: 'string', sortValue: (row) => row.fielding.primaryPosition, value: (row) => row.fielding.primaryPosition },
+      { key: 'fieldingPct', group: 'Fielding', label: 'Fielding %', sortValue: (row) => row.fielding.fieldingPct, value: (row) => formatAverageStyle(row.fielding.fieldingPct) },
     ],
   }), [identitiesByPlayerId, playersById])
 
   const characterColumns = useMemo(() => ({
     batting: [
-      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 64, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
+      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 48, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
       { key: 'plateAppearances', group: 'Batting', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
       { key: 'atBats', group: 'Batting', label: 'AB', sortValue: (row) => row.batting.atBats, value: (row) => row.batting.atBats },
       { key: 'hits', group: 'Batting', label: 'H', sortValue: (row) => row.batting.hits, value: (row) => row.batting.hits },
@@ -1671,7 +1682,7 @@ export default function Stats() {
       { key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName },
     ],
     pitching: [
-      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 64, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
+      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 48, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
       { key: 'games', group: 'Usage', label: 'G', sortValue: (row) => row.pitching.games, value: (row) => row.pitching.games },
       { key: 'innings', group: 'Usage', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
       { key: 'wins', group: 'Decisions', label: 'W', sortValue: (row) => row.pitching.wins, value: (row) => row.pitching.wins },
@@ -1699,16 +1710,13 @@ export default function Stats() {
       { key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName },
     ],
     fielding: [
-      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 64, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
+      { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 48, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> },
       { key: 'games', group: 'Fielding', label: 'G', sortValue: (row) => row.fielding.games, value: (row) => row.fielding.games },
       { key: 'chances', group: 'Fielding', label: 'Chances', sortValue: (row) => row.fielding.chances, value: (row) => row.fielding.chances },
       { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
       { key: 'assists', group: 'Fielding', label: 'A', sortValue: (row) => row.fielding.assists, value: (row) => row.fielding.assists },
       { key: 'errors', group: 'Fielding', label: 'Errors', sortValue: (row) => row.fielding.errors, value: (row) => row.fielding.errors },
-      { key: 'cleanPlays', group: 'Fielding', label: 'Clean', sortValue: (row) => row.fielding.cleanPlays, value: (row) => row.fielding.cleanPlays },
-      { key: 'errorRate', group: 'Fielding', label: 'Error %', sortValue: (row) => row.fielding.errorRate, value: (row) => formatPercent(row.fielding.errorRate, 1) },
-      { key: 'positionsPlayed', group: 'Fielding', label: 'Positions', sortValue: (row) => row.fielding.positionsPlayed, value: (row) => row.fielding.positionsPlayed },
-      { key: 'primaryPosition', group: 'Fielding', label: 'Primary Pos', type: 'string', sortValue: (row) => row.fielding.primaryPosition, value: (row) => row.fielding.primaryPosition },
+      { key: 'fieldingPct', group: 'Fielding', label: 'Fielding %', sortValue: (row) => row.fielding.fieldingPct, value: (row) => formatAverageStyle(row.fielding.fieldingPct) },
       { key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName },
     ],
   }), [identitiesByPlayerId, playersById])
@@ -1798,7 +1806,6 @@ export default function Stats() {
     <div className="page-stack">
       <div className="page-head">
         <div>
-          <span className="brand-kicker">Historical Stats</span>
           {isCombinedView ? <p className="muted">Stats include all tournaments and seasons.</p> : null}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

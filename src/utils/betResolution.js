@@ -1,7 +1,6 @@
 import { supabase } from '../supabaseClient'
 import { adjustWeights, computeBrierScore } from './oddsEngine'
 
-const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const PROP_TYPES = new Set(['hr_prop', 'hit_prop', 'k_prop'])
 const BET_PLACED_REASON_PREFIX = 'bet_placed'
 const BET_SETTLED_REASON_PREFIX = 'bet_settled'
@@ -34,6 +33,7 @@ function buildResolutionConfig(config = {}) {
     enableWeightAdjustment: true,
     ledgerTable: 'points_ledger',
     plateAppearancesTable: 'plate_appearances',
+    runsScoredTable: 'runs_scored',
     wagerField: 'wager_dollars',
     payoutField: 'potential_payout_dollars',
     ledgerChangeField: 'points_change',
@@ -46,30 +46,14 @@ function buildResolutionConfig(config = {}) {
 
 async function loadGameEntities(gameId, config = {}) {
   const resolvedConfig = buildResolutionConfig(config)
-  const [{ data: openBets }, { data: players }, { data: characters }] = await Promise.all([
-    supabase.from(resolvedConfig.betsTable).select('*').eq('game_id', gameId).in('status', ['open', 'pending']),
-    supabase.from('players').select('id, name'),
-    supabase.from('characters').select('id, name'),
-  ])
+  const { data: openBets, error } = await supabase
+    .from(resolvedConfig.betsTable)
+    .select('*')
+    .eq('game_id', gameId)
+    .in('status', ['open', 'pending'])
+  if (error) throw error
 
-  return {
-    openBets: openBets || [],
-    playersById: Object.fromEntries((players || []).map((entry) => [entry.id, entry])),
-    charactersById: Object.fromEntries((characters || []).map((entry) => [entry.id, entry])),
-  }
-}
-
-function buildEntityCandidates(pa, playersById, charactersById) {
-  const playerName = playersById[pa.player_id]?.name
-  const characterName = charactersById[pa.character_id]?.name
-  const candidates = new Set([
-    playerName,
-    characterName,
-    playerName && characterName ? `${characterName} (${playerName})` : null,
-    pa.target_entity,
-  ].filter(Boolean))
-
-  return candidates
+  return { openBets: openBets || [] }
 }
 
 async function updateBets(bets, config = {}) {
@@ -156,6 +140,17 @@ async function syncLedger(bets, config = {}) {
 // and "no runs" settles once the first play of inning 2+ is recorded.
 async function hasInning1Run(gameId, excludePaId, config) {
   const resolvedConfig = buildResolutionConfig(config)
+  const { data: runRows, error: runsError } = await supabase
+    .from(resolvedConfig.runsScoredTable)
+    .select('pa_id, inning')
+    .eq('game_id', gameId)
+    .eq('inning', 1)
+  if (runsError) throw runsError
+
+  const inning1Runs = (runRows || []).filter((entry) => String(entry.pa_id) !== String(excludePaId))
+  if (inning1Runs.length) return true
+  if ((runRows || []).length) return false
+
   const { data, error } = await supabase
     .from(resolvedConfig.plateAppearancesTable)
     .select('id, inning, rbi, run_scored')
@@ -180,25 +175,8 @@ async function lockOdds(gameId, betType, targetEntity = null, config = {}) {
 
 export async function resolveOnPA(gameId, pa, config = {}) {
   const resolvedConfig = buildResolutionConfig(config)
-  const { openBets, playersById, charactersById } = await loadGameEntities(gameId, resolvedConfig)
-  const entityCandidates = buildEntityCandidates(pa, playersById, charactersById)
+  const { openBets } = await loadGameEntities(gameId, resolvedConfig)
   const updates = []
-
-  if (pa.result === 'HR' || pa.result === 'IPHR') {
-    openBets
-      .filter((bet) => bet.bet_type === 'hr_prop' && entityCandidates.has(bet.target_entity))
-      .forEach((bet) => updates.push(buildUpsertPayload(bet, bet.chosen_side === 'yes')))
-    if (updates.length) await lockOdds(gameId, 'hr_prop', [...entityCandidates][0], resolvedConfig)
-  }
-
-  if (HIT_RESULTS.has(pa.result)) {
-    openBets
-      .filter((bet) => bet.bet_type === 'hit_prop' && entityCandidates.has(bet.target_entity))
-      .forEach((bet) => updates.push(buildUpsertPayload(bet, bet.chosen_side === 'yes')))
-    if (updates.some((bet) => openBets.find((entry) => entry.id === bet.id)?.bet_type === 'hit_prop')) {
-      await lockOdds(gameId, 'hit_prop', [...entityCandidates][0], resolvedConfig)
-    }
-  }
 
   // PART F — "confirm via next play": a first-inning-run bet settles once a
   // play AFTER the potentially-deciding moment has been recorded. If a run
@@ -251,7 +229,7 @@ export async function resolveFirstInningNoRun(gameId, config = {}) {
   return updates
 }
 
-export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTotals = {}, margin = 0, config = {}) {
+export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTotals = {}, margin = 0, config = {}, hrTotals = {}, hitTotals = {}) {
   const resolvedConfig = buildResolutionConfig(config)
   const { data: openBets, error } = await supabase
     .from(resolvedConfig.betsTable)
@@ -292,6 +270,22 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
       continue
     }
 
+    if (bet.bet_type === 'hr_prop') {
+      const actualHRs = Number(hrTotals[bet.target_entity] || 0)
+      const line = Number(bet.line || 0)
+      const isCorrect = bet.chosen_side === 'over' ? actualHRs > line : actualHRs < line
+      updates.push(buildUpsertPayload(bet, isCorrect))
+      continue
+    }
+
+    if (bet.bet_type === 'hit_prop') {
+      const actualHits = Number(hitTotals[bet.target_entity] || 0)
+      const line = Number(bet.line || 0)
+      const isCorrect = bet.chosen_side === 'over' ? actualHits > line : actualHits < line
+      updates.push(buildUpsertPayload(bet, isCorrect))
+      continue
+    }
+
     if (bet.bet_type === 'first_inning_run') {
       // PART F fallback — normally resolved via resolveOnPA's "confirm via
       // next play" check; this only fires for games that ended before any
@@ -319,7 +313,7 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
 
 export async function reopenGameBets(gameId, config = {}) {
   const resolvedConfig = buildResolutionConfig(config)
-  const reversibleTypes = ['moneyline', 'run_line', 'over_under', 'k_prop']
+  const reversibleTypes = ['moneyline', 'run_line', 'over_under', 'k_prop', 'hr_prop', 'hit_prop']
   const { data: resolvedBets, error } = await supabase
     .from(resolvedConfig.betsTable)
     .select('*')

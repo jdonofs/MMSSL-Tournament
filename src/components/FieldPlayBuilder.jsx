@@ -1,16 +1,17 @@
 import { useRef } from 'react'
 import CharacterPortrait from './CharacterPortrait'
+import { POSITION_GROUP_COLORS } from './RosterLineupWidgets'
 
 const FIELD_POSITIONS = [
-  { position: 8, label: 'CF', left: '50%', top: '14%' },
-  { position: 7, label: 'LF', left: '20%', top: '32%' },
-  { position: 9, label: 'RF', left: '80%', top: '32%' },
-  { position: 6, label: 'SS', left: '38%', top: '52%' },
-  { position: 4, label: '2B', left: '62%', top: '52%' },
-  { position: 5, label: '3B', left: '25%', top: '68%' },
-  { position: 1, label: 'P',  left: '50%', top: '62%' },
-  { position: 3, label: '1B', left: '75%', top: '68%' },
-  { position: 2, label: 'C',  left: '50%', top: '85%' },
+  { position: 8, label: 'CF', left: '50%', top: '27%', group: 'outfield' },
+  { position: 7, label: 'LF', left: '22%', top: '38%', group: 'outfield' },
+  { position: 9, label: 'RF', left: '78%', top: '38%', group: 'outfield' },
+  { position: 6, label: 'SS', left: '38%', top: '48%', group: 'infield' },
+  { position: 4, label: '2B', left: '62%', top: '48%', group: 'infield' },
+  { position: 5, label: '3B', left: '34%', top: '64%', group: 'infield' },
+  { position: 1, label: 'P',  left: '50%', top: '68%', group: 'battery' },
+  { position: 3, label: '1B', left: '66%', top: '64%', group: 'infield' },
+  { position: 2, label: 'C',  left: '50%', top: '85%', group: 'battery' },
 ]
 
 // Tap the field once to drop a landing-spot marker, then tap fielders in the
@@ -60,14 +61,14 @@ export default function FieldPlayBuilder({
           width: '100%',
           maxWidth: 320,
           margin: '0 auto',
-          aspectRatio: '25 / 18',
+          aspectRatio: '1/1.02',
           borderRadius: 18,
           border: '1.5px solid rgba(148,163,184,0.35)',
-          background: 'rgba(15,23,42,0.82)',
           cursor: 'crosshair',
           overflow: 'hidden',
         }}
       >
+        <img src="/baseball-field.jpg" alt="Baseball field" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
         {landingSpot ? (
           <div
             style={{
@@ -108,8 +109,8 @@ export default function FieldPlayBuilder({
                 width: 42,
                 height: 42,
                 borderRadius: '50%',
-                border: `2px solid ${selected ? accent : disabled ? 'rgba(71,85,105,0.4)' : 'rgba(148,163,184,0.4)'}`,
-                background: selected ? `${accent}33` : disabled ? 'rgba(15,23,42,0.45)' : 'rgba(15,23,42,0.92)',
+                border: selected ? `2px solid ${accent}` : '2px solid transparent',
+                background: selected ? `${accent}33` : 'transparent',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -119,8 +120,17 @@ export default function FieldPlayBuilder({
                 padding: 0,
               }}
             >
-              <div style={{ position: 'relative', width: 22, height: 22 }}>
-                <CharacterPortrait name={fielder?.character} size={22} />
+              <div
+                style={{
+                  position: 'relative',
+                  width: 26,
+                  height: 26,
+                  borderRadius: '50%',
+                  boxShadow: `0 4px 10px #00000040, 0 0 0 2px ${selected ? accent : POSITION_GROUP_COLORS[slot.group]}`,
+                  background: '#0F172A',
+                }}
+              >
+                <CharacterPortrait name={fielder?.character} size={26} />
                 {selected ? (
                   <span
                     style={{
@@ -145,7 +155,7 @@ export default function FieldPlayBuilder({
                   </span>
                 ) : null}
               </div>
-              <div style={{ fontSize: 7.5, fontWeight: 700, color: selected ? accent : disabled ? '#475569' : '#CBD5E1', marginTop: 1 }}>
+              <div style={{ fontSize: 7.5, fontWeight: 800, color: selected ? accent : disabled ? '#475569' : '#F8FAFC', marginTop: 1, textShadow: '0 1px 2px rgba(0,0,0,0.7)' }}>
                 {slot.label}
               </div>
             </button>

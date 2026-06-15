@@ -82,7 +82,7 @@ function blendHistoricalSummaries(parts = []) {
     avg: blend('avg', 0.25),
     hitRate: blend('hitRate', 0.25),
     hrRate: blend('hrRate', 0.03),
-    kRate: blend('kRate', 0.2),
+    kRate: blend('kRate', 1.0),
     strikeoutsPerInning: blend('strikeoutsPerInning', 0),
     strikeoutsPerGame: blend('strikeoutsPerGame', 0),
     plateAppearances: Math.round(blend('plateAppearances')),

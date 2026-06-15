@@ -20,6 +20,7 @@ import { fetchTeamLineup, upsertTeamLineup, SEASON_TEAM_LINEUPS } from '../utils
 
 const TABS = ['Rosters', 'Trade Center', 'Free Agents', 'Transactions']
 const WAIVER_DURATION_MS = 7 * 24 * 60 * 60 * 1000
+const SUPPORTS_WAIVER_CLAIMS_SCHEMA = false
 
 function sortNewestFirst(rows = []) {
   return [...rows].sort((a, b) => new Date(b.created_at || b.proposed_at || 0) - new Date(a.created_at || a.proposed_at || 0))
@@ -117,6 +118,15 @@ function isMissingSupabaseTable(error, tableNames) {
     || message.includes(`relation "public.${tableName}" does not exist`)
     || message.includes(`table "public.${tableName}" does not exist`)
   ))
+}
+
+function isMissingSupabaseFunction(error, functionName) {
+  const message = String(error?.message || '')
+  return (
+    error?.code === 'PGRST202'
+    || message.includes(`Could not find the function public.${functionName}`)
+    || message.includes(`function public.${functionName}`)
+  )
 }
 
 function TeamCountCard({ label, value, muted = false }) {
@@ -235,7 +245,7 @@ function TradeBuilderWorkspace({
       ? 'Build Trade Proposal'
       : 'Confirm Trade'
   const stepSubtitle = step === 'teams'
-    ? 'Start by selecting the rosters that belong in the deal. Your team stays locked in.'
+    ? ''
     : step === 'details'
       ? 'Select a character, review the owner, and choose where that player is being traded.'
       : 'Review every move before sending the trade request.'
@@ -245,7 +255,7 @@ function TradeBuilderWorkspace({
       <div className="section-head">
         <div>
           <h2>{stepTitle}</h2>
-          <span className="muted">{stepSubtitle}</span>
+          {stepSubtitle ? <span className="muted">{stepSubtitle}</span> : null}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {step !== 'teams' ? (
@@ -387,10 +397,18 @@ function TradeBuilderWorkspace({
                           <button
                             key={entry.id}
                             type="button"
-                            onClick={() => setAssetPicker({
-                              rosterEntry: entry,
-                              destinationTeamId: selectedAsset?.to_team_id || getDefaultDestination(entry.team_id),
-                            })}
+                            onClick={() => {
+                              const destinationTeamId = selectedAsset?.to_team_id || getDefaultDestination(entry.team_id)
+                              if (participantTeamIds.length === 2) {
+                                if (selected) {
+                                  removeAsset(entry.id)
+                                } else {
+                                  upsertAsset(entry, destinationTeamId)
+                                }
+                                return
+                              }
+                              setAssetPicker({ rosterEntry: entry, destinationTeamId })
+                            }}
                             disabled={tradeDeadlinePassed}
                             style={{
                               display: 'flex',
@@ -628,6 +646,7 @@ export default function SeasonRoster() {
   const [viewedTeamId, setViewedTeamId] = useState('')
   const [tradeBuilderStep, setTradeBuilderStep] = useState('teams')
   const [tradeDraft, setTradeDraft] = useState({ participantTeamIds: [], assets: [] })
+  const [pendingTradesOpen, setPendingTradesOpen] = useState(false)
   const [freeAgentSort, setFreeAgentSort] = useState({ key: 'name', direction: 'asc' })
   const [pickupModal, setPickupModal] = useState(null)
   const [pickupDropCharacter, setPickupDropCharacter] = useState('')
@@ -648,7 +667,6 @@ export default function SeasonRoster() {
       charactersResponse,
       rosterResponse,
       waiversResponse,
-      waiverClaimsResponse,
       legacyTradesResponse,
       legacyTradePlayersResponse,
       modernTradesResponse,
@@ -659,7 +677,6 @@ export default function SeasonRoster() {
       supabase.from('characters').select('*').order('name'),
       supabase.from('season_roster').select('*').eq('season_id', currentSeason.id).order('created_at'),
       supabase.from('season_waivers').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
-      supabase.from('season_waiver_claims').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
       supabase.from('season_trades').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
       supabase.from('season_trade_players').select('*').order('id'),
       supabase.from('season_trade_proposals').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
@@ -682,7 +699,7 @@ export default function SeasonRoster() {
     setCharacters(charactersResponse.data || [])
     setRoster(rosterResponse.data || [])
     setWaivers(waiversResponse.data || [])
-    setWaiverClaims(waiverClaimsResponse.data || [])
+    setWaiverClaims([])
     setLegacyTrades(legacyTradesResponse.data || [])
     setLegacyTradePlayers(legacyTradePlayersResponse.data || [])
     setTradeProposals(modernTradeSchemaMissing ? [] : (modernTradesResponse.data || []))
@@ -818,7 +835,6 @@ export default function SeasonRoster() {
       .channel(`season-roster-${currentSeason.id}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_waivers', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_waiver_claims', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trades', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_players' }, loadRosterData)
     if (supportsModernTradeSchema) {
@@ -843,6 +859,15 @@ export default function SeasonRoster() {
     () => seasonTeams.find((entry) => String(entry.player_id) === String(player?.id)) || null,
     [seasonTeams, player?.id],
   )
+  useEffect(() => {
+    if (!myTeam?.id) return
+    setTradeDraft((current) => (
+      current.participantTeamIds.includes(String(myTeam.id))
+        ? current
+        : { ...current, participantTeamIds: [String(myTeam.id), ...current.participantTeamIds] }
+    ))
+  }, [myTeam?.id])
+
   const activeRoster = useMemo(() => roster.filter((entry) => entry.is_active !== false), [roster])
   const activeRosterByTeamId = useMemo(
     () => activeRoster.reduce((acc, entry) => {
@@ -852,6 +877,16 @@ export default function SeasonRoster() {
       return acc
     }, {}),
     [activeRoster],
+  )
+  const captainNameByTeamId = useMemo(
+    () => roster.reduce((acc, entry) => {
+      if (entry.acquired_via !== 'draft') return acc
+      const key = String(entry.team_id)
+      if (acc[key]) return acc
+      acc[key] = entry.character_name
+      return acc
+    }, {}),
+    [roster],
   )
   const characterOwnersByName = useMemo(
     () => Object.fromEntries(activeRoster.map((entry) => [entry.character_name, entry.team_id])),
@@ -971,7 +1006,7 @@ export default function SeasonRoster() {
           clockTeamId,
           myClaim: claims.find((entry) => String(entry.claiming_team_id) === String(myTeam?.id || '')) || null,
           canDeny: Boolean(myTeam?.id) && String(clockTeamId) === String(myTeam.id),
-          canClaim: Boolean(myTeam?.id) && String(myTeam.id) !== String(waiver.source_team_id) && !claimTeamIds.has(String(myTeam.id)),
+          canClaim: Boolean(myTeam?.id) && !claimTeamIds.has(String(myTeam.id)),
         }
       })
       .filter(Boolean)
@@ -1434,6 +1469,36 @@ export default function SeasonRoster() {
       return
     }
 
+    const movePayload = tradeDraft.assets.map((entry) => ({
+      roster_id: entry.rosterId,
+      from_team_id: Number(entry.from_team_id),
+      to_team_id: Number(entry.to_team_id),
+    }))
+
+    const { error: rpcError } = await supabase.rpc('create_season_trade_proposal', {
+      p_season_id: currentSeason.id,
+      p_created_by_team_id: myTeam.id,
+      p_participant_team_ids: participantTeamIds.map((teamId) => Number(teamId)),
+      p_moves: movePayload,
+    })
+
+    if (!rpcError) {
+      pushToast({ title: 'Trade proposed', message: 'The other teams can now review the proposal.', type: 'success' })
+      closeTradeBuilder()
+      loadRosterData().catch(() => {})
+      return
+    }
+
+    if (!isMissingSupabaseFunction(rpcError, 'create_season_trade_proposal')) {
+      if (isMissingSupabaseTable(rpcError, 'season_trade_proposals')) {
+        setSupportsModernTradeSchema(false)
+        await submitLegacyTradeProposal(participantTeamIds)
+        return
+      }
+      pushToast({ title: 'Trade failed', message: rpcError.message, type: 'error' })
+      return
+    }
+
     const { data: proposal, error: proposalError } = await supabase.from('season_trade_proposals').insert({
       season_id: currentSeason.id,
       created_by_player_id: player?.id,
@@ -1459,7 +1524,7 @@ export default function SeasonRoster() {
       decided_at: String(teamId) === String(myTeam.id) ? new Date().toISOString() : null,
     }))
 
-    const movePayload = tradeDraft.assets.map((entry) => ({
+    const legacyMovePayload = tradeDraft.assets.map((entry) => ({
       season_id: currentSeason.id,
       proposal_id: proposal.id,
       roster_id: entry.rosterId,
@@ -1470,7 +1535,7 @@ export default function SeasonRoster() {
 
     const [{ error: participantError }, { error: moveError }] = await Promise.all([
       supabase.from('season_trade_proposal_teams').insert(participantPayload),
-      supabase.from('season_trade_proposal_moves').insert(movePayload),
+      supabase.from('season_trade_proposal_moves').insert(legacyMovePayload),
     ])
 
     if (participantError || moveError) {
@@ -1512,6 +1577,7 @@ export default function SeasonRoster() {
       return
     }
     pushToast({ title: `Trade ${status}`, type: 'success' })
+    window.dispatchEvent(new Event('season-trades-updated'))
     loadRosterData().catch(() => {})
   }
 
@@ -1530,6 +1596,7 @@ export default function SeasonRoster() {
         return
       }
       pushToast({ title: `Trade ${status}`, type: 'success' })
+      window.dispatchEvent(new Event('season-trades-updated'))
       loadRosterData().catch(() => {})
       return
     }
@@ -1554,6 +1621,7 @@ export default function SeasonRoster() {
 
     if (!allAccepted) {
       pushToast({ title: 'Trade approved', message: 'Waiting on the remaining teams.', type: 'success' })
+      window.dispatchEvent(new Event('season-trades-updated'))
       loadRosterData().catch(() => {})
       return
     }
@@ -1571,6 +1639,7 @@ export default function SeasonRoster() {
       return
     }
     pushToast({ title: 'Trade completed', message: 'All teams accepted and the rosters were updated.', type: 'success' })
+    window.dispatchEvent(new Event('season-trades-updated'))
     loadRosterData().catch(() => {})
   }
 
@@ -1599,7 +1668,7 @@ export default function SeasonRoster() {
       return
     }
 
-    const myCaptainName = identitiesByPlayerId[myTeam.player_id]?.captainCharacterName
+    const myCaptainName = captainNameByTeamId[String(myTeam.id)]
     if (myCaptainName && dropRow.character_name === myCaptainName) {
       pushToast({ title: 'Cannot drop captain', message: 'Your team captain cannot be dropped to free agency or waivers.', type: 'error' })
       return
@@ -1634,6 +1703,15 @@ export default function SeasonRoster() {
       pushToast({ title: 'Free agent added', message: `${pickupModal.characterName} joined your roster and ${dropRow.character_name} is now on waivers.`, type: 'success' })
       closePickupModal()
       loadRosterData().catch(() => {})
+      return
+    }
+
+    if (!SUPPORTS_WAIVER_CLAIMS_SCHEMA) {
+      pushToast({
+        title: 'Waiver claims unavailable',
+        message: 'This database does not have the waiver claims table yet, so roster-page claims are disabled for now.',
+        type: 'error',
+      })
       return
     }
 
@@ -1707,12 +1785,27 @@ export default function SeasonRoster() {
   const pendingTrades = combinedTrades.filter((entry) => entry.status === 'pending')
   const historyTrades = combinedTrades.filter((entry) => entry.status !== 'pending')
   const historyWaivers = waivers.filter((entry) => entry.status !== 'active')
-  const pendingTradeCount = pendingTrades.filter((trade) => {
-    if (trade.source === 'legacy') {
-      return String(trade.participants.find((entry) => entry.decision_status === 'pending')?.team_id || '') === String(myTeam?.id || '')
-    }
-    return trade.participants.some((entry) => String(entry.team_id) === String(myTeam?.id || '') && entry.decision_status === 'pending')
-  }).length
+  const freeAgentMoves = useMemo(() => {
+    const drops = waivers.filter((entry) => entry.source_team_id)
+    return roster
+      .filter((entry) => entry.acquired_via === 'free_agent')
+      .map((entry) => {
+        const matchedDrop = drops
+          .filter((waiver) => String(waiver.source_team_id) === String(entry.team_id))
+          .reduce((closest, waiver) => {
+            const diff = Math.abs(new Date(waiver.created_at) - new Date(entry.created_at))
+            if (!closest || diff < closest.diff) return { waiver, diff }
+            return closest
+          }, null)?.waiver || null
+        return {
+          id: entry.id,
+          team_id: entry.team_id,
+          created_at: entry.created_at,
+          addedCharacter: entry.character_name,
+          droppedCharacter: matchedDrop?.claiming_character || null,
+        }
+      })
+  }, [roster, waivers])
   const modalCharacter = charactersById[cardCharacterId] || lineupCharactersById[cardCharacterId] || null
   const modalCharacterOwnerTeamId = modalCharacter ? characterOwnersByName[modalCharacter.name] : null
 
@@ -1842,11 +1935,15 @@ export default function SeasonRoster() {
       {activeTab === 'Trade Center' && is_logged_in ? (
         <div className="page-stack" style={{ gap: 12 }}>
           <div className="inline-actions">
-            <StatusChip value={tradeDeadlinePassed ? 'rejected' : 'pending'} />
-            <div className="player-pill" style={{ borderColor: pendingTradeCount ? '#EAB308' : '#334155' }}>
-              <span>Pending For You</span>
-              <strong>{pendingTradeCount}</strong>
-            </div>
+            <button
+              className="ghost-button"
+              onClick={() => setPendingTradesOpen(true)}
+              type="button"
+              style={pendingTrades.length ? { borderColor: '#EAB308', color: '#FDE68A' } : undefined}
+            >
+              <span>Pending Trades</span>
+              <strong>{pendingTrades.length}</strong>
+            </button>
           </div>
           <TradeBuilderWorkspace
           step={tradeBuilderStep}
@@ -1866,6 +1963,7 @@ export default function SeasonRoster() {
           tradeDeadlinePassed={tradeDeadlinePassed}
           />
 
+          {false ? (
           <section className="panel" style={{ padding: 18 }}>
             <div className="section-head">
               <div>
@@ -1902,6 +2000,7 @@ export default function SeasonRoster() {
               {!pendingTrades.length ? <span className="muted">No pending trades.</span> : null}
             </div>
           </section>
+          ) : null}
         </div>
       ) : null}
 
@@ -1979,6 +2078,7 @@ export default function SeasonRoster() {
                         <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
                           {row.claimCount ? <span className="muted" style={{ fontSize: 12 }}>{row.claimCount} claim{row.claimCount === 1 ? '' : 's'} filed</span> : <span className="muted" style={{ fontSize: 12 }}>No claims filed yet</span>}
                           {row.myClaim ? <span className="muted" style={{ fontSize: 12 }}>Your drop: {row.myClaim.dropping_character}</span> : null}
+                          {!SUPPORTS_WAIVER_CLAIMS_SCHEMA ? <span className="muted" style={{ fontSize: 12 }}>Claim queue unavailable on this database schema.</span> : null}
                         </div>
                       ) : (
                         <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
@@ -1992,11 +2092,12 @@ export default function SeasonRoster() {
                           <button
                             type="button"
                             onClick={() => {
+                              if (!SUPPORTS_WAIVER_CLAIMS_SCHEMA) return
                               setPickupModal({ type: 'waiver', waiverId: row.waiver.id, characterName: row.character.name })
                               setPickupDropCharacter(row.myClaim?.dropping_character || '')
                             }}
-                            disabled={!myTeam || (!row.canClaim && !row.myClaim)}
-                            style={{ minWidth: 56, minHeight: 36, borderRadius: 10, border: '1px solid rgba(234,179,8,0.45)', background: 'rgba(234,179,8,0.14)', color: '#FDE68A', fontWeight: 800, display: 'grid', placeItems: 'center', cursor: !myTeam || (!row.canClaim && !row.myClaim) ? 'not-allowed' : 'pointer' }}
+                            disabled={!SUPPORTS_WAIVER_CLAIMS_SCHEMA || !myTeam || (!row.canClaim && !row.myClaim)}
+                            style={{ minWidth: 56, minHeight: 36, borderRadius: 10, border: '1px solid rgba(234,179,8,0.45)', background: 'rgba(234,179,8,0.14)', color: '#FDE68A', fontWeight: 800, display: 'grid', placeItems: 'center', cursor: !SUPPORTS_WAIVER_CLAIMS_SCHEMA || !myTeam || (!row.canClaim && !row.myClaim) ? 'not-allowed' : 'pointer' }}
                           >
                             <span style={{ fontSize: 18, lineHeight: 1 }}>W</span>
                           </button>
@@ -2039,6 +2140,7 @@ export default function SeasonRoster() {
             {[
               ...historyTrades.map((t) => ({ ...t, _type: 'trade', _date: t.created_at })),
               ...historyWaivers.map((w) => ({ ...w, _type: 'waiver', _date: w.created_at })),
+              ...freeAgentMoves.map((m) => ({ ...m, _type: 'free_agent', _date: m.created_at })),
             ]
               .sort((a, b) => new Date(b._date || 0) - new Date(a._date || 0))
               .map((item) => {
@@ -2048,33 +2150,120 @@ export default function SeasonRoster() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                           {item.participants.map((participant) => (
-                            <PlayerTag key={`${item.id}-${participant.team_id}`} height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={teamsById[String(participant.team_id)]?.player_id} playersById={playersById} />
+                            <PlayerTag key={`${item.id}-${participant.team_id}`} height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={teamsById[String(participant.team_id)]?.player_id} playersById={playersById} responsiveAbbreviation />
                           ))}
                         </div>
                         <StatusChip value={item.status} />
                       </div>
-                      <span className="muted" style={{ fontSize: 12 }}>{item.moves.map((m) => m.character_name).join(' • ')}</span>
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                        {item.moves.map((move) => (
+                          <div key={`${item.id}-${move.character_name}-${move.to_team_id}`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <CharacterPortrait name={move.character_name} size={26} />
+                            <span className="muted" style={{ fontSize: 12 }}>{move.character_name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                }
+                if (item._type === 'free_agent') {
+                  const team = teamsById[String(item.team_id)]
+                  return (
+                    <div key={`free-agent-${item.id}`} style={{ padding: 14, borderRadius: 14, background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(51,65,85,0.9)', display: 'grid', gap: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={team?.player_id} playersById={playersById} responsiveAbbreviation />
+                        <span className="muted" style={{ fontSize: 12 }}>{formatShortDate(item.created_at)}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {item.droppedCharacter ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ position: 'relative' }}>
+                              <CharacterPortrait name={item.droppedCharacter} size={32} />
+                              <span style={{ position: 'absolute', bottom: -2, right: -2, width: 16, height: 16, borderRadius: '50%', background: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #0F172A' }}>
+                                <X size={10} />
+                              </span>
+                            </div>
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>{item.droppedCharacter}</span>
+                          </div>
+                        ) : null}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ position: 'relative' }}>
+                            <CharacterPortrait name={item.addedCharacter} size={32} />
+                            <span style={{ position: 'absolute', bottom: -2, right: -2, width: 16, height: 16, borderRadius: '50%', background: '#22C55E', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #0F172A' }}>
+                              <Plus size={10} />
+                            </span>
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{item.addedCharacter}</span>
+                        </div>
+                      </div>
                     </div>
                   )
                 }
                 return (
                   <div className="feed-row" key={`waiver-${item.id}`}>
-                    <div style={{ display: 'grid', gap: 4 }}>
-                      <strong>{item.claiming_character}</strong>
-                      <span className="muted">
-                        {formatSeasonLabel(item.status)}
-                        {item.expires_at ? ` • expired ${formatShortDate(item.expires_at)}` : ''}
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <CharacterPortrait name={item.claiming_character} size={32} />
+                      <div style={{ display: 'grid', gap: 4 }}>
+                        <strong>{item.claiming_character}</strong>
+                        <span className="muted">
+                          {formatSeasonLabel(item.status)}
+                          {item.expires_at ? ` • expired ${formatShortDate(item.expires_at)}` : ''}
+                        </span>
+                      </div>
                     </div>
                     {item.awarded_to_team_id
-                      ? <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={teamsById[String(item.awarded_to_team_id)]?.player_id} playersById={playersById} />
+                      ? <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={teamsById[String(item.awarded_to_team_id)]?.player_id} playersById={playersById} responsiveAbbreviation />
                       : <span className="muted" style={{ fontSize: 12 }}>Free agent pool</span>}
                   </div>
                 )
               })}
-            {!historyTrades.length && !historyWaivers.length ? <span className="muted">No transaction history yet.</span> : null}
+            {!historyTrades.length && !historyWaivers.length && !freeAgentMoves.length ? <span className="muted">No transaction history yet.</span> : null}
           </div>
         </section>
+      ) : null}
+
+      {pendingTradesOpen ? (
+        <div className="modal-backdrop" onClick={() => setPendingTradesOpen(false)}>
+          <div className="modal-card" style={{ width: 'min(720px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }} onClick={(event) => event.stopPropagation()}>
+            <div className="section-head">
+              <div>
+                <h2>Pending Trades</h2>
+                <span className="muted">{pendingTrades.length} open proposal{pendingTrades.length === 1 ? '' : 's'}</span>
+              </div>
+              <button className="ghost-button" onClick={() => setPendingTradesOpen(false)} type="button">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="feed-list">
+              {pendingTrades.map((trade) => {
+                const myParticipant = trade.participants.find((entry) => String(entry.team_id) === String(myTeam?.id || ''))
+                const canRespond = myParticipant?.decision_status === 'pending'
+                const canCancel = !canRespond && String(trade.created_by_team_id) === String(myTeam?.id || '')
+                return (
+                  <div key={trade.id} style={{ padding: 14, borderRadius: 14, background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(51,65,85,0.9)', display: 'grid', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {trade.participants.map((participant) => (
+                          <PlayerTag key={`${trade.id}-${participant.team_id}`} height={26} identitiesByPlayerId={identitiesByPlayerId} playerId={teamsById[String(participant.team_id)]?.player_id} playersById={playersById} />
+                        ))}
+                      </div>
+                      <StatusChip value={myParticipant?.decision_status || trade.status} />
+                    </div>
+                    <span className="muted" style={{ fontSize: 13 }}>{trade.moves.map((move) => move.character_name).join(' • ')}</span>
+                    {canRespond || canCancel ? (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {canRespond ? <button className="solid-button" onClick={() => resolveTrade(trade, 'accepted')} type="button">Accept</button> : null}
+                        {canRespond ? <button className="ghost-button" onClick={() => resolveTrade(trade, 'rejected')} type="button">Reject</button> : null}
+                        {canCancel ? <button className="ghost-button" onClick={() => resolveTrade(trade, 'cancelled')} type="button">Cancel</button> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+              {!pendingTrades.length ? <span className="muted">No pending trades.</span> : null}
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {pickupModal ? (
@@ -2106,7 +2295,7 @@ export default function SeasonRoster() {
               <select value={pickupDropCharacter} onChange={(event) => setPickupDropCharacter(event.target.value)}>
                 <option value="">Drop character</option>
                 {(activeRosterByTeamId[String(myTeam?.id)] || [])
-                  .filter((entry) => entry.character_name !== identitiesByPlayerId[myTeam?.player_id]?.captainCharacterName)
+                  .filter((entry) => entry.character_name !== captainNameByTeamId[String(myTeam?.id)])
                   .map((entry) => <option key={entry.id} value={entry.character_name}>{entry.character_name}</option>)}
               </select>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
