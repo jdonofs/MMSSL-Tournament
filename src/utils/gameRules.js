@@ -19,6 +19,21 @@ export function normalizeMercyRuleDifferential(value, fallback = DEFAULT_MERCY_R
   return Math.trunc(numeric)
 }
 
+export function deriveOffense(game, outsRecorded) {
+  const halfInning = Math.floor(outsRecorded / 3)
+  const isTop = halfInning % 2 === 0
+  const inning = Math.floor(halfInning / 2) + 1
+  // `home_away_swapped` flips which team bats in the top vs bottom of the inning
+  // (i.e. who's "away"/"home") without touching team_a/team_b assignments.
+  const awayPlayerId = game.home_away_swapped ? game.team_b_player_id : game.team_a_player_id
+  const homePlayerId = game.home_away_swapped ? game.team_a_player_id : game.team_b_player_id
+  return {
+    battingPlayerId: isTop ? awayPlayerId : homePlayerId,
+    pitchingPlayerId: isTop ? homePlayerId : awayPlayerId,
+    inning, isTop, halfLabel: `${isTop ? 'Top' : 'Bot'} ${inning}`,
+  }
+}
+
 export function getFinalStatusLabel(game, regulationInnings = game?.innings) {
   const normalizedRegulationInnings = normalizeRegulationInnings(
     regulationInnings ?? game?.innings,

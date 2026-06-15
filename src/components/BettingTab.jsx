@@ -22,6 +22,8 @@ import { buildPlacedBetLedgerEntries } from '../utils/betResolution'
 import { buildOddsGenerationContext } from '../utils/oddsContext'
 import { persistOddsRowsWithFallback } from '../utils/oddsPersistence'
 import { buildAppliedStadiumModel } from '../utils/stadiumOdds'
+import { syncGamePitchersFromLineups } from '../utils/pitcherSync'
+import { SEASON_TEAM_LINEUPS, TOURNAMENT_TEAM_LINEUPS } from '../utils/teamLineups'
 import {
   getChaosStars,
   getChaosTagColors,
@@ -1589,6 +1591,64 @@ export default function BettingTab({ mode = 'tournament' }) {
       handleGenerateOdds(game, { silent: true, sourceSignature: signature })
     })
   }, [boardSourceSignatures, readyGameIds, isScorekeeper])
+
+  // A lineup edit (e.g. from Roster/SeasonRoster or another Scorebook
+  // session) only writes to team_lineups/season_team_lineups. Poll each
+  // board game's teams' saved fielding.pitcher so odds generation can
+  // target the lineup-designated pitcher immediately — even before that
+  // team has thrown a pitch (no pitching_stints row yet) — instead of
+  // waiting for a pitching_stints row that may not exist until the team
+  // takes the mound. See expectedPitcherByPlayer usage below.
+  const [expectedPitcherByKey, setExpectedPitcherByKey] = useState({})
+  useEffect(() => {
+    let cancelled = false
+
+    const runPoll = async () => {
+      const lookups = []
+      boardGames.forEach((game) => {
+        const sourceId = isSeasonMode ? sourceContext?.id : game.tournament_id
+        if (!sourceId) return
+        const table = isSeasonMode ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
+        ;[game.team_a_player_id, game.team_b_player_id].forEach((playerId) => {
+          if (!playerId) return
+          lookups.push({ key: `${sourceId}:${playerId}`, table, sourceId, playerId })
+        })
+      })
+
+      const uniqueLookups = Object.values(
+        lookups.reduce((acc, entry) => { acc[entry.key] = entry; return acc }, {}),
+      )
+
+      const results = await Promise.all(
+        uniqueLookups.map(async (entry) => {
+          const saved = await fetchTeamLineup(entry)
+          const pitcherCharId = saved?.fieldingPositions?.pitcher ? Number(saved.fieldingPositions.pitcher) : null
+          return [entry.key, pitcherCharId]
+        }),
+      )
+
+      if (cancelled) return
+      setExpectedPitcherByKey(Object.fromEntries(results))
+    }
+
+    runPoll()
+    const interval = setInterval(runPoll, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [boardGames, isSeasonMode, sourceContext?.id])
+
+  const getExpectedPitcherByPlayer = useCallback((game) => {
+    const sourceId = isSeasonMode ? sourceContext?.id : game.tournament_id
+    const map = {}
+    ;[game.team_a_player_id, game.team_b_player_id].forEach((playerId) => {
+      if (!playerId) return
+      const charId = expectedPitcherByKey[`${sourceId}:${playerId}`]
+      if (charId != null) map[playerId] = charId
+    })
+    return map
+  }, [expectedPitcherByKey, isSeasonMode, sourceContext?.id])
 
   const toggleSlipSelection = (game, row, side, customLineOpts = null) => {
     if (!game || !row?.id || row.is_locked || !isGameReadyForBetting(game, playersById)) return

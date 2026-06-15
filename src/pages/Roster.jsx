@@ -15,7 +15,7 @@ import { buildChemistryHighlightSet } from '../utils/chemistryHighlights'
 import { formatCharacterDisplayName, getCharacterChemistryName } from '../utils/mii'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import { getTeamShortName } from '../utils/teamIdentity'
-import { fetchTeamLineup, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS } from '../utils/teamLineups'
+import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS } from '../utils/teamLineups'
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 function baseScore(c) {
@@ -837,26 +837,16 @@ export default function Roster() {
       return
     }
     setLineupOrder((prev) => {
-      const newOrder = [...prev]
-      const sourceIdx = prev.indexOf(selectedLineupMoveId)
-      if (sourceIdx === -1) return prev
-      newOrder.splice(sourceIdx, 1)
-      newOrder.splice(index, 0, selectedLineupMoveId)
-      return newOrder
+      return swapLineupSlot(prev, selectedLineupMoveId, index)
     })
     setSelectedLineupMoveId(null)
-  }, [selectedLineupMoveId, selectedTournamentId, selectedTeamId])
+  }, [selectedLineupMoveId])
 
   const handleDropOnLineup = (index) => (e) => {
     e.preventDefault()
     const characterId = parseInt(e.dataTransfer.getData('lineupCharacterId'), 10)
     if (characterId) {
-      setLineupOrder(prev => {
-        if (!prev.includes(characterId)) return prev
-        const newOrder = prev.filter(id => id !== characterId)
-        newOrder.splice(index, 0, characterId)
-        return newOrder
-      })
+      setLineupOrder((prev) => swapLineupSlot(prev, characterId, index))
     }
   }
 
@@ -1137,7 +1127,7 @@ export default function Roster() {
                           onLineupNumberClick={() => handleLineupNumberClick(charId, index)}
                           lineupNumberSelected={selectedLineupMoveId === charId}
                           lineupNumberAriaLabel={`Lineup spot ${index + 1}`}
-                          lineupNumberTitle={canEditRoster ? (selectedLineupMoveId === charId ? 'Selected lineup slot' : 'Tap to move this player or move another player here') : `Lineup spot ${index + 1}`}
+                          lineupNumberTitle={canEditRoster ? (selectedLineupMoveId === charId ? 'Selected lineup slot' : 'Tap to swap this player with another lineup slot') : `Lineup spot ${index + 1}`}
                           lineupNumberDisabled={!canEditRoster}
                           showChemistryNote={chemistryHighlightIds.has(charId)}
                             highlighted={selectedLineupMoveId === charId}

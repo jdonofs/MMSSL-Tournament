@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftRight, ChevronDown, ChevronLeft, ChevronRight, Moon, RotateCcw, RotateCw, Sun, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
-import { fetchTeamLineup, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
+import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
 import { useGameSession } from '../context/GameSessionContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
@@ -27,7 +27,7 @@ import { resolveFirstInningNoRun, reopenGameBets, resolveGameBets, resolveOnPA }
 import { advanceBracketOnGameComplete, reopenBracketAfterGameEdit } from '../utils/bracketProgression'
 import { buildScorebookPath } from '../utils/scorebookRouting'
 import { getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
-import { DEFAULT_REGULATION_INNINGS, getFinalStatusLabel, normalizeRegulationInnings } from '../utils/gameRules'
+import { DEFAULT_REGULATION_INNINGS, deriveOffense, getFinalStatusLabel, normalizeRegulationInnings } from '../utils/gameRules'
 import {
   getOrderedStadiums,
   getStadiumSpriteStyle,
@@ -145,21 +145,6 @@ function normalizeStageLabel(stage = '') {
   if (stage.includes('CG-2')) return 'Championship Reset'
   if (stage.includes('CG-1')) return 'Championship'
   return stage
-}
-
-function deriveOffense(game, outsRecorded) {
-  const halfInning = Math.floor(outsRecorded / 3)
-  const isTop = halfInning % 2 === 0
-  const inning = Math.floor(halfInning / 2) + 1
-  // `home_away_swapped` flips which team bats in the top vs bottom of the inning
-  // (i.e. who's "away"/"home") without touching team_a/team_b assignments.
-  const awayPlayerId = game.home_away_swapped ? game.team_b_player_id : game.team_a_player_id
-  const homePlayerId = game.home_away_swapped ? game.team_a_player_id : game.team_b_player_id
-  return {
-    battingPlayerId:  isTop ? awayPlayerId : homePlayerId,
-    pitchingPlayerId: isTop ? homePlayerId : awayPlayerId,
-    inning, isTop, halfLabel: `${isTop ? 'Top' : 'Bot'} ${inning}`,
-  }
 }
 
 function getPaScoringRuns(pa = {}, runsByPaId = {}) {
@@ -342,6 +327,25 @@ function dedupePitchingStints(stints = []) {
     if (meaningful.length) return meaningful
     return [group[group.length - 1]]
   }).sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+}
+
+// Pitchers with no recorded stats are normally hidden, EXCEPT the pitcher
+// currently assigned to the mound in the lineup (expectedCharacterId) — they
+// should still be listed even at 0 IP, and drop off once someone else takes
+// the mound. Tracks lineup edits live since expectedCharacterId comes from
+// lineupDrafts.
+function buildDisplayedPitchingStints(stints, playerId, expectedCharacterId) {
+  const deduped = dedupePitchingStints(stints)
+  const meaningful = deduped.filter(isMeaningfulPitchingStint)
+  if (expectedCharacterId && !meaningful.some((stint) => Number(stint.character_id) === expectedCharacterId)) {
+    const existingStint = deduped.find((stint) => Number(stint.character_id) === expectedCharacterId)
+    meaningful.push(existingStint || {
+      player_id: playerId,
+      character_id: expectedCharacterId,
+      innings_pitched: 0, hits_allowed: 0, runs_allowed: 0, earned_runs: 0, walks: 0, strikeouts: 0, hr_allowed: 0,
+    })
+  }
+  return meaningful
 }
 
 function estimateHomeWinProbability({
@@ -2705,11 +2709,8 @@ export default function Scorebook() {
 
   const reorderLineupDraft = useCallback((team, characterId, targetIndex) => {
     setLineupDrafts((current) => {
-      const order = [...current[team].order]
-      const sourceIdx = order.indexOf(characterId)
-      if (sourceIdx === -1) return current
-      order.splice(sourceIdx, 1)
-      order.splice(targetIndex, 0, characterId)
+      const order = swapLineupSlot(current[team].order, characterId, targetIndex)
+      if (order === current[team].order) return current
       lineupDirtyRef.current = { ...lineupDirtyRef.current, [team]: true }
       return { ...current, [team]: { ...current[team], order } }
     })
@@ -3221,17 +3222,24 @@ export default function Scorebook() {
     return points
   }, [selectedGame, gamePAs, regulationInnings, offense?.halfLabel, currentWinProbability, runsByPaId, charactersById, teamAAbbreviation, teamBAbbreviation, scores.a, scores.b, effectiveGameStatus, gameWinProbabilityContext])
 
+  const teamAExpectedPitcherId = lineupDrafts.A?.fielding?.pitcher ? Number(lineupDrafts.A.fielding.pitcher) : null
+  const teamBExpectedPitcherId = lineupDrafts.B?.fielding?.pitcher ? Number(lineupDrafts.B.fielding.pitcher) : null
+
   const teamAPitching = useMemo(
-    () => dedupePitchingStints(
+    () => buildDisplayedPitchingStints(
       [...gamePitching].filter((stint) => String(stint.player_id) === String(selectedGame?.team_a_player_id)),
+      selectedGame?.team_a_player_id,
+      teamAExpectedPitcherId,
     ),
-    [gamePitching, selectedGame?.team_a_player_id],
+    [gamePitching, selectedGame?.team_a_player_id, teamAExpectedPitcherId],
   )
   const teamBPitching = useMemo(
-    () => dedupePitchingStints(
+    () => buildDisplayedPitchingStints(
       [...gamePitching].filter((stint) => String(stint.player_id) === String(selectedGame?.team_b_player_id)),
+      selectedGame?.team_b_player_id,
+      teamBExpectedPitcherId,
     ),
-    [gamePitching, selectedGame?.team_b_player_id],
+    [gamePitching, selectedGame?.team_b_player_id, teamBExpectedPitcherId],
   )
 
   const pitcherDecisionSummary = useMemo(() => {
@@ -6044,7 +6052,14 @@ export default function Scorebook() {
 
     return (
       <SectionCard title={teamName} subtitle="Batting order & fielding positions">
-        <div className="roster-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', alignItems: 'start', gap: 16 }}>
+        <div
+          className="roster-grid"
+          style={{
+            gridTemplateColumns: isNarrowViewport ? '1fr' : 'minmax(0, 0.88fr) minmax(340px, 1.12fr)',
+            alignItems: 'start',
+            gap: 16,
+          }}
+        >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {draft.order.length === 0 ? (
               <div style={{ padding: 12, textAlign: 'center', color: C.muted, fontSize: 12 }}>No lineup set yet.</div>
@@ -6065,12 +6080,13 @@ export default function Scorebook() {
                       rosterNames={rosterNames}
                       onOpenCard={() => setViewedCharacterId(charId)}
                       compact
+                      portraitScale={0.88}
                       lineupNumber={index + 1}
                       positionLabel={positionByCharId[charId] || null}
                       onLineupNumberClick={() => handleLineupNumberClick(team, charId, index)}
                       lineupNumberSelected={selectedLineupMoveId[team] === charId}
                       lineupNumberAriaLabel={`Lineup spot ${index + 1}`}
-                      lineupNumberTitle={selectedLineupMoveId[team] === charId ? 'Selected lineup slot' : 'Tap to move this player or move another player here'}
+                      lineupNumberTitle={selectedLineupMoveId[team] === charId ? 'Selected lineup slot' : 'Tap to swap this player with another lineup slot'}
                       showChemistryNote={chemistryHighlightIds.has(charId)}
                       highlighted={selectedLineupMoveId[team] === charId}
                     />
@@ -6091,6 +6107,8 @@ export default function Scorebook() {
             onAssignPosition={() => {}}
             editable
             chemistryHighlightIds={chemistryHighlightIds}
+            fieldScale={1.16}
+            portraitScale={0.85}
           />
         </div>
         <div style={{ marginTop: 12, fontSize: 12, color: C.muted, textAlign: 'right' }}>

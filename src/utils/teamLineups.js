@@ -3,6 +3,19 @@ import { supabase } from '../supabaseClient'
 export const TOURNAMENT_TEAM_LINEUPS = { table: 'team_lineups', idField: 'tournament_id' }
 export const SEASON_TEAM_LINEUPS = { table: 'season_team_lineups', idField: 'season_id' }
 
+// Swaps a lineup entry with whatever character currently occupies `targetIndex`.
+// Used by roster and scorebook editors so lineup edits always behave like
+// slot-for-slot swaps rather than remove-and-insert reordering.
+export function swapLineupSlot(lineupOrder, sourceCharacterId, targetIndex) {
+  if (!Array.isArray(lineupOrder)) return lineupOrder
+  if (targetIndex < 0 || targetIndex >= lineupOrder.length) return lineupOrder
+  const sourceIndex = lineupOrder.indexOf(sourceCharacterId)
+  if (sourceIndex === -1 || sourceIndex === targetIndex) return lineupOrder
+  const next = [...lineupOrder]
+  ;[next[sourceIndex], next[targetIndex]] = [next[targetIndex], next[sourceIndex]]
+  return next
+}
+
 // Fetches the saved lineup order + fielding positions for a team.
 // Returns null if no row exists yet (caller should fall back to defaults).
 export async function fetchTeamLineup({ table, idField, sourceId, playerId }) {

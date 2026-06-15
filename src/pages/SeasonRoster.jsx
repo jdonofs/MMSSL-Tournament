@@ -16,7 +16,7 @@ import { buildChemistryHighlightSet } from '../utils/chemistryHighlights'
 import { formatSeasonLabel } from '../utils/season'
 import { buildSeasonTeamIdentity, getTeamShortName } from '../utils/teamIdentity'
 import { summarizeBatting, summarizePitching } from '../utils/statsCalculator'
-import { fetchTeamLineup, upsertTeamLineup, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
+import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
 
 const TABS = ['Rosters', 'Trade Center', 'Free Agents', 'Transactions']
 const WAIVER_DURATION_MS = 7 * 24 * 60 * 60 * 1000
@@ -1211,12 +1211,7 @@ export default function SeasonRoster() {
     event.preventDefault()
     const characterId = parseInt(event.dataTransfer.getData('lineupCharacterId'), 10)
     if (!characterId) return
-    setLineupOrder((current) => {
-      if (!current.includes(characterId)) return current
-      const next = current.filter((id) => id !== characterId)
-      next.splice(index, 0, characterId)
-      return next
-    })
+    setLineupOrder((current) => swapLineupSlot(current, characterId, index))
   }
 
   const moveInLineup = useCallback((index, direction) => {
@@ -1235,12 +1230,7 @@ export default function SeasonRoster() {
     setSelectedLineupMoveId((current) => {
       if (!current) return characterId
       if (current === characterId) return null
-      setLineupOrder((lineup) => {
-        if (!lineup.includes(current)) return lineup
-        const next = lineup.filter((id) => id !== current)
-        next.splice(targetIndex, 0, current)
-        return next
-      })
+      setLineupOrder((lineup) => swapLineupSlot(lineup, current, targetIndex))
       return null
     })
   }, [canEditRoster])
@@ -1904,7 +1894,7 @@ export default function SeasonRoster() {
                           onLineupNumberClick={() => handleLineupNumberClick(charId, index)}
                           lineupNumberSelected={selectedLineupMoveId === charId}
                           lineupNumberAriaLabel={`Lineup spot ${index + 1}`}
-                          lineupNumberTitle={canEditRoster ? (selectedLineupMoveId === charId ? 'Selected lineup slot' : 'Tap to move this player or move another player here') : `Lineup spot ${index + 1}`}
+                          lineupNumberTitle={canEditRoster ? (selectedLineupMoveId === charId ? 'Selected lineup slot' : 'Tap to swap this player with another lineup slot') : `Lineup spot ${index + 1}`}
                           lineupNumberDisabled={!canEditRoster}
                           showChemistryNote={lineupChemistryHighlightIds.has(character.id)}
                           highlighted={selectedLineupMoveId === character.id}

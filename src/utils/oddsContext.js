@@ -181,6 +181,7 @@ export function buildOddsGenerationContext({
   totalInnings = DEFAULT_REGULATION_INNINGS,
   bets = [],
   liabilityCap = null,
+  expectedPitcherByPlayer = {},
 }) {
   if (!game) return null
 
@@ -206,10 +207,18 @@ export function buildOddsGenerationContext({
     stdDev: standardDeviation(margins),
   }
 
-  const latestPitcherFor = (playerId) =>
-    [...gamePitching]
+  // The team's lineup-designated pitcher is authoritative for who the
+  // k_prop market should target — it reflects mid-half-inning swaps
+  // immediately, whereas pitching_stints only gets a row once that team
+  // actually takes the mound (and a team that hasn't pitched yet has no
+  // stints at all, which previously fell back to roster[0]).
+  const latestPitcherFor = (playerId) => {
+    const expected = expectedPitcherByPlayer[playerId]
+    if (expected != null) return Number(expected)
+    return [...gamePitching]
       .filter((entry) => entry.player_id === playerId)
       .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0]?.character_id
+  }
 
   // PART G — live prop placement needs the player's CURRENT in-game progress
   // toward the prop line (kSoFar/hitsSoFar/hrSoFar), so odds at placement

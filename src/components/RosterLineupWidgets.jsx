@@ -48,10 +48,12 @@ export function DraggableRosterItem({
   lineupNumberAriaLabel,
   lineupNumberDisabled = false,
   positionLabel = null,
+  portraitScale = 1,
 }) {
   const positionGroup = positionLabel ? (FIELD_POSITIONS_BY_ID[positionLabel]?.group || 'bench') : null
   const badgeLabel = positionLabel ? FIELD_POSITIONS_BY_ID[positionLabel]?.label || 'Bench' : 'Bench'
   const badgeColor = POSITION_GROUP_COLORS[positionGroup || 'bench']
+  const portraitSize = Math.round((compact ? 36 : 48) * portraitScale)
   return (
     <div
       draggable={!disabled}
@@ -96,7 +98,7 @@ export function DraggableRosterItem({
         </button>
       ) : null}
       <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
-        <Portrait name={character.name} size={compact ? 36 : 48} showChemistryNote={showChemistryNote} highlighted={highlighted} />
+        <Portrait name={character.name} size={portraitSize} showChemistryNote={showChemistryNote} highlighted={highlighted} />
       </button>
       <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer' }}>
         <div style={{ fontWeight: 700, fontSize: compact ? 13 : 15, lineHeight: 1.2, whiteSpace: 'normal', overflowWrap: 'break-word' }}>{character.displayName || character.name}</div>
@@ -154,14 +156,14 @@ export const POSITION_GROUP_COLORS = {
 
 export const FIELD_POSITIONS = [
   { id: 'pitcher', label: 'P', x: 50, y: 68, group: 'battery' },
-  { id: 'catcher', label: 'C', x: 50, y: 85, group: 'battery' },
-  { id: 'firstBase', label: '1B', x: 69, y: 66, group: 'infield' },
+  { id: 'catcher', label: 'C', x: 50, y: 87, group: 'battery' },
+  { id: 'firstBase', label: '1B', x: 70, y: 64, group: 'infield' },
   { id: 'secondBase', label: '2B', x: 64, y: 46, group: 'infield' },
-  { id: 'thirdBase', label: '3B', x: 31, y: 66, group: 'infield' },
+  { id: 'thirdBase', label: '3B', x: 28, y: 64, group: 'infield' },
   { id: 'shortStop', label: 'SS', x: 36, y: 46, group: 'infield' },
-  { id: 'leftField', label: 'LF', x: 18, y: 34, group: 'outfield' },
-  { id: 'centerField', label: 'CF', x: 50, y: 22, group: 'outfield' },
-  { id: 'rightField', label: 'RF', x: 82, y: 34, group: 'outfield' },
+  { id: 'leftField', label: 'LF', x: 23, y: 33, group: 'outfield' },
+  { id: 'centerField', label: 'CF', x: 50, y: 24, group: 'outfield' },
+  { id: 'rightField', label: 'RF', x: 78, y: 34, group: 'outfield' },
 ]
 
 export const FIELD_POSITIONS_BY_ID = Object.fromEntries(FIELD_POSITIONS.map((p) => [p.id, p]))
@@ -183,6 +185,12 @@ export const FIELD_ID_TO_SCOREBOOK_POSITION = Object.fromEntries(
   Object.entries(SCOREBOOK_POSITION_TO_FIELD_ID).map(([num, id]) => [id, Number(num)]),
 )
 
+const DEFAULT_POSITION_PIXEL_OFFSETS = {
+  pitcher: { x: -2 },
+  catcher: { x: -2 },
+  centerField: { x: -2 },
+}
+
 export function FieldingView({
   charactersById,
   fieldingPositions,
@@ -194,6 +202,9 @@ export function FieldingView({
   onAssignPosition,
   editable = true,
   chemistryHighlightIds,
+  fieldScale = 1,
+  portraitScale = 1,
+  positionPixelOffsets = DEFAULT_POSITION_PIXEL_OFFSETS,
 }) {
   const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 640 : false))
 
@@ -204,9 +215,10 @@ export function FieldingView({
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  const portraitSize = isMobile ? 40 : 54
-  const placeholderSize = isMobile ? 36 : 50
-  const positionBoxSize = isMobile ? 70 : 96
+  const portraitSize = Math.round((isMobile ? 40 : 54) * portraitScale)
+  const placeholderSize = Math.round((isMobile ? 36 : 50) * portraitScale)
+  const positionBoxSize = Math.round((isMobile ? 70 : 96) * fieldScale)
+  const maxFieldWidth = Math.round((isMobile ? 600 : 500) * fieldScale)
 
   const assignCharToPos = useCallback((posId, characterId) => {
     if (!editable) return
@@ -256,17 +268,21 @@ export function FieldingView({
           {editable ? (fieldingAssignMode ? (selectedForFielding ? 'Tap position to place' : 'Tap roster player first') : (selectedPlayer ? 'Tap position to move selected player' : 'Tap player, then tap position to swap')) : 'View only'}
         </div>
       </div>
-      <div style={{ position: 'relative', width: '100%', maxWidth: isMobile ? 600 : 500, aspectRatio: '1/1.04', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: '0 8px 24px #00000040', border: '1px solid #1E293B' }}>
+      <div style={{ position: 'relative', width: '100%', maxWidth: maxFieldWidth, aspectRatio: '1/1.04', borderRadius: 26, margin: '0 auto', overflow: 'hidden', boxShadow: '0 8px 24px #00000040', border: '1px solid #1E293B' }}>
         <img src="/baseball-field.jpg" alt="Baseball field" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
         {FIELD_POSITIONS.map((pos) => {
           const charId = fieldingPositions[pos.id]
           const character = charId ? charactersById[charId] : null
           const groupColor = POSITION_GROUP_COLORS[pos.group]
+          const xOffset = Number(positionPixelOffsets[pos.id]?.x || 0)
+          const yOffset = Number(positionPixelOffsets[pos.id]?.y || 0)
+          const left = xOffset ? `calc(${pos.x}% + ${xOffset}px)` : `${pos.x}%`
+          const top = yOffset ? `calc(${pos.y}% + ${yOffset}px)` : `${pos.y}%`
           return (
             <div
               key={pos.id}
               onClick={() => handlePositionClick(pos.id)}
-              style={{ position: 'absolute', left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)', width: positionBoxSize, height: positionBoxSize, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: character ? 'pointer' : 'default' }}
+              style={{ position: 'absolute', left, top, transform: 'translate(-50%, -50%)', width: positionBoxSize, height: positionBoxSize, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: character ? 'pointer' : 'default' }}
             >
               {character ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
