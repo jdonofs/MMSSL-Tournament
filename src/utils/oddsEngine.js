@@ -4,8 +4,10 @@ import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRu
 
 const MIN_PROBABILITY = 0.002
 const MAX_PROBABILITY = 0.998
-const MAX_UNDERDOG_ODDS = 50000
-const MAX_FAVORITE_ODDS = -50000
+const MIN_DISPLAY_DECIMAL_ODDS = 1.01
+const MAX_DISPLAY_DECIMAL_ODDS = 1000
+const MAX_UNDERDOG_ODDS = Math.round((MAX_DISPLAY_DECIMAL_ODDS - 1) * 100)
+const MAX_FAVORITE_ODDS = Math.round(-100 / (MIN_DISPLAY_DECIMAL_ODDS - 1))
 
 // Sportsbooks don't display every integer once odds get steep — round to a
 // coarser increment as the magnitude grows (matches real-world board behavior).
@@ -89,6 +91,59 @@ function probabilityFromProjectionGap(gap, stdDev = 1.5, tilt = 0) {
   return clamp(logistic((Number(gap || 0) / scale) * 3 + tilt), MIN_PROBABILITY, MAX_PROBABILITY)
 }
 
+function computeHomeCoverProbabilityAtSpread({
+  spread,
+  homeIsFav,
+  favWinProb,
+  projectedMargin,
+  marginStdDev,
+  coverTilt,
+  varianceMultiplier = 1,
+}) {
+  const numericSpread = Number(spread || 0.5)
+  const favCoverProb = numericSpread <= 0.5
+    ? favWinProb
+    : applyVarianceToProbability(
+      probabilityFromProjectionGap(projectedMargin - numericSpread, marginStdDev, coverTilt),
+      varianceMultiplier,
+    )
+  const dogCoverProb = clamp(1 - favCoverProb, MIN_PROBABILITY, MAX_PROBABILITY)
+  return homeIsFav ? favCoverProb : dogCoverProb
+}
+
+function pickBoardRunLineSpread({
+  projectedMargin,
+  marginStdDev,
+  homeIsFav,
+  favWinProb,
+  coverTilt,
+  varianceMultiplier = 1,
+}) {
+  const maxSpread = Math.max(5.5, roundToNearestHook(projectedMargin + marginStdDev, 0.5) + 1)
+  let bestSpread = 0.5
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  for (let candidate = 0.5; candidate <= maxSpread; candidate += 1) {
+    const homeCoverProb = computeHomeCoverProbabilityAtSpread({
+      spread: candidate,
+      homeIsFav,
+      favWinProb,
+      projectedMargin,
+      marginStdDev,
+      coverTilt,
+      varianceMultiplier,
+    })
+    const distanceFromPickEm = Math.abs(homeCoverProb - 0.5)
+
+    if (distanceFromPickEm < bestDistance - 0.0001) {
+      bestSpread = candidate
+      bestDistance = distanceFromPickEm
+    }
+  }
+
+  return bestSpread
+}
+
 function buildWeights(weights = {}) {
   const raw = {
     char: Number(weights.char_stats_weight ?? weights.char ?? 0.333),
@@ -144,6 +199,10 @@ function getLiveState(game = {}, playerProps = {}) {
   const gameState = playerProps.gameState || {}
   return {
     inning: Number(gameState.inning ?? game.current_inning ?? 1),
+    totalInnings: normalizeRegulationInnings(
+      gameState.totalInnings ?? playerProps.totalInnings ?? game.innings,
+      DEFAULT_REGULATION_INNINGS,
+    ),
     scoreDiff: Number(gameState.scoreDiff ?? (Number(game.team_b_runs || 0) - Number(game.team_a_runs || 0))),
     homeRuns: Number(gameState.homeRuns ?? game.team_b_runs ?? 0),
     awayRuns: Number(gameState.awayRuns ?? game.team_a_runs ?? 0),
@@ -160,9 +219,13 @@ function getEntityLabel(entry = {}) {
 
 function getExpectedPAs(entry = {}, liveState) {
   if (entry.expectedPAs != null) return Number(entry.expectedPAs)
-  const baseline = liveState.inning >= 6 ? 1.5 : liveState.inning >= 4 ? 2.5 : 3.5
+  const inning = Math.max(1, Number(liveState.inning || 1))
+  const totalInnings = normalizeRegulationInnings(liveState.totalInnings, DEFAULT_REGULATION_INNINGS)
+  const legacyBaseline = inning >= 6 ? 1.5 : inning >= 4 ? 2.5 : 3.5
+  const inningLimitedBaseline = Math.max(0.5, totalInnings - (inning - 1))
+  const baseline = Math.min(legacyBaseline, inningLimitedBaseline)
   const alreadySeen = Number(entry.paSoFar ?? 0)
-  return clamp(baseline - alreadySeen * 0.65, 1, 5)
+  return clamp(baseline - alreadySeen * 0.65, 0.5, Math.max(0.5, baseline))
 }
 
 function getSkillScore(entry = {}) {
@@ -612,6 +675,8 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
     0.78,
   )
   const liveSkillPressure = Math.max(0, liveState.inning - 1) * 0.015
+  const totalInnings = normalizeRegulationInnings(liveState.totalInnings, DEFAULT_REGULATION_INNINGS)
+  const completedInnings = clamp(Number(liveState.inning || 1) - 1, 0, totalInnings)
   const kPerInning = clamp(
     (pitcher.pitch * 0.52 * charWeight) +
       (historical.strikeoutsPerInning * 0.4 * historyWeight) +
@@ -620,7 +685,7 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
     0.85,
     2.4,
   )
-  const projectedInningsRemaining = clamp(3.5 - Math.max(0, liveState.inning - 1) * 0.45, 1, 4.5)
+  const projectedInningsRemaining = clamp(totalInnings - completedInnings, 0.5, totalInnings)
 
   // PART G — if a prop has effectively already resolved by the time it's
   // being priced (e.g. the player already has a hit/HR this game, or a
@@ -731,24 +796,39 @@ export function poissonOverProbability(lambda, line, settledCount = 0) {
 // (target is configurable; 105-110% is the typical sportsbook range).
 export const TARGET_OVERROUND = 1.07
 
+function getOddsMultiplierFromOverround(overround = TARGET_OVERROUND) {
+  const safeOverround = Math.max(1.001, Number(overround || TARGET_OVERROUND))
+  // Public bookmaking references describe the simplest margin model as a
+  // proportional reduction of the fair odds rather than a flat additive bump
+  // to probability. Calibrate the multiplier so a 50/50 market lands on the
+  // requested total overround, then apply that same reduction to any 2-way
+  // market. This avoids the artificial +2600-ish cap that additive probability
+  // vig creates on longshots.
+  return clamp((2 / safeOverround) - 1, 0.001, 1)
+}
+
 // Step 1 of the pricing pipeline: take a "fair" probability for one side of a
-// 2-outcome market and apply the house edge. Each side gets half the overround,
-// so probabilityA_vig + probabilityB_vig === overround (always > 1, which keeps
-// any 2-sided market arbitrage-proof — see PART D).
+// 2-outcome market and apply the house edge by proportionally shrinking the
+// fair net odds. This matches the classic "reduce the odds" bookmaking model
+// better than adding a flat probability surcharge.
 export function applyVig(probability, overround = TARGET_OVERROUND) {
-  const juice = (Number(overround || TARGET_OVERROUND) - 1) / 2
-  return clamp(Number(probability || 0) + juice, MIN_PROBABILITY, MAX_PROBABILITY)
+  const fairProbability = clamp(Number(probability || 0), MIN_PROBABILITY, MAX_PROBABILITY)
+  const oddsMultiplier = getOddsMultiplierFromOverround(overround)
+  const fairDecimalOdds = 1 / fairProbability
+  const vigDecimalOdds = 1 + ((fairDecimalOdds - 1) * oddsMultiplier)
+  return clamp(1 / vigDecimalOdds, MIN_PROBABILITY, MAX_PROBABILITY)
 }
 
 // Step 2 of the pricing pipeline: convert a vig-adjusted probability to American odds.
 export function oddsFromVigProbability(vigProbability) {
   const probability = clamp(Number(vigProbability || 0), MIN_PROBABILITY, MAX_PROBABILITY)
+  const decimalOdds = clamp(1 / probability, MIN_DISPLAY_DECIMAL_ODDS, MAX_DISPLAY_DECIMAL_ODDS)
   let odds
 
-  if (probability >= 0.5) {
-    odds = Math.round(-((probability / (1 - probability)) * 100))
+  if (decimalOdds >= 2) {
+    odds = Math.round((decimalOdds - 1) * 100)
   } else {
-    odds = Math.round(((1 - probability) / probability) * 100)
+    odds = Math.round(-100 / (decimalOdds - 1))
   }
 
   return clamp(roundOddsMagnitude(odds), MAX_FAVORITE_ODDS, MAX_UNDERDOG_ODDS)
@@ -936,19 +1016,23 @@ export function generateGameOdds(
   const homeIsFav = moneylineProbability >= 0.5
   const favWinProb = homeIsFav ? moneylineProbability : 1 - moneylineProbability
   const coverTilt = (favWinProb - 0.5) * 0.25
-  const fairSpread = projectedMargin + ((coverTilt * marginStdDev) / 3)
-  const defaultSpread = roundToNearestHook(fairSpread, 0.5)
-  // A -0.5 run line has the SAME win condition as the moneyline (no ties in
-  // baseball, so "win by any margin" === "win"), so it must price close to the
-  // moneyline rather than through the margin-distribution model.
-  const favCoverProb = defaultSpread <= 0.5
-    ? favWinProb
-    : applyVarianceToProbability(
-      probabilityFromProjectionGap(projectedMargin - defaultSpread, marginStdDev, coverTilt),
-      stadiumModifiers.varianceMultiplier,
-    )
-  const dogCoverProb = clamp(1 - favCoverProb, MIN_PROBABILITY, MAX_PROBABILITY)
-  const homeCoverProb = homeIsFav ? favCoverProb : dogCoverProb
+  const defaultSpread = pickBoardRunLineSpread({
+    projectedMargin,
+    marginStdDev,
+    homeIsFav,
+    favWinProb,
+    coverTilt,
+    varianceMultiplier: stadiumModifiers.varianceMultiplier,
+  })
+  const homeCoverProb = computeHomeCoverProbabilityAtSpread({
+    spread: defaultSpread,
+    homeIsFav,
+    favWinProb,
+    projectedMargin,
+    marginStdDev,
+    coverTilt,
+    varianceMultiplier: stadiumModifiers.varianceMultiplier,
+  })
   const runLinePricing = priceTwoSidedMarket(homeCoverProb, playerProps, 'run_line', null, 'home', 'away')
 
   rows.push({

@@ -43,9 +43,8 @@ export function normalizeRbiForPaResult(result, rbi = 0, isError = false) {
 
 export function getCreditedRbiForPa(pa = {}) {
   const base = normalizeRbiForPaResult(pa.result, pa.rbi, pa.is_error)
-  // Batter drives themselves in if they score on the same play (HR, or a hit
-  // where they advance all the way home due to an error/extra advance)
-  return (hitResults.has(pa.result) && pa.run_scored) ? base + 1 : base
+  // Batter always drives themselves in on a home run (including inside-the-park)
+  return (pa.result === 'HR' || pa.result === 'IPHR') ? base + 1 : base
 }
 
 export function summarizeBatting(plateAppearances = []) {
@@ -581,6 +580,49 @@ export function summarizeAdvancedPitching(stints = [], leagueConstants = {}) {
     eraMinus,
     fipMinus,
     babipAllowed: +babipAllowed.toFixed(3),
+  }
+}
+
+export function summarizeHitLocations(plateAppearances = []) {
+  const bip = plateAppearances.filter((pa) => battedBallResults.has(pa.result) && pa.hit_location)
+  const total = bip.length
+  const positions = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+  const counts = Object.fromEntries(positions.map((pos) => [pos, bip.filter((pa) => Number(pa.hit_location) === pos).length]))
+  const rates = Object.fromEntries(positions.map((pos) => [pos, total ? counts[pos] / total : 0]))
+  return { total, counts, rates }
+}
+
+export function calculateParkFactors(stadiumPas = [], allPas = []) {
+  const stadiumGames = new Set(stadiumPas.map((pa) => pa.game_id)).size || 1
+  const allGames = new Set(allPas.map((pa) => pa.game_id)).size || 1
+
+  const factor = (stadiumCount, allCount) => {
+    const stadiumRate = stadiumCount / stadiumGames
+    const allRate = allCount / allGames
+    return allRate > 0 ? stadiumRate / allRate : 1
+  }
+
+  return {
+    hr: factor(
+      stadiumPas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length,
+      allPas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length,
+    ),
+    r: factor(
+      stadiumPas.filter((pa) => pa.run_scored).length,
+      allPas.filter((pa) => pa.run_scored).length,
+    ),
+    h: factor(
+      stadiumPas.filter((pa) => hitResults.has(pa.result)).length,
+      allPas.filter((pa) => hitResults.has(pa.result)).length,
+    ),
+    double: factor(
+      stadiumPas.filter((pa) => pa.result === '2B').length,
+      allPas.filter((pa) => pa.result === '2B').length,
+    ),
+    triple: factor(
+      stadiumPas.filter((pa) => pa.result === '3B').length,
+      allPas.filter((pa) => pa.result === '3B').length,
+    ),
   }
 }
 

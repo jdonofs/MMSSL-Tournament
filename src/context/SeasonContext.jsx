@@ -20,6 +20,10 @@ export function SeasonProvider({ children }) {
   const [selectedSeasonId, setSelectedSeasonId] = useState(() => localStorage.getItem(STORAGE_KEY) || '')
   const [loading, setLoading] = useState(true)
   const selectedSeasonIdRef = useRef(selectedSeasonId)
+  // Tracks which season ID was last fully loaded by refreshSeasons so the
+  // selectedSeasonId effect below can skip re-fetching when refreshSeasons
+  // already did the load, but fire when the user switches via the navbar.
+  const lastRefreshedSeasonIdRef = useRef('')
 
   const refreshSeasons = async (preferredSeasonId, options = {}) => {
     const { silent = false } = options
@@ -50,6 +54,7 @@ export function SeasonProvider({ children }) {
     const current = preferredId || selectedSeasonIdRef.current
     const hasSelection = seasons.some((season) => String(season.id) === current)
     const nextSelection = hasSelection ? current : String(seasons[0]?.id || '')
+    lastRefreshedSeasonIdRef.current = nextSelection
     setSelectedSeasonId(nextSelection)
 
     if (!nextSelection) {
@@ -83,6 +88,29 @@ export function SeasonProvider({ children }) {
     selectedSeasonIdRef.current = selectedSeasonId
   }, [selectedSeasonId])
 
+  // When the user switches seasons via the navbar (setViewedSeason), refreshSeasons
+  // is NOT called, so schedule/teams data stays stale. This effect detects that case
+  // (lastRefreshedSeasonIdRef doesn't match the new selectedSeasonId) and reloads
+  // the season-specific data for the newly selected season.
+  useEffect(() => {
+    if (!selectedSeasonId || lastRefreshedSeasonIdRef.current === selectedSeasonId) return
+    lastRefreshedSeasonIdRef.current = selectedSeasonId
+
+    const reload = async () => {
+      const [{ data: teamsData }, { data: scheduleData }, { data: bettingLedgerData }, { data: playersData }] = await Promise.all([
+        supabase.from('season_teams').select('*').eq('season_id', selectedSeasonId).order('created_at'),
+        supabase.from('season_schedule').select('*').eq('season_id', selectedSeasonId).order('round_number').order('id'),
+        supabase.from('season_betting_ledger').select('*').eq('season_id', selectedSeasonId).order('created_at'),
+        supabase.from('players').select('id, name, color').order('name'),
+      ])
+      setSeasonTeams(teamsData || [])
+      setSchedule(scheduleData || [])
+      setSeasonBettingLedger(bettingLedgerData || [])
+      setPlayers(playersData || [])
+    }
+    reload().catch(() => {})
+  }, [selectedSeasonId])
+
   useEffect(() => {
     if (selectedSeasonId) {
       localStorage.setItem(STORAGE_KEY, selectedSeasonId)
@@ -95,7 +123,9 @@ export function SeasonProvider({ children }) {
     const channel = supabase
       .channel(`season-context-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'seasons' }, () => {
-        refreshSeasons(undefined, { silent: true }).catch(() => {})
+        // Pass the current selection explicitly so a newly-inserted season never
+        // auto-switches away from the season the user is already viewing.
+        refreshSeasons(selectedSeasonIdRef.current || undefined, { silent: true }).catch(() => {})
       })
       .subscribe()
 

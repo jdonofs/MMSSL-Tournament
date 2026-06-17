@@ -302,7 +302,15 @@ export default function SeasonSchedule() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { pushToast } = useToast()
   const { player, is_logged_in, isScorekeeper } = useAuth()
-  const { currentSeason, schedule, seasonTeams, seasonPlayersById, refreshSeasons, selectedSeasonId } = useSeason()
+  const {
+    currentSeason,
+    schedule,
+    seasonTeams,
+    seasonPlayersById,
+    refreshSeasons,
+    selectedSeasonId,
+    standings,
+  } = useSeason()
   const [selectedWeek, setSelectedWeek] = useState(1)
   const [stadiums, setStadiums] = useState([])
   const [gameModal, setGameModal] = useState(null) // { game, editStadium }
@@ -373,6 +381,10 @@ export default function SeasonSchedule() {
   }, [schedule])
 
   const teamsById = useMemo(() => Object.fromEntries(seasonTeams.map((team) => [team.id, team])), [seasonTeams])
+  const standingsByTeamId = useMemo(
+    () => Object.fromEntries((standings || []).map((team) => [team.id, team])),
+    [standings],
+  )
   const playersById = useMemo(
     () => Object.fromEntries(seasonTeams.map((team) => {
       const p = seasonPlayersById[team.player_id]
@@ -620,11 +632,13 @@ export default function SeasonSchedule() {
           {visibleGames.map((game) => {
             const homeTeam = teamsById[game.home_team_id]
             const awayTeam = teamsById[game.away_team_id]
+            const homeStanding = standingsByTeamId[game.home_team_id] || homeTeam
+            const awayStanding = standingsByTeamId[game.away_team_id] || awayTeam
             const isOpeningGame = String(openingGameId) === String(game.id)
             const tone = getStatusTone(game.status)
             const showScore = shouldShowLiveScore(game)
-            const homeValue = showScore ? Number(game.home_score || 0) : (homeTeam ? `${homeTeam.wins}-${homeTeam.losses}` : '--')
-            const awayValue = showScore ? Number(game.away_score || 0) : (awayTeam ? `${awayTeam.wins}-${awayTeam.losses}` : '--')
+            const homeValue = showScore ? Number(game.home_score || 0) : (homeStanding ? `${homeStanding.wins}-${homeStanding.losses}` : '--')
+            const awayValue = showScore ? Number(game.away_score || 0) : (awayStanding ? `${awayStanding.wins}-${awayStanding.losses}` : '--')
             const winningTeamId = getWinningTeamId(game)
             const updateText = getGameUpdateText(game, liveOutsByGameId, game.innings ?? currentSeason?.innings)
             const playoffMeta = game.stage ? playoffMetaByGameId[String(game.id)] : null

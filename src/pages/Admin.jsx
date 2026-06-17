@@ -11,9 +11,11 @@ import { buildRoundRobinSchedule, formatSeasonLabel, normalizeSeasonName, SEASON
 import {
   DEFAULT_MERCY_RULE_DIFFERENTIAL,
   DEFAULT_REGULATION_INNINGS,
+  deriveOffense,
   normalizeMercyRuleDifferential,
   normalizeRegulationInnings,
 } from '../utils/gameRules'
+import { calculateOutsForPa, inningsPitchedFromOuts } from '../utils/statsCalculator'
 
 function playerEmailFromName(name) {
   return `${name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@sluggers.local`
@@ -569,6 +571,247 @@ export default function Admin() {
 
   const activeSeason = viewedSeason || currentSeason
   const activeTournament = viewedTournament || currentTournament
+  const [backingUp, setBackingUp] = useState(false)
+  const [recomputingPitching, setRecomputingPitching] = useState(false)
+
+  const handleBackup = async () => {
+    setBackingUp(true)
+    try {
+      const results = await Promise.all([
+        supabase.from('seasons').select('*').order('created_at'),
+        supabase.from('players').select('*').order('name'),
+        supabase.from('characters').select('*').order('name'),
+        supabase.from('draft_picks').select('*').order('created_at'),
+        supabase.from('season_teams').select('*').order('created_at'),
+        supabase.from('season_schedule').select('*').order('created_at'),
+        supabase.from('season_roster').select('*').order('created_at'),
+        supabase.from('season_lineups').select('*').order('created_at'),
+        supabase.from('season_plate_appearances').select('*').order('created_at'),
+        supabase.from('season_pitching_stints').select('*').order('created_at'),
+        supabase.from('season_pitches').select('*').order('created_at'),
+        supabase.from('season_game_fielders').select('*').order('created_at'),
+        supabase.from('season_runs_scored').select('*').order('created_at'),
+        supabase.from('season_inning_scores').select('*').order('created_at'),
+        supabase.from('games').select('*').order('created_at'),
+        supabase.from('plate_appearances').select('*').order('created_at'),
+        supabase.from('pitching_stints').select('*').order('created_at'),
+        supabase.from('pitches').select('*').order('created_at'),
+        supabase.from('runs_scored').select('*').order('created_at'),
+        supabase.from('inning_scores').select('*').order('created_at'),
+        supabase.from('game_fielders').select('*').order('created_at'),
+      ])
+
+      const [
+        { data: seasonsData },
+        { data: playersData },
+        { data: charactersData },
+        { data: draftPicksData },
+        { data: seasonTeamsData },
+        { data: seasonScheduleData },
+        { data: seasonRosterData },
+        { data: seasonLineupsData },
+        { data: seasonPAsData },
+        { data: seasonPitchingData },
+        { data: seasonPitchesData },
+        { data: seasonFieldersData },
+        { data: seasonRunsData },
+        { data: seasonInningsData },
+        { data: gamesData },
+        { data: tournamentPAsData },
+        { data: tournamentPitchingData },
+        { data: tournamentPitchesData },
+        { data: tournamentRunsData },
+        { data: tournamentInningsData },
+        { data: tournamentFieldersData },
+      ] = results
+
+      const backup = {
+        exportedAt: new Date().toISOString(),
+        version: 1,
+        seasons: seasonsData || [],
+        players: playersData || [],
+        characters: charactersData || [],
+        draftPicks: draftPicksData || [],
+        season: {
+          teams: seasonTeamsData || [],
+          schedule: seasonScheduleData || [],
+          roster: seasonRosterData || [],
+          lineups: seasonLineupsData || [],
+          plateAppearances: seasonPAsData || [],
+          pitchingStints: seasonPitchingData || [],
+          pitches: seasonPitchesData || [],
+          gameFielders: seasonFieldersData || [],
+          runsScored: seasonRunsData || [],
+          inningScores: seasonInningsData || [],
+        },
+        tournament: {
+          games: gamesData || [],
+          plateAppearances: tournamentPAsData || [],
+          pitchingStints: tournamentPitchingData || [],
+          pitches: tournamentPitchesData || [],
+          runsScored: tournamentRunsData || [],
+          inningScores: tournamentInningsData || [],
+          gameFielders: tournamentFieldersData || [],
+        },
+      }
+
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `sluggers-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      pushToast({ title: 'Backup downloaded', message: 'All stats saved to your device.', type: 'success' })
+    } catch (error) {
+      pushToast({ title: 'Backup failed', message: error.message, type: 'error' })
+    } finally {
+      setBackingUp(false)
+    }
+  }
+
+  const handleRecomputePitchingStats = async () => {
+    setRecomputingPitching(true)
+    try {
+      const [
+        { data: gamesData },
+        { data: tournamentPAsData },
+        { data: tournamentStintsData },
+        { data: tournamentRunsData },
+        { data: seasonTeamsData },
+        { data: seasonGamesData },
+        { data: seasonPAsData },
+        { data: seasonStintsData },
+        { data: seasonRunsData },
+      ] = await Promise.all([
+        supabase.from('games').select('id,team_a_player_id,team_b_player_id,home_away_swapped').order('created_at'),
+        supabase.from('plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,created_at').order('created_at'),
+        supabase.from('pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at'),
+        supabase.from('runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at'),
+        supabase.from('season_teams').select('id,player_id').order('created_at'),
+        supabase.from('season_schedule').select('id,away_team_id,home_team_id,home_away_swapped').order('created_at'),
+        supabase.from('season_plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,created_at').order('created_at'),
+        supabase.from('season_pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at'),
+        supabase.from('season_runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at'),
+      ])
+
+      const playerIdByTeamId = Object.fromEntries((seasonTeamsData || []).map((t) => [String(t.id), t.player_id]))
+      const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
+      const isHR = (r) => r === 'HR' || r === 'IPHR'
+
+      const computeStatsForGame = (game, gamePAs, gameStints, gameRuns) => {
+        const stints = [...gameStints].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+        const pas = [...gamePAs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+        const nextStatsByStintId = Object.fromEntries(
+          stints.map((stint) => [stint.id, {
+            innings_pitched: 0, hits_allowed: 0, runs_allowed: 0,
+            earned_runs: 0, walks: 0, strikeouts: 0, hr_allowed: 0, _outs: 0,
+          }])
+        )
+        let outsBeforePa = 0
+        pas.forEach((pa) => {
+          const defense = deriveOffense(game, outsBeforePa)
+          const eligibleStints = stints.filter(
+            (s) => String(s.player_id) === String(defense.pitchingPlayerId) &&
+              new Date(s.created_at).getTime() <= new Date(pa.created_at).getTime()
+          )
+          const activeStint = eligibleStints[eligibleStints.length - 1]
+          if (activeStint) {
+            const next = nextStatsByStintId[activeStint.id]
+            const outs = calculateOutsForPa(pa.result)
+            const paRuns = gameRuns.filter((run) => String(run.pa_id) === String(pa.id))
+            next._outs += outs
+            if (HIT_RESULTS.has(pa.result)) next.hits_allowed += 1
+            if (isHR(pa.result)) next.hr_allowed += 1
+            if (pa.result === 'BB') next.walks += 1
+            if (pa.result === 'K') next.strikeouts += 1
+            if (paRuns.length > 0) {
+              paRuns.forEach((run) => {
+                let target = next
+                if (Number(run.charged_to_pitcher_id) !== Number(activeStint.character_id)) {
+                  const chargedStints = stints.filter(
+                    (s) => Number(s.character_id) === Number(run.charged_to_pitcher_id) &&
+                      new Date(s.created_at).getTime() <= new Date(pa.created_at).getTime()
+                  )
+                  const chargedStint = chargedStints[chargedStints.length - 1]
+                  if (chargedStint) target = nextStatsByStintId[chargedStint.id]
+                }
+                target.runs_allowed += 1
+                if (run.is_earned_run !== false) target.earned_runs += 1
+              })
+            } else {
+              const fallback = Number(pa.rbi || 0) + (pa.run_scored ? 1 : 0)
+              if (fallback > 0) {
+                next.runs_allowed += fallback
+                if (pa.is_earned_run !== false) next.earned_runs += fallback
+              }
+            }
+          }
+          outsBeforePa += calculateOutsForPa(pa.result)
+        })
+        Object.values(nextStatsByStintId).forEach((entry) => {
+          entry.innings_pitched = inningsPitchedFromOuts(entry._outs)
+          delete entry._outs
+        })
+        return nextStatsByStintId
+      }
+
+      const groupById = (rows, key) => rows.reduce((acc, row) => {
+        const k = String(row[key])
+        if (!acc[k]) acc[k] = []
+        acc[k].push(row)
+        return acc
+      }, {})
+
+      const tournamentPAsByGame = groupById(tournamentPAsData || [], 'game_id')
+      const tournamentStintsByGame = groupById(tournamentStintsData || [], 'game_id')
+      const tournamentRunsByGame = groupById(tournamentRunsData || [], 'game_id')
+      const seasonPAsByGame = groupById(seasonPAsData || [], 'game_id')
+      const seasonStintsByGame = groupById(seasonStintsData || [], 'game_id')
+      const seasonRunsByGame = groupById(seasonRunsData || [], 'game_id')
+
+      const updates = []
+      for (const game of (gamesData || [])) {
+        const stints = tournamentStintsByGame[String(game.id)] || []
+        if (!stints.length) continue
+        const stats = computeStatsForGame(
+          game,
+          tournamentPAsByGame[String(game.id)] || [],
+          stints,
+          tournamentRunsByGame[String(game.id)] || [],
+        )
+        for (const [stintId, stintStats] of Object.entries(stats)) {
+          updates.push(supabase.from('pitching_stints').update(stintStats).eq('id', stintId))
+        }
+      }
+      for (const game of (seasonGamesData || [])) {
+        const normalizedGame = {
+          id: game.id,
+          team_a_player_id: playerIdByTeamId[String(game.away_team_id)],
+          team_b_player_id: playerIdByTeamId[String(game.home_team_id)],
+          home_away_swapped: game.home_away_swapped || false,
+        }
+        const stints = seasonStintsByGame[String(game.id)] || []
+        if (!stints.length) continue
+        const stats = computeStatsForGame(
+          normalizedGame,
+          seasonPAsByGame[String(game.id)] || [],
+          stints,
+          seasonRunsByGame[String(game.id)] || [],
+        )
+        for (const [stintId, stintStats] of Object.entries(stats)) {
+          updates.push(supabase.from('season_pitching_stints').update(stintStats).eq('id', stintId))
+        }
+      }
+
+      await Promise.all(updates)
+      pushToast({ title: 'Pitching stats recomputed', message: `Updated ${updates.length} pitching stints across all games.`, type: 'success' })
+    } catch (error) {
+      pushToast({ title: 'Recompute failed', message: error.message, type: 'error' })
+    } finally {
+      setRecomputingPitching(false)
+    }
+  }
 
   if (!isCommissioner) {
     return (
@@ -959,6 +1202,35 @@ export default function Admin() {
                 onConfirm={handleDeleteTournament}
                 danger
                 disabled={!activeTournament}
+              />
+            }
+          />
+        </Section>
+
+        <Section title="Data">
+          <Row
+            label="Download Backup"
+            description="Export all stats and seasons as a JSON file."
+            action={
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={handleBackup}
+                disabled={backingUp}
+              >
+                {backingUp ? 'Exporting…' : 'Download'}
+              </button>
+            }
+          />
+          <Row
+            label="Recompute Pitching Stats"
+            description="Recalculate R and ER for all pitching stints across every game. Fixes inherited-runner runs that were not attributed to any pitcher."
+            action={
+              <ConfirmButton
+                label="Recompute"
+                confirmLabel="Yes, recompute all"
+                onConfirm={handleRecomputePitchingStats}
+                disabled={recomputingPitching}
               />
             }
           />

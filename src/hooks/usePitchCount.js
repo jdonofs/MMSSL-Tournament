@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 function buildPitchOutcome(result, ballsBefore, strikesBefore, ballsAfter, strikesAfter, isStarPitch) {
   return {
@@ -12,82 +12,108 @@ function buildPitchOutcome(result, ballsBefore, strikesBefore, ballsAfter, strik
 }
 
 export default function usePitchCount({ pitcherKey, initialPitchNumber = 0 }) {
+  // Refs are the synchronous source of truth — always reflect the current count
+  // even between React renders. State is kept in sync for rendering only.
+  const ballsRef = useRef(0)
+  const strikesRef = useRef(0)
+  const pitchNumberRef = useRef(initialPitchNumber)
+
   const [balls, setBalls] = useState(0)
   const [strikes, setStrikes] = useState(0)
   const [pitchNumber, setPitchNumber] = useState(initialPitchNumber)
 
   useEffect(() => {
+    ballsRef.current = 0
+    strikesRef.current = 0
+    pitchNumberRef.current = initialPitchNumber
     setBalls(0)
     setStrikes(0)
     setPitchNumber(initialPitchNumber)
   }, [pitcherKey, initialPitchNumber])
 
   const resetPa = useCallback(() => {
+    ballsRef.current = 0
+    strikesRef.current = 0
     setBalls(0)
     setStrikes(0)
   }, [])
 
   const restoreState = useCallback(({ balls: nextBalls = 0, strikes: nextStrikes = 0, pitchNumber: nextPitchNumber = initialPitchNumber } = {}) => {
+    ballsRef.current = nextBalls
+    strikesRef.current = nextStrikes
+    pitchNumberRef.current = nextPitchNumber
     setBalls(nextBalls)
     setStrikes(nextStrikes)
     setPitchNumber(nextPitchNumber)
   }, [initialPitchNumber])
 
+  // Reads from refs (not closure) so it's always current, even on rapid presses.
   const registerPitch = useCallback((result, nextBalls, nextStrikes, isStarPitch) => {
-    const nextPitchNumber = pitchNumber + 1
+    const curBalls = ballsRef.current
+    const curStrikes = strikesRef.current
+    const nextPitchNumber = pitchNumberRef.current + 1
     const payload = {
       pitchNumberGame: nextPitchNumber,
-      pitchNumberPa: balls + strikes + 1,
-      pitch: buildPitchOutcome(result, balls, strikes, nextBalls, nextStrikes, isStarPitch),
+      pitchNumberPa: curBalls + curStrikes + 1,
+      pitch: buildPitchOutcome(result, curBalls, curStrikes, nextBalls, nextStrikes, isStarPitch),
     }
+    ballsRef.current = nextBalls
+    strikesRef.current = nextStrikes
+    pitchNumberRef.current = nextPitchNumber
     setBalls(nextBalls)
     setStrikes(nextStrikes)
     setPitchNumber(nextPitchNumber)
     return payload
-  }, [balls, strikes, pitchNumber])
+  }, []) // no closure deps — reads from refs
 
   const recordBall = useCallback((isStarPitch = false) => {
-    const nextBalls = Math.min(4, balls + 1)
-    const payload = registerPitch('ball', nextBalls, strikes, isStarPitch)
+    const nextBalls = Math.min(4, ballsRef.current + 1)
+    const payload = registerPitch('ball', nextBalls, strikesRef.current, isStarPitch)
     return {
       ...payload,
       completedPa: nextBalls >= 4 ? { result: 'BB' } : null,
     }
-  }, [balls, strikes, registerPitch])
+  }, [registerPitch])
 
   const recordStrike = useCallback((type, isStarPitch = false) => {
     const result = type === 'looking' ? 'looking' : 'swinging_miss'
-    const nextStrikes = Math.min(3, strikes + 1)
-    const payload = registerPitch(result, balls, nextStrikes, isStarPitch)
+    const nextStrikes = Math.min(3, strikesRef.current + 1)
+    const payload = registerPitch(result, ballsRef.current, nextStrikes, isStarPitch)
     return {
       ...payload,
       completedPa: nextStrikes >= 3 ? { result: 'K', strikeoutType: type === 'looking' ? 'KL' : 'KS' } : null,
     }
-  }, [balls, strikes, registerPitch])
+  }, [registerPitch])
 
   const recordFoul = useCallback((isStarPitch = false) => {
-    const nextStrikes = strikes >= 2 ? 2 : strikes + 1
+    const nextStrikes = strikesRef.current >= 2 ? 2 : strikesRef.current + 1
     return {
-      ...registerPitch('foul', balls, nextStrikes, isStarPitch),
+      ...registerPitch('foul', ballsRef.current, nextStrikes, isStarPitch),
       completedPa: null,
     }
-  }, [balls, strikes, registerPitch])
+  }, [registerPitch])
 
   const recordHbp = useCallback((isStarPitch = false) => ({
-    ...registerPitch('hbp', balls, strikes, isStarPitch),
+    ...registerPitch('hbp', ballsRef.current, strikesRef.current, isStarPitch),
     completedPa: { result: 'HBP' },
-  }), [balls, strikes, registerPitch])
+  }), [registerPitch])
 
   const recordInPlay = useCallback((isStarPitch = false) => ({
-    ...registerPitch('in_play', balls, strikes, isStarPitch),
+    ...registerPitch('in_play', ballsRef.current, strikesRef.current, isStarPitch),
     completedPa: null,
-  }), [balls, strikes, registerPitch])
+  }), [registerPitch])
 
   const undoPitch = useCallback((pitchEvent) => {
     if (!pitchEvent?.pitch) return
-    setBalls(Number(pitchEvent.pitch.count_balls_before ?? 0))
-    setStrikes(Number(pitchEvent.pitch.count_strikes_before ?? 0))
-    setPitchNumber(Math.max(initialPitchNumber, Number(pitchEvent.pitchNumberGame || initialPitchNumber) - 1))
+    const nextBalls = Number(pitchEvent.pitch.count_balls_before ?? 0)
+    const nextStrikes = Number(pitchEvent.pitch.count_strikes_before ?? 0)
+    const nextPitchNumber = Math.max(initialPitchNumber, Number(pitchEvent.pitchNumberGame || initialPitchNumber) - 1)
+    ballsRef.current = nextBalls
+    strikesRef.current = nextStrikes
+    pitchNumberRef.current = nextPitchNumber
+    setBalls(nextBalls)
+    setStrikes(nextStrikes)
+    setPitchNumber(nextPitchNumber)
   }, [initialPitchNumber])
 
   return {
@@ -97,6 +123,8 @@ export default function usePitchCount({ pitcherKey, initialPitchNumber = 0 }) {
     resetPa,
     restoreState,
     setCount: ({ balls: nextBalls = 0, strikes: nextStrikes = 0 }) => {
+      ballsRef.current = nextBalls
+      strikesRef.current = nextStrikes
       setBalls(nextBalls)
       setStrikes(nextStrikes)
     },

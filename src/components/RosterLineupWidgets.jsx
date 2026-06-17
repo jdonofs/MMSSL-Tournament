@@ -217,7 +217,12 @@ export function FieldingView({
 
   const portraitSize = Math.round((isMobile ? 40 : 54) * portraitScale)
   const placeholderSize = Math.round((isMobile ? 36 : 50) * portraitScale)
-  const positionBoxSize = Math.round((isMobile ? 70 : 96) * fieldScale)
+  // Size the clickable hit box to match the visible character icon itself —
+  // otherwise the hit box is much larger than the icon and overlaps
+  // neighboring positions (e.g. pitcher/catcher), so taps land on the wrong
+  // position. The position-label badge is rendered as an overlay below the
+  // icon so it doesn't enlarge the hit box.
+  const positionBoxSize = Math.max(portraitSize, placeholderSize)
   const maxFieldWidth = Math.round((isMobile ? 600 : 500) * fieldScale)
 
   const assignCharToPos = useCallback((posId, characterId) => {
@@ -285,19 +290,19 @@ export function FieldingView({
               style={{ position: 'absolute', left, top, transform: 'translate(-50%, -50%)', width: positionBoxSize, height: positionBoxSize, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: character ? 'pointer' : 'default' }}
             >
               {character ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                  <Portrait
-                    name={character.name}
-                    size={portraitSize}
-                    showChemistryNote={chemistryHighlightIds.has(charId)}
-                    highlighted={selectedPlayer === charId}
-                    style={{ boxShadow: `0 6px 14px #00000040, 0 0 0 2px ${groupColor}`, background: 'transparent', borderRadius: '50%' }}
-                  />
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#0F172A', background: groupColor, padding: '2px 6px', borderRadius: 999 }}>{pos.label}</div>
-                </div>
+                <Portrait
+                  name={character.name}
+                  size={portraitSize}
+                  showChemistryNote={chemistryHighlightIds.has(charId)}
+                  highlighted={selectedPlayer === charId}
+                  style={{ boxShadow: `0 6px 14px #00000040, 0 0 0 2px ${groupColor}`, background: 'transparent', borderRadius: '50%' }}
+                />
               ) : (
                 <div style={{ width: placeholderSize, height: placeholderSize, borderRadius: '50%', background: '#0F172A66', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#E2E8F0', border: `2px dashed ${groupColor}99` }}>{pos.label}</div>
               )}
+              {character ? (
+                <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translate(-50%, 2px)', fontSize: 10, fontWeight: 800, color: '#0F172A', background: groupColor, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap', pointerEvents: 'none' }}>{pos.label}</div>
+              ) : null}
             </div>
           )
         })}

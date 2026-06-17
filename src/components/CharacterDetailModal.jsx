@@ -255,17 +255,15 @@ function StatRow({ stats }) {
 }
 
 
-function BattedBallBar({ ldRate, gbRate, fbRate, bloopRate }) {
+function BattedBallBar({ ldRate, gbRate, fbRate }) {
   const ld = (ldRate || 0) * 100
   const gb = (gbRate || 0) * 100
   const fb = (fbRate || 0) * 100
-  const bl = (bloopRate || 0) * 100
-  const sum = ld + gb + fb + bl || 100
+  const sum = ld + gb + fb || 100
   const segments = [
     { pct: (ld / sum) * 100, color: '#22C55E', label: `LD ${ld.toFixed(0)}%` },
     { pct: (gb / sum) * 100, color: '#3B82F6', label: `GB ${gb.toFixed(0)}%` },
     { pct: (fb / sum) * 100, color: '#EAB308', label: `FB ${fb.toFixed(0)}%` },
-    { pct: (bl / sum) * 100, color: '#94A3B8', label: `BL ${bl.toFixed(0)}%` },
   ]
   return (
     <div style={{ display: 'grid', gap: 8 }}>

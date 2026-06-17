@@ -8,6 +8,7 @@ import {
   buildCharacterIntrinsics,
   buildCharacterHistory,
   buildStandings,
+  calculateParkFactors,
   computeLeagueConstants,
   groupBy,
   inningsAsDecimal,
@@ -16,6 +17,7 @@ import {
   summarizeBatting,
   summarizeBattedBallProfile,
   summarizeFielding,
+  summarizeHitLocations,
   summarizePitchMix,
   summarizePitching,
   summarizePlateDiscipline,
@@ -24,6 +26,7 @@ import {
   summarizeStarPitching,
 } from '../utils/statsCalculator'
 import { buildTournamentTeamIdentityMap, getTeamShortName } from '../utils/teamIdentity'
+import { getOrderedStadiums, getStadiumSpriteStyle } from '../utils/stadiums'
 import SharedCharacterDetailModal from '../components/CharacterDetailModal'
 import CharacterPortrait from '../components/CharacterPortrait'
 import PlayerTag from '../components/PlayerTag'
@@ -898,7 +901,6 @@ function CharacterDetailModal({
                     { label: 'LD%', value: `${(battingBattedBall.ldRate * 100).toFixed(0)}%`, accent: '#22C55E' },
                     { label: 'GB%', value: `${(battingBattedBall.gbRate * 100).toFixed(0)}%`, accent: '#3B82F6' },
                     { label: 'FB%', value: `${(battingBattedBall.fbRate * 100).toFixed(0)}%`, accent: '#EAB308' },
-                    { label: 'BL%', value: `${(battingBattedBall.bloopRate * 100).toFixed(0)}%`, accent: '#F8FAFC' },
                   ]}
                 />
               </div>
@@ -1050,6 +1052,33 @@ export default function Stats() {
   const [characterSort, setCharacterSort] = useState({ key: 'name', direction: 'asc' })
   const [advancedBattingSort, setAdvancedBattingSort] = useState({ key: 'wrcPlus', direction: 'desc' })
   const [advancedPitchingSort, setAdvancedPitchingSort] = useState({ key: 'fip', direction: 'asc' })
+  const [statView, setStatView] = useState('overview')
+  const [bbSubView, setBbSubView] = useState('batting')
+  const [discSubView, setDiscSubView] = useState('batting')
+  const [stadiums, setStadiums] = useState([])
+  const [stadiumGameLog, setStadiumGameLog] = useState([])
+  const [selectedStadiumKey, setSelectedStadiumKey] = useState(null)
+  const [ballparkSubView, setBallparkSubView] = useState('batting')
+  const [ballparkTimeFilter, setBallparkTimeFilter] = useState('all')
+  const [locationDisplayMode, setLocationDisplayMode] = useState('pct')
+  const [bbPlayerSort, setBbPlayerSort] = useState({ key: 'bip', direction: 'desc' })
+  const [bbCharacterSort, setBbCharacterSort] = useState({ key: 'bip', direction: 'desc' })
+  const [locPlayerSort, setLocPlayerSort] = useState({ key: 'bipTotal', direction: 'desc' })
+  const [locCharacterSort, setLocCharacterSort] = useState({ key: 'bipTotal', direction: 'desc' })
+  const [discPlayerSort, setDiscPlayerSort] = useState({ key: 'pitchesPerPa', direction: 'desc' })
+  const [discCharacterSort, setDiscCharacterSort] = useState({ key: 'pitchesPerPa', direction: 'desc' })
+  const [mixPlayerSort, setMixPlayerSort] = useState({ key: 'pitchesPerBatter', direction: 'desc' })
+  const [mixCharacterSort, setMixCharacterSort] = useState({ key: 'pitchesPerBatter', direction: 'desc' })
+  const [bpBattingPlayerSort, setBpBattingPlayerSort] = useState({ key: 'plateAppearances', direction: 'desc' })
+  const [bpBattingCharacterSort, setBpBattingCharacterSort] = useState({ key: 'plateAppearances', direction: 'desc' })
+  const [bpPitchingPlayerSort, setBpPitchingPlayerSort] = useState({ key: 'innings', direction: 'desc' })
+  const [bpPitchingCharacterSort, setBpPitchingCharacterSort] = useState({ key: 'innings', direction: 'desc' })
+  const [parkFactorsSubView, setParkFactorsSubView] = useState('league')
+  const [parkFactorsBatPit, setParkFactorsBatPit] = useState('batting')
+  const [bpFactorsTeamSort, setBpFactorsTeamSort] = useState({ key: 'opsDiff', direction: 'desc' })
+  const [bpFactorsCharSort, setBpFactorsCharSort] = useState({ key: 'opsDiff', direction: 'desc' })
+  const [bpFactorsPitTeamSort, setBpFactorsPitTeamSort] = useState({ key: 'eraDiff', direction: 'asc' })
+  const [bpFactorsPitCharSort, setBpFactorsPitCharSort] = useState({ key: 'eraDiff', direction: 'asc' })
   const [players, setPlayers] = useState([])
   const [characters, setCharacters] = useState([])
   const [games, setGames] = useState([])
@@ -1108,6 +1137,8 @@ export default function Stats() {
         { data: seasonPitchingData },
         { data: seasonPitchData },
         { data: seasonFieldersData },
+        { data: stadiumsData },
+        { data: stadiumLogData },
       ] = await Promise.all([
         supabase.from('players').select('*'),
         supabase
@@ -1128,6 +1159,8 @@ export default function Stats() {
         supabase.from('season_pitching_stints').select('*'),
         supabase.from('season_pitches').select('*'),
         supabase.from('season_game_fielders').select('*'),
+        supabase.from('stadiums').select('*'),
+        supabase.from('stadium_game_log').select('game_id, stadium_id, is_night'),
       ])
 
       const allPAs = paData || []
@@ -1172,6 +1205,8 @@ export default function Stats() {
       setSeasonPitchingStints(normalizedSeasonPitching)
       setSeasonPitches(normalizedSeasonPitches)
       setSeasonFielders(normalizedSeasonFielders)
+      setStadiums(stadiumsData || [])
+      setStadiumGameLog(stadiumLogData || [])
       setLeagueConstants(computeLeagueConstants(
         [...allPAs, ...normalizedSeasonPas],
         [...allPitchingStints, ...normalizedSeasonPitching],
@@ -1244,13 +1279,40 @@ export default function Stats() {
     return seasonPlateAppearances.filter((pa) => String(gameById[pa.game_id]?.tournament_id) === String(selectedSeasonValue))
   }, [isCombinedView, sourceMode, plateAppearances, seasonPlateAppearances, selectedTournamentValue, selectedSeasonValue, gameById])
   const filteredPitching = useMemo(() => {
+    let raw
     if (isCombinedView) {
-      return [...pitchingStints, ...seasonPitchingStints]
+      raw = [...pitchingStints, ...seasonPitchingStints]
+    } else if (sourceMode === 'tournaments') {
+      raw = pitchingStints.filter((stint) => String(gameById[stint.game_id]?.tournament_id) === String(selectedTournamentValue))
+    } else {
+      raw = seasonPitchingStints.filter((stint) => String(gameById[stint.game_id]?.tournament_id) === String(selectedSeasonValue))
     }
-    if (sourceMode === 'tournaments') {
-      return pitchingStints.filter((stint) => String(gameById[stint.game_id]?.tournament_id) === String(selectedTournamentValue))
+
+    // Derive W/L from game outcomes since the DB fields are not reliably populated.
+    const byGame = {}
+    for (const stint of raw) {
+      const key = String(stint.game_id)
+      if (!byGame[key]) byGame[key] = []
+      byGame[key].push(stint)
     }
-    return seasonPitchingStints.filter((stint) => String(gameById[stint.game_id]?.tournament_id) === String(selectedSeasonValue))
+    const overrides = {}
+    for (const [gameId, stints] of Object.entries(byGame)) {
+      const game = gameById[gameId]
+      if (!game || game.status !== 'complete' || !game.winner_player_id) continue
+      const winnerPlayerId = String(game.winner_player_id)
+      const loserPlayerId = [game.team_a_player_id, game.team_b_player_id]
+        .map(String)
+        .find((id) => id !== winnerPlayerId) || null
+      const sorted = [...stints].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      const winnerStints = sorted.filter((s) => String(s.player_id) === winnerPlayerId)
+      const loserStints = loserPlayerId ? sorted.filter((s) => String(s.player_id) === loserPlayerId) : []
+      const winningStint = winnerStints[winnerStints.length - 1]
+      const losingStint = loserStints[loserStints.length - 1]
+      if (winningStint) overrides[winningStint.id] = { win: true, loss: false }
+      if (losingStint) overrides[losingStint.id] = { win: false, loss: true }
+    }
+    if (!Object.keys(overrides).length) return raw
+    return raw.map((stint) => overrides[stint.id] ? { ...stint, ...overrides[stint.id] } : { ...stint, win: false, loss: false })
   }, [isCombinedView, sourceMode, pitchingStints, seasonPitchingStints, selectedTournamentValue, selectedSeasonValue, gameById])
   const filteredPitches = useMemo(() => {
     if (isCombinedView) {
@@ -1448,10 +1510,11 @@ export default function Stats() {
     const advancedPitching = sanitizeMetrics(summarizeAdvancedPitching(playerStints, leagueConstants))
     const starHit = summarizeStarHits(battingPas)
     const pitchingPaIds = new Set(pitchingPas.map((pa) => String(pa.id)))
-    const starPitch = summarizeStarPitching(
-      pitchingPas,
-      filteredPitches.filter((pitch) => pitchingPaIds.has(String(pitch.pa_id))),
-    )
+    const pitcherPitches = filteredPitches.filter((pitch) => pitchingPaIds.has(String(pitch.pa_id)))
+    const starPitch = summarizeStarPitching(pitchingPas, pitcherPitches)
+
+    const batterPaIds = new Set(battingPas.map((pa) => String(pa.id)))
+    const batterPitches = filteredPitches.filter((pitch) => batterPaIds.has(String(pitch.pa_id)))
 
     return {
       ...standing,
@@ -1464,6 +1527,15 @@ export default function Stats() {
       starHit,
       starPitch,
       fielding: playerFieldingById[String(standing.playerId)] || createEmptyFieldingRow({ playerId: standing.playerId, name: standing.name }),
+      battedBall: summarizeBattedBallProfile(battingPas),
+      sprayProfile: summarizeSprayProfile(battingPas),
+      hitLocations: summarizeHitLocations(battingPas),
+      plateDiscipline: summarizePlateDiscipline(battingPas, batterPitches),
+      pitchingBattedBall: summarizeBattedBallProfile(pitchingPas),
+      pitchingSpray: summarizeSprayProfile(pitchingPas),
+      pitchingHitLocations: summarizeHitLocations(pitchingPas),
+      pitchMix: summarizePitchMix(pitchingPas, pitcherPitches),
+      pitchingBf: pitchingPas.length,
     }
   }), [filteredPas, filteredPitches, leagueConstants, paByPlayer, pitchingByPlayer, playerFieldingById, standings])
 
@@ -1494,6 +1566,10 @@ export default function Stats() {
       ),
     ).length
 
+    const charPitcherPitches = filteredPitches.filter((pitch) => pitch.pitcher_id === character.name)
+    const charBatterPaIds = new Set(battingPas.map((pa) => String(pa.id)))
+    const charBatterPitches = filteredPitches.filter((pitch) => charBatterPaIds.has(String(pitch.pa_id)))
+
     return {
       ...character,
       miiColor: currentOwner?.mii_color || null,
@@ -1510,7 +1586,7 @@ export default function Stats() {
       advancedPitching: sanitizeMetrics(summarizeAdvancedPitching(characterStints, leagueConstants)),
       pitchingThresholdIp: inningsAsDecimal(pitching.innings || 0),
       starHit: summarizeStarHits(battingPas),
-      starPitch: summarizeStarPitching(pitchingPas, filteredPitches.filter((pitch) => pitch.pitcher_id === character.name)),
+      starPitch: summarizeStarPitching(pitchingPas, charPitcherPitches),
       fielding: characterFieldingByName[character.name] || createEmptyFieldingRow({ id: character.id, name: character.name }),
       currentOwner,
       ownerName: getTeamShortName(identitiesByPlayerId[currentOwner?.player_id]) || playersById[currentOwner?.player_id]?.name || 'Undrafted',
@@ -1518,6 +1594,15 @@ export default function Stats() {
       tournamentsDrafted: tournamentIdsDrafted.length,
       championshipsWon,
       intrinsics: buildCharacterIntrinsics(character),
+      battedBall: summarizeBattedBallProfile(battingPas),
+      sprayProfile: summarizeSprayProfile(battingPas),
+      hitLocations: summarizeHitLocations(battingPas),
+      plateDiscipline: summarizePlateDiscipline(battingPas, charBatterPitches),
+      pitchingBattedBall: summarizeBattedBallProfile(pitchingPas),
+      pitchingSpray: summarizeSprayProfile(pitchingPas),
+      pitchingHitLocations: summarizeHitLocations(pitchingPas),
+      pitchMix: summarizePitchMix(pitchingPas, charPitcherPitches),
+      pitchingBf: pitchingPas.length,
     }
   }), [allCharacterHistory, characters, characterFieldingByName, draftPicks, filteredCharacterHistory, filteredPas, filteredPitching, filteredPitches, identitiesByPlayerId, leagueConstants, ownerDraftPicks, pitchingStints, plateAppearances, playersById, seasonPitchingStints, seasonPlateAppearances, tournaments])
 
@@ -1548,6 +1633,223 @@ export default function Stats() {
     pitching: { innings: filteredPitching.reduce((sum, stint) => sum + Number(stint.innings_pitched || 0), 0) },
     advancedPitching: leaguePitchingSummary,
   }), [filteredPitching, leaguePitchingSummary])
+
+  const orderedStadiums = useMemo(() => getOrderedStadiums(stadiums), [stadiums])
+
+  const gameToStadiumNameMap = useMemo(() => {
+    const stadiumById = Object.fromEntries(stadiums.map((s) => [String(s.id), s]))
+    const result = {}
+    for (const game of [...games, ...seasonGames]) {
+      if (game.stadium_id && stadiumById[String(game.stadium_id)]) {
+        result[String(game.id)] = stadiumById[String(game.stadium_id)].name
+      } else if (game.stadium) {
+        result[String(game.id)] = game.stadium
+      }
+    }
+    for (const entry of stadiumGameLog) {
+      const gameId = String(entry.game_id)
+      if (!result[gameId] && entry.stadium_id && stadiumById[String(entry.stadium_id)]) {
+        result[gameId] = stadiumById[String(entry.stadium_id)].name
+      }
+    }
+    return result
+  }, [games, seasonGames, stadiums, stadiumGameLog])
+
+  const stadiumStats = useMemo(() => {
+    const byStadium = {}
+    for (const pa of filteredPas) {
+      const stadiumName = gameToStadiumNameMap[String(pa.game_id)]
+      if (!stadiumName) continue
+      if (!byStadium[stadiumName]) byStadium[stadiumName] = []
+      byStadium[stadiumName].push(pa)
+    }
+    const result = {}
+    for (const [stadiumName, pas] of Object.entries(byStadium)) {
+      const batting = summarizeBatting(pas)
+      batting.ops = batting.obp + batting.slg
+      result[stadiumName] = { stadiumName, pas, batting, gamesPlayed: new Set(pas.map((pa) => pa.game_id)).size }
+    }
+    return result
+  }, [filteredPas, gameToStadiumNameMap])
+
+  const gameIsNightMap = useMemo(() => {
+    const result = {}
+    for (const game of [...games, ...seasonGames]) {
+      result[String(game.id)] = Boolean(game.is_night)
+    }
+    return result
+  }, [games, seasonGames])
+
+  const selectedStadiumPas = useMemo(() => {
+    let pas = selectedStadiumKey
+      ? filteredPas.filter((pa) => gameToStadiumNameMap[String(pa.game_id)] === selectedStadiumKey)
+      : filteredPas
+    if (ballparkTimeFilter === 'day') pas = pas.filter((pa) => !gameIsNightMap[String(pa.game_id)])
+    if (ballparkTimeFilter === 'night') pas = pas.filter((pa) => gameIsNightMap[String(pa.game_id)])
+    return pas
+  }, [filteredPas, selectedStadiumKey, gameToStadiumNameMap, ballparkTimeFilter, gameIsNightMap])
+
+  const selectedStadiumStints = useMemo(() => {
+    const stadiumGameIds = selectedStadiumKey
+      ? new Set(Object.entries(gameToStadiumNameMap).filter(([, name]) => name === selectedStadiumKey).map(([id]) => id))
+      : null
+    let stints = stadiumGameIds
+      ? filteredPitching.filter((stint) => stadiumGameIds.has(String(stint.game_id)))
+      : filteredPitching
+    if (ballparkTimeFilter === 'day') stints = stints.filter((stint) => !gameIsNightMap[String(stint.game_id)])
+    if (ballparkTimeFilter === 'night') stints = stints.filter((stint) => gameIsNightMap[String(stint.game_id)])
+    return stints
+  }, [filteredPitching, selectedStadiumKey, gameToStadiumNameMap, ballparkTimeFilter, gameIsNightMap])
+
+  const ballparkPlayerBattingRows = useMemo(() => {
+    const byPlayer = groupBy(selectedStadiumPas, 'player_id')
+    return Object.entries(byPlayer).map(([playerId, pas]) => {
+      const player = playersById[playerId]
+      const batting = summarizeBatting(pas)
+      batting.ops = batting.obp + batting.slg
+      return { playerId, name: player?.name || 'Unknown', batting, gamesAtPark: new Set(pas.map((pa) => pa.game_id)).size }
+    }).filter((row) => row.batting.plateAppearances > 0)
+  }, [selectedStadiumPas, playersById])
+
+  const ballparkPlayerPitchingRows = useMemo(() => {
+    const byPlayer = groupBy(selectedStadiumStints, 'player_id')
+    return Object.entries(byPlayer).map(([playerId, stints]) => {
+      const player = playersById[playerId]
+      const pitching = summarizePitching(stints)
+      return { playerId, name: player?.name || 'Unknown', pitching }
+    }).filter((row) => row.pitching.games > 0)
+  }, [selectedStadiumStints, playersById])
+
+  const ballparkCharacterBattingRows = useMemo(() => {
+    const byChar = groupBy(selectedStadiumPas, 'character_id')
+    return Object.entries(byChar).map(([charId, pas]) => {
+      const char = characters.find((c) => String(c.id) === String(charId))
+      const batting = summarizeBatting(pas)
+      batting.ops = batting.obp + batting.slg
+      return { id: char?.id || charId, name: char?.name || 'Unknown', batting }
+    }).filter((row) => row.batting.plateAppearances > 0)
+  }, [selectedStadiumPas, characters])
+
+  const ballparkCharacterPitchingRows = useMemo(() => {
+    const byChar = groupBy(selectedStadiumStints, 'character_id')
+    return Object.entries(byChar).map(([charId, stints]) => {
+      const char = characters.find((c) => String(c.id) === String(charId))
+      const pitching = summarizePitching(stints)
+      return { id: char?.id || charId, name: char?.name || 'Unknown', pitching }
+    }).filter((row) => row.pitching.games > 0)
+  }, [selectedStadiumStints, characters])
+
+  const parkFactors = useMemo(() => {
+    if (!selectedStadiumKey || !selectedStadiumPas.length) return null
+    const timeFilteredLeaguePas = ballparkTimeFilter === 'day'
+      ? filteredPas.filter((pa) => !gameIsNightMap[String(pa.game_id)])
+      : ballparkTimeFilter === 'night'
+        ? filteredPas.filter((pa) => gameIsNightMap[String(pa.game_id)])
+        : filteredPas
+    return calculateParkFactors(selectedStadiumPas, timeFilteredLeaguePas)
+  }, [selectedStadiumKey, selectedStadiumPas, filteredPas, ballparkTimeFilter, gameIsNightMap])
+
+  const timeFilteredAllPas = useMemo(() => {
+    if (ballparkTimeFilter === 'day') return filteredPas.filter((pa) => !gameIsNightMap[String(pa.game_id)])
+    if (ballparkTimeFilter === 'night') return filteredPas.filter((pa) => gameIsNightMap[String(pa.game_id)])
+    return filteredPas
+  }, [filteredPas, ballparkTimeFilter, gameIsNightMap])
+
+  const teamParkFactorRows = useMemo(() => {
+    if (!selectedStadiumKey) return []
+    const byPlayerAtPark = groupBy(selectedStadiumPas, 'player_id')
+    const byPlayerAll = groupBy(timeFilteredAllPas, 'player_id')
+    const byPlayerStintsAtPark = groupBy(selectedStadiumStints, 'player_id')
+    const timeFilteredAllStints = ballparkTimeFilter === 'day'
+      ? filteredPitching.filter((s) => !gameIsNightMap[String(s.game_id)])
+      : ballparkTimeFilter === 'night'
+        ? filteredPitching.filter((s) => gameIsNightMap[String(s.game_id)])
+        : filteredPitching
+    const byPlayerStintsAll = groupBy(timeFilteredAllStints, 'player_id')
+    return Object.entries(byPlayerAtPark).map(([playerId, parkPas]) => {
+      const allPas = byPlayerAll[playerId] || []
+      const parkBatting = summarizeBatting(parkPas)
+      parkBatting.ops = parkBatting.obp + parkBatting.slg
+      const overallBatting = summarizeBatting(allPas)
+      overallBatting.ops = overallBatting.obp + overallBatting.slg
+      const player = playersById[playerId]
+      const parkHrPa = parkBatting.plateAppearances ? parkBatting.homeRuns / parkBatting.plateAppearances : 0
+      const overallHrPa = overallBatting.plateAppearances ? overallBatting.homeRuns / overallBatting.plateAppearances : 0
+      const parkPitching = summarizePitching(byPlayerStintsAtPark[playerId] || [])
+      const overallPitching = summarizePitching(byPlayerStintsAll[playerId] || [])
+      return {
+        playerId,
+        name: player?.name || 'Unknown',
+        parkPa: parkBatting.plateAppearances,
+        parkAvg: parkBatting.avg,
+        parkOps: parkBatting.ops,
+        parkHrPa,
+        overallAvg: overallBatting.avg,
+        overallOps: overallBatting.ops,
+        overallHrPa,
+        opsDiff: parkBatting.ops - overallBatting.ops,
+        avgDiff: parkBatting.avg - overallBatting.avg,
+        hrPaDiff: parkHrPa - overallHrPa,
+        parkPitching,
+        overallPitching,
+        eraAtPark: parkPitching.era,
+        eraOverall: overallPitching.era,
+        eraDiff: (Number.isFinite(parkPitching.era) && Number.isFinite(overallPitching.era)) ? parkPitching.era - overallPitching.era : null,
+        whipAtPark: parkPitching.whip,
+        whipOverall: overallPitching.whip,
+        whipDiff: (Number.isFinite(parkPitching.whip) && Number.isFinite(overallPitching.whip)) ? parkPitching.whip - overallPitching.whip : null,
+        parkIp: parkPitching.innings,
+      }
+    }).filter((row) => row.parkPa >= 3 || row.parkIp > 0)
+  }, [selectedStadiumKey, selectedStadiumPas, selectedStadiumStints, timeFilteredAllPas, filteredPitching, ballparkTimeFilter, gameIsNightMap, playersById])
+
+  const charParkFactorRows = useMemo(() => {
+    if (!selectedStadiumKey) return []
+    const byCharAtPark = groupBy(selectedStadiumPas, 'character_id')
+    const byCharAll = groupBy(timeFilteredAllPas, 'character_id')
+    const byCharStintsAtPark = groupBy(selectedStadiumStints, 'character_id')
+    const timeFilteredAllStints = ballparkTimeFilter === 'day'
+      ? filteredPitching.filter((s) => !gameIsNightMap[String(s.game_id)])
+      : ballparkTimeFilter === 'night'
+        ? filteredPitching.filter((s) => gameIsNightMap[String(s.game_id)])
+        : filteredPitching
+    const byCharStintsAll = groupBy(timeFilteredAllStints, 'character_id')
+    return Object.entries(byCharAtPark).map(([charId, parkPas]) => {
+      const allPas = byCharAll[charId] || []
+      const char = characters.find((c) => String(c.id) === String(charId))
+      const parkBatting = summarizeBatting(parkPas)
+      parkBatting.ops = parkBatting.obp + parkBatting.slg
+      const overallBatting = summarizeBatting(allPas)
+      overallBatting.ops = overallBatting.obp + overallBatting.slg
+      const parkHrPa = parkBatting.plateAppearances ? parkBatting.homeRuns / parkBatting.plateAppearances : 0
+      const overallHrPa = overallBatting.plateAppearances ? overallBatting.homeRuns / overallBatting.plateAppearances : 0
+      const parkPitching = summarizePitching(byCharStintsAtPark[charId] || [])
+      const overallPitching = summarizePitching(byCharStintsAll[charId] || [])
+      return {
+        id: char?.id || charId,
+        name: char?.name || 'Unknown',
+        parkPa: parkBatting.plateAppearances,
+        parkAvg: parkBatting.avg,
+        parkOps: parkBatting.ops,
+        parkHrPa,
+        overallAvg: overallBatting.avg,
+        overallOps: overallBatting.ops,
+        overallHrPa,
+        opsDiff: parkBatting.ops - overallBatting.ops,
+        avgDiff: parkBatting.avg - overallBatting.avg,
+        hrPaDiff: parkHrPa - overallHrPa,
+        parkPitching,
+        overallPitching,
+        eraAtPark: parkPitching.era,
+        eraOverall: overallPitching.era,
+        eraDiff: (Number.isFinite(parkPitching.era) && Number.isFinite(overallPitching.era)) ? parkPitching.era - overallPitching.era : null,
+        whipAtPark: parkPitching.whip,
+        whipOverall: overallPitching.whip,
+        whipDiff: (Number.isFinite(parkPitching.whip) && Number.isFinite(overallPitching.whip)) ? parkPitching.whip - overallPitching.whip : null,
+        parkIp: parkPitching.innings,
+      }
+    }).filter((row) => row.parkPa >= 3 || row.parkIp > 0)
+  }, [selectedStadiumKey, selectedStadiumPas, selectedStadiumStints, timeFilteredAllPas, filteredPitching, ballparkTimeFilter, gameIsNightMap, characters])
 
   const toggleSort = (setter, column) => {
     setter((current) => (
@@ -1756,6 +2058,264 @@ export default function Stats() {
     { key: 'babipAllowed', group: 'Contact', label: 'BABIP Allowed', defaultDirection: 'asc', sortValue: (row) => row.advancedPitching.babipAllowed, value: (row) => formatAverageStyle(row.advancedPitching.babipAllowed) },
   ]), [identitiesByPlayerId, playersById, leagueConstants, leaguePitchingSummary])
 
+  const playerIdentityCol = { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> }
+  const charIdentityCol = { key: 'name', group: 'Identity', label: 'Character', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 48, sortValue: (row) => row.name, render: (row) => <CharacterCell compact name={row.name} /> }
+
+  const bbBattingCols = useMemo(() => [
+    playerIdentityCol,
+    { key: 'bip', group: 'Profile', label: 'BIP', sortValue: (row) => row.battedBall.total, value: (row) => row.battedBall.total },
+    { key: 'ld', group: 'Trajectory', label: 'LD', sortValue: (row) => row.battedBall.lineDrives, value: (row) => row.battedBall.lineDrives },
+    { key: 'gb', group: 'Trajectory', label: 'GB', sortValue: (row) => row.battedBall.groundBalls, value: (row) => row.battedBall.groundBalls },
+    { key: 'fb', group: 'Trajectory', label: 'FB', sortValue: (row) => row.battedBall.flyBalls, value: (row) => row.battedBall.flyBalls },
+    { key: 'ldPct', group: 'Trajectory', label: 'LD%', sortValue: (row) => row.battedBall.ldRate, value: (row) => formatPercent(row.battedBall.ldRate) },
+    { key: 'gbPct', group: 'Trajectory', label: 'GB%', sortValue: (row) => row.battedBall.gbRate, value: (row) => formatPercent(row.battedBall.gbRate) },
+    { key: 'fbPct', group: 'Trajectory', label: 'FB%', sortValue: (row) => row.battedBall.fbRate, value: (row) => formatPercent(row.battedBall.fbRate) },
+    { key: 'pull', group: 'Direction', label: 'Pull', sortValue: (row) => row.sprayProfile.pull, value: (row) => row.sprayProfile.pull },
+    { key: 'ctr', group: 'Direction', label: 'Ctr', sortValue: (row) => row.sprayProfile.center, value: (row) => row.sprayProfile.center },
+    { key: 'oppo', group: 'Direction', label: 'Oppo', sortValue: (row) => row.sprayProfile.oppo, value: (row) => row.sprayProfile.oppo },
+    { key: 'pullPct', group: 'Direction', label: 'Pull%', sortValue: (row) => row.sprayProfile.pullRate, value: (row) => formatPercent(row.sprayProfile.pullRate) },
+    { key: 'ctrPct', group: 'Direction', label: 'Ctr%', sortValue: (row) => row.sprayProfile.centerRate, value: (row) => formatPercent(row.sprayProfile.centerRate) },
+    { key: 'oppoPct', group: 'Direction', label: 'Oppo%', sortValue: (row) => row.sprayProfile.oppoRate, value: (row) => formatPercent(row.sprayProfile.oppoRate) },
+  ], [identitiesByPlayerId, playersById])
+
+  const bbPitchingCols = useMemo(() => [
+    playerIdentityCol,
+    { key: 'bip', group: 'Profile', label: 'BIP Allowed', sortValue: (row) => row.pitchingBattedBall.total, value: (row) => row.pitchingBattedBall.total },
+    { key: 'ld', group: 'Trajectory', label: 'LD', sortValue: (row) => row.pitchingBattedBall.lineDrives, value: (row) => row.pitchingBattedBall.lineDrives },
+    { key: 'gb', group: 'Trajectory', label: 'GB', sortValue: (row) => row.pitchingBattedBall.groundBalls, value: (row) => row.pitchingBattedBall.groundBalls },
+    { key: 'fb', group: 'Trajectory', label: 'FB', sortValue: (row) => row.pitchingBattedBall.flyBalls, value: (row) => row.pitchingBattedBall.flyBalls },
+    { key: 'ldPct', group: 'Trajectory', label: 'LD%', sortValue: (row) => row.pitchingBattedBall.ldRate, value: (row) => formatPercent(row.pitchingBattedBall.ldRate) },
+    { key: 'gbPct', group: 'Trajectory', label: 'GB%', sortValue: (row) => row.pitchingBattedBall.gbRate, value: (row) => formatPercent(row.pitchingBattedBall.gbRate) },
+    { key: 'fbPct', group: 'Trajectory', label: 'FB%', sortValue: (row) => row.pitchingBattedBall.fbRate, value: (row) => formatPercent(row.pitchingBattedBall.fbRate) },
+    { key: 'pull', group: 'Direction', label: 'Pull', sortValue: (row) => row.pitchingSpray.pull, value: (row) => row.pitchingSpray.pull },
+    { key: 'ctr', group: 'Direction', label: 'Ctr', sortValue: (row) => row.pitchingSpray.center, value: (row) => row.pitchingSpray.center },
+    { key: 'oppo', group: 'Direction', label: 'Oppo', sortValue: (row) => row.pitchingSpray.oppo, value: (row) => row.pitchingSpray.oppo },
+    { key: 'pullPct', group: 'Direction', label: 'Pull%', sortValue: (row) => row.pitchingSpray.pullRate, value: (row) => formatPercent(row.pitchingSpray.pullRate) },
+    { key: 'ctrPct', group: 'Direction', label: 'Ctr%', sortValue: (row) => row.pitchingSpray.centerRate, value: (row) => formatPercent(row.pitchingSpray.centerRate) },
+    { key: 'oppoPct', group: 'Direction', label: 'Oppo%', sortValue: (row) => row.pitchingSpray.oppoRate, value: (row) => formatPercent(row.pitchingSpray.oppoRate) },
+  ], [identitiesByPlayerId, playersById])
+
+  const bbBattingCharCols = useMemo(() => [
+    charIdentityCol,
+    { key: 'bip', group: 'Profile', label: 'BIP', sortValue: (row) => row.battedBall.total, value: (row) => row.battedBall.total },
+    { key: 'ld', group: 'Trajectory', label: 'LD', sortValue: (row) => row.battedBall.lineDrives, value: (row) => row.battedBall.lineDrives },
+    { key: 'gb', group: 'Trajectory', label: 'GB', sortValue: (row) => row.battedBall.groundBalls, value: (row) => row.battedBall.groundBalls },
+    { key: 'fb', group: 'Trajectory', label: 'FB', sortValue: (row) => row.battedBall.flyBalls, value: (row) => row.battedBall.flyBalls },
+    { key: 'ldPct', group: 'Trajectory', label: 'LD%', sortValue: (row) => row.battedBall.ldRate, value: (row) => formatPercent(row.battedBall.ldRate) },
+    { key: 'gbPct', group: 'Trajectory', label: 'GB%', sortValue: (row) => row.battedBall.gbRate, value: (row) => formatPercent(row.battedBall.gbRate) },
+    { key: 'fbPct', group: 'Trajectory', label: 'FB%', sortValue: (row) => row.battedBall.fbRate, value: (row) => formatPercent(row.battedBall.fbRate) },
+    { key: 'pull', group: 'Direction', label: 'Pull', sortValue: (row) => row.sprayProfile.pull, value: (row) => row.sprayProfile.pull },
+    { key: 'ctr', group: 'Direction', label: 'Ctr', sortValue: (row) => row.sprayProfile.center, value: (row) => row.sprayProfile.center },
+    { key: 'oppo', group: 'Direction', label: 'Oppo', sortValue: (row) => row.sprayProfile.oppo, value: (row) => row.sprayProfile.oppo },
+    { key: 'pullPct', group: 'Direction', label: 'Pull%', sortValue: (row) => row.sprayProfile.pullRate, value: (row) => formatPercent(row.sprayProfile.pullRate) },
+    { key: 'ctrPct', group: 'Direction', label: 'Ctr%', sortValue: (row) => row.sprayProfile.centerRate, value: (row) => formatPercent(row.sprayProfile.centerRate) },
+    { key: 'oppoPct', group: 'Direction', label: 'Oppo%', sortValue: (row) => row.sprayProfile.oppoRate, value: (row) => formatPercent(row.sprayProfile.oppoRate) },
+  ], [])
+
+  const bbPitchingCharCols = useMemo(() => [
+    charIdentityCol,
+    { key: 'bip', group: 'Profile', label: 'BIP Allowed', sortValue: (row) => row.pitchingBattedBall.total, value: (row) => row.pitchingBattedBall.total },
+    { key: 'ld', group: 'Trajectory', label: 'LD', sortValue: (row) => row.pitchingBattedBall.lineDrives, value: (row) => row.pitchingBattedBall.lineDrives },
+    { key: 'gb', group: 'Trajectory', label: 'GB', sortValue: (row) => row.pitchingBattedBall.groundBalls, value: (row) => row.pitchingBattedBall.groundBalls },
+    { key: 'fb', group: 'Trajectory', label: 'FB', sortValue: (row) => row.pitchingBattedBall.flyBalls, value: (row) => row.pitchingBattedBall.flyBalls },
+    { key: 'ldPct', group: 'Trajectory', label: 'LD%', sortValue: (row) => row.pitchingBattedBall.ldRate, value: (row) => formatPercent(row.pitchingBattedBall.ldRate) },
+    { key: 'gbPct', group: 'Trajectory', label: 'GB%', sortValue: (row) => row.pitchingBattedBall.gbRate, value: (row) => formatPercent(row.pitchingBattedBall.gbRate) },
+    { key: 'fbPct', group: 'Trajectory', label: 'FB%', sortValue: (row) => row.pitchingBattedBall.fbRate, value: (row) => formatPercent(row.pitchingBattedBall.fbRate) },
+    { key: 'pull', group: 'Direction', label: 'Pull', sortValue: (row) => row.pitchingSpray.pull, value: (row) => row.pitchingSpray.pull },
+    { key: 'ctr', group: 'Direction', label: 'Ctr', sortValue: (row) => row.pitchingSpray.center, value: (row) => row.pitchingSpray.center },
+    { key: 'oppo', group: 'Direction', label: 'Oppo', sortValue: (row) => row.pitchingSpray.oppo, value: (row) => row.pitchingSpray.oppo },
+    { key: 'pullPct', group: 'Direction', label: 'Pull%', sortValue: (row) => row.pitchingSpray.pullRate, value: (row) => formatPercent(row.pitchingSpray.pullRate) },
+    { key: 'ctrPct', group: 'Direction', label: 'Ctr%', sortValue: (row) => row.pitchingSpray.centerRate, value: (row) => formatPercent(row.pitchingSpray.centerRate) },
+    { key: 'oppoPct', group: 'Direction', label: 'Oppo%', sortValue: (row) => row.pitchingSpray.oppoRate, value: (row) => formatPercent(row.pitchingSpray.oppoRate) },
+  ], [])
+
+  const buildLocCols = (getLocations, identityCol) => [
+    identityCol,
+    { key: 'bipTotal', group: 'Profile', label: 'BIP', sortValue: (row) => getLocations(row).total, value: (row) => getLocations(row).total },
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((pos) => ({
+      key: `loc${pos}`,
+      group: 'Location',
+      label: POSITION_LABELS[pos],
+      sortValue: (row) => locationDisplayMode === 'pct' ? getLocations(row).rates[pos] : getLocations(row).counts[pos],
+      value: (row) => locationDisplayMode === 'pct' ? formatPercent(getLocations(row).rates[pos]) : formatInteger(getLocations(row).counts[pos]),
+    })),
+  ]
+
+  const locBattingPlayerCols = buildLocCols((row) => row.hitLocations, playerIdentityCol)
+  const locPitchingPlayerCols = buildLocCols((row) => row.pitchingHitLocations, playerIdentityCol)
+  const locBattingCharCols = buildLocCols((row) => row.hitLocations, charIdentityCol)
+  const locPitchingCharCols = buildLocCols((row) => row.pitchingHitLocations, charIdentityCol)
+
+  const discBattingPlayerCols = useMemo(() => [
+    playerIdentityCol,
+    { key: 'pa', group: 'Usage', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
+    { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.plateDiscipline.totalPitches, value: (row) => row.plateDiscipline.totalPitches },
+    { key: 'pitchesPerPa', group: 'Usage', label: 'P/PA', sortValue: (row) => row.plateDiscipline.pitchesPerPa, value: (row) => formatDecimal(row.plateDiscipline.pitchesPerPa, 2) },
+    { key: 'whiffRate', group: 'Contact', label: 'Whiff%', sortValue: (row) => row.plateDiscipline.whiffRate, value: (row) => formatPercent(row.plateDiscipline.whiffRate) },
+    { key: 'foulRate', group: 'Contact', label: 'Foul%', sortValue: (row) => row.plateDiscipline.foulRate, value: (row) => formatPercent(row.plateDiscipline.foulRate) },
+    { key: 'kRate', group: 'Strikeouts', label: 'K%', sortValue: (row) => row.plateDiscipline.kRate, value: (row) => formatPercent(row.plateDiscipline.kRate) },
+    { key: 'ksRate', group: 'Strikeouts', label: 'KS%', sortValue: (row) => row.plateDiscipline.ksRate, value: (row) => formatPercent(row.plateDiscipline.ksRate) },
+    { key: 'klRate', group: 'Strikeouts', label: 'KL%', sortValue: (row) => row.plateDiscipline.klRate, value: (row) => formatPercent(row.plateDiscipline.klRate) },
+    { key: 'bbRate', group: 'Walks', label: 'BB%', sortValue: (row) => row.plateDiscipline.bbRate, value: (row) => formatPercent(row.plateDiscipline.bbRate) },
+  ], [identitiesByPlayerId, playersById])
+
+  const discPitchingPlayerCols = useMemo(() => [
+    playerIdentityCol,
+    { key: 'bf', group: 'Usage', label: 'BF', sortValue: (row) => row.pitchingBf, value: (row) => row.pitchingBf },
+    { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.pitchMix.totalPitches, value: (row) => row.pitchMix.totalPitches },
+    { key: 'pitchesPerBatter', group: 'Usage', label: 'P/BF', sortValue: (row) => row.pitchMix.pitchesPerBatter, value: (row) => formatDecimal(row.pitchMix.pitchesPerBatter, 2) },
+    { key: 'strikeRate', group: 'Zone', label: 'Strike%', sortValue: (row) => row.pitchMix.strikeRate, value: (row) => formatPercent(row.pitchMix.strikeRate) },
+    { key: 'ballRate', group: 'Zone', label: 'Ball%', sortValue: (row) => row.pitchMix.ballRate, value: (row) => formatPercent(row.pitchMix.ballRate) },
+    { key: 'firstPitchStrikeRate', group: 'Zone', label: '1stStr%', sortValue: (row) => row.pitchMix.firstPitchStrikeRate, value: (row) => formatPercent(row.pitchMix.firstPitchStrikeRate) },
+    { key: 'swingingMissRate', group: 'Miss', label: 'Whiff%', sortValue: (row) => row.pitchMix.swingingMissRate, value: (row) => formatPercent(row.pitchMix.swingingMissRate) },
+    { key: 'foulRate', group: 'Miss', label: 'Foul%', sortValue: (row) => row.pitchMix.foulRate, value: (row) => formatPercent(row.pitchMix.foulRate) },
+  ], [identitiesByPlayerId, playersById])
+
+  const discBattingCharCols = useMemo(() => [
+    charIdentityCol,
+    { key: 'pa', group: 'Usage', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
+    { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.plateDiscipline.totalPitches, value: (row) => row.plateDiscipline.totalPitches },
+    { key: 'pitchesPerPa', group: 'Usage', label: 'P/PA', sortValue: (row) => row.plateDiscipline.pitchesPerPa, value: (row) => formatDecimal(row.plateDiscipline.pitchesPerPa, 2) },
+    { key: 'whiffRate', group: 'Contact', label: 'Whiff%', sortValue: (row) => row.plateDiscipline.whiffRate, value: (row) => formatPercent(row.plateDiscipline.whiffRate) },
+    { key: 'foulRate', group: 'Contact', label: 'Foul%', sortValue: (row) => row.plateDiscipline.foulRate, value: (row) => formatPercent(row.plateDiscipline.foulRate) },
+    { key: 'kRate', group: 'Strikeouts', label: 'K%', sortValue: (row) => row.plateDiscipline.kRate, value: (row) => formatPercent(row.plateDiscipline.kRate) },
+    { key: 'ksRate', group: 'Strikeouts', label: 'KS%', sortValue: (row) => row.plateDiscipline.ksRate, value: (row) => formatPercent(row.plateDiscipline.ksRate) },
+    { key: 'klRate', group: 'Strikeouts', label: 'KL%', sortValue: (row) => row.plateDiscipline.klRate, value: (row) => formatPercent(row.plateDiscipline.klRate) },
+    { key: 'bbRate', group: 'Walks', label: 'BB%', sortValue: (row) => row.plateDiscipline.bbRate, value: (row) => formatPercent(row.plateDiscipline.bbRate) },
+  ], [])
+
+  const discPitchingCharCols = useMemo(() => [
+    charIdentityCol,
+    { key: 'bf', group: 'Usage', label: 'BF', sortValue: (row) => row.pitchingBf, value: (row) => row.pitchingBf },
+    { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.pitchMix.totalPitches, value: (row) => row.pitchMix.totalPitches },
+    { key: 'pitchesPerBatter', group: 'Usage', label: 'P/BF', sortValue: (row) => row.pitchMix.pitchesPerBatter, value: (row) => formatDecimal(row.pitchMix.pitchesPerBatter, 2) },
+    { key: 'strikeRate', group: 'Zone', label: 'Strike%', sortValue: (row) => row.pitchMix.strikeRate, value: (row) => formatPercent(row.pitchMix.strikeRate) },
+    { key: 'ballRate', group: 'Zone', label: 'Ball%', sortValue: (row) => row.pitchMix.ballRate, value: (row) => formatPercent(row.pitchMix.ballRate) },
+    { key: 'firstPitchStrikeRate', group: 'Zone', label: '1stStr%', sortValue: (row) => row.pitchMix.firstPitchStrikeRate, value: (row) => formatPercent(row.pitchMix.firstPitchStrikeRate) },
+    { key: 'swingingMissRate', group: 'Miss', label: 'Whiff%', sortValue: (row) => row.pitchMix.swingingMissRate, value: (row) => formatPercent(row.pitchMix.swingingMissRate) },
+    { key: 'foulRate', group: 'Miss', label: 'Foul%', sortValue: (row) => row.pitchMix.foulRate, value: (row) => formatPercent(row.pitchMix.foulRate) },
+  ], [])
+
+  const bpBattingPlayerCols = useMemo(() => [
+    playerIdentityCol,
+    { key: 'gamesAtPark', group: 'Park', label: 'G', sortValue: (row) => row.gamesAtPark, value: (row) => row.gamesAtPark },
+    { key: 'plateAppearances', group: 'Batting', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
+    { key: 'hits', group: 'Batting', label: 'H', sortValue: (row) => row.batting.hits, value: (row) => row.batting.hits },
+    { key: 'homeRuns', group: 'Batting', label: 'HR', sortValue: (row) => row.batting.homeRuns, value: (row) => row.batting.homeRuns },
+    { key: 'rbi', group: 'Batting', label: 'RBI', sortValue: (row) => row.batting.rbi, value: (row) => row.batting.rbi },
+    { key: 'runs', group: 'Batting', label: 'R', sortValue: (row) => row.batting.runs, value: (row) => row.batting.runs },
+    { key: 'walks', group: 'Batting', label: 'BB', sortValue: (row) => row.batting.walks, value: (row) => row.batting.walks },
+    { key: 'strikeouts', group: 'Batting', label: 'SO', sortValue: (row) => row.batting.strikeouts, value: (row) => row.batting.strikeouts },
+    { key: 'avg', group: 'Rates', label: 'AVG', sortValue: (row) => row.batting.avg, value: (row) => formatDecimal(row.batting.avg) },
+    { key: 'obp', group: 'Rates', label: 'OBP', sortValue: (row) => row.batting.obp, value: (row) => formatDecimal(row.batting.obp) },
+    { key: 'slg', group: 'Rates', label: 'SLG', sortValue: (row) => row.batting.slg, value: (row) => formatDecimal(row.batting.slg) },
+    { key: 'ops', group: 'Rates', label: 'OPS', sortValue: (row) => row.batting.ops, value: (row) => formatDecimal(row.batting.ops) },
+  ], [identitiesByPlayerId, playersById])
+
+  const bpBattingCharCols = useMemo(() => [
+    charIdentityCol,
+    { key: 'plateAppearances', group: 'Batting', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
+    { key: 'hits', group: 'Batting', label: 'H', sortValue: (row) => row.batting.hits, value: (row) => row.batting.hits },
+    { key: 'homeRuns', group: 'Batting', label: 'HR', sortValue: (row) => row.batting.homeRuns, value: (row) => row.batting.homeRuns },
+    { key: 'rbi', group: 'Batting', label: 'RBI', sortValue: (row) => row.batting.rbi, value: (row) => row.batting.rbi },
+    { key: 'runs', group: 'Batting', label: 'R', sortValue: (row) => row.batting.runs, value: (row) => row.batting.runs },
+    { key: 'walks', group: 'Batting', label: 'BB', sortValue: (row) => row.batting.walks, value: (row) => row.batting.walks },
+    { key: 'strikeouts', group: 'Batting', label: 'SO', sortValue: (row) => row.batting.strikeouts, value: (row) => row.batting.strikeouts },
+    { key: 'avg', group: 'Rates', label: 'AVG', sortValue: (row) => row.batting.avg, value: (row) => formatDecimal(row.batting.avg) },
+    { key: 'obp', group: 'Rates', label: 'OBP', sortValue: (row) => row.batting.obp, value: (row) => formatDecimal(row.batting.obp) },
+    { key: 'slg', group: 'Rates', label: 'SLG', sortValue: (row) => row.batting.slg, value: (row) => formatDecimal(row.batting.slg) },
+    { key: 'ops', group: 'Rates', label: 'OPS', sortValue: (row) => row.batting.ops, value: (row) => formatDecimal(row.batting.ops) },
+  ], [])
+
+  const bpPitchingPlayerCols = useMemo(() => [
+    playerIdentityCol,
+    { key: 'games', group: 'Usage', label: 'G', sortValue: (row) => row.pitching.games, value: (row) => row.pitching.games },
+    { key: 'innings', group: 'Usage', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
+    { key: 'wins', group: 'Record', label: 'W', sortValue: (row) => row.pitching.wins, value: (row) => row.pitching.wins },
+    { key: 'losses', group: 'Record', label: 'L', sortValue: (row) => row.pitching.losses, value: (row) => row.pitching.losses },
+    { key: 'strikeouts', group: 'Line', label: 'K', sortValue: (row) => row.pitching.strikeouts, value: (row) => row.pitching.strikeouts },
+    { key: 'hitsAllowed', group: 'Line', label: 'H', sortValue: (row) => row.pitching.hitsAllowed, value: (row) => row.pitching.hitsAllowed },
+    { key: 'earnedRuns', group: 'Line', label: 'ER', sortValue: (row) => row.pitching.earnedRuns, value: (row) => row.pitching.earnedRuns },
+    { key: 'walks', group: 'Line', label: 'BB', sortValue: (row) => row.pitching.walks, value: (row) => row.pitching.walks },
+    { key: 'homeRunsAllowed', group: 'Line', label: 'HR', sortValue: (row) => row.pitching.homeRunsAllowed, value: (row) => row.pitching.homeRunsAllowed },
+    { key: 'era', group: 'Rates', label: 'ERA/3', sortValue: (row) => row.pitching.era, value: (row) => formatDecimal(row.pitching.era, 2) },
+    { key: 'whip', group: 'Rates', label: 'WHIP', sortValue: (row) => row.pitching.whip, value: (row) => formatDecimal(row.pitching.whip, 2) },
+    { key: 'kPer3', group: 'Rates', label: 'K/3', sortValue: (row) => row.pitching.kPer3, value: (row) => formatDecimal(row.pitching.kPer3, 2) },
+  ], [identitiesByPlayerId, playersById])
+
+  const bpPitchingCharCols = useMemo(() => [
+    charIdentityCol,
+    { key: 'games', group: 'Usage', label: 'G', sortValue: (row) => row.pitching.games, value: (row) => row.pitching.games },
+    { key: 'innings', group: 'Usage', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
+    { key: 'wins', group: 'Record', label: 'W', sortValue: (row) => row.pitching.wins, value: (row) => row.pitching.wins },
+    { key: 'losses', group: 'Record', label: 'L', sortValue: (row) => row.pitching.losses, value: (row) => row.pitching.losses },
+    { key: 'strikeouts', group: 'Line', label: 'K', sortValue: (row) => row.pitching.strikeouts, value: (row) => row.pitching.strikeouts },
+    { key: 'hitsAllowed', group: 'Line', label: 'H', sortValue: (row) => row.pitching.hitsAllowed, value: (row) => row.pitching.hitsAllowed },
+    { key: 'earnedRuns', group: 'Line', label: 'ER', sortValue: (row) => row.pitching.earnedRuns, value: (row) => row.pitching.earnedRuns },
+    { key: 'walks', group: 'Line', label: 'BB', sortValue: (row) => row.pitching.walks, value: (row) => row.pitching.walks },
+    { key: 'homeRunsAllowed', group: 'Line', label: 'HR', sortValue: (row) => row.pitching.homeRunsAllowed, value: (row) => row.pitching.homeRunsAllowed },
+    { key: 'era', group: 'Rates', label: 'ERA/3', sortValue: (row) => row.pitching.era, value: (row) => formatDecimal(row.pitching.era, 2) },
+    { key: 'whip', group: 'Rates', label: 'WHIP', sortValue: (row) => row.pitching.whip, value: (row) => formatDecimal(row.pitching.whip, 2) },
+    { key: 'kPer3', group: 'Rates', label: 'K/3', sortValue: (row) => row.pitching.kPer3, value: (row) => formatDecimal(row.pitching.kPer3, 2) },
+  ], [])
+
+  const renderDelta = (value, digits = 3) => {
+    if (!Number.isFinite(value)) return '-'
+    const color = Math.abs(value) < 0.005 ? '#94A3B8' : value > 0 ? '#22C55E' : '#EF4444'
+    const sign = value > 0 ? '+' : ''
+    return <span style={{ color, fontWeight: 700 }}>{sign}{value.toFixed(digits)}</span>
+  }
+
+  const bpFactorsTeamCols = useMemo(() => [
+    playerIdentityCol,
+    { key: 'parkPa', group: 'Park', label: 'PA', sortValue: (row) => row.parkPa, value: (row) => row.parkPa },
+    { key: 'parkAvg', group: 'At Park', label: 'AVG', sortValue: (row) => row.parkAvg, value: (row) => formatDecimal(row.parkAvg) },
+    { key: 'parkOps', group: 'At Park', label: 'OPS', sortValue: (row) => row.parkOps, value: (row) => formatDecimal(row.parkOps) },
+    { key: 'parkHrPa', group: 'At Park', label: 'HR/PA', sortValue: (row) => row.parkHrPa, value: (row) => formatDecimal(row.parkHrPa) },
+    { key: 'overallAvg', group: 'Overall', label: 'AVG', sortValue: (row) => row.overallAvg, value: (row) => formatDecimal(row.overallAvg) },
+    { key: 'overallOps', group: 'Overall', label: 'OPS', sortValue: (row) => row.overallOps, value: (row) => formatDecimal(row.overallOps) },
+    { key: 'overallHrPa', group: 'Overall', label: 'HR/PA', sortValue: (row) => row.overallHrPa, value: (row) => formatDecimal(row.overallHrPa) },
+    { key: 'opsDiff', group: 'Delta', label: 'OPS Δ', sortValue: (row) => row.opsDiff, render: (row) => renderDelta(row.opsDiff) },
+    { key: 'avgDiff', group: 'Delta', label: 'AVG Δ', sortValue: (row) => row.avgDiff, render: (row) => renderDelta(row.avgDiff) },
+    { key: 'hrPaDiff', group: 'Delta', label: 'HR/PA Δ', sortValue: (row) => row.hrPaDiff, render: (row) => renderDelta(row.hrPaDiff) },
+  ], [identitiesByPlayerId, playersById])
+
+  const bpFactorsCharCols = useMemo(() => [
+    charIdentityCol,
+    { key: 'parkPa', group: 'Park', label: 'PA', sortValue: (row) => row.parkPa, value: (row) => row.parkPa },
+    { key: 'parkAvg', group: 'At Park', label: 'AVG', sortValue: (row) => row.parkAvg, value: (row) => formatDecimal(row.parkAvg) },
+    { key: 'parkOps', group: 'At Park', label: 'OPS', sortValue: (row) => row.parkOps, value: (row) => formatDecimal(row.parkOps) },
+    { key: 'parkHrPa', group: 'At Park', label: 'HR/PA', sortValue: (row) => row.parkHrPa, value: (row) => formatDecimal(row.parkHrPa) },
+    { key: 'overallAvg', group: 'Overall', label: 'AVG', sortValue: (row) => row.overallAvg, value: (row) => formatDecimal(row.overallAvg) },
+    { key: 'overallOps', group: 'Overall', label: 'OPS', sortValue: (row) => row.overallOps, value: (row) => formatDecimal(row.overallOps) },
+    { key: 'overallHrPa', group: 'Overall', label: 'HR/PA', sortValue: (row) => row.overallHrPa, value: (row) => formatDecimal(row.overallHrPa) },
+    { key: 'opsDiff', group: 'Delta', label: 'OPS Δ', sortValue: (row) => row.opsDiff, render: (row) => renderDelta(row.opsDiff) },
+    { key: 'avgDiff', group: 'Delta', label: 'AVG Δ', sortValue: (row) => row.avgDiff, render: (row) => renderDelta(row.avgDiff) },
+    { key: 'hrPaDiff', group: 'Delta', label: 'HR/PA Δ', sortValue: (row) => row.hrPaDiff, render: (row) => renderDelta(row.hrPaDiff) },
+  ], [])
+
+  const bpFactorsPitTeamCols = useMemo(() => [
+    playerIdentityCol,
+    { key: 'parkIp', group: 'Park', label: 'IP', sortValue: (row) => row.parkIp, value: (row) => formatDecimal(row.parkIp, 1) },
+    { key: 'eraAtPark', group: 'At Park', label: 'ERA/3', defaultDirection: 'asc', sortValue: (row) => row.eraAtPark, value: (row) => formatDecimal(row.eraAtPark, 2) },
+    { key: 'whipAtPark', group: 'At Park', label: 'WHIP', defaultDirection: 'asc', sortValue: (row) => row.whipAtPark, value: (row) => formatDecimal(row.whipAtPark, 2) },
+    { key: 'eraOverall', group: 'Overall', label: 'ERA/3', defaultDirection: 'asc', sortValue: (row) => row.eraOverall, value: (row) => formatDecimal(row.eraOverall, 2) },
+    { key: 'whipOverall', group: 'Overall', label: 'WHIP', defaultDirection: 'asc', sortValue: (row) => row.whipOverall, value: (row) => formatDecimal(row.whipOverall, 2) },
+    { key: 'eraDiff', group: 'Delta', label: 'ERA Δ', defaultDirection: 'asc', sortValue: (row) => row.eraDiff, render: (row) => row.eraDiff != null ? renderDelta(-row.eraDiff, 2) : '-' },
+    { key: 'whipDiff', group: 'Delta', label: 'WHIP Δ', defaultDirection: 'asc', sortValue: (row) => row.whipDiff, render: (row) => row.whipDiff != null ? renderDelta(-row.whipDiff, 2) : '-' },
+  ], [identitiesByPlayerId, playersById])
+
+  const bpFactorsPitCharCols = useMemo(() => [
+    charIdentityCol,
+    { key: 'parkIp', group: 'Park', label: 'IP', sortValue: (row) => row.parkIp, value: (row) => formatDecimal(row.parkIp, 1) },
+    { key: 'eraAtPark', group: 'At Park', label: 'ERA/3', defaultDirection: 'asc', sortValue: (row) => row.eraAtPark, value: (row) => formatDecimal(row.eraAtPark, 2) },
+    { key: 'whipAtPark', group: 'At Park', label: 'WHIP', defaultDirection: 'asc', sortValue: (row) => row.whipAtPark, value: (row) => formatDecimal(row.whipAtPark, 2) },
+    { key: 'eraOverall', group: 'Overall', label: 'ERA/3', defaultDirection: 'asc', sortValue: (row) => row.eraOverall, value: (row) => formatDecimal(row.eraOverall, 2) },
+    { key: 'whipOverall', group: 'Overall', label: 'WHIP', defaultDirection: 'asc', sortValue: (row) => row.whipOverall, value: (row) => formatDecimal(row.whipOverall, 2) },
+    { key: 'eraDiff', group: 'Delta', label: 'ERA Δ', defaultDirection: 'asc', sortValue: (row) => row.eraDiff, render: (row) => row.eraDiff != null ? renderDelta(-row.eraDiff, 2) : '-' },
+    { key: 'whipDiff', group: 'Delta', label: 'WHIP Δ', defaultDirection: 'asc', sortValue: (row) => row.whipDiff, render: (row) => row.whipDiff != null ? renderDelta(-row.whipDiff, 2) : '-' },
+  ], [])
+
   const visiblePlayerRows = useMemo(() => {
     if (playerView === PLAYER_VIEWS.batting) return playerRows.filter(hasBattingData)
     if (playerView === PLAYER_VIEWS.pitching) return playerRows.filter(hasPitchingData)
@@ -1774,6 +2334,35 @@ export default function Stats() {
   const sortedCharacterRows = useMemo(() => sortRows(visibleCharacterRows, characterColumns[characterView], characterSort), [visibleCharacterRows, characterColumns, characterView, characterSort])
   const sortedAdvancedBattingRows = useMemo(() => sortRows(advancedBattingQualifiers, advancedBattingColumns, advancedBattingSort), [advancedBattingQualifiers, advancedBattingColumns, advancedBattingSort])
   const sortedAdvancedPitchingRows = useMemo(() => sortRows(advancedPitchingQualifiers, advancedPitchingColumns, advancedPitchingSort), [advancedPitchingQualifiers, advancedPitchingColumns, advancedPitchingSort])
+
+  const playerRowsWithBatting = useMemo(() => playerRows.filter(hasBattingData), [playerRows])
+  const playerRowsWithPitching = useMemo(() => playerRows.filter(hasPitchingData), [playerRows])
+  const characterRowsWithBatting = useMemo(() => characterRows.filter(hasBattingData), [characterRows])
+  const characterRowsWithPitching = useMemo(() => characterRows.filter(hasPitchingData), [characterRows])
+
+  const sortedBbBattingPlayer = useMemo(() => sortRows(playerRowsWithBatting, bbBattingCols, bbPlayerSort, 'name'), [playerRowsWithBatting, bbBattingCols, bbPlayerSort])
+  const sortedBbPitchingPlayer = useMemo(() => sortRows(playerRowsWithPitching, bbPitchingCols, bbPlayerSort, 'name'), [playerRowsWithPitching, bbPitchingCols, bbPlayerSort])
+  const sortedBbBattingChar = useMemo(() => sortRows(characterRowsWithBatting, bbBattingCharCols, bbCharacterSort, 'name'), [characterRowsWithBatting, bbBattingCharCols, bbCharacterSort])
+  const sortedBbPitchingChar = useMemo(() => sortRows(characterRowsWithPitching, bbPitchingCharCols, bbCharacterSort, 'name'), [characterRowsWithPitching, bbPitchingCharCols, bbCharacterSort])
+
+  const sortedLocBattingPlayer = useMemo(() => sortRows(playerRowsWithBatting, locBattingPlayerCols, locPlayerSort, 'name'), [playerRowsWithBatting, locBattingPlayerCols, locPlayerSort])
+  const sortedLocPitchingPlayer = useMemo(() => sortRows(playerRowsWithPitching, locPitchingPlayerCols, locPlayerSort, 'name'), [playerRowsWithPitching, locPitchingPlayerCols, locPlayerSort])
+  const sortedLocBattingChar = useMemo(() => sortRows(characterRowsWithBatting, locBattingCharCols, locCharacterSort, 'name'), [characterRowsWithBatting, locBattingCharCols, locCharacterSort])
+  const sortedLocPitchingChar = useMemo(() => sortRows(characterRowsWithPitching, locPitchingCharCols, locCharacterSort, 'name'), [characterRowsWithPitching, locPitchingCharCols, locCharacterSort])
+
+  const sortedDiscBattingPlayer = useMemo(() => sortRows(playerRowsWithBatting, discBattingPlayerCols, discPlayerSort, 'name'), [playerRowsWithBatting, discBattingPlayerCols, discPlayerSort])
+  const sortedDiscPitchingPlayer = useMemo(() => sortRows(playerRowsWithPitching, discPitchingPlayerCols, mixPlayerSort, 'name'), [playerRowsWithPitching, discPitchingPlayerCols, mixPlayerSort])
+  const sortedDiscBattingChar = useMemo(() => sortRows(characterRowsWithBatting, discBattingCharCols, discCharacterSort, 'name'), [characterRowsWithBatting, discBattingCharCols, discCharacterSort])
+  const sortedDiscPitchingChar = useMemo(() => sortRows(characterRowsWithPitching, discPitchingCharCols, mixCharacterSort, 'name'), [characterRowsWithPitching, discPitchingCharCols, mixCharacterSort])
+
+  const sortedBpBattingPlayer = useMemo(() => sortRows(ballparkPlayerBattingRows, bpBattingPlayerCols, bpBattingPlayerSort, 'name'), [ballparkPlayerBattingRows, bpBattingPlayerCols, bpBattingPlayerSort])
+  const sortedBpBattingChar = useMemo(() => sortRows(ballparkCharacterBattingRows, bpBattingCharCols, bpBattingCharacterSort, 'name'), [ballparkCharacterBattingRows, bpBattingCharCols, bpBattingCharacterSort])
+  const sortedBpPitchingPlayer = useMemo(() => sortRows(ballparkPlayerPitchingRows, bpPitchingPlayerCols, bpPitchingPlayerSort, 'name'), [ballparkPlayerPitchingRows, bpPitchingPlayerCols, bpPitchingPlayerSort])
+  const sortedBpPitchingChar = useMemo(() => sortRows(ballparkCharacterPitchingRows, bpPitchingCharCols, bpPitchingCharacterSort, 'name'), [ballparkCharacterPitchingRows, bpPitchingCharCols, bpPitchingCharacterSort])
+  const sortedBpFactorsTeam = useMemo(() => sortRows(teamParkFactorRows, bpFactorsTeamCols, bpFactorsTeamSort, 'name'), [teamParkFactorRows, bpFactorsTeamCols, bpFactorsTeamSort])
+  const sortedBpFactorsChar = useMemo(() => sortRows(charParkFactorRows, bpFactorsCharCols, bpFactorsCharSort, 'name'), [charParkFactorRows, bpFactorsCharCols, bpFactorsCharSort])
+  const sortedBpFactorsPitTeam = useMemo(() => sortRows(teamParkFactorRows.filter((r) => r.parkIp > 0), bpFactorsPitTeamCols, bpFactorsPitTeamSort, 'name'), [teamParkFactorRows, bpFactorsPitTeamCols, bpFactorsPitTeamSort])
+  const sortedBpFactorsPitChar = useMemo(() => sortRows(charParkFactorRows.filter((r) => r.parkIp > 0), bpFactorsPitCharCols, bpFactorsPitCharSort, 'name'), [charParkFactorRows, bpFactorsPitCharCols, bpFactorsPitCharSort])
 
   const battingGlossary = [
     { term: 'BABIP', definition: 'Batting average on balls in play, excluding strikeouts and home runs.' },
@@ -1840,7 +2429,14 @@ export default function Stats() {
         <button className={`tab-button ${tab === 'characters' ? 'tab-button-active' : ''}`} onClick={() => setTab('characters')} type="button">Characters</button>
       </div>
 
-      {tab === 'players' ? (
+      <div className="tab-row">
+        <button className={`tab-button ${statView === 'overview' ? 'tab-button-active' : ''}`} onClick={() => setStatView('overview')} type="button">Overview</button>
+        <button className={`tab-button ${statView === 'batted_ball' ? 'tab-button-active' : ''}`} onClick={() => setStatView('batted_ball')} type="button">Batted Ball</button>
+        <button className={`tab-button ${statView === 'discipline' ? 'tab-button-active' : ''}`} onClick={() => setStatView('discipline')} type="button">Plate Discipline</button>
+        <button className={`tab-button ${statView === 'ballparks' ? 'tab-button-active' : ''}`} onClick={() => setStatView('ballparks')} type="button">Ballparks</button>
+      </div>
+
+      {statView === 'overview' && tab === 'players' ? (
         <section className="table-card">
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             <button className={`tab-button ${playerView === PLAYER_VIEWS.batting ? 'tab-button-active' : ''}`} onClick={() => setPlayerView(PLAYER_VIEWS.batting)} type="button">Batting</button>
@@ -1859,7 +2455,7 @@ export default function Stats() {
         </section>
       ) : null}
 
-      {tab === 'characters' ? (
+      {statView === 'overview' && tab === 'characters' ? (
         <section className="table-card">
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button className={`tab-button ${characterView === CHARACTER_VIEWS.batting ? 'tab-button-active' : ''}`} onClick={() => setCharacterView(CHARACTER_VIEWS.batting)} type="button">Batting</button>
@@ -1868,6 +2464,307 @@ export default function Stats() {
           </div>
           <SortableStatsTable columns={characterColumns[characterView]} emptyMessage="No character stats found for this view." onRowClick={(row) => setSelectedCharacterId(row.id)} onSort={(column) => toggleSort(setCharacterSort, column)} rowKey={(row) => row.id} rows={sortedCharacterRows} sortState={characterSort} />
         </section>
+      ) : null}
+
+      {statView === 'batted_ball' ? (
+        <section className="table-card">
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className={`tab-button ${bbSubView === 'batting' ? 'tab-button-active' : ''}`} onClick={() => setBbSubView('batting')} type="button">Batting</button>
+              <button className={`tab-button ${bbSubView === 'pitching' ? 'tab-button-active' : ''}`} onClick={() => setBbSubView('pitching')} type="button">Pitching</button>
+            </div>
+          </div>
+          {bbSubView === 'batting' ? (
+            <div className="page-stack">
+              <div>
+                <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, marginBottom: 8 }}>Trajectory &amp; Direction</div>
+                {tab === 'players' ? (
+                  <SortableStatsTable columns={bbBattingCols} emptyMessage="No batted ball data." onSort={(col) => toggleSort(setBbPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedBbBattingPlayer} sortState={bbPlayerSort} />
+                ) : (
+                  <SortableStatsTable columns={bbBattingCharCols} emptyMessage="No batted ball data." onSort={(col) => toggleSort(setBbCharacterSort, col)} rowKey={(row) => row.id} rows={sortedBbBattingChar} sortState={bbCharacterSort} />
+                )}
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Hit Location</div>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => setLocationDisplayMode('pct')}
+                      style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.18)', background: locationDisplayMode === 'pct' ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)', color: locationDisplayMode === 'pct' ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+                    >%</button>
+                    <button
+                      type="button"
+                      onClick={() => setLocationDisplayMode('count')}
+                      style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.18)', background: locationDisplayMode === 'count' ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)', color: locationDisplayMode === 'count' ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+                    >#</button>
+                  </div>
+                </div>
+                {tab === 'players' ? (
+                  <SortableStatsTable columns={locBattingPlayerCols} emptyMessage="No hit location data." onSort={(col) => toggleSort(setLocPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedLocBattingPlayer} sortState={locPlayerSort} />
+                ) : (
+                  <SortableStatsTable columns={locBattingCharCols} emptyMessage="No hit location data." onSort={(col) => toggleSort(setLocCharacterSort, col)} rowKey={(row) => row.id} rows={sortedLocBattingChar} sortState={locCharacterSort} />
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="page-stack">
+              <div>
+                <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, marginBottom: 8 }}>Trajectory &amp; Direction Allowed</div>
+                {tab === 'players' ? (
+                  <SortableStatsTable columns={bbPitchingCols} emptyMessage="No batted ball data." onSort={(col) => toggleSort(setBbPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedBbPitchingPlayer} sortState={bbPlayerSort} />
+                ) : (
+                  <SortableStatsTable columns={bbPitchingCharCols} emptyMessage="No batted ball data." onSort={(col) => toggleSort(setBbCharacterSort, col)} rowKey={(row) => row.id} rows={sortedBbPitchingChar} sortState={bbCharacterSort} />
+                )}
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Hit Location Allowed</div>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button type="button" onClick={() => setLocationDisplayMode('pct')} style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.18)', background: locationDisplayMode === 'pct' ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)', color: locationDisplayMode === 'pct' ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>%</button>
+                    <button type="button" onClick={() => setLocationDisplayMode('count')} style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.18)', background: locationDisplayMode === 'count' ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)', color: locationDisplayMode === 'count' ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>#</button>
+                  </div>
+                </div>
+                {tab === 'players' ? (
+                  <SortableStatsTable columns={locPitchingPlayerCols} emptyMessage="No hit location data." onSort={(col) => toggleSort(setLocPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedLocPitchingPlayer} sortState={locPlayerSort} />
+                ) : (
+                  <SortableStatsTable columns={locPitchingCharCols} emptyMessage="No hit location data." onSort={(col) => toggleSort(setLocCharacterSort, col)} rowKey={(row) => row.id} rows={sortedLocPitchingChar} sortState={locCharacterSort} />
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {statView === 'discipline' ? (
+        <section className="table-card">
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button className={`tab-button ${discSubView === 'batting' ? 'tab-button-active' : ''}`} onClick={() => setDiscSubView('batting')} type="button">Batting</button>
+            <button className={`tab-button ${discSubView === 'pitching' ? 'tab-button-active' : ''}`} onClick={() => setDiscSubView('pitching')} type="button">Pitching</button>
+          </div>
+          {discSubView === 'batting' ? (
+            tab === 'players' ? (
+              <SortableStatsTable columns={discBattingPlayerCols} emptyMessage="No plate discipline data." onSort={(col) => toggleSort(setDiscPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedDiscBattingPlayer} sortState={discPlayerSort} />
+            ) : (
+              <SortableStatsTable columns={discBattingCharCols} emptyMessage="No plate discipline data." onSort={(col) => toggleSort(setDiscCharacterSort, col)} rowKey={(row) => row.id} rows={sortedDiscBattingChar} sortState={discCharacterSort} />
+            )
+          ) : (
+            tab === 'players' ? (
+              <SortableStatsTable columns={discPitchingPlayerCols} emptyMessage="No pitch mix data." onSort={(col) => toggleSort(setMixPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedDiscPitchingPlayer} sortState={mixPlayerSort} />
+            ) : (
+              <SortableStatsTable columns={discPitchingCharCols} emptyMessage="No pitch mix data." onSort={(col) => toggleSort(setMixCharacterSort, col)} rowKey={(row) => row.id} rows={sortedDiscPitchingChar} sortState={mixCharacterSort} />
+            )
+          )}
+        </section>
+      ) : null}
+
+      {statView === 'ballparks' ? (
+        <div className="page-stack">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setSelectedStadiumKey(null)}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 12,
+                border: `1px solid ${selectedStadiumKey === null ? 'rgba(234,179,8,0.55)' : 'rgba(255,255,255,0.12)'}`,
+                background: selectedStadiumKey === null ? 'rgba(234,179,8,0.14)' : 'rgba(255,255,255,0.04)',
+                color: selectedStadiumKey === null ? '#FDE68A' : '#CBD5E1',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: 13,
+              }}
+            >
+              All Stadiums
+            </button>
+            {orderedStadiums.map((stadium) => {
+              const isSelected = selectedStadiumKey === stadium.name
+              const gamesPlayed = stadiumStats[stadium.name]?.gamesPlayed || 0
+              return (
+                <button
+                  key={stadium.id}
+                  type="button"
+                  onClick={() => setSelectedStadiumKey(stadium.name)}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 12,
+                    border: `1px solid ${isSelected ? 'rgba(234,179,8,0.55)' : 'rgba(255,255,255,0.12)'}`,
+                    background: isSelected ? 'rgba(234,179,8,0.10)' : 'rgba(255,255,255,0.04)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 4,
+                    minWidth: 90,
+                  }}
+                >
+                  <div style={getStadiumSpriteStyle(stadium.name, { width: 44, height: 32 })} />
+                  <div style={{ color: isSelected ? '#FDE68A' : '#F8FAFC', fontWeight: 700, fontSize: 11, textAlign: 'center', lineHeight: 1.2 }}>{stadium.name}</div>
+                  <div style={{ color: '#64748B', fontSize: 10 }}>{gamesPlayed} {gamesPlayed === 1 ? 'game' : 'games'}</div>
+                </button>
+              )
+            })}
+          </div>
+
+          {selectedStadiumKey ? (
+            <div style={{ padding: '0.75rem 1rem', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)' }}>
+              {(() => {
+                const stadium = stadiums.find((s) => s.name === selectedStadiumKey)
+                if (!stadium) return null
+                return (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+                    <div style={getStadiumSpriteStyle(stadium.name, { width: 60, height: 44, flexShrink: 0 })} />
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <div style={{ fontWeight: 800, color: '#F8FAFC', marginBottom: 4 }}>{stadium.name}</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {stadium.lf_distance ? <span className="muted" style={{ fontSize: 11 }}>LF {stadium.lf_distance}ft</span> : null}
+                        {stadium.cf_distance ? <span className="muted" style={{ fontSize: 11 }}>CF {stadium.cf_distance}ft</span> : null}
+                        {stadium.rf_distance ? <span className="muted" style={{ fontSize: 11 }}>RF {stadium.rf_distance}ft</span> : null}
+                        {stadium.night_only ? <span className="muted" style={{ fontSize: 11 }}>Night only</span> : null}
+                        {stadium.day_only ? <span className="muted" style={{ fontSize: 11 }}>Day only</span> : null}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          ) : null}
+
+          <section className="table-card">
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className={`tab-button ${ballparkSubView === 'batting' ? 'tab-button-active' : ''}`} onClick={() => setBallparkSubView('batting')} type="button">Batting</button>
+                  <button className={`tab-button ${ballparkSubView === 'pitching' ? 'tab-button-active' : ''}`} onClick={() => setBallparkSubView('pitching')} type="button">Pitching</button>
+                  <button className={`tab-button ${ballparkSubView === 'factors' ? 'tab-button-active' : ''}`} onClick={() => setBallparkSubView('factors')} type="button">Park Factors</button>
+                </div>
+                {(() => {
+                  const stadium = selectedStadiumKey ? stadiums.find((s) => s.name === selectedStadiumKey) : null
+                  const showToggle = !stadium || (!stadium.day_only && !stadium.night_only)
+                  if (!showToggle) return null
+                  return (
+                    <div style={{ display: 'flex', gap: 4, borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: 12 }}>
+                      {[{ value: 'all', label: 'All' }, { value: 'day', label: 'Day' }, { value: 'night', label: 'Night' }].map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setBallparkTimeFilter(value)}
+                          style={{ padding: '3px 11px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.15)', background: ballparkTimeFilter === value ? 'rgba(234,179,8,0.16)' : 'rgba(255,255,255,0.04)', color: ballparkTimeFilter === value ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+                        >{label}</button>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
+              {selectedStadiumKey ? (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Showing stats at {selectedStadiumKey} ({stadiumStats[selectedStadiumKey]?.gamesPlayed || 0} games)
+                </div>
+              ) : (
+                <div className="muted" style={{ fontSize: 12 }}>Showing stats across all stadiums</div>
+              )}
+            </div>
+
+            {ballparkSubView === 'batting' ? (
+              tab === 'players' ? (
+                <SortableStatsTable columns={bpBattingPlayerCols} emptyMessage="No batting data at this stadium." onSort={(col) => toggleSort(setBpBattingPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedBpBattingPlayer} sortState={bpBattingPlayerSort} />
+              ) : (
+                <SortableStatsTable columns={bpBattingCharCols} emptyMessage="No batting data at this stadium." onSort={(col) => toggleSort(setBpBattingCharacterSort, col)} rowKey={(row) => row.id} rows={sortedBpBattingChar} sortState={bpBattingCharacterSort} />
+              )
+            ) : null}
+
+            {ballparkSubView === 'pitching' ? (
+              tab === 'players' ? (
+                <SortableStatsTable columns={bpPitchingPlayerCols} emptyMessage="No pitching data at this stadium." onSort={(col) => toggleSort(setBpPitchingPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedBpPitchingPlayer} sortState={bpPitchingPlayerSort} />
+              ) : (
+                <SortableStatsTable columns={bpPitchingCharCols} emptyMessage="No pitching data at this stadium." onSort={(col) => toggleSort(setBpPitchingCharacterSort, col)} rowKey={(row) => row.id} rows={sortedBpPitchingChar} sortState={bpPitchingCharacterSort} />
+              )
+            ) : null}
+
+            {ballparkSubView === 'factors' ? (
+              <div style={{ display: 'grid', gap: 12 }}>
+                {!selectedStadiumKey ? (
+                  <p className="muted" style={{ padding: '1rem 0' }}>Select a stadium above to see its park factors.</p>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {['league', 'teams', 'characters'].map((view) => (
+                        <button key={view} className={`tab-button ${parkFactorsSubView === view ? 'tab-button-active' : ''}`} onClick={() => setParkFactorsSubView(view)} type="button" style={{ textTransform: 'capitalize' }}>{view}</button>
+                      ))}
+                    </div>
+                    {parkFactorsSubView === 'league' ? (
+                      !parkFactors ? (
+                        <p className="muted" style={{ padding: '0.5rem 0' }}>No data available for this stadium yet.</p>
+                      ) : (
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                            Park factors show how this stadium affects each outcome relative to the league average (1.00 = neutral, &gt;1.00 = favors that outcome).
+                          </p>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginTop: 4 }}>
+                            {[
+                              { label: 'Home Runs', value: parkFactors.hr },
+                              { label: 'Runs', value: parkFactors.r },
+                              { label: 'Hits', value: parkFactors.h },
+                              { label: 'Doubles', value: parkFactors.double },
+                              { label: 'Triples', value: parkFactors.triple },
+                            ].map(({ label, value }) => {
+                              const diff = value - 1
+                              const color = Math.abs(diff) < 0.03 ? '#94A3B8' : diff > 0 ? '#22C55E' : '#EF4444'
+                              const sign = diff > 0 ? '+' : ''
+                              return (
+                                <div key={label} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '0.75rem 0.9rem', background: 'rgba(255,255,255,0.03)' }}>
+                                  <div style={{ color: '#94A3B8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
+                                  <div style={{ color, fontSize: 22, fontWeight: 800, marginTop: 4 }}>{value.toFixed(2)}</div>
+                                  <div style={{ color, fontSize: 11, fontWeight: 700 }}>{sign}{(diff * 100).toFixed(0)}%</div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    ) : null}
+                    {(parkFactorsSubView === 'teams' || parkFactorsSubView === 'characters') ? (
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                        <button className={`tab-button ${parkFactorsBatPit === 'batting' ? 'tab-button-active' : ''}`} onClick={() => setParkFactorsBatPit('batting')} type="button">Batting</button>
+                        <button className={`tab-button ${parkFactorsBatPit === 'pitching' ? 'tab-button-active' : ''}`} onClick={() => setParkFactorsBatPit('pitching')} type="button">Pitching</button>
+                      </div>
+                    ) : null}
+                    {parkFactorsSubView === 'teams' ? (
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {parkFactorsBatPit === 'batting' ? (
+                          <>
+                            <p className="muted" style={{ fontSize: 12, margin: 0 }}>Each team&apos;s batting stats at this park vs. their overall stats. Δ = park minus overall (green = better at park). Min 3 PA.</p>
+                            <SortableStatsTable columns={bpFactorsTeamCols} emptyMessage="Not enough data yet (min 3 PA per team)." onSort={(col) => toggleSort(setBpFactorsTeamSort, col)} rowKey={(row) => row.playerId} rows={sortedBpFactorsTeam} sortState={bpFactorsTeamSort} />
+                          </>
+                        ) : (
+                          <>
+                            <p className="muted" style={{ fontSize: 12, margin: 0 }}>Each team&apos;s pitching stats at this park vs. their overall stats. ERA/WHIP Δ: green = performed better at this park (lower ERA/WHIP).</p>
+                            <SortableStatsTable columns={bpFactorsPitTeamCols} emptyMessage="No pitching data at this park." onSort={(col) => toggleSort(setBpFactorsPitTeamSort, col)} rowKey={(row) => row.playerId} rows={sortedBpFactorsPitTeam} sortState={bpFactorsPitTeamSort} />
+                          </>
+                        )}
+                      </div>
+                    ) : null}
+                    {parkFactorsSubView === 'characters' ? (
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {parkFactorsBatPit === 'batting' ? (
+                          <>
+                            <p className="muted" style={{ fontSize: 12, margin: 0 }}>Each character&apos;s batting stats at this park vs. their overall stats. Δ = park minus overall (green = better at park). Min 3 PA.</p>
+                            <SortableStatsTable columns={bpFactorsCharCols} emptyMessage="Not enough data yet (min 3 PA per character)." onSort={(col) => toggleSort(setBpFactorsCharSort, col)} rowKey={(row) => String(row.id)} rows={sortedBpFactorsChar} sortState={bpFactorsCharSort} />
+                          </>
+                        ) : (
+                          <>
+                            <p className="muted" style={{ fontSize: 12, margin: 0 }}>Each character&apos;s pitching stats at this park vs. their overall stats. ERA/WHIP Δ: green = performed better at this park (lower ERA/WHIP).</p>
+                            <SortableStatsTable columns={bpFactorsPitCharCols} emptyMessage="No pitching data at this park." onSort={(col) => toggleSort(setBpFactorsPitCharSort, col)} rowKey={(row) => String(row.id)} rows={sortedBpFactorsPitChar} sortState={bpFactorsPitCharSort} />
+                          </>
+                        )}
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            ) : null}
+          </section>
+        </div>
       ) : null}
       {selectedCharacter ? (
         <SharedCharacterDetailModal
