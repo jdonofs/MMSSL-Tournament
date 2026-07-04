@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Field Position Calibrator</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    #log,
+    #container {
+      width: min(96vw, 1400px);
+      margin: 0 auto;
+    }
+
+    #container {
+      position: relative;
+      display: inline-block;
+      cursor: crosshair;
+    }
+
+    #container img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    .dot {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      border: 2px solid white;
+    }
+
+    .dot-label {
+      position: absolute;
+      font-size: 11px;
+      transform: translate(-50%, 8px);
+      pointer-events: none;
+      white-space: nowrap;
+      font-weight: bold;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+    }
+
+    #log {
+      padding-bottom: 16px;
+      font-size: 13px;
+    }
+
+    h2 {
+      color: #eab308;
+      margin: 0 0 8px;
+    }
+
+    #phase-title {
+      color: #60a5fa;
+      font-size: 15px;
+      font-weight: bold;
+      margin-bottom: 6px;
+    }
+
+    #coords,
+    #image-meta,
+    #dims-meta {
+      color: #94a3b8;
+      margin: 0 0 8px;
+    }
+
+    #output {
+      background: #1e293b;
+      padding: 12px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      color: #86efac;
+      font-size: 12px;
+      margin-top: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+
+    button,
+    select {
+      border-radius: 6px;
+      font: inherit;
+    }
+
+    button {
+      background: #eab308;
+      color: #000;
+      border: none;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+
+    button.secondary {
+      background: #334155;
+      color: #fff;
+    }
+
+    select {
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid #475569;
+      padding: 7px 10px;
+      min-width: 240px;
+    }
+
+    .phase-indicator,
+    .toolbar-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .phase-pill {
+      padding: 4px 12px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: bold;
+      background: #1e293b;
+      color: #64748b;
+    }
+
+    .phase-pill.active {
+      background: #eab308;
+      color: #000;
+    }
+
+    .phase-pill.done {
+      background: #22c55e;
+      color: #000;
+    }
+
+    .label {
+      color: #cbd5e1;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div id="log">
+    <h2>Field Position Calibrator</h2>
+    <div class="toolbar-row">
+      <span class="label">Preset</span>
+      <select id="preset"></select>
+    </div>
+    <div class="phase-indicator">
+      <div class="phase-pill active" id="pill-fielders">1. Fielder Positions</div>
+      <div class="phase-pill" id="pill-refs">2. Distance References</div>
+    </div>
+    <div id="phase-title">Phase 1: Click fielder positions</div>
+    <p id="coords">Click where each fielder stands in order: CF -&gt; LF -&gt; RF -&gt; SS -&gt; 2B -&gt; 3B -&gt; P -&gt; 1B -&gt; C</p>
+    <p id="image-meta">Loading image...</p>
+    <p id="dims-meta"></p>
+    <button type="button" onclick="undo()">Undo Last</button>
+    <button type="button" class="secondary" onclick="reset()">Reset All</button>
+    <button type="button" class="secondary" onclick="copyOutput()">Copy Output</button>
+    <div id="output"></div>
+  </div>
+
+  <div id="container">
+    <img id="field" src="" alt="Field to calibrate" />
+  </div>
+
+  <script>
+    const FIELDERS = [
+      { position: 8, label: 'CF', group: 'outfield' },
+      { position: 7, label: 'LF', group: 'outfield' },
+      { position: 9, label: 'RF', group: 'outfield' },
+      { position: 6, label: 'SS', group: 'infield' },
+      { position: 4, label: '2B', group: 'infield' },
+      { position: 5, label: '3B', group: 'infield' },
+      { position: 1, label: 'P', group: 'battery' },
+      { position: 3, label: '1B', group: 'infield' },
+      { position: 2, label: 'C', group: 'battery' },
+    ]
+
+    const REFS = [
+      { key: 'home', label: 'Home Plate', color: 'white' },
+      { key: 'lf', label: 'LF Foul Pole', color: '#facc15' },
+      { key: 'cf', label: 'CF Wall', color: '#4ade80' },
+      { key: 'rf', label: 'RF Foul Pole', color: '#f87171' },
+    ]
+
+    const PRESETS = {
+      peach_ice_garden: {
+        label: 'Peach Ice Garden',
+        image: '/stadiums/peach-ice-garden.png',
+        dims: { lf: 314, cf: 402, rf: 313 },
+      },
+      mario_stadium: {
+        label: 'Mario Stadium',
+        image: '/stadiums/mario-stadium.png',
+        dims: { lf: 259, cf: 317, rf: 259 },
+      },
+      luigis_mansion: {
+        label: "Luigi's Mansion",
+        image: "/stadiums/luigi's-mansion.png",
+        dims: { lf: 282, cf: 351, rf: 287 },
+      },
+      daisy_cruiser: {
+        label: 'Daisy Cruiser',
+        image: '/stadiums/daisy-cruiser.png',
+        dims: { lf: 232, cf: 328, rf: 231 },
+      },
+      wario_city: {
+        label: 'Wario City',
+        image: '/stadiums/wario-stadium.png',
+        dims: { lf: 292, cf: 297, rf: 289 },
+      },
+      yoshi_park: {
+        label: 'Yoshi Park',
+        image: '/stadiums/yoshi-park.png',
+        dims: { lf: 253, cf: 324, rf: 254 },
+      },
+      dk_jungle: {
+        label: 'DK Jungle',
+        image: '/stadiums/dk-jungle.png',
+        dims: { lf: 274, cf: 323, rf: 275 },
+      },
+      bowser_jr_playroom: {
+        label: 'Bowser Jr. Playroom',
+        image: '/stadiums/bowser-jr-playroom.png',
+        dims: { lf: 262, cf: 328, rf: 264 },
+      },
+      bowser_castle: {
+        label: 'Bowser Castle',
+        image: '/stadiums/bowser-castle.png',
+        dims: { lf: 278, cf: 334, rf: 277 },
+      },
+      generic_field: {
+        label: 'All Parks Generic Field',
+        image: '/stadiums/spray chart.png',
+        dims: { lf: 272, cf: 334, rf: 272 },
+      },
+    }
+
+    let activePresetKey = 'peach_ice_garden'
+    let phase = 1
+    let fielderPlaced = []
+    let refPlaced = []
+
+    const container = document.getElementById('container')
+    const img = document.getElementById('field')
+    const presetSelect = document.getElementById('preset')
+    const outputEl = document.getElementById('output')
+    const imageMetaEl = document.getElementById('image-meta')
+    const dimsMetaEl = document.getElementById('dims-meta')
+
+    function aspectRatioText() {
+      if (!img.naturalWidth || !img.naturalHeight) return 'pending image load'
+      return `${img.naturalWidth}/${img.naturalHeight}`
+    }
+
+    function activePreset() {
+      return PRESETS[activePresetKey]
+    }
+
+    function buildPresetOptions() {
+      Object.entries(PRESETS).forEach(([key, preset]) => {
+        const option = document.createElement('option')
+        option.value = key
+        option.textContent = preset.label
+        presetSelect.appendChild(option)
+      })
+    }
+
+    function syncMeta() {
+      const preset = activePreset()
+      imageMetaEl.textContent = `Image: ${preset.image} | detected aspectRatio: ${aspectRatioText()}`
+      dimsMetaEl.textContent = `Wall distances: LF ${preset.dims.lf} | CF ${preset.dims.cf} | RF ${preset.dims.rf}`
+    }
+
+    function syncQueryString() {
+      const url = new URL(window.location.href)
+      url.searchParams.set('stadium', activePresetKey)
+      window.history.replaceState({}, '', url)
+    }
+
+    function setPreset(key) {
+      activePresetKey = PRESETS[key] ? key : 'peach_ice_garden'
+      presetSelect.value = activePresetKey
+      img.src = activePreset().image
+      syncMeta()
+      syncQueryString()
+      reset()
+    }
+
+    function outputHeader() {
+      return [
+        '// ---- PASTE INTO STADIUM_CONFIGS ----',
+        `'${activePresetKey}': {`,
+        `  image: '${activePreset().image}',`,
+        `  aspectRatio: '${aspectRatioText()}',`,
+      ]
+    }
+
+    function updateOutput() {
+      const header = outputHeader()
+      const fieldLines = fielderPlaced.map((point) =>
+        `    { position: ${point.position}, label: '${point.label}', left: '${point.x}%', top: '${point.y}%', group: '${point.group}' },`
+      )
+      const home = refPlaced.find((ref) => ref.key === 'home')
+      const lf = refPlaced.find((ref) => ref.key === 'lf')
+      const cf = refPlaced.find((ref) => ref.key === 'cf')
+      const rf = refPlaced.find((ref) => ref.key === 'rf')
+      const dims = activePreset().dims
+
+      const body = []
+      if (home) body.push(`  homePlate: { x: ${home.x}, y: ${home.y} },`)
+      if (lf || cf || rf) {
+        body.push('  wallRefs: [')
+        if (lf) body.push(`    { x: ${lf.x}, y: ${lf.y}, dist: ${dims.lf} },  // LF foul pole`)
+        if (cf) body.push(`    { x: ${cf.x}, y: ${cf.y}, dist: ${dims.cf} },  // CF wall`)
+        if (rf) body.push(`    { x: ${rf.x}, y: ${rf.y}, dist: ${dims.rf} },  // RF foul pole`)
+        body.push('  ],')
+      }
+
+      body.push('  positions: [')
+      if (fieldLines.length) {
+        body.push(...fieldLines)
+      }
+      body.push('  ],')
+      body.push('},')
+
+      outputEl.textContent = [...header, ...body].join('\n')
+    }
+
+    function placeDot(x, y, label, color, id) {
+      const dot = document.createElement('div')
+      dot.className = 'dot'
+      dot.id = `dot-${id}`
+      dot.style.left = `${x}%`
+      dot.style.top = `${y}%`
+      dot.style.background = color
+      container.appendChild(dot)
+
+      const text = document.createElement('div')
+      text.className = 'dot-label'
+      text.id = `lbl-${id}`
+      text.style.left = `${x}%`
+      text.style.top = `${y}%`
+      text.style.color = color
+      text.textContent = label
+      container.appendChild(text)
+    }
+
+    function updateInstruction() {
+      const coordsEl = document.getElementById('coords')
+      if (phase === 1) {
+        const next = FIELDERS[fielderPlaced.length]
+        coordsEl.textContent = next
+          ? `Next: click where ${next.label} stands`
+          : 'All fielders placed. Click "Start Phase 2" to mark Home Plate, LF, CF, and RF.'
+        return
+      }
+      const next = REFS[refPlaced.length]
+      coordsEl.textContent = next
+        ? `Next: click ${next.label}`
+        : 'Done. Copy the output below and paste it into STADIUM_CONFIGS.'
+    }
+
+    function ensurePhase2Button() {
+      if (fielderPlaced.length !== FIELDERS.length || document.getElementById('phase2btn')) return
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = 'Start Phase 2: Distance Refs ->'
+      button.onclick = startPhase2
+      button.id = 'phase2btn'
+      document.getElementById('log').appendChild(button)
+    }
+
+    function startPhase2() {
+      phase = 2
+      document.getElementById('pill-fielders').className = 'phase-pill done'
+      document.getElementById('pill-refs').className = 'phase-pill active'
+      document.getElementById('phase-title').textContent = 'Phase 2: Click distance reference points'
+      document.getElementById('phase2btn')?.remove()
+      updateInstruction()
+    }
+
+    function undo() {
+      if (phase === 2 && refPlaced.length > 0) {
+        const index = refPlaced.length
+        refPlaced.pop()
+        document.getElementById(`dot-r-${index}`)?.remove()
+        document.getElementById(`lbl-r-${index}`)?.remove()
+      } else if (phase === 1 && fielderPlaced.length > 0) {
+        const index = fielderPlaced.length
+        fielderPlaced.pop()
+        document.getElementById(`dot-f-${index}`)?.remove()
+        document.getElementById(`lbl-f-${index}`)?.remove()
+        document.getElementById('phase2btn')?.remove()
+      }
+      updateInstruction()
+      updateOutput()
+    }
+
+    function reset() {
+      phase = 1
+      fielderPlaced = []
+      refPlaced = []
+      container.querySelectorAll('.dot, .dot-label').forEach((el) => el.remove())
+      document.getElementById('pill-fielders').className = 'phase-pill active'
+      document.getElementById('pill-refs').className = 'phase-pill'
+      document.getElementById('phase-title').textContent = 'Phase 1: Click fielder positions'
+      document.getElementById('phase2btn')?.remove()
+      updateInstruction()
+      updateOutput()
+    }
+
+    async function copyOutput() {
+      try {
+        await navigator.clipboard.writeText(outputEl.textContent)
+      } catch (error) {
+        console.error(error)
+      }
+    }
+
+    container.addEventListener('click', (event) => {
+      const rect = img.getBoundingClientRect()
+      const x = Number((((event.clientX - rect.left) / rect.width) * 100).toFixed(1))
+      const y = Number((((event.clientY - rect.top) / rect.height) * 100).toFixed(1))
+
+      if (phase === 1) {
+        if (fielderPlaced.length >= FIELDERS.length) return
+        const slot = FIELDERS[fielderPlaced.length]
+        fielderPlaced.push({ ...slot, x, y })
+        placeDot(x, y, slot.label, 'red', `f-${fielderPlaced.length}`)
+        ensurePhase2Button()
+      } else {
+        if (refPlaced.length >= REFS.length) return
+        const ref = REFS[refPlaced.length]
+        refPlaced.push({ ...ref, x, y })
+        placeDot(x, y, ref.label, ref.color, `r-${refPlaced.length}`)
+      }
+
+      updateInstruction()
+      updateOutput()
+    })
+
+    presetSelect.addEventListener('change', (event) => {
+      setPreset(event.target.value)
+    })
+
+    img.addEventListener('load', () => {
+      syncMeta()
+      updateOutput()
+    })
+
+    buildPresetOptions()
+
+    const initialPreset = new URLSearchParams(window.location.search).get('stadium')
+    setPreset(initialPreset || 'peach_ice_garden')
+  </script>
+</body>
+</html>

@@ -387,6 +387,7 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
     || logoUrl !== originalLogo
 
   useEffect(() => {
+    if (isDirty) return
     setPlayerEmail(p.email || '')
     setTeamLocation(p.team_location || '')
     setTeamMascot(p.team_mascot || '')
@@ -394,7 +395,7 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
     setPrimaryColor(p.team_primary_color || p.color || '#38BDF8')
     setSecondaryColor(p.team_secondary_color || '#0F172A')
     setLogoUrl(p.team_logo_url || null)
-  }, [p])
+  }, [p]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const inputStyle = {
     background: '#1E293B',
@@ -625,6 +626,11 @@ export default function Admin() {
         { data: tournamentFieldersData },
       ] = results
 
+      const failedTables = results.map((r, i) => r.error ? i : null).filter(i => i !== null)
+      if (failedTables.length) {
+        pushToast({ title: 'Backup incomplete', message: `${failedTables.length} table(s) failed to export — the downloaded file may be missing data.`, type: 'error' })
+      }
+
       const backup = {
         exportedAt: new Date().toISOString(),
         version: 1,
@@ -823,8 +829,12 @@ export default function Admin() {
 
   const handleDeleteSeason = async () => {
     if (!activeSeason) return
-    const { error } = await supabase.from('seasons').delete().eq('id', activeSeason.id)
+    const { data, error } = await supabase.from('seasons').delete().eq('id', activeSeason.id).select()
     if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
+    if (!data?.length) {
+      pushToast({ title: 'Delete failed', message: 'No season was deleted. You may not have permission to delete this season.', type: 'error' })
+      return
+    }
     pushToast({ title: 'Season deleted', message: `${activeSeason.name} has been deleted.`, type: 'success' })
     await refreshSeasons()
   }
@@ -837,8 +847,12 @@ export default function Admin() {
 
   const handleDeleteTournament = async () => {
     if (!activeTournament) return
-    const { error } = await supabase.from('tournaments').delete().eq('id', activeTournament.id)
+    const { data, error } = await supabase.from('tournaments').delete().eq('id', activeTournament.id).select()
     if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
+    if (!data?.length) {
+      pushToast({ title: 'Delete failed', message: 'No tournament was deleted. You may not have permission to delete this tournament.', type: 'error' })
+      return
+    }
     pushToast({ title: 'Tournament deleted', message: `Tournament ${activeTournament.tournament_number} has been deleted.`, type: 'success' })
     await refreshTournaments()
     navigate('/')
@@ -846,8 +860,12 @@ export default function Admin() {
 
   const handleLockTrades = async () => {
     if (!activeTournament) return
-    const { error } = await supabase.from('tournaments').update({ trade_deadline_at: new Date().toISOString() }).eq('id', activeTournament.id)
+    const { data, error } = await supabase.from('tournaments').update({ trade_deadline_at: new Date().toISOString() }).eq('id', activeTournament.id).select()
     if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
+    if (!data?.length) {
+      pushToast({ title: 'Lock failed', message: 'No tournament was updated. You may not have permission to lock trades.', type: 'error' })
+      return
+    }
     pushToast({ title: 'Trade deadline set', message: 'Trades are now locked for this tournament.', type: 'success' })
     await refreshTournaments()
   }
@@ -866,17 +884,25 @@ export default function Admin() {
       return acc
     }, {})
 
-    for (const claims of Object.values(grouped)) {
-      const sorted = [...claims].sort((a, b) => Number(a.priority_order) - Number(b.priority_order) || new Date(a.created_at) - new Date(b.created_at))
-      const winner = sorted[0]
-      const losers = sorted.slice(1)
-      const dropRow = roster?.find((r) => r.team_id === winner.claiming_team_id && r.character_name === winner.dropping_character)
-      if (dropRow) await supabase.from('season_roster').update({ is_active: false }).eq('id', dropRow.id)
-      await supabase.from('season_roster').insert({ season_id: activeSeason.id, team_id: winner.claiming_team_id, character_name: winner.claiming_character, acquired_via: 'waiver', is_active: true })
-      await supabase.from('season_waivers').update({ status: 'approved', resolved_at: new Date().toISOString() }).eq('id', winner.id)
-      if (losers.length) await supabase.from('season_waivers').update({ status: 'denied', resolved_at: new Date().toISOString() }).in('id', losers.map((e) => e.id))
+    try {
+      for (const claims of Object.values(grouped)) {
+        const sorted = [...claims].sort((a, b) => Number(a.priority_order) - Number(b.priority_order) || new Date(a.created_at) - new Date(b.created_at))
+        const winner = sorted[0]
+        const losers = sorted.slice(1)
+        const dropRow = roster?.find((r) => r.team_id === winner.claiming_team_id && r.character_name === winner.dropping_character)
+        if (dropRow) {
+          const { error: dropErr } = await supabase.from('season_roster').update({ is_active: false }).eq('id', dropRow.id)
+          if (dropErr) throw new Error(`Failed to drop ${winner.dropping_character}: ${dropErr.message}`)
+        }
+        const { error: addErr } = await supabase.from('season_roster').insert({ season_id: activeSeason.id, team_id: winner.claiming_team_id, character_name: winner.claiming_character, acquired_via: 'waiver', is_active: true })
+        if (addErr) throw new Error(`Failed to add ${winner.claiming_character}: ${addErr.message}`)
+        await supabase.from('season_waivers').update({ status: 'approved', resolved_at: new Date().toISOString() }).eq('id', winner.id)
+        if (losers.length) await supabase.from('season_waivers').update({ status: 'denied', resolved_at: new Date().toISOString() }).in('id', losers.map((e) => e.id))
+      }
+      pushToast({ title: 'Waivers resolved', type: 'success' })
+    } catch (err) {
+      pushToast({ title: 'Waiver resolution failed', message: err.message + ' — some waivers may have been partially applied. Check the roster manually.', type: 'error' })
     }
-    pushToast({ title: 'Waivers resolved', type: 'success' })
   }
 
   const handleToggleScorebookAccess = async (target) => {
@@ -927,7 +953,14 @@ export default function Admin() {
   const handleAwardBalance = async () => {
     const amount = Number(awardAmount)
     const contextEntry = awardContext === 'season' ? activeSeason : activeTournament
-    if (!contextEntry || !amount) return
+    if (!contextEntry) {
+      pushToast({ title: 'No active season or tournament', message: 'Select a season or tournament before awarding balance.', type: 'error' })
+      return
+    }
+    if (!amount || Number.isNaN(amount)) {
+      pushToast({ title: 'Invalid amount', message: 'Enter a non-zero amount to award.', type: 'error' })
+      return
+    }
     setAwardingBalance(true)
     const { error } = await supabase.from('balance_awards').insert({
       [awardContext === 'season' ? 'season_id' : 'tournament_id']: contextEntry.id,

@@ -23,6 +23,7 @@ import SeasonBracket from './pages/SeasonBracket'
 import SeasonStats from './pages/SeasonStats'
 import Admin from './pages/Admin'
 import TeamProfile from './pages/TeamProfile'
+import CharacterPage from './pages/CharacterPage'
 import { SeasonProvider, useSeason } from './context/SeasonContext'
 import { TournamentProvider, useTournament } from './context/TournamentContext'
 import { SEASON_SCOREBOOK_PATH, TOURNAMENT_SCOREBOOK_PATH } from './utils/scorebookRouting'
@@ -81,7 +82,7 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/draft/presentation" element={<TournamentDraftPresentation />} />
       <Route path="/season/draft/presentation" element={<SeasonDraftPresentation />} />
-      <Route element={<AppLayout />}>
+      <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route path="/" element={<RootRoute />} />
         <Route path="/draft" element={<Draft />} />
         <Route path="/roster" element={<Roster />} />
@@ -100,7 +101,8 @@ function AppRoutes() {
         <Route path="/season/bets" element={<SeasonBetting />} />
         <Route path="/season/stats" element={<SeasonStats />} />
         <Route path="/season/bracket" element={<SeasonBracket />} />
-        <Route path="/team" element={<ProtectedRoute><TeamProfile /></ProtectedRoute>} />
+        <Route path="/team" element={<TeamProfile />} />
+        <Route path="/character/:id" element={<CharacterPage />} />
         <Route path="/admin" element={<Admin />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

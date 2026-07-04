@@ -66,7 +66,6 @@ async function syncDoubleElimTemplate({ supabase, tournament, games, createMissi
       continue
     }
 
-    if (existing.status !== 'pending') continue
     if (
       String(existing.team_a_player_id || '') === String(spec.teamA || '') &&
       String(existing.team_b_player_id || '') === String(spec.teamB || '')
@@ -100,7 +99,6 @@ async function syncSingleElimTemplate({ supabase, tournament, games, createMissi
       continue
     }
 
-    if (existing.status !== 'pending') continue
     if (
       String(existing.team_a_player_id || '') === String(spec.teamA || '') &&
       String(existing.team_b_player_id || '') === String(spec.teamB || '')
@@ -157,7 +155,6 @@ async function syncChampionshipResetState({ supabase, tournament, games }) {
   }
 
   if (resetGame) {
-    if (resetGame.status !== 'pending') return []
     if (
       String(resetGame.team_a_player_id || '') === String(championship.team_a_player_id || '') &&
       String(resetGame.team_b_player_id || '') === String(championship.team_b_player_id || '')

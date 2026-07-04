@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Crown, Moon, Pencil, Sun, Trash2, X } from 'lucide-react'
+import { Crown, MapPin, Moon, Pencil, Sun, Trash2, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
@@ -42,6 +42,7 @@ export default function Bracket() {
   const [stadiumSetupGame, setStadiumSetupGame] = useState(null)
   const [stadiumSetupForm, setStadiumSetupForm] = useState({ stadiumId: '', isNight: false })
   const [stadiumSavePending, setStadiumSavePending] = useState(false)
+  const [stadiumSetupEditOnly, setStadiumSetupEditOnly] = useState(false)
 
   useEffect(() => {
     const loadBracket = async () => {
@@ -151,7 +152,7 @@ export default function Bracket() {
 
   const generateBracket = async () => {
     if (!tournament || selectedPlayers.length < 2) { pushToast({ title: 'Error', message: 'Need at least 2 players.', type: 'error' }); return }
-    if (filteredGames.some(g => g.status === 'pending')) { pushToast({ title: 'Bracket exists', message: 'Delete existing pending games first.', type: 'error' }); return }
+    if (filteredGames.some(g => (g.stage || 'Exhibition') !== 'Exhibition')) { pushToast({ title: 'Bracket exists', message: 'Delete all existing bracket games first to regenerate.', type: 'error' }); return }
     const highestCode = Math.max(...filteredGames.map(g => Number(String(g.game_code || '').replace(/\D/g, '')) || 0), 0)
     let gameNum = highestCode + 1
     let newGames = []
@@ -224,7 +225,7 @@ export default function Bracket() {
 
   const formatLabel = bracketFormat === 'round_robin' ? 'Round Robin' : bracketFormat === 'single' ? 'Single Elimination' : 'Double Elimination'
 
-  const openStadiumSetup = useCallback((game) => {
+  const openStadiumSetup = useCallback((game, { editOnly = false } = {}) => {
     const fallbackStadium = (game?.stadium_id && stadiumsById[game.stadium_id]) || stadiums[0] || null
     if (!fallbackStadium) {
       pushToast({
@@ -239,6 +240,7 @@ export default function Bracket() {
       isNight: normalizeIsNightForStadium(fallbackStadium, game?.is_night),
     })
     setStadiumSetupGame(game)
+    setStadiumSetupEditOnly(editOnly)
   }, [stadiums, stadiumsById, pushToast])
 
   const handleOpenScorebook = useCallback((game) => {
@@ -272,20 +274,32 @@ export default function Bracket() {
         .eq('id', stadiumSetupGame.id)
       if (error) throw error
 
+      // A stadium is never actually changed mid/post-game — editing it here means
+      // correcting a setup mistake, so the denormalized historical log row must match.
+      const { error: logError } = await supabase
+        .from('stadium_game_log')
+        .update({ stadium_id: stadium.id, is_night: nextIsNight })
+        .eq('game_id', stadiumSetupGame.id)
+      if (logError) throw logError
+
       setGames((current) => current.map((game) => (
         game.id === stadiumSetupGame.id
           ? { ...game, stadium_id: stadium.id, is_night: nextIsNight }
           : game
       )))
+      const wasEditOnly = stadiumSetupEditOnly
       setStadiumSetupGame(null)
+      setStadiumSetupEditOnly(false)
       pushToast({ title: 'Stadium set', message: `${stadium.name} selected for ${stadiumSetupGame.game_code}.`, type: 'success' })
-      navigate(buildScorebookPath({ gameId: stadiumSetupGame.id }))
+      if (!wasEditOnly) {
+        navigate(buildScorebookPath({ gameId: stadiumSetupGame.id }))
+      }
     } catch (error) {
       pushToast({ title: 'Unable to save stadium', message: error.message, type: 'error' })
     } finally {
       setStadiumSavePending(false)
     }
-  }, [stadiumSetupGame, stadiumsById, stadiumSetupForm, pushToast, navigate])
+  }, [stadiumSetupGame, stadiumsById, stadiumSetupForm, stadiumSetupEditOnly, pushToast, navigate])
 
   const selectedSetupStadium = useMemo(
     () => stadiums.find((stadium) => String(stadium.id) === String(stadiumSetupForm.stadiumId)) || stadiums[0] || null,
@@ -365,6 +379,7 @@ export default function Bracket() {
                     <span className="muted"><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} responsiveAbbreviation /> vs <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} responsiveAbbreviation /></span>
                   </div>
                   {game.status === 'complete' && <span style={{ color: '#EAB308', fontWeight: 600 }}>{game.team_a_runs}-{game.team_b_runs}</span>}
+                  {isScorekeeper && <button className="icon-button" onClick={() => openStadiumSetup(game, { editOnly: true })} type="button" title="Edit stadium"><MapPin size={14} /></button>}
                   {isCommissioner && <button className="icon-button" onClick={() => deleteGame(game)} type="button"><Trash2 size={14} /></button>}
                 </div>
               ))}
@@ -402,6 +417,7 @@ export default function Bracket() {
                     </span>
                   </div>
                   {game.status === 'complete' && <span style={{ color: '#EAB308', fontWeight: 600 }}>{game.team_a_runs}-{game.team_b_runs}</span>}
+                  {isScorekeeper && <button className="icon-button" onClick={() => openStadiumSetup(game, { editOnly: true })} type="button" title="Edit stadium"><MapPin size={14} /></button>}
                   {isCommissioner && <button className="icon-button" onClick={() => deleteGame(game)} type="button"><Trash2 size={14} /></button>}
                 </div>
               ))}
@@ -462,6 +478,7 @@ export default function Bracket() {
                       </span>
                     </span>
                   </div>
+                  {isScorekeeper && <button className="icon-button" onClick={() => openStadiumSetup(game, { editOnly: true })} type="button" title="Edit stadium"><MapPin size={14} /></button>}
                   <button className="icon-button" onClick={() => deleteGame(game)} type="button"><Trash2 size={14} /></button>
                 </div>
               ))}
@@ -533,7 +550,7 @@ export default function Bracket() {
                 <h2>{stadiumSetupGame.game_code}</h2>
               </div>
               <button
-                onClick={() => setStadiumSetupGame(null)}
+                onClick={() => { setStadiumSetupGame(null); setStadiumSetupEditOnly(false) }}
                 type="button"
                 style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer' }}
               >
@@ -593,9 +610,9 @@ export default function Bracket() {
               </div>
             </div>
             <div className="modal-actions">
-              <button className="ghost-button" onClick={() => setStadiumSetupGame(null)} type="button">Cancel</button>
+              <button className="ghost-button" onClick={() => { setStadiumSetupGame(null); setStadiumSetupEditOnly(false) }} type="button">Cancel</button>
               <button className="solid-button" disabled={stadiumSavePending || !selectedSetupStadium} onClick={saveTournamentStadiumAndOpen} type="button">
-                Save Stadium and Open
+                {stadiumSetupEditOnly ? 'Save Stadium' : 'Save Stadium and Open'}
               </button>
             </div>
           </div>

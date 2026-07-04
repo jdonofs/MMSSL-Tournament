@@ -129,7 +129,9 @@ async function syncLedger(bets, config = {}) {
   }).filter((entry) => Number(entry[resolvedConfig.ledgerChangeField] || 0) !== 0)
 
   if (!ledgerRows.length) return
-  const { error } = await supabase.from(resolvedConfig.ledgerTable).insert(ledgerRows)
+  const { error } = await supabase
+    .from(resolvedConfig.ledgerTable)
+    .upsert(ledgerRows, { onConflict: 'bet_id,reason', ignoreDuplicates: true })
   if (error) throw error
 }
 
@@ -200,12 +202,16 @@ export async function resolveOnPA(gameId, pa, config = {}) {
 
   if (updates.length) {
     await updateBets(updates, resolvedConfig)
-    await syncLedger(
-      openBets
-        .filter((bet) => updates.some((update) => update.id === bet.id))
-        .map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) })),
-      resolvedConfig,
-    )
+    const betsToSync = openBets
+      .filter((bet) => updates.some((update) => update.id === bet.id))
+      .map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) }))
+    try {
+      await syncLedger(betsToSync, resolvedConfig)
+    } catch (ledgerErr) {
+      const rollbackUpdates = updates.map((u) => ({ id: u.id, status: 'open', result_correct: null, resolved_at: null }))
+      await supabase.from(resolvedConfig.betsTable).upsert(rollbackUpdates)
+      throw ledgerErr
+    }
   }
 
   return updates
@@ -224,7 +230,13 @@ export async function resolveFirstInningNoRun(gameId, config = {}) {
 
   const updates = (openBets || []).map((bet) => buildUpsertPayload(bet, bet.chosen_side === 'no'))
   await updateBets(updates, resolvedConfig)
-  await syncLedger((openBets || []).map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) })), resolvedConfig)
+  try {
+    await syncLedger((openBets || []).map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) })), resolvedConfig)
+  } catch (ledgerErr) {
+    const rollbackUpdates = updates.map((u) => ({ id: u.id, status: 'open', result_correct: null, resolved_at: null }))
+    await supabase.from(resolvedConfig.betsTable).upsert(rollbackUpdates)
+    throw ledgerErr
+  }
   await lockOdds(gameId, 'first_inning_run', null, resolvedConfig)
   return updates
 }
@@ -306,7 +318,14 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
   }
 
   await updateBets(updates, resolvedConfig)
-  await syncLedger((openBets || []).map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) })), resolvedConfig)
+  try {
+    await syncLedger((openBets || []).map((bet) => ({ ...bet, ...updates.find((update) => update.id === bet.id) })), resolvedConfig)
+  } catch (ledgerErr) {
+    // Roll back bet statuses so the game can be re-resolved cleanly
+    const rollbackUpdates = updates.map((u) => ({ id: u.id, status: 'open', result_correct: null, resolved_at: null }))
+    await supabase.from(resolvedConfig.betsTable).upsert(rollbackUpdates)
+    throw ledgerErr
+  }
   await runPostGameCalibration(gameId, resolvedConfig)
   return updates
 }

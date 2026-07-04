@@ -241,14 +241,71 @@ export function getTalentTierMeta(tier = 'C') {
   }
 }
 
-function buildHistoryAdjustment(history = []) {
-  const valid = history.filter((entry) => Number.isFinite(entry?.perfScore))
+// History is judged on two axes per game, blended together:
+//  1. Talent-relative: how the performance compares to what this character's OWN talent level
+//     would predict (a weak batter hitting league-average should be credited more than a great
+//     batter doing the same, since "average" is a win for one and a letdown for the other).
+//  2. Team-relative: how it compares to the same player's OTHER characters in that event — see
+//     `gameDelta` on each history entry (built in statsCalculator.js). A cold game counts less
+//     against a character if the player was cold across the board that event.
+// Talent-relative is weighted as primary since it's always computable; team-relative is a minor
+// nudge and is frequently neutral (0) for pitching/fielding, where teams often run a single
+// pitcher/fielder per position with nothing to compare against.
+const HISTORY_PA_SCALE = 120        // cumulative qualifying PA to reach full weight (~4 old-style tournaments' worth)
+const HISTORY_WEIGHT_CAP = 0.18     // unchanged ceiling from the old per-tournament system
+const HISTORY_DELTA_CLAMP = 2       // clamp the weighted avg delta to ±2 perfScore-equivalent units
+const HISTORY_DELTA_SCALE = 9       // maps a ±2 delta to roughly the old ±18-point OVR ceiling
+const GAME_DELTA_CLAMP = 3          // clamp each game's blended delta before averaging (mirrors statsCalculator.js)
+const TALENT_RELATIVE_WEIGHT = 0.65 // share of the blend driven by vs-own-talent rather than vs-teammates
+
+// Outs/chances accumulate far slower than plate appearances, so pitching and fielding need their
+// own (smaller) volume needed to reach full confidence — tunable judgment calls, not derived.
+const PITCHING_OUTS_SCALE = 60      // ~20 innings pitched to reach full weight
+const FIELDING_CHANCES_SCALE = 40   // ~40 fielding chances to reach full weight
+
+// Below this fraction of weightScale, a sample is too thin to trust at all — a couple of clean
+// games or a lucky at-bat run shouldn't be able to move a character's OVR. Below the floor the
+// adjustment is zeroed out entirely rather than just scaled down, since scaling alone still let a
+// tiny, possibly-noisy sample produce an outsized swing once mapped to the display scale.
+const MIN_HISTORY_WEIGHT_RATIO = 0.3
+
+// Generic player-relative history blend: works for batting (perfScore/pa), pitching
+// (pitchPerfScore/outs), and fielding (fieldPerfScore/chances) by naming the score/volume fields.
+// expectedPerf is the character's own talent level converted to the same 0-10 perf scale — pass
+// null to fall back to pure team-relative (used when no talent baseline makes sense).
+function buildHistoryAdjustment(history = [], { scoreField = 'perfScore', weightField = 'pa', weightScale = HISTORY_PA_SCALE, expectedPerf = null, minWeight = weightScale * MIN_HISTORY_WEIGHT_RATIO } = {}) {
+  const valid = history.filter((entry) => Number.isFinite(entry?.[scoreField]))
   if (!valid.length) {
-    return { historyScore: null, weight: 0, tournaments: 0 }
+    return { adjustedDelta: null, weight: 0, games: 0, totalWeight: 0 }
   }
-  const historyScore = average(valid.map((entry) => entry.perfScore)) * 10
-  const weight = Math.min(valid.length / 4, 1) * 0.18
-  return { historyScore, weight, tournaments: valid.length }
+
+  const blendedDelta = (entry) => {
+    const teamRelative = Number.isFinite(entry.gameDelta) ? entry.gameDelta : 0
+    if (expectedPerf === null) return teamRelative
+    const talentRelative = entry[scoreField] - expectedPerf
+    return Math.max(-GAME_DELTA_CLAMP, Math.min(GAME_DELTA_CLAMP,
+      (talentRelative * TALENT_RELATIVE_WEIGHT) + (teamRelative * (1 - TALENT_RELATIVE_WEIGHT))))
+  }
+
+  const totalWeight = valid.reduce((sum, entry) => sum + (entry[weightField] || 0), 0)
+
+  if (totalWeight < minWeight) {
+    return { adjustedDelta: null, weight: 0, games: valid.length, totalWeight }
+  }
+
+  const weightedDeltaSum = valid.reduce((sum, entry) => sum + (blendedDelta(entry) * (entry[weightField] || 0)), 0)
+  const avgDelta = totalWeight > 0 ? weightedDeltaSum / totalWeight : 0
+
+  const adjustedDelta = Math.max(-HISTORY_DELTA_CLAMP, Math.min(HISTORY_DELTA_CLAMP, avgDelta))
+  const weight = Math.min(totalWeight / weightScale, 1) * HISTORY_WEIGHT_CAP
+
+  return { adjustedDelta, weight, games: valid.length, totalWeight }
+}
+
+function historyAdjustmentToContribution(historyAdjustment) {
+  return historyAdjustment.adjustedDelta === null
+    ? 0
+    : Math.max(-18, Math.min(18, historyAdjustment.adjustedDelta * HISTORY_DELTA_SCALE)) * (historyAdjustment.weight / HISTORY_WEIGHT_CAP)
 }
 
 function describeStrength(label, score) {
@@ -384,6 +441,13 @@ function getDisplayOverallPoolScores() {
   return cachedDisplayOverallPoolScores
 }
 
+// Display ratings compress smoothly toward (but never reach/exceed) this ceiling instead of
+// being allowed to run past 100 — tiers are computed from the raw pre-mapping score (see
+// buildRolePoolTier), not this display value, so compressing the displayed number here has no
+// effect on tier placement or competitive balance, only on the number shown to the user.
+const DISPLAY_RATING_SOFT_CEILING = 99
+const DISPLAY_RATING_COMPRESSION_K = 6
+
 function mapRawRoleScoreToDisplayRating(rawScore, distribution = {}) {
   const mean = Number(distribution.mean || 0)
   const stdDev = Number(distribution.stdDev || 1) || 1
@@ -393,7 +457,12 @@ function mapRawRoleScoreToDisplayRating(rawScore, distribution = {}) {
   const eliteTailBonus = zScore > 2.2 ? ((zScore - 2.2) ** 2) * 8 : 0
   const lowTailPenalty = zScore < -3 ? ((Math.abs(zScore) - 3) ** 2) * 6 : 0
 
-  return Math.max(0, coreRating + eliteTailBonus - lowTailPenalty)
+  const uncompressed = Math.max(0, coreRating + eliteTailBonus - lowTailPenalty)
+  if (uncompressed <= DISPLAY_RATING_SOFT_CEILING) return uncompressed
+
+  const excess = uncompressed - DISPLAY_RATING_SOFT_CEILING
+  const ceilingHeadroom = 100 - DISPLAY_RATING_SOFT_CEILING
+  return DISPLAY_RATING_SOFT_CEILING + ceilingHeadroom * (1 - Math.exp(-excess / DISPLAY_RATING_COMPRESSION_K))
 }
 
 function buildDisplayedOverallRating({
@@ -452,7 +521,7 @@ function buildRolePoolTier(roleScores, score) {
   return 'F'
 }
 
-function computeTalentAnalysis(character, history = []) {
+function computeTalentAnalysis(character, history = [], pitchingHistory = [], fieldingHistory = []) {
   if (!character) return null
 
   const normalizedKey = resolveCharacterTalentKey(character)
@@ -560,9 +629,9 @@ function computeTalentAnalysis(character, history = []) {
 
   // Defense: base weights unchanged; speed contributes range bonus; field ability is additive
   const baseDefense = clamp(
-    (normalized.catchCoverage * 0.37) +
-    (normalized.fielding * 0.37) +
-    (normalized.armStrength * 0.26),
+    (normalized.catchCoverage * 0.505) +
+    (normalized.fielding * 0.10) +
+    (normalized.armStrength * 0.395),
   )
   const speedRangeBonus = (normalized.mobility - 50) * 0.05
   const defense = clamp(baseDefense + speedRangeBonus + fieldDefenseBonus)
@@ -601,35 +670,50 @@ function computeTalentAnalysis(character, history = []) {
   // Chemistry: small adjustment to final score based on partner quality
   const chemAdjustment = computeChemistryAdjustment(character.name)
 
-  const historyAdjustment = buildHistoryAdjustment(history)
-  const trueValue = historyAdjustment.historyScore === null
-    ? clamp(talentScore + chemAdjustment)
-    : clamp((talentScore * (1 - historyAdjustment.weight)) + (historyAdjustment.historyScore * historyAdjustment.weight) + chemAdjustment)
-
-  // ── Role OVRs ────────────────────────────────────────────────────────────────
+  // ── Role OVRs (talent-only bases) ─────────────────────────────────────────────
   // Batting OVR: pure hitting value — offense score + star ceiling bonus.
   // Defense and speed are irrelevant to how good a batter someone is.
   const battingBase = clamp(offense + starBonus)
-  const battingScore = historyAdjustment.historyScore === null
-    ? clamp(battingBase + chemAdjustment)
-    : clamp((battingBase * (1 - historyAdjustment.weight)) + (historyAdjustment.historyScore * historyAdjustment.weight) + chemAdjustment)
-
-  // Pitching OVR: rates a character as a captain/pitcher
-  // History is batting-based (perfScore = OPS), so apply at half weight to avoid
-  // batting performance overriding pitching talent (e.g. a power hitter shouldn't
-  // get a pitching boost just because they slug well)
+  // Pitching OVR: rates a character as a captain/pitcher.
   const pitchingBase = clamp(
     pitching +
     (starBonus * 0.5),
   )
-  const pitchingHistoryWeight = historyAdjustment.weight * 0.5
-  const pitchingScore = historyAdjustment.historyScore === null
-    ? pitchingBase
-    : clamp((pitchingBase * (1 - pitchingHistoryWeight)) + (historyAdjustment.historyScore * pitchingHistoryWeight))
-
   // Fielding OVR: defense score anchors it; speed adds range value since fast characters
-  // can cover more ground and be placed in demanding positions like center field
-  const fieldingScore = clamp((defense * 0.75) + (speed * 0.25))
+  // can cover more ground and be placed in demanding positions like center field.
+  const fieldingBase = clamp((defense * 0.75) + (speed * 0.25))
+
+  // Each base, converted to the same 0-10 perf scale history entries use, anchors the
+  // talent-relative half of the blend in buildHistoryAdjustment (see comment above it):
+  // a weak talent performing at an average level is a real overperformance, while the same
+  // average game from an elite talent is actually a letdown.
+  const historyAdjustment = buildHistoryAdjustment(history, { expectedPerf: battingBase / 10 })
+  const historyContribution = historyAdjustmentToContribution(historyAdjustment)
+
+  const trueValue = clamp(talentScore + historyContribution + chemAdjustment)
+
+  // Kept separate from battingScore so the UI can label history-driven and chemistry-driven
+  // swings distinctly instead of lumping both under one "performance" delta (see skillImpact
+  // in analyzeCharacterTalent below).
+  const battingPerformanceOnlyScore = clamp(battingBase + historyContribution)
+  const battingScore = clamp(battingPerformanceOnlyScore + chemAdjustment)
+
+  // Falls back to a half-weighted slice of the batting delta only when there's no pitching
+  // history at all, so a character with zero recorded innings doesn't sit at pure talent while
+  // teammates with batting-only history get an (unrelated) bump.
+  const pitchingHistoryAdjustment = buildHistoryAdjustment(pitchingHistory, {
+    scoreField: 'pitchPerfScore', weightField: 'outs', weightScale: PITCHING_OUTS_SCALE, expectedPerf: pitchingBase / 10,
+  })
+  const pitchingHistoryContribution = pitchingHistoryAdjustment.adjustedDelta !== null
+    ? historyAdjustmentToContribution(pitchingHistoryAdjustment)
+    : historyContribution * 0.5
+  const pitchingScore = clamp(pitchingBase + pitchingHistoryContribution)
+
+  const fieldingHistoryAdjustment = buildHistoryAdjustment(fieldingHistory, {
+    scoreField: 'fieldPerfScore', weightField: 'chances', weightScale: FIELDING_CHANCES_SCALE, expectedPerf: fieldingBase / 10,
+  })
+  const fieldingHistoryContribution = historyAdjustmentToContribution(fieldingHistoryAdjustment)
+  const fieldingScore = clamp(fieldingBase + fieldingHistoryContribution)
 
   // Speed OVR: pure mobility score
   const speedScore = speed
@@ -642,14 +726,20 @@ function computeTalentAnalysis(character, history = []) {
     talentScore,
     trueValue,
     battingScore,
+    battingPerformanceOnlyScore,
     pitchingScore,
     fieldingScore,
     speedScore,
+    battingBase,
+    pitchingBase,
+    fieldingBase,
+    speedBase: speedScore,
     archetype,
     summary,
-    historyScore: historyAdjustment.historyScore,
+    historyDelta: historyAdjustment.adjustedDelta,
     historyWeight: historyAdjustment.weight,
-    historyTournaments: historyAdjustment.tournaments,
+    historyGames: historyAdjustment.games,
+    historyTotalPA: historyAdjustment.totalPA,
     chemAdjustment,
     categoryScores,
     componentScores: normalized,
@@ -760,15 +850,62 @@ function computeTalentAnalysis(character, history = []) {
   }
 }
 
-export function analyzeCharacterTalent(character, history = []) {
-  const analysis = computeTalentAnalysis(character, history)
+// History is allowed to move a role's displayed OVR by at most this many points, applied AFTER
+// the z-score-to-display conversion. The underlying history contribution is already clamped in
+// raw talent-scale units (see HISTORY_DELTA_CLAMP/historyAdjustmentToContribution), but that clamp
+// assumed roughly 1:1 raw-to-display points; mapRawRoleScoreToDisplayRating's z-score conversion
+// instead amplifies by 12/stdDev, and roles whose talent pool happens to cluster tightly (e.g.
+// fielding) can turn a routine, small-sample raw delta into a double-digit display swing. Capping
+// here bounds the swing consistently across every role regardless of how tight its pool is.
+const MAX_HISTORY_DISPLAY_IMPACT = 8
+
+export function analyzeCharacterTalent(character, history = [], pitchingHistory = [], fieldingHistory = []) {
+  const analysis = computeTalentAnalysis(character, history, pitchingHistory, fieldingHistory)
   if (!analysis) return null
 
   const roleDisplayDistributions = getRoleDisplayDistributions()
-  const displayedBatting = mapRawRoleScoreToDisplayRating(analysis.battingScore, roleDisplayDistributions.batting)
-  const displayedPitching = mapRawRoleScoreToDisplayRating(analysis.pitchingScore, roleDisplayDistributions.pitching)
-  const displayedFielding = mapRawRoleScoreToDisplayRating(analysis.fieldingScore, roleDisplayDistributions.fielding)
-  const displayedSpeed = mapRawRoleScoreToDisplayRating(analysis.speedScore, roleDisplayDistributions.speed)
+
+  // How much history/performance is moving each skill's displayed OVR, in OVR points —
+  // run the same talent-only (pre-history) score through the same display mapping so the
+  // comparison is apples-to-apples in the same units shown to the user, then clamp the gap
+  // between base and final to MAX_HISTORY_DISPLAY_IMPACT before anything downstream (the
+  // displayed score, the tier, the skill-impact label) sees it.
+  const displayedBattingBase = mapRawRoleScoreToDisplayRating(analysis.battingBase, roleDisplayDistributions.batting)
+  const displayedPitchingBase = mapRawRoleScoreToDisplayRating(analysis.pitchingBase, roleDisplayDistributions.pitching)
+  const displayedFieldingBase = mapRawRoleScoreToDisplayRating(analysis.fieldingBase, roleDisplayDistributions.fielding)
+  const displayedSpeedBase = mapRawRoleScoreToDisplayRating(analysis.speedBase, roleDisplayDistributions.speed)
+
+  const capImpact = (basePoints, rawFinalPoints) => {
+    const gap = rawFinalPoints - basePoints
+    const clampedGap = Math.max(-MAX_HISTORY_DISPLAY_IMPACT, Math.min(MAX_HISTORY_DISPLAY_IMPACT, gap))
+    return basePoints + clampedGap
+  }
+
+  const displayedBatting = capImpact(displayedBattingBase, mapRawRoleScoreToDisplayRating(analysis.battingScore, roleDisplayDistributions.batting))
+  const displayedPitching = capImpact(displayedPitchingBase, mapRawRoleScoreToDisplayRating(analysis.pitchingScore, roleDisplayDistributions.pitching))
+  const displayedFielding = capImpact(displayedFieldingBase, mapRawRoleScoreToDisplayRating(analysis.fieldingScore, roleDisplayDistributions.fielding))
+  const displayedSpeed = capImpact(displayedSpeedBase, mapRawRoleScoreToDisplayRating(analysis.speedScore, roleDisplayDistributions.speed))
+
+  // Batting alone splits its delta into a history-driven "performance" piece and a
+  // chemistry-driven piece, so the breakdown UI doesn't mislabel a teammate-chemistry bonus
+  // as if it were earned by actual game performance. Pitching/fielding/speed have no
+  // chemistry term, so their whole delta is "performance" and chemistry is always 0.
+  const displayedBattingPerfOnly = capImpact(displayedBattingBase, mapRawRoleScoreToDisplayRating(analysis.battingPerformanceOnlyScore, roleDisplayDistributions.batting))
+
+  const buildSkillImpact = (basePoints, finalPoints, perfOnlyPoints = finalPoints) => {
+    const base = toDisplayRating(basePoints)
+    const final = toDisplayRating(finalPoints)
+    const performance = toDisplayRating(perfOnlyPoints) - base
+    const chemistry = final - base - performance
+    return { base, final, impact: final - base, performance, chemistry }
+  }
+  const skillImpact = {
+    batting: buildSkillImpact(displayedBattingBase, displayedBatting, displayedBattingPerfOnly),
+    pitching: buildSkillImpact(displayedPitchingBase, displayedPitching),
+    fielding: buildSkillImpact(displayedFieldingBase, displayedFielding),
+    speed: buildSkillImpact(displayedSpeedBase, displayedSpeed),
+  }
+
   const displayedOverall = buildDisplayedOverallRating({
     batting: displayedBatting,
     pitching: displayedPitching,
@@ -799,6 +936,8 @@ export function analyzeCharacterTalent(character, history = []) {
     pitchingTier,
     fieldingTier,
     speedTier,
+    skillImpact,
+    overallRaw: displayedOverall,
     rawRatings: {
       overall: analysis.trueValue,
       batting: analysis.battingScore,

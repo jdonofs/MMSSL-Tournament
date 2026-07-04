@@ -169,7 +169,11 @@ export function SeasonProvider({ children }) {
       .filter(Boolean)
     return relevantRounds.length ? Math.max(...relevantRounds) : 1
   }, [schedule])
-  const totalRounds = currentSeason?.games_per_matchup || 0
+  const totalRounds = useMemo(() => {
+    const teamCount = seasonTeams.length
+    const gamesPerMatchup = currentSeason?.games_per_matchup || 0
+    return teamCount > 1 ? (teamCount - 1) * gamesPerMatchup : 0
+  }, [seasonTeams, currentSeason?.games_per_matchup])
   const tradeDeadlinePassed = useMemo(() => {
     if (!totalRounds || totalRounds < 2) return false
     const deadlineRound = totalRounds - 1

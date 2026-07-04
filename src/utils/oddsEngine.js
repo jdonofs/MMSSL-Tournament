@@ -159,6 +159,21 @@ function buildWeights(weights = {}) {
   }
 }
 
+// Converts the calibrated odds_engine_weights row (updated after every game by
+// runPostGameCalibration based on actual Brier-score accuracy) into a neutral
+// multiplier per source — 1.0 means "no historical signal yet / perfectly
+// balanced", >1 means that source has been outperforming and should count for
+// more. Clamped so a small sample size can't swing the live model wildly.
+function getCalibrationTilt(weights) {
+  const normalized = buildWeights(weights || {})
+  const neutral = 1 / 3
+  return {
+    char: clamp(normalized.char / neutral, 0.6, 1.6),
+    historical: clamp(normalized.historical / neutral, 0.6, 1.6),
+    live: clamp(normalized.live / neutral, 0.6, 1.6),
+  }
+}
+
 function blendSources(sources, weights) {
   return clamp(
     sources.char * weights.char + sources.historical * weights.historical + sources.live * weights.live,
@@ -192,6 +207,8 @@ function getHistoricalSummary(entry = {}) {
     strikeoutsPerGame: Math.max(0, Number(entry.strikeoutsPerGame ?? 0)),
     gamesPlayed: Math.max(0, Number(entry.gamesPlayed ?? 0)),
     plateAppearances: Math.max(0, Number(entry.plateAppearances ?? 0)),
+    avgDistance: clamp(Number(entry.avgDistance ?? 220), 0, 500),
+    hardHitRate: clamp(Number(entry.hardHitRate ?? 0.18), 0, 1),
   }
 }
 
@@ -302,9 +319,14 @@ function buildMoneylineSources(homeRoster, awayRoster, homeHistorical, awayHisto
     gamesFullTrust: 20,
   })
   const historyReliability = clamp((headToHeadReliability * 0.7) + (rosterHistoryReliability * 0.3), 0, 1)
+  // Game-history calibration (odds_engine_weights, recomputed after every
+  // resolved game from actual prediction accuracy) nudges how much trust the
+  // historical/character sources get relative to each other, on top of the
+  // existing sample-size-based reliability shaping.
+  const calibrationTilt = getCalibrationTilt(playerProps.weights)
   const skillWeight = Math.max(0.42, 0.64 - historyReliability * 0.16)
-  const historyWeight = 0.12 + historyReliability * 0.22
-  const charWeight = Math.max(0.18, 1 - skillWeight - historyWeight)
+  const historyWeight = (0.12 + historyReliability * 0.22) * calibrationTilt.historical
+  const charWeight = Math.max(0.18, 1 - skillWeight - historyWeight) * calibrationTilt.char
 
   const char = logistic(charEdge * (1.8 + charWeight))
   const historical = shrinkHistoricalProbability(
@@ -364,16 +386,24 @@ function getRemainingOutsBySide({
   isTop = true,
   outsInHalf = 0,
   totalInnings = DEFAULT_REGULATION_INNINGS,
+  homeLeading = false,
 }) {
   const inning = Math.max(1, Number(currentInning || 1))
   const outs = clamp(Number(outsInHalf || 0), 0, 2)
   const regulationInnings = normalizeRegulationInnings(totalInnings, DEFAULT_REGULATION_INNINGS)
   const inningsAfterCurrent = Math.max(regulationInnings - inning, 0)
+  // A home team that's already ahead doesn't get to bat in the bottom of the
+  // final inning — the game just ends once the visiting team's half is over —
+  // so that bottom half isn't actually "remaining" once we're in the top of
+  // the last inning with home in the lead.
+  const finalBottomSkipped = inning >= regulationInnings && homeLeading
 
   if (isTop) {
     return {
       away: Math.max(0, 3 - outs) + (inningsAfterCurrent * 3),
-      home: inning > regulationInnings ? 0 : (Math.max(regulationInnings - inning + 1, 0) * 3),
+      home: inning > regulationInnings
+        ? 0
+        : (finalBottomSkipped ? Math.max(regulationInnings - inning, 0) : Math.max(regulationInnings - inning + 1, 0)) * 3,
     }
   }
 
@@ -461,68 +491,91 @@ export function estimateLiveMarketState({
     isTop,
     outsInHalf,
     totalInnings,
+    homeLeading: homeScore > awayScore,
   })
   const totalOutsRemaining = remainingOuts.home + remainingOuts.away
   const totalGameOuts = totalInnings * 6
   const remainingOutFraction = clamp(totalOutsRemaining / Math.max(totalGameOuts, 1), 0, 1)
   const progress = clamp(1 - remainingOutFraction, 0, 1)
-  const historicalMarginStd = Math.max(
-    1.1,
-    Number(playerProps.runLineData?.stdDev || 0),
-    Number(playerProps.historicalTotals?.stdDev || 0) * 0.55,
-  )
-  const oneRunGameRate = clamp(Number(playerProps.runLineData?.oneRunGameRate || 0.28), 0.15, 0.65)
+
+  // Run-distribution win probability: model each side's REMAINING runs as an
+  // independent Poisson process driven by their talent/historical-implied
+  // runs-per-out rate (pregameHomeRuns/pregameAwayRuns, already blended with
+  // historical scoring context in buildProjectedScore) times however many
+  // outs they actually have left — correctly zero for a side that won't bat
+  // again (see getRemainingOutsBySide's last-licks handling). This is the
+  // same idea real win-probability models use (compare score distributions
+  // directly) instead of squashing a point-estimate margin through a
+  // hand-tuned logistic curve, so it naturally reaches near-certainty once a
+  // side has essentially no outs left rather than needing an ad hoc floor.
+  const outsPerSideIfFullyPlayed = Math.max(1, totalInnings * 3)
+  const homeRunRatePerOut = Math.max(0, Number(projectedScore.pregameHomeRuns || 0)) / outsPerSideIfFullyPlayed
+  const awayRunRatePerOut = Math.max(0, Number(projectedScore.pregameAwayRuns || 0)) / outsPerSideIfFullyPlayed
+  let lambdaHome = homeRunRatePerOut * remainingOuts.home
+  let lambdaAway = awayRunRatePerOut * remainingOuts.away
+
+  // Baserunners and the ball/strike count are a much more specific signal
+  // for THIS at-bat than the team's season-long per-out rate, so nudge
+  // whichever side is actually hitting right now.
   const baseStatePressure = (runnersOccupied * 0.14) + ((balls * 0.045) - (strikes * 0.035))
-  const battingStateAdjustment = (isTop ? -1 : 1) * baseStatePressure * (0.42 + progress * 0.58)
-  const lastBatBonus = !isTop ? 0.08 : 0
-  const expectedMargin =
-    Number(projectedScore.margin || scoreDiff) +
-    battingStateAdjustment +
-    ((pregameProbability - 0.5) * 0.65) +
-    lastBatBonus
+  if (isTop) {
+    lambdaAway = Math.max(0, lambdaAway + baseStatePressure)
+  } else {
+    lambdaHome = Math.max(0, lambdaHome + baseStatePressure)
+  }
 
-  const variance =
-    Math.max(
-      0.72,
-      historicalMarginStd * (0.42 + remainingOutFraction * 0.95),
-    ) +
-    (Math.abs(scoreDiff) <= 1 ? oneRunGameRate * (0.9 + remainingOutFraction * 0.8) : 0)
-
+  const { winProb: liveWinProb, tieProb: liveTieProb } = compareRemainingRunDistributions(
+    lambdaHome,
+    lambdaAway,
+    scoreDiff,
+  )
+  // Ties (only possible with extra innings, which aren't separately modeled)
+  // get resolved by the pregame strength read as a reasonable proxy for who'd
+  // win a hypothetical extra frame.
   const liveProbability = clamp(
-    logistic(expectedMargin / variance),
+    liveWinProb + (liveTieProb * pregameProbability),
     MIN_PROBABILITY,
     MAX_PROBABILITY,
   )
+
+  // `progress` only tracks OUTS elapsed, so gating live-state trust on it
+  // alone badly underweights events that don't cost an out — most notably a
+  // home run, which is the single biggest win-probability swing in baseball
+  // and happens on a 0-out play. liveProbability already incorporates team
+  // quality (the lambdas are built from matchup/historical-aware run rates),
+  // so it's a complete estimate on its own — pregameProbability only adds a
+  // secondary head-to-head/skill-history signal on top. Start mostly live
+  // from the first pitch and ramp the rest of the way as the game resolves,
+  // instead of starting nearly pregame-only and ramping live in late.
+  //
+  // Same game-history calibration as buildMoneylineSources — if live game
+  // state has been a more (or less) reliable predictor historically than the
+  // pregame factors, tilt how fast the live blend ramps up accordingly.
+  const liveCalibrationTilt = getCalibrationTilt(playerProps.weights).live
   const liveWeight = clamp(
-    0.1 + (progress * 0.74),
-    0.1,
-    0.94,
+    (0.7 + (progress * 0.27)) * liveCalibrationTilt,
+    0.55,
+    0.97,
   )
 
-  let probability = (pregameProbability * (1 - liveWeight)) + (liveProbability * liveWeight)
+  const probability = (pregameProbability * (1 - liveWeight)) + (liveProbability * liveWeight)
 
-  if (currentInning >= totalInnings && isTop && homeScore > awayScore) {
-    const closeoutFloor = clamp(
-      0.64 + ((homeScore - awayScore) * 0.08) + (outsInHalf * 0.1),
-      0.64,
-      0.96,
-    )
-    probability = Math.max(probability, closeoutFloor)
-  }
-
-  // Baserunners and a deep count both raise the chance of more runs scoring
-  // this half-inning, regardless of which team is batting — push the total up.
-  const totalStateAdjustment = baseStatePressure * (0.42 + progress * 0.58)
-  const totalStdDev = Math.max(1, Number(playerProps.historicalTotals?.stdDev || 2.5))
-  const projectedTotal = Math.max(homeScore + awayScore, Number(projectedScore.line || 0) + totalStateAdjustment)
-  const totalVariance = Math.max(0.9, totalStdDev * (0.42 + remainingOutFraction * 0.95))
+  const expectedMargin = scoreDiff + (lambdaHome - lambdaAway)
+  // The variance of the difference (and, separately, the sum) of two
+  // independent Poisson variables is just the sum of their means — but every
+  // other caller in this file (probabilityFromProjectionGap, pickBoardRunLineSpread,
+  // the `pending`/`complete` branches above) treats `marginVariance`/`totalVariance`
+  // as a standard deviation scale, not a variance, so convert here to match.
+  const combinedLambda = Math.max(0.01, lambdaHome + lambdaAway)
+  const combinedStdDev = Math.sqrt(combinedLambda)
+  const projectedTotal = homeScore + awayScore + lambdaHome + lambdaAway
 
   return {
     winProbability: clamp(probability, MIN_PROBABILITY, MAX_PROBABILITY),
     expectedMargin,
-    marginVariance: variance,
+    marginVariance: combinedStdDev,
     projectedTotal,
-    totalVariance,
+    totalVariance: combinedStdDev,
   }
 }
 
@@ -574,6 +627,14 @@ function buildProjectedScore(homeRoster, awayRoster, liveState, playerProps = {}
   projectedHomeRuns = Math.max(0.25, projectedHomeRuns + shareShift)
   projectedAwayRuns = Math.max(0.25, projectedAwayRuns - shareShift)
 
+  // Full-game (talent + historical-scoring-context implied) run totals,
+  // independent of how the game has actually gone so far — this is the rate
+  // basis the live Poisson run-distribution model uses to project remaining
+  // outs (see buildRemainingRunLambda below), so it must NOT bake in the
+  // current score the way the inning-granular estimate below does.
+  const pregameHomeRuns = projectedHomeRuns
+  const pregameAwayRuns = projectedAwayRuns
+
   const matchupAdvantage =
     ((homeProfile.bat * homeProfile.skill) + (awayProfile.bat * awayProfile.skill)) / 2 -
     ((homeProfile.pitch * homeProfile.skill) + (awayProfile.pitch * awayProfile.skill)) / 2
@@ -594,6 +655,8 @@ function buildProjectedScore(homeRoster, awayRoster, liveState, playerProps = {}
   return {
     homeRuns: projectedHomeRuns,
     awayRuns: projectedAwayRuns,
+    pregameHomeRuns,
+    pregameAwayRuns,
     line: Math.max(0.5, projectedHomeRuns + projectedAwayRuns),
     margin: projectedHomeRuns - projectedAwayRuns,
     estimatedTotal,
@@ -659,9 +722,19 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
   // baseline based on plate-appearance sample size (full trust around 40+ PAs).
   const hrCharBaseline = clamp((character.bat * 0.036) + (hitterSkill * 0.03), 0.015, 0.24)
   const hrSampleReliability = clamp(historical.plateAppearances / 40, 0, 1)
+  // Pregame power tilt: a player's real avg/max hit distance and hard-hit rate
+  // (tracked via "Build The Play" taps) shifts their HR/hit odds toward what
+  // they actually do at the plate, same spirit as the historical.hrRate/hitRate
+  // shrinkage above. Gated by the same sample-size reliability so untracked or
+  // low-sample players fall back to the character-stat baseline (no tilt).
+  const distanceTilt = clamp(
+    (((historical.avgDistance - 220) / 220) * 0.5) + (((historical.hardHitRate - 0.18) / 0.18) * 0.3),
+    -0.15,
+    0.25,
+  ) * hrSampleReliability
   const hrEffectiveRate = clamp(
-    (hrCharBaseline * (1 - hrSampleReliability)) +
-      (clamp(historical.hrRate, 0, 0.4) * (1 + hitterSkill * 0.35)) * hrSampleReliability,
+    ((hrCharBaseline * (1 - hrSampleReliability)) +
+      (clamp(historical.hrRate, 0, 0.4) * (1 + hitterSkill * 0.35)) * hrSampleReliability) * (1 + distanceTilt),
     0.012,
     0.28,
   )
@@ -708,7 +781,7 @@ function buildPlayerPropSources(entry, historicalEntry, opposingPitcher, liveSta
 
   const hitSources = {
     char: clamp(1 - Math.pow(1 - clamp((character.bat * 0.17) + (character.speed * 0.04) + (hitterSkill * 0.09), 0.1, 0.58), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
-    historical: clamp(1 - Math.pow(1 - clamp(historical.hitRate * (0.95 + hitterSkill * 0.25), 0.1, 0.68), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
+    historical: clamp(1 - Math.pow(1 - clamp(historical.hitRate * (0.95 + hitterSkill * 0.25) * (1 + distanceTilt * 0.4), 0.1, 0.68), expectedPAs), MIN_PROBABILITY, MAX_PROBABILITY),
     live: clamp(1 - Math.pow(1 - hitPerPA, Math.max(expectedPAs, 0.5)) + liveWeight * 0.03, MIN_PROBABILITY, MAX_PROBABILITY),
   }
 
@@ -777,6 +850,44 @@ function logFactorial(n) {
 function poissonPmf(k, lambda) {
   if (lambda <= 0) return k === 0 ? 1 : 0
   return Math.exp((-lambda) + (k * Math.log(lambda)) - logFactorial(k))
+}
+
+// Real win-probability models (e.g. the run-distribution approach used by
+// FanGraphs/"The Book") treat each side's remaining runs as an independent
+// random variable and directly compare the resulting score distributions,
+// rather than squashing a point-estimate margin through a hand-tuned
+// logistic curve. Runs-per-out is reasonably well approximated by a Poisson
+// process, so this sums P(homeFinal > awayFinal) and P(tie) by convolving
+// two independent Poisson(lambdaHome)/Poisson(lambdaAway) distributions over
+// the remaining outs of the game — naturally giving near-certainty once one
+// side has essentially no outs left to work with (lambda ≈ 0), without
+// needing an ad hoc "closeout floor" patch.
+function poissonScoreCap(lambda) {
+  return clamp(Math.ceil(Number(lambda || 0) + (6 * Math.sqrt(Math.max(Number(lambda || 0), 0.0001))) + 5), 1, 45)
+}
+
+function compareRemainingRunDistributions(lambdaHome, lambdaAway, currentScoreDiff) {
+  const safeLambdaHome = Math.max(0, Number(lambdaHome || 0))
+  const safeLambdaAway = Math.max(0, Number(lambdaAway || 0))
+  const capHome = poissonScoreCap(safeLambdaHome)
+  const capAway = poissonScoreCap(safeLambdaAway)
+
+  let winProb = 0
+  let tieProb = 0
+  for (let kHome = 0; kHome <= capHome; kHome++) {
+    const pHome = poissonPmf(kHome, safeLambdaHome)
+    if (pHome < 1e-12) continue
+    for (let kAway = 0; kAway <= capAway; kAway++) {
+      const pAway = poissonPmf(kAway, safeLambdaAway)
+      if (pAway < 1e-12) continue
+      const jointProb = pHome * pAway
+      const finalDiff = currentScoreDiff + (kHome - kAway)
+      if (finalDiff > 0) winProb += jointProb
+      else if (finalDiff === 0) tieProb += jointProb
+    }
+  }
+
+  return { winProb, tieProb }
 }
 
 // P(currentCount + X > line) for X ~ Poisson(lambdaRemaining). Lines are

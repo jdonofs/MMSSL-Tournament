@@ -278,7 +278,12 @@ export default function TournamentCreate() {
         }))
       }
       if (bracketGames.length > 0) {
-        await supabase.from('games').insert(bracketGames)
+        const { error: gamesError } = await supabase.from('games').insert(bracketGames)
+        if (gamesError) {
+          await supabase.from('tournaments').delete().eq('id', newTournament.id)
+          pushToast({ title: 'Creation failed', message: `Tournament created but bracket games failed to insert: ${gamesError.message}. Tournament has been removed.`, type: 'error' })
+          return
+        }
       }
 
       await refreshTournaments(newTournament.id)

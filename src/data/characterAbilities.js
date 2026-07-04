@@ -1,6 +1,6 @@
 export const FIELDING_ABILITY_DEFENSE_BONUS = {
   None: 0,
-  'Super Dive': 16,
+  'Super Dive': 14,
   'Tongue Catch': 16,
   'Magical Catch': 16,
   'Ball Dash': 8,

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, ArrowRightLeft, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
-import SharedCharacterDetailModal from '../components/CharacterDetailModal'
-import { buildCharacterTournamentHistory, MIN_PA_THRESHOLD, summarizeBatting, summarizePitching } from '../utils/statsCalculator'
-import { analyzeCharacterTalent } from '../utils/characterAnalysis'
+import { useSeason } from '../context/SeasonContext'
+import { buildCharacterGameHistory, buildCharacterPitchingGameHistory, buildCharacterFieldingGameHistory, aggregateGameHistoryByEvent, summarizeBatting, summarizePitching, computeLeagueConstants } from '../utils/statsCalculator'
+import { analyzeCharacterTalent, getTalentTierMeta } from '../utils/characterAnalysis'
 import CharacterPortrait from '../components/CharacterPortrait'
 import StatIcon from '../components/StatIcon'
 import { DraggableRosterItem, FieldingView, Portrait } from '../components/RosterLineupWidgets'
@@ -16,24 +17,19 @@ import { formatCharacterDisplayName, getCharacterChemistryName } from '../utils/
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import { getTeamShortName } from '../utils/teamIdentity'
 import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS } from '../utils/teamLineups'
+import { recommendFielding, recommendLineup } from '../utils/autoTeamSetup'
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
-function baseScore(c) {
-  const raw = [c.pitching, c.batting, c.fielding, c.speed]
-  const weighted = c.batting * 0.35 + c.pitching * 0.35 + c.speed * 0.20 + c.fielding * 0.10
-  const mean = raw.reduce((s, v) => s + v, 0) / 4
-  const stdDev = Math.sqrt(raw.reduce((s, v) => s + (v - mean) ** 2, 0) / 4)
-  return weighted - stdDev * 0.5
+function formatSignedDelta(delta) {
+  if (delta === null || delta === undefined || !Number.isFinite(delta)) return '—'
+  const sign = delta > 0 ? '+' : ''
+  return `${sign}${delta.toFixed(1)}`
 }
 
-function finalScore(c, tournHistory) {
-  const base = baseScore(c)
-  if (!tournHistory || tournHistory.length === 0) return base
-  const valid = tournHistory.filter(t => t.perfScore !== null)
-  if (valid.length === 0) return base
-  const histAvg = valid.reduce((s, t) => s + t.perfScore, 0) / valid.length
-  const histFactor = Math.min(valid.length / 5, 1.0) * 0.3
-  return base * (1 - histFactor) + histAvg * histFactor
+function formatSignedInt(value) {
+  if (!Number.isFinite(value)) return '—'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value}`
 }
 
 function trendSymbol(history) {
@@ -62,7 +58,7 @@ function StatBar({ label, value, color = '#EAB308' }) {
 }
 
 // ─── Character Card Panel ─────────────────────────────────────────────────────
-function CharacterCard({ characterId, charactersById, rosterCharacterMetaById, tournHistories, rosterNames, onClose }) {
+function CharacterCard({ characterId, charactersById, rosterCharacterMetaById, tournHistories, pitchingTournHistories, fieldingTournHistories, rosterNames, onClose }) {
   const c = charactersById[characterId]
   if (!c) return null
   const meta = rosterCharacterMetaById?.[characterId]
@@ -71,10 +67,13 @@ function CharacterCard({ characterId, charactersById, rosterCharacterMetaById, t
 
   const history = tournHistories[c.id] || []
   const validHistory = history.filter(t => t.perfScore !== null)
-  const base = baseScore(c)
-  const score = finalScore(c, history)
-  const histAvg = validHistory.length ? validHistory.reduce((s, t) => s + t.perfScore, 0) / validHistory.length : null
-  const histFactor = Math.min(validHistory.length / 5, 1.0) * 0.3
+  const eventHistory = useMemo(() => aggregateGameHistoryByEvent(history), [history])
+  const analysis = analyzeCharacterTalent(c, history, pitchingTournHistories?.[c.id], fieldingTournHistories?.[c.id])
+  const tierMeta = getTalentTierMeta(analysis?.tier)
+  const battingTierMeta = getTalentTierMeta(analysis?.battingTier)
+  const pitchingTierMeta = getTalentTierMeta(analysis?.pitchingTier)
+  const fieldingTierMeta = getTalentTierMeta(analysis?.fieldingTier)
+  const speedTierMeta = getTalentTierMeta(analysis?.speedTier)
   const chem = getChemistry(chemistryName)
   const net = chemScore(chemistryName, rosterNames)
   const trend = trendSymbol(history)
@@ -109,66 +108,92 @@ function CharacterCard({ characterId, charactersById, rosterCharacterMetaById, t
           <StatBar label="speed" value={c.speed} color="#3B82F6" />
         </div>
 
-        {/* Value score breakdown */}
-        <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase' }}>Value Score</span>
-            <span style={{ fontSize: 24, fontWeight: 800, color: '#EAB308' }}>{score.toFixed(2)}</span>
+        {/* Total OVR */}
+        <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase' }}>Overall OVR</div>
+            <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>{analysis?.archetype || 'Balanced contributor'}</div>
           </div>
-          <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6 }}>Base components</div>
-          {[
-            { label: 'Batting ×0.35',  val: c.batting * 0.35 },
-            { label: 'Pitching ×0.35', val: c.pitching * 0.35 },
-            { label: 'Speed ×0.20',    val: c.speed * 0.20 },
-            { label: 'Fielding ×0.10', val: c.fielding * 0.10 },
-          ].map(({ label, val }) => (
-            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94A3B8', marginBottom: 2 }}>
-              <span>{label}</span><span style={{ color: '#CBD5E1' }}>+{val.toFixed(2)}</span>
-            </div>
-          ))}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#475569', marginBottom: 2, opacity: 0.3 }}>
-            <span>Adjustment</span>
-            <span>−{(() => { const raw=[c.pitching,c.batting,c.fielding,c.speed]; const m=raw.reduce((s,v)=>s+v,0)/4; return (Math.sqrt(raw.reduce((s,v)=>s+(v-m)**2,0)/4)*0.5).toFixed(2) })()}</span>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#EAB308' }}>{analysis?.displayRatings?.overall ?? '—'}</div>
+            <div style={{ fontSize: 12, color: tierMeta.color, fontWeight: 700 }}>{tierMeta.label}</div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94A3B8', borderTop: '1px solid #334155', marginTop: 4, paddingTop: 4 }}>
-            <span style={{ color: '#CBD5E1' }}>Base score</span><span style={{ color: '#CBD5E1', fontWeight: 600 }}>{base.toFixed(2)}</span>
-          </div>
-          {histAvg !== null && (
-            <>
-              <div style={{ fontSize: 12, color: '#64748B', marginTop: 8, marginBottom: 4 }}>Historical adjustment ({validHistory.length} tournament{validHistory.length !== 1 ? 's' : ''}, {(histFactor * 100).toFixed(0)}% weight)</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94A3B8', marginBottom: 2 }}>
-                <span>Hist. avg score</span><span style={{ color: '#CBD5E1' }}>{histAvg.toFixed(2)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#EAB308', borderTop: '1px solid #334155', marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
-                <span>Final (blended)</span><span>{score.toFixed(2)}</span>
-              </div>
-            </>
-          )}
         </div>
 
-        {/* Tournament history */}
-        {history.length > 0 && (
+        {/* Role OVR breakdown */}
+        <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Role OVR</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {[
+              { label: 'Bat OVR', value: analysis?.displayRatings?.batting, tierMeta: battingTierMeta, impact: analysis?.skillImpact?.batting },
+              { label: 'Pitch OVR', value: analysis?.displayRatings?.pitching, tierMeta: pitchingTierMeta, impact: analysis?.skillImpact?.pitching },
+              { label: 'Field OVR', value: analysis?.displayRatings?.fielding, tierMeta: fieldingTierMeta, impact: analysis?.skillImpact?.fielding },
+              { label: 'Speed OVR', value: analysis?.displayRatings?.speed, tierMeta: speedTierMeta, impact: analysis?.skillImpact?.speed },
+            ].map(({ label, value, tierMeta: skillTierMeta, impact }) => {
+              const hasImpact = impact && impact.impact !== 0
+              const impactColor = hasImpact ? (impact.impact > 0 ? '#22C55E' : '#F87171') : '#64748B'
+              return (
+                <div key={label} style={{ background: '#0F172A', borderRadius: 8, padding: '8px 10px' }}>
+                  <div style={{ fontSize: 10, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>{label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#F8FAFC', lineHeight: 1.1 }}>{value ?? '—'}</div>
+                  <div style={{ fontSize: 11, color: skillTierMeta.color, fontWeight: 700 }}>{skillTierMeta.label}</div>
+                  {hasImpact ? (
+                    <div style={{ fontSize: 10, color: '#64748B', marginTop: 2 }}>
+                      Talent {impact.base}
+                      <span style={{ color: impactColor, fontWeight: 700 }}> {formatSignedInt(impact.impact)}</span>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* History chips */}
+        <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+            {[
+              { label: 'Talent', value: analysis?.displayRatings?.overall ?? '—' },
+              { label: 'History', value: formatSignedDelta(analysis?.historyDelta) },
+              { label: 'Blend', value: analysis?.historyWeight ? `${Math.round(analysis.historyWeight * 100)}%` : '0%' },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ border: '1px solid #334155', borderRadius: 10, padding: '8px 10px', background: '#0F172A' }}>
+                <div style={{ fontSize: 10, color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
+                <div style={{ marginTop: 4, fontSize: 17, fontWeight: 800, color: '#F8FAFC' }}>{value}</div>
+              </div>
+            ))}
+          </div>
+          {analysis?.historyDelta !== null ? (
+            <div style={{ marginTop: 10, fontSize: 12, color: '#64748B' }}>
+              Game results are contributing {Math.round((analysis.historyWeight || 0) * 100)}% of this grade across {analysis.historyGames} game{analysis.historyGames === 1 ? '' : 's'} ({analysis.historyTotalPA} PA).
+            </div>
+          ) : null}
+        </div>
+
+        {/* Performance history */}
+        {eventHistory.length > 0 && (
           <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Tournament History</div>
+            <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Performance History</div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ color: '#64748B', borderBottom: '1px solid #334155' }}>
-                  {['T#', 'PA', 'AVG', 'OPS', 'HR', 'RBI', 'Score'].map(h => (
-                    <th key={h} style={{ textAlign: h === 'T#' ? 'left' : 'center', padding: '3px 4px', fontWeight: 700 }}>{h}</th>
+                  {['Event', 'G', 'PA', 'AVG', 'OPS', 'HR', 'RBI', 'Δ'].map(h => (
+                    <th key={h} style={{ textAlign: h === 'Event' ? 'left' : 'center', padding: '3px 4px', fontWeight: 700 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {history.map((t, i) => (
-                  <tr key={t.tournamentId} style={{ borderBottom: '1px solid #0F172A', color: t.perfScore === null ? '#475569' : '#CBD5E1' }}>
-                    <td style={{ padding: '4px 4px', fontWeight: 700 }}>T{t.tournamentNumber}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.pa}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.avg.toFixed(3)}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.ops.toFixed(3)}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.hr}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.rbi}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px', fontWeight: 700, color: t.perfScore === null ? '#334155' : '#EAB308' }}>
-                      {t.perfScore !== null ? t.perfScore.toFixed(1) : `<${MIN_PA_THRESHOLD}PA`}
+                {eventHistory.map((e) => (
+                  <tr key={e.eventKey} style={{ borderBottom: '1px solid #0F172A', color: '#CBD5E1' }}>
+                    <td style={{ padding: '4px 4px', fontWeight: 700 }}>{e.eventType === 'tournament' ? `T${e.eventNumber}` : e.eventNumber}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.games}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.pa}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.avg.toFixed(3)}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.ops.toFixed(3)}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.hr}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.rbi}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px', fontWeight: 700, color: e.avgDelta === null ? '#334155' : e.avgDelta >= 0 ? '#22C55E' : '#F87171' }}>
+                      {formatSignedDelta(e.avgDelta)}
                     </td>
                   </tr>
                 ))}
@@ -485,8 +510,11 @@ function TournamentTradeBuilderWorkspace({
 }
 
 export default function Roster() {
+  const navigate = useNavigate()
   const { player, isCommissioner, isScorekeeper } = useAuth()
+  const { pushToast } = useToast()
   const { currentTournament, allTournaments, selectedTournamentId: ctxTournamentId } = useTournament()
+  const { allSeasons } = useSeason()
   const { identitiesByPlayerId } = useTournamentTeamIdentity(currentTournament?.id)
   const [players, setPlayers] = useState([])
   const [characters, setCharacters] = useState([])
@@ -494,6 +522,11 @@ export default function Roster() {
   const [plateAppearances, setPlateAppearances] = useState([])
   const [pitchingStints, setPitchingStints] = useState([])
   const [games, setGames] = useState([])
+  const [seasonPlateAppearances, setSeasonPlateAppearances] = useState([])
+  const [seasonPitchingStints, setSeasonPitchingStints] = useState([])
+  const [gameFielders, setGameFielders] = useState([])
+  const [seasonGameFielders, setSeasonGameFielders] = useState([])
+  const [allSeasonTeams, setAllSeasonTeams] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedTeamId, setSelectedTeamId] = useState(null)
   // ctxTournamentId comes from localStorage-backed TournamentContext — available on first render
@@ -504,7 +537,6 @@ export default function Roster() {
   const [activeTab, setActiveTab] = useState('Rosters')
   const [selectedPlayer, setSelectedPlayer] = useState(null)
   const [selectedLineupMoveId, setSelectedLineupMoveId] = useState(null)
-  const [cardCharacterId, setCardCharacterId] = useState(null)
   const [freeAgentSort, setFreeAgentSort] = useState({ key: 'name', direction: 'asc' })
   const [tradeProposals, setTradeProposals] = useState([])
   const [tradeProposalPlayers, setTradeProposalPlayers] = useState([])
@@ -519,16 +551,23 @@ export default function Roster() {
         { data: pData }, { data: cData }, { data: dData }, { data: paData }, { data: gData },
         { data: pitchData },
         { data: tpData }, { data: tppData }, { data: tpmData },
+        { data: seasonPaData }, { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData },
+        { data: seasonTeamsData },
       ] = await Promise.all([
         supabase.from('players').select('*').order('created_at'),
         supabase.from('characters').select('*').order('name'),
         supabase.from('draft_picks').select('*').order('pick_number'),
-        supabase.from('plate_appearances').select('game_id,character_id,result,run_scored,rbi'),
+        supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
         supabase.from('games').select('id,tournament_id'),
         supabase.from('pitching_stints').select('*'),
         supabase.from('tournament_trade_proposals').select('*'),
         supabase.from('tournament_trade_proposal_players').select('*'),
         supabase.from('tournament_trade_proposal_moves').select('*'),
+        supabase.from('season_plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,season_id,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
+        supabase.from('season_pitching_stints').select('*'),
+        supabase.from('game_fielders').select('*'),
+        supabase.from('season_game_fielders').select('*'),
+        supabase.from('season_teams').select('id,player_id'),
       ])
       setPlayers(pData || [])
       setCharacters(cData || [])
@@ -539,6 +578,11 @@ export default function Roster() {
       setTradeProposals(tpData || [])
       setTradeProposalPlayers(tppData || [])
       setTradeProposalMoves(tpmData || [])
+      setSeasonPlateAppearances(seasonPaData || [])
+      setSeasonPitchingStints(seasonPitchData || [])
+      setGameFielders(fieldersData || [])
+      setSeasonGameFielders(seasonFieldersData || [])
+      setAllSeasonTeams(seasonTeamsData || [])
       setLoading(false)
     }
     load()
@@ -548,6 +592,8 @@ export default function Roster() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'characters' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_trade_proposals' }, load)
@@ -617,6 +663,7 @@ export default function Roster() {
   }, [draftPicks, selectedTeamId, charactersById])
 
   const canEditRoster = String(selectedTeamId) === String(player?.id) || isCommissioner || isScorekeeper
+  const canShowAutoButtons = canEditRoster
 
   // Tracks the most recently loaded/saved { lineupOrder, fieldingPositions } JSON
   // for the current team, so the autosave effect can skip redundant writes
@@ -755,19 +802,15 @@ export default function Roster() {
 
   const rosterNames = useMemo(() => teamRoster.map(c => c.chemistryName || c.name), [teamRoster])
   const rosterCharacterMetaById = useMemo(() => Object.fromEntries(teamRoster.map(c => [c.id, c])), [teamRoster])
+  const autoSetupRequiresExactRoster = teamRoster.length !== 9
   const activeChemistryCharacterId = selectedPlayer || null
   const chemistryHighlightIds = useMemo(
     () => buildChemistryHighlightSet(activeChemistryCharacterId, teamRoster),
     [activeChemistryCharacterId, teamRoster],
   )
-  const selectedCharacterDetail = useMemo(() => {
-    if (!cardCharacterId) return null
-    return rosterCharacterMetaById[cardCharacterId] || charactersById[cardCharacterId] || null
-  }, [cardCharacterId, rosterCharacterMetaById, charactersById])
-
   const historicalGames = useMemo(() => {
     if (!selectedTournamentId) return []
-    return games.filter(g => g.tournament_id !== selectedTournamentId)
+    return games.filter(g => String(g.tournament_id) !== String(selectedTournamentId))
   }, [games, selectedTournamentId])
 
   const historicalPAs = useMemo(() => {
@@ -775,15 +818,93 @@ export default function Roster() {
     return plateAppearances.filter(pa => hGameIds.has(pa.game_id))
   }, [plateAppearances, historicalGames])
 
-  const tournHistories = useMemo(
-    () => buildCharacterTournamentHistory(historicalPAs, historicalGames, allTournaments || []),
-    [historicalPAs, historicalGames, allTournaments]
+  // Computed once from the broadest available pool so every history call below judges games
+  // against the same league-average baseline instead of each silently deriving its own from
+  // whatever subset of PAs/stints it happens to be passed.
+  const leagueConstants = useMemo(
+    () => computeLeagueConstants([...plateAppearances, ...seasonPlateAppearances], [...pitchingStints, ...seasonPitchingStints]),
+    [plateAppearances, seasonPlateAppearances, pitchingStints, seasonPitchingStints],
   )
 
-  // All-tournament batting history (includes current tournament) — used by SharedCharacterDetailModal
+  const tournHistories = useMemo(
+    () => buildCharacterGameHistory(historicalPAs, historicalGames, allTournaments || [], seasonPlateAppearances, allSeasons || [], leagueConstants),
+    [historicalPAs, historicalGames, allTournaments, seasonPlateAppearances, allSeasons, leagueConstants]
+  )
+
+  // All-game history (includes the current tournament)
   const allTournHistories = useMemo(
-    () => buildCharacterTournamentHistory(plateAppearances, games, allTournaments || []),
-    [plateAppearances, games, allTournaments]
+    () => buildCharacterGameHistory(plateAppearances, games, allTournaments || [], seasonPlateAppearances, allSeasons || [], leagueConstants),
+    [plateAppearances, games, allTournaments, seasonPlateAppearances, allSeasons, leagueConstants]
+  )
+
+  // Built from every season's teams (not just the currently selected one) since the fielding/
+  // pitching history below pools chances across all seasons and tournaments — resolving a
+  // historical team_id only against the current season's roster would silently drop or
+  // misattribute every other season's team-relative comparison.
+  const seasonTeamPlayerById = useMemo(
+    () => Object.fromEntries((allSeasonTeams || []).map((team) => [team.id, team.player_id])),
+    [allSeasonTeams],
+  )
+
+  const historicalPitchingStints = useMemo(() => {
+    const hGameIds = new Set(historicalGames.map(g => g.id))
+    return pitchingStints.filter(stint => hGameIds.has(stint.game_id))
+  }, [pitchingStints, historicalGames])
+
+  const pitchingTournHistories = useMemo(
+    () => buildCharacterPitchingGameHistory(historicalPitchingStints, historicalGames, allTournaments || [], seasonPitchingStints, allSeasons || [], leagueConstants),
+    [historicalPitchingStints, historicalGames, allTournaments, seasonPitchingStints, allSeasons, leagueConstants]
+  )
+
+  const fieldingTournHistories = useMemo(
+    () => buildCharacterFieldingGameHistory(
+      historicalPAs, gameFielders, historicalGames, allTournaments || [],
+      seasonPlateAppearances, seasonGameFielders, allSeasons || [], charactersByName, seasonTeamPlayerById,
+    ),
+    [historicalPAs, gameFielders, historicalGames, allTournaments, seasonPlateAppearances, seasonGameFielders, allSeasons, charactersByName, seasonTeamPlayerById]
+  )
+
+  const openCharacterPage = useCallback((charId) => {
+    const character = rosterCharacterMetaById[charId] || charactersById[charId]
+    if (!character) return
+    const pick = draftPicks.find(p => String(p.character_id) === String(charId) && p.player_id)
+    const currentOwner = pick ? { player_id: pick.player_id } : null
+    navigate(`/character/${charId}`, {
+      state: {
+        character,
+        allCharactersById: charactersByName,
+        playersById: players.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}),
+        identitiesByPlayerId,
+        currentOwner,
+        currentContext: selectedTournamentId ? { type: 'tournament', id: selectedTournamentId } : null,
+        rosterNames,
+        profileData: {
+          gameHistory: tournHistories[charId] || [],
+          pitchingGameHistory: pitchingTournHistories[charId] || [],
+          fieldingGameHistory: fieldingTournHistories[charId] || [],
+        },
+      },
+    })
+  }, [rosterCharacterMetaById, charactersById, draftPicks, navigate, charactersByName, players, identitiesByPlayerId, selectedTournamentId, rosterNames, tournHistories, pitchingTournHistories, fieldingTournHistories])
+
+  const rosterAnalysisById = useMemo(
+    () => Object.fromEntries(teamRoster.map((entry) => ([
+      entry.id,
+      analyzeCharacterTalent(
+        entry,
+        tournHistories[entry.id] || [],
+        pitchingTournHistories[entry.id] || [],
+        fieldingTournHistories[entry.id] || [],
+      ),
+    ]))),
+    [teamRoster, tournHistories, pitchingTournHistories, fieldingTournHistories],
+  )
+  const rosterCharactersInCurrentOrder = useMemo(
+    () => {
+      const ordered = lineupOrder.map((charId) => rosterCharacterMetaById[charId]).filter(Boolean)
+      return ordered.length === teamRoster.length ? ordered : teamRoster
+    },
+    [lineupOrder, rosterCharacterMetaById, teamRoster],
   )
 
   const pitchingHistoryByCharacter = useMemo(() => {
@@ -849,6 +970,36 @@ export default function Roster() {
       setLineupOrder((prev) => swapLineupSlot(prev, characterId, index))
     }
   }
+
+  const handleAutoLineup = useCallback(() => {
+    if (!canShowAutoButtons) return
+    if (autoSetupRequiresExactRoster) {
+      pushToast({ title: 'Auto setup unavailable', message: 'Auto setup requires exactly 9 active players', type: 'error' })
+      return
+    }
+
+    const recommendedOrder = recommendLineup(rosterCharactersInCurrentOrder, rosterAnalysisById)
+    if (!recommendedOrder.length) return
+
+    setSelectedLineupMoveId(null)
+    setLineupOrder(recommendedOrder)
+    pushToast({ title: 'Auto lineup applied', type: 'success' })
+  }, [canShowAutoButtons, autoSetupRequiresExactRoster, rosterCharactersInCurrentOrder, rosterAnalysisById, pushToast])
+
+  const handleAutoFielding = useCallback(() => {
+    if (!canShowAutoButtons) return
+    if (autoSetupRequiresExactRoster) {
+      pushToast({ title: 'Auto setup unavailable', message: 'Auto setup requires exactly 9 active players', type: 'error' })
+      return
+    }
+
+    const recommendedPositions = recommendFielding(rosterCharactersInCurrentOrder, rosterAnalysisById)
+    if (!Object.keys(recommendedPositions).length) return
+
+    setSelectedPlayer(null)
+    setFieldingPositions(recommendedPositions)
+    pushToast({ title: 'Auto fielding applied', type: 'success' })
+  }, [canShowAutoButtons, autoSetupRequiresExactRoster, rosterCharactersInCurrentOrder, rosterAnalysisById, pushToast])
 
   const myPlayer = useMemo(() => players.find(p => String(p.id) === String(player?.id)), [players, player?.id])
   const playersById = useMemo(() => Object.fromEntries(players.map(p => [String(p.id), p])), [players])
@@ -1096,9 +1247,17 @@ export default function Roster() {
 
           <div className="roster-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start' }}>
             <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 14, padding: 16, height: 'fit-content' }}>
-              <div style={{ marginBottom: 14 }}>
+              <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 14, fontWeight: 800, color: '#EFF6FF', letterSpacing: '.04em', textTransform: 'uppercase', margin: 0 }}>Lineup</h3>
+                {canShowAutoButtons ? (
+                  <button className="ghost-button" type="button" onClick={handleAutoLineup} disabled={autoSetupRequiresExactRoster}>
+                    <span>Auto Lineup</span>
+                  </button>
+                ) : null}
               </div>
+              {canShowAutoButtons && autoSetupRequiresExactRoster ? (
+                <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>Auto setup requires exactly 9 active players</div>
+              ) : null}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {lineupOrder.length === 0 ? (
                   <div style={{ padding: 12, textAlign: 'center', color: '#64748B', fontSize: 12 }}>No active players on this roster yet.</div>
@@ -1120,7 +1279,7 @@ export default function Roster() {
                           character={rosterChar}
                           onDragStart={handleDragStartRoster(charId)}
                           rosterNames={rosterNames}
-                          onOpenCard={() => setCardCharacterId(charId)}
+                          onOpenCard={() => openCharacterPage(charId)}
                           compact
                           lineupNumber={index + 1}
                           positionLabel={positionByCharId[charId] || null}
@@ -1142,6 +1301,13 @@ export default function Roster() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              {canShowAutoButtons ? (
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="ghost-button" type="button" onClick={handleAutoFielding} disabled={autoSetupRequiresExactRoster}>
+                    <span>Auto Fielding</span>
+                  </button>
+                </div>
+              ) : null}
               <FieldingView
                 charactersById={charactersById}
                 fieldingPositions={fieldingPositions}
@@ -1275,10 +1441,10 @@ export default function Roster() {
               </div>
               {sortedFreeAgents.map((c) => (
                 <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 26px 26px 26px 26px 1fr', gap: 4, alignItems: 'center', padding: '7px 6px', borderBottom: '1px solid #0F172A' }}>
-                  <button type="button" onClick={() => setCardCharacterId(c.id)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', justifySelf: 'center' }}>
+                  <button type="button" onClick={() => openCharacterPage(c.id)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', justifySelf: 'center' }}>
                     <CharacterPortrait name={c.name} size={28} />
                   </button>
-                  <button type="button" onClick={() => setCardCharacterId(c.id)} style={{ width: 'fit-content', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer', textAlign: 'left' }}>
+                  <button type="button" onClick={() => openCharacterPage(c.id)} style={{ width: 'fit-content', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer', textAlign: 'left' }}>
                     <strong style={{ fontSize: 15 }}>{c.name}</strong>
                   </button>
                   {[c.pitching, c.batting, c.fielding, c.speed].map((val, i) => (
@@ -1313,48 +1479,6 @@ export default function Roster() {
         </section>
       ) : null}
 
-      {cardCharacterId && (
-        <>
-          <div onClick={() => setCardCharacterId(null)} style={{ position: 'fixed', inset: 0, background: '#00000060', zIndex: 49 }} />
-          <SharedCharacterDetailModal
-            character={selectedCharacterDetail}
-            allCharactersById={charactersByName}
-            playersById={players.reduce((acc, p) => ({ ...acc, [p.id]: p }), {})}
-            currentOwner={selectedTeamId ? { player_id: selectedTeamId } : null}
-            battingHistory={allTournHistories[cardCharacterId] || []}
-            pitchingHistory={pitchingHistoryByCharacter[cardCharacterId] || []}
-            currentTournamentBatting={(() => {
-              const entry = allTournHistories[cardCharacterId]?.find(
-                h => String(h.tournamentId) === String(selectedTournamentId)
-              )
-              if (!entry?.rawPas?.length) return undefined
-              const b = summarizeBatting(entry.rawPas)
-              b.ops = b.obp + b.slg
-              b.rawPas = entry.rawPas
-              return b
-            })()}
-            currentTournamentPitching={
-              pitchingHistoryByCharacter[cardCharacterId]?.find(
-                h => String(h.tournamentId) === String(selectedTournamentId)
-              ) || undefined
-            }
-            allTimeBatting={(() => {
-              const pas = plateAppearances.filter(pa => String(pa.character_id) === String(cardCharacterId))
-              if (!pas.length) return undefined
-              const b = summarizeBatting(pas)
-              b.ops = b.obp + b.slg
-              b.rawPas = pas
-              return b
-            })()}
-            allTimePitching={(() => {
-              const stints = pitchingStints.filter(s => String(s.character_id) === String(cardCharacterId))
-              return stints.length ? summarizePitching(stints) : undefined
-            })()}
-            rosterNames={rosterNames}
-            onClose={() => setCardCharacterId(null)}
-          />
-        </>
-      )}
     </div>
   )
 }

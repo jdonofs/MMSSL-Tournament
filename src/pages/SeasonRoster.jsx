@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, ArrowRightLeft, Clock3, Plus, Users2, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
+import { useTournament } from '../context/TournamentContext'
 import { useToast } from '../context/ToastContext'
-import SharedCharacterDetailModal from '../components/CharacterDetailModal'
 import PlayerTag from '../components/PlayerTag'
 import TeamLogo from '../components/TeamLogo'
 import CharacterPortrait from '../components/CharacterPortrait'
@@ -15,8 +16,9 @@ import { analyzeCharacterTalent } from '../utils/characterAnalysis'
 import { buildChemistryHighlightSet } from '../utils/chemistryHighlights'
 import { formatSeasonLabel } from '../utils/season'
 import { buildSeasonTeamIdentity, getTeamShortName } from '../utils/teamIdentity'
-import { summarizeBatting, summarizePitching } from '../utils/statsCalculator'
+import { buildCharacterGameHistory, buildCharacterPitchingGameHistory, buildCharacterFieldingGameHistory, computeLeagueConstants } from '../utils/statsCalculator'
 import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
+import { recommendFielding, recommendLineup } from '../utils/autoTeamSetup'
 
 const TABS = ['Rosters', 'Trade Center', 'Free Agents', 'Transactions']
 const WAIVER_DURATION_MS = 7 * 24 * 60 * 60 * 1000
@@ -628,11 +630,21 @@ function TradeBuilderWorkspace({
 }
 
 export default function SeasonRoster() {
+  const navigate = useNavigate()
   const { player, is_logged_in, isScorekeeper } = useAuth()
-  const { currentSeason, seasonTeams, standings, tradeDeadlinePassed, seasonPlayersById } = useSeason()
+  const { currentSeason, seasonTeams, standings, tradeDeadlinePassed, seasonPlayersById, allSeasons } = useSeason()
+  const { allTournaments } = useTournament()
   const { pushToast } = useToast()
   const [players, setPlayers] = useState([])
   const [characters, setCharacters] = useState([])
+  const [allPlateAppearances, setAllPlateAppearances] = useState([])
+  const [allGames, setAllGames] = useState([])
+  const [allSeasonPlateAppearances, setAllSeasonPlateAppearances] = useState([])
+  const [allPitchingStints, setAllPitchingStints] = useState([])
+  const [allSeasonPitchingStints, setAllSeasonPitchingStints] = useState([])
+  const [allGameFielders, setAllGameFielders] = useState([])
+  const [allSeasonGameFielders, setAllSeasonGameFielders] = useState([])
+  const [allSeasonTeams, setAllSeasonTeams] = useState([])
   const [roster, setRoster] = useState([])
   const [waivers, setWaivers] = useState([])
   const [waiverClaims, setWaiverClaims] = useState([])
@@ -653,8 +665,6 @@ export default function SeasonRoster() {
   const [fieldingPositions, setFieldingPositions] = useState({})
   const [lineupOrder, setLineupOrder] = useState([])
   const [selectedPlayer, setSelectedPlayer] = useState(null)
-  const [cardCharacterId, setCardCharacterId] = useState(null)
-  const [cardCharacterStats, setCardCharacterStats] = useState(null)
   const [selectedLineupMoveId, setSelectedLineupMoveId] = useState(null)
   const processingWaiversRef = useRef(false)
   const lastSyncedLineupRef = useRef(null)
@@ -711,123 +721,60 @@ export default function SeasonRoster() {
     loadRosterData().catch(() => {})
   }, [loadRosterData])
 
-  // Fetch full batting + pitching history across all seasons and tournaments for the opened character card
+  // Bulk per-game history (every character, every tournament/season) so every row in the
+  // roster/free-agent lists gets a real history-adjusted OVR, not just the opened card.
   useEffect(() => {
-    if (!cardCharacterId) {
-      setCardCharacterStats(null)
-      return
-    }
     const load = async () => {
       const [
-        { data: seasonPas },
-        { data: tournPas },
-        { data: seasonStints },
-        { data: tournStints },
-        { data: tournGames },
-        { data: tournaments },
-        { data: seasons },
+        { data: paData }, { data: gData }, { data: seasonPaData },
+        { data: pitchData }, { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData },
+        { data: seasonTeamsData },
       ] = await Promise.all([
-        supabase.from('season_plate_appearances').select('game_id,character_id,result,run_scored,rbi,season_id').eq('character_id', cardCharacterId),
-        supabase.from('plate_appearances').select('game_id,character_id,result,run_scored,rbi').eq('character_id', cardCharacterId),
-        supabase.from('season_pitching_stints').select('*').eq('character_id', cardCharacterId),
-        supabase.from('pitching_stints').select('*').eq('character_id', cardCharacterId),
+        supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
         supabase.from('games').select('id,tournament_id'),
-        supabase.from('tournaments').select('id,tournament_number').order('tournament_number'),
-        supabase.from('seasons').select('id,name,status,created_at').order('created_at'),
+        supabase.from('season_plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,season_id,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
+        supabase.from('pitching_stints').select('*'),
+        supabase.from('season_pitching_stints').select('*'),
+        supabase.from('game_fielders').select('*'),
+        supabase.from('season_game_fielders').select('*'),
+        supabase.from('season_teams').select('id,player_id'),
       ])
-
-      const allSeasonPas = seasonPas || []
-      const allTournPas = tournPas || []
-      const allSeasonStints = seasonStints || []
-      const allTournStints = tournStints || []
-      const tournGameById = Object.fromEntries((tournGames || []).map(g => [g.id, g]))
-      const tournById = Object.fromEntries((tournaments || []).map(t => [t.id, t]))
-      const seasonById = Object.fromEntries((seasons || []).map(s => [s.id, s]))
-
-      // Build per-season batting history
-      const seasonPasBySeason = {}
-      for (const pa of allSeasonPas) {
-        const sid = pa.season_id
-        if (!sid) continue
-        if (!seasonPasBySeason[sid]) seasonPasBySeason[sid] = []
-        seasonPasBySeason[sid].push(pa)
-      }
-      const seasonBattingHistory = Object.entries(seasonPasBySeason).map(([sid, pas]) => {
-        const s = seasonById[sid]
-        const b = summarizeBatting(pas)
-        b.ops = b.obp + b.slg
-        return { sourceId: `season-${sid}`, sourceLabel: s?.name || 'Season', sourceType: 'season', sortGroup: 1, sortValue: new Date(s?.created_at || 0).getTime(), rawPas: pas, ...b }
-      }).sort((a, b) => a.sortValue - b.sortValue)
-
-      // Build per-tournament batting history
-      const tournPasByTournament = {}
-      for (const pa of allTournPas) {
-        const game = tournGameById[pa.game_id]
-        if (!game) continue
-        const tid = game.tournament_id
-        if (!tournPasByTournament[tid]) tournPasByTournament[tid] = []
-        tournPasByTournament[tid].push(pa)
-      }
-      const tournBattingHistory = Object.entries(tournPasByTournament).map(([tid, pas]) => {
-        const t = tournById[tid]
-        const b = summarizeBatting(pas)
-        b.ops = b.obp + b.slg
-        return { sourceId: `tournament-${tid}`, sourceLabel: `Tournament ${t?.tournament_number ?? '?'}`, sourceType: 'tournament', sortGroup: 0, sortValue: Number(t?.tournament_number || 0), rawPas: pas, ...b }
-      }).sort((a, b) => a.sortValue - b.sortValue)
-
-      // Build per-season pitching history
-      const seasonStintsBySeason = {}
-      for (const stint of allSeasonStints) {
-        const sid = stint.season_id
-        if (!sid) continue
-        if (!seasonStintsBySeason[sid]) seasonStintsBySeason[sid] = []
-        seasonStintsBySeason[sid].push(stint)
-      }
-      const seasonPitchingHistory = Object.entries(seasonStintsBySeason).map(([sid, stints]) => {
-        const s = seasonById[sid]
-        return { sourceId: `season-${sid}`, sourceLabel: s?.name || 'Season', sourceType: 'season', sortGroup: 1, sortValue: new Date(s?.created_at || 0).getTime(), rawStints: stints, ...summarizePitching(stints) }
-      }).sort((a, b) => a.sortValue - b.sortValue)
-
-      // Build per-tournament pitching history
-      const tournStintsByTournament = {}
-      for (const stint of allTournStints) {
-        const game = tournGameById[stint.game_id]
-        if (!game) continue
-        const tid = game.tournament_id
-        if (!tournStintsByTournament[tid]) tournStintsByTournament[tid] = []
-        tournStintsByTournament[tid].push(stint)
-      }
-      const tournPitchingHistory = Object.entries(tournStintsByTournament).map(([tid, stints]) => {
-        const t = tournById[tid]
-        return { sourceId: `tournament-${tid}`, sourceLabel: `Tournament ${t?.tournament_number ?? '?'}`, sourceType: 'tournament', sortGroup: 0, sortValue: Number(t?.tournament_number || 0), rawStints: stints, ...summarizePitching(stints) }
-      }).sort((a, b) => a.sortValue - b.sortValue)
-
-      // Combine: tournaments first, then seasons (within each group, sorted by number/date)
-      const battingHistory = [...tournBattingHistory, ...seasonBattingHistory]
-      const pitchingHistory = [...tournPitchingHistory, ...seasonPitchingHistory]
-
-      // Current season stats
-      const currentSeasonPas = allSeasonPas.filter(pa => String(pa.season_id) === String(currentSeason?.id))
-      const currentSeasonBatting = summarizeBatting(currentSeasonPas)
-      currentSeasonBatting.ops = currentSeasonBatting.obp + currentSeasonBatting.slg
-      currentSeasonBatting.rawPas = currentSeasonPas
-
-      const currentSeasonStints = allSeasonStints.filter(s => String(s.season_id) === String(currentSeason?.id))
-      const currentSeasonPitching = { ...summarizePitching(currentSeasonStints), rawStints: currentSeasonStints }
-
-      // All-time stats
-      const allPas = [...allTournPas, ...allSeasonPas]
-      const allTimeBatting = summarizeBatting(allPas)
-      allTimeBatting.ops = allTimeBatting.obp + allTimeBatting.slg
-      allTimeBatting.rawPas = allPas
-
-      const allStints = [...allTournStints, ...allSeasonStints]
-      const allTimePitching = { ...summarizePitching(allStints), rawStints: allStints }
-
-      setCardCharacterStats({ battingHistory, pitchingHistory, currentSeasonBatting, currentSeasonPitching, allTimeBatting, allTimePitching })
+      setAllPlateAppearances(paData || [])
+      setAllGames(gData || [])
+      setAllSeasonPlateAppearances(seasonPaData || [])
+      setAllPitchingStints(pitchData || [])
+      setAllSeasonPitchingStints(seasonPitchData || [])
+      setAllGameFielders(fieldersData || [])
+      setAllSeasonGameFielders(seasonFieldersData || [])
+      setAllSeasonTeams(seasonTeamsData || [])
     }
-    load()
-  }, [cardCharacterId, currentSeason?.id])
+    load().catch(() => {})
+    const channel = supabase
+      .channel(`season-roster-history-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams' }, load)
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [])
+
+  // Computed once from the broadest available pool so every history call below judges games
+  // against the same league-average baseline instead of each silently deriving its own from
+  // whatever subset of PAs/stints it happens to be passed.
+  const leagueConstants = useMemo(
+    () => computeLeagueConstants(allPlateAppearances.concat(allSeasonPlateAppearances), allPitchingStints.concat(allSeasonPitchingStints)),
+    [allPlateAppearances, allSeasonPlateAppearances, allPitchingStints, allSeasonPitchingStints],
+  )
+
+  const gameHistoryByCharacter = useMemo(
+    () => buildCharacterGameHistory(allPlateAppearances, allGames, allTournaments || [], allSeasonPlateAppearances, allSeasons || [], leagueConstants),
+    [allPlateAppearances, allGames, allTournaments, allSeasonPlateAppearances, allSeasons, leagueConstants],
+  )
 
   useEffect(() => {
     if (!currentSeason?.id) return undefined
@@ -851,6 +798,25 @@ export default function SeasonRoster() {
   const charactersById = useMemo(() => Object.fromEntries(characters.map((entry) => [entry.id, entry])), [characters])
   const charactersByName = useMemo(() => Object.fromEntries(characters.map((entry) => [entry.name, entry])), [characters])
   const teamsById = useMemo(() => Object.fromEntries(seasonTeams.map((entry) => [String(entry.id), entry])), [seasonTeams])
+  // Built from every season's teams (not just the currently selected one) since the fielding/
+  // pitching history below pools chances across all seasons and tournaments — resolving a
+  // historical team_id only against the current season's roster would silently drop or
+  // misattribute every other season's team-relative comparison.
+  const seasonTeamPlayerById = useMemo(
+    () => Object.fromEntries((allSeasonTeams || []).map((team) => [team.id, team.player_id])),
+    [allSeasonTeams],
+  )
+  const pitchingGameHistoryByCharacter = useMemo(
+    () => buildCharacterPitchingGameHistory(allPitchingStints, allGames, allTournaments || [], allSeasonPitchingStints, allSeasons || [], leagueConstants),
+    [allPitchingStints, allGames, allTournaments, allSeasonPitchingStints, allSeasons, leagueConstants],
+  )
+  const fieldingGameHistoryByCharacter = useMemo(
+    () => buildCharacterFieldingGameHistory(
+      allPlateAppearances, allGameFielders, allGames, allTournaments || [],
+      allSeasonPlateAppearances, allSeasonGameFielders, allSeasons || [], charactersByName, seasonTeamPlayerById,
+    ),
+    [allPlateAppearances, allGameFielders, allGames, allTournaments, allSeasonPlateAppearances, allSeasonGameFielders, allSeasons, charactersByName, seasonTeamPlayerById],
+  )
   const identitiesByPlayerId = useMemo(
     () => Object.fromEntries(seasonTeams.map((team) => [team.player_id, buildSeasonTeamIdentity(team)])),
     [seasonTeams],
@@ -921,6 +887,7 @@ export default function SeasonRoster() {
   const isViewingOwnTeam = String(viewedTeam?.id || '') === String(myTeam?.id || '')
   const isCommissioner = Boolean(player?.is_commissioner)
   const canEditRoster = isViewingOwnTeam || isCommissioner || isScorekeeper
+  const canShowAutoButtons = canEditRoster
   // The Rosters tab always shows the currently-selected team (viewedTeam)
   const lineupTeam = viewedTeam || myTeam || null
   const lineupRoster = activeRosterByTeamId[String(lineupTeam?.id)] || []
@@ -942,6 +909,26 @@ export default function SeasonRoster() {
     () => Object.fromEntries(lineupCharacters.map((entry) => [entry.id, entry])),
     [lineupCharacters],
   )
+  const lineupAnalysisById = useMemo(
+    () => Object.fromEntries(lineupCharacters.map((entry) => ([
+      entry.id,
+      analyzeCharacterTalent(
+        entry,
+        gameHistoryByCharacter[entry.id] || [],
+        pitchingGameHistoryByCharacter[entry.id] || [],
+        fieldingGameHistoryByCharacter[entry.id] || [],
+      ),
+    ]))),
+    [lineupCharacters, gameHistoryByCharacter, pitchingGameHistoryByCharacter, fieldingGameHistoryByCharacter],
+  )
+  const lineupCharactersInCurrentOrder = useMemo(
+    () => {
+      const ordered = lineupOrder.map((charId) => lineupCharactersById[charId]).filter(Boolean)
+      return ordered.length === lineupCharacters.length ? ordered : lineupCharacters
+    },
+    [lineupOrder, lineupCharactersById, lineupCharacters],
+  )
+  const autoSetupRequiresExactRoster = lineupCharacters.length !== 9
   const positionByCharId = useMemo(
     () => Object.fromEntries(Object.entries(fieldingPositions).map(([posId, charId]) => [charId, posId])),
     [fieldingPositions],
@@ -984,7 +971,7 @@ export default function SeasonRoster() {
       id: `free-agent-${character.id}`,
       type: 'free_agent',
       character,
-      analysis: analyzeCharacterTalent(character),
+      analysis: analyzeCharacterTalent(character, gameHistoryByCharacter[character.id] || [], pitchingGameHistoryByCharacter[character.id] || [], fieldingGameHistoryByCharacter[character.id] || []),
     }))
 
     const waiverRows = activeWaiverEntries
@@ -999,7 +986,7 @@ export default function SeasonRoster() {
           type: 'waiver',
           waiver,
           character,
-          analysis: analyzeCharacterTalent(character),
+          analysis: analyzeCharacterTalent(character, gameHistoryByCharacter[character.id] || [], pitchingGameHistoryByCharacter[character.id] || [], fieldingGameHistoryByCharacter[character.id] || []),
           claims,
           claimCount: claims.length,
           claimTeamIds,
@@ -1015,7 +1002,7 @@ export default function SeasonRoster() {
       if (a.type !== b.type) return a.type === 'waiver' ? -1 : 1
       return a.character.name.localeCompare(b.character.name)
     })
-  }, [activeWaiverEntries, charactersByName, freeAgentCharacters, myTeam?.id, reverseStandings, waiverClaimsByWaiverId])
+  }, [activeWaiverEntries, charactersByName, freeAgentCharacters, myTeam?.id, reverseStandings, waiverClaimsByWaiverId, gameHistoryByCharacter, pitchingGameHistoryByCharacter, fieldingGameHistoryByCharacter])
   const sortedAvailablePlayerRows = useMemo(() => {
     const getStatValue = (row, key) => {
       if (key === 'name') return row.character.name
@@ -1075,7 +1062,6 @@ export default function SeasonRoster() {
       setFieldingPositions({})
       setLineupOrder([])
       setSelectedPlayer(null)
-      setCardCharacterId(null)
       setSelectedLineupMoveId(null)
       lastSyncedLineupRef.current = null
       lineupLoadKeyRef.current = null
@@ -1213,6 +1199,36 @@ export default function SeasonRoster() {
     if (!characterId) return
     setLineupOrder((current) => swapLineupSlot(current, characterId, index))
   }
+
+  const handleAutoLineup = useCallback(() => {
+    if (!canShowAutoButtons) return
+    if (autoSetupRequiresExactRoster) {
+      pushToast({ title: 'Auto setup unavailable', message: 'Auto setup requires exactly 9 active players', type: 'error' })
+      return
+    }
+
+    const recommendedOrder = recommendLineup(lineupCharactersInCurrentOrder, lineupAnalysisById)
+    if (!recommendedOrder.length) return
+
+    setSelectedLineupMoveId(null)
+    setLineupOrder(recommendedOrder)
+    pushToast({ title: 'Auto lineup applied', type: 'success' })
+  }, [canShowAutoButtons, autoSetupRequiresExactRoster, lineupCharactersInCurrentOrder, lineupAnalysisById, pushToast])
+
+  const handleAutoFielding = useCallback(() => {
+    if (!canShowAutoButtons) return
+    if (autoSetupRequiresExactRoster) {
+      pushToast({ title: 'Auto setup unavailable', message: 'Auto setup requires exactly 9 active players', type: 'error' })
+      return
+    }
+
+    const recommendedPositions = recommendFielding(lineupCharactersInCurrentOrder, lineupAnalysisById)
+    if (!Object.keys(recommendedPositions).length) return
+
+    setSelectedPlayer(null)
+    setFieldingPositions(recommendedPositions)
+    pushToast({ title: 'Auto fielding applied', type: 'success' })
+  }, [canShowAutoButtons, autoSetupRequiresExactRoster, lineupCharactersInCurrentOrder, lineupAnalysisById, pushToast])
 
   const moveInLineup = useCallback((index, direction) => {
     if (!canEditRoster) return
@@ -1800,8 +1816,28 @@ export default function SeasonRoster() {
         }
       })
   }, [roster, waivers])
-  const modalCharacter = charactersById[cardCharacterId] || lineupCharactersById[cardCharacterId] || null
-  const modalCharacterOwnerTeamId = modalCharacter ? characterOwnersByName[modalCharacter.name] : null
+  const openCharacterPage = useCallback((charId) => {
+    const character = charactersById[charId] || lineupCharactersById[charId]
+    if (!character) return
+    const ownerTeamId = characterOwnersByName[character.name]
+    const currentOwner = ownerTeamId ? { player_id: teamsById[String(ownerTeamId)]?.player_id } : null
+    navigate(`/character/${charId}`, {
+      state: {
+        character,
+        allCharactersById: charactersByName,
+        playersById,
+        identitiesByPlayerId,
+        currentOwner,
+        currentContext: currentSeason?.id ? { type: 'season', id: currentSeason.id } : null,
+        rosterNames,
+        profileData: {
+          gameHistory: gameHistoryByCharacter[charId] || [],
+          pitchingGameHistory: pitchingGameHistoryByCharacter[charId] || [],
+          fieldingGameHistory: fieldingGameHistoryByCharacter[charId] || [],
+        },
+      },
+    })
+  }, [charactersById, lineupCharactersById, characterOwnersByName, teamsById, navigate, charactersByName, playersById, identitiesByPlayerId, currentSeason, rosterNames, gameHistoryByCharacter, pitchingGameHistoryByCharacter, fieldingGameHistoryByCharacter])
 
   if (!currentSeason) {
     return <div className="page-stack"><div className="page-head"><h1>No season selected.</h1></div></div>
@@ -1864,9 +1900,17 @@ export default function SeasonRoster() {
 
             <div className="roster-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start' }}>
               <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 14, padding: 16, height: 'fit-content' }}>
-                <div style={{ marginBottom: 14 }}>
+                <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                   <h3 style={{ fontSize: 14, fontWeight: 800, color: '#EFF6FF', letterSpacing: '.04em', textTransform: 'uppercase', margin: 0 }}>Lineup</h3>
+                  {canShowAutoButtons ? (
+                    <button className="ghost-button" type="button" onClick={handleAutoLineup} disabled={autoSetupRequiresExactRoster}>
+                      <span>Auto Lineup</span>
+                    </button>
+                  ) : null}
                 </div>
+                {canShowAutoButtons && autoSetupRequiresExactRoster ? (
+                  <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>Auto setup requires exactly 9 active players</div>
+                ) : null}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {lineupCharacters.length === 0 ? (
                     <div style={{ padding: 12, textAlign: 'center', color: '#64748B', fontSize: 12 }}>No active players on this roster yet.</div>
@@ -1887,7 +1931,7 @@ export default function SeasonRoster() {
                           character={character}
                           onDragStart={handleDragStartRoster(character.id)}
                           rosterNames={rosterNames}
-                          onOpenCard={() => setCardCharacterId(character.id)}
+                          onOpenCard={() => openCharacterPage(character.id)}
                           compact
                           lineupNumber={index + 1}
                           positionLabel={positionByCharId[charId] || null}
@@ -1908,6 +1952,13 @@ export default function SeasonRoster() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                {canShowAutoButtons ? (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button className="ghost-button" type="button" onClick={handleAutoFielding} disabled={autoSetupRequiresExactRoster}>
+                      <span>Auto Fielding</span>
+                    </button>
+                  </div>
+                ) : null}
                 <FieldingView
                   charactersById={lineupCharactersById}
                   fieldingPositions={fieldingPositions}
@@ -2035,12 +2086,12 @@ export default function SeasonRoster() {
                 const clockTeam = isWaiver ? teamsById[String(row.clockTeamId)] : null
                 return (
                   <div key={row.id} className="season-free-agents-row season-free-agents-item">
-                    <button type="button" onClick={() => setCardCharacterId(row.character.id)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', justifySelf: 'center' }}>
+                    <button type="button" onClick={() => openCharacterPage(row.character.id)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', justifySelf: 'center' }}>
                       <CharacterPortrait name={row.character.name} size={28} />
                     </button>
                     <div style={{ display: 'contents' }}>
                       <div style={{ display: 'grid', gap: 4 }}>
-                        <button type="button" onClick={() => setCardCharacterId(row.character.id)} style={{ width: 'fit-content', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer', textAlign: 'left' }}>
+                        <button type="button" onClick={() => openCharacterPage(row.character.id)} style={{ width: 'fit-content', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer', textAlign: 'left' }}>
                           <strong style={{ fontSize: 15 }}>{row.character.name}</strong>
                         </button>
                         {isWaiver ? (
@@ -2304,26 +2355,6 @@ export default function SeasonRoster() {
         </div>
       ) : null}
 
-      {cardCharacterId ? (
-        <>
-          <div onClick={() => setCardCharacterId(null)} style={{ position: 'fixed', inset: 0, background: '#00000060', zIndex: 49 }} />
-          <SharedCharacterDetailModal
-            character={modalCharacter}
-            allCharactersById={Object.fromEntries(characters.map((entry) => [entry.name, entry]))}
-            playersById={playersById}
-            identitiesByPlayerId={identitiesByPlayerId}
-            currentOwner={modalCharacterOwnerTeamId ? { player_id: teamsById[String(modalCharacterOwnerTeamId)]?.player_id } : null}
-            battingHistory={cardCharacterStats?.battingHistory || []}
-            pitchingHistory={cardCharacterStats?.pitchingHistory || []}
-            currentTournamentBatting={cardCharacterStats?.currentSeasonBatting}
-            currentTournamentPitching={cardCharacterStats?.currentSeasonPitching}
-            allTimeBatting={cardCharacterStats?.allTimeBatting}
-            allTimePitching={cardCharacterStats?.allTimePitching}
-            rosterNames={rosterNames}
-            onClose={() => setCardCharacterId(null)}
-          />
-        </>
-      ) : null}
     </div>
   )
 }

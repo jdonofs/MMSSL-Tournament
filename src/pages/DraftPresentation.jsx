@@ -9,6 +9,7 @@ import StatIcon from '../components/StatIcon'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import { chemBreakdown, getChemistry } from '../data/chemistry'
 import { analyzeCharacterTalent, getTalentTierMeta } from '../utils/characterAnalysis'
+import { buildCharacterGameHistory, buildCharacterPitchingGameHistory, buildCharacterFieldingGameHistory } from '../utils/statsCalculator'
 import { formatCharacterDisplayName, getCharacterChemistryName } from '../utils/mii'
 import { getCurrentDraftState, normalizeSeasonDraftPicks, snakeOrder } from '../utils/draftOrder'
 import { OVERALL_WEIGHTS } from '../utils/seasonPowerRankings'
@@ -1751,12 +1752,20 @@ function DraftCompleteScreen({ players, identitiesByPlayerId, draftPicks, charac
 function DraftPresentation({ mode = 'tournament' }) {
   const isSeasonMode = mode === 'season'
   const { player, loading: authLoading } = useAuth()
-  const { currentTournament } = useTournament()
-  const { currentSeason, seasonTeams } = useSeason()
+  const { currentTournament, allTournaments } = useTournament()
+  const { currentSeason, seasonTeams, allSeasons } = useSeason()
   const activeDraftContext = isSeasonMode ? currentSeason : currentTournament
 
   const [players, setPlayers] = useState([])
   const [characters, setCharacters] = useState([])
+  const [plateAppearances, setPlateAppearances] = useState([])
+  const [games, setGames] = useState([])
+  const [seasonPlateAppearances, setSeasonPlateAppearances] = useState([])
+  const [pitchingStints, setPitchingStints] = useState([])
+  const [seasonPitchingStints, setSeasonPitchingStints] = useState([])
+  const [gameFielders, setGameFielders] = useState([])
+  const [seasonGameFielders, setSeasonGameFielders] = useState([])
+  const [allSeasonTeams, setAllSeasonTeams] = useState([])
   const [loading, setLoading] = useState(true)
   const [slideIndex, setSlideIndex] = useState(0)
 
@@ -1780,14 +1789,33 @@ function DraftPresentation({ mode = 'tournament' }) {
     let active = true
 
     const load = async () => {
-      const [{ data: playersData }, { data: charactersData }] = await Promise.all([
+      const [
+        { data: playersData }, { data: charactersData }, { data: paData }, { data: gData }, { data: seasonPaData },
+        { data: pitchData }, { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData }, { data: seasonTeamsData },
+      ] = await Promise.all([
         supabase.from('players').select('*').order('created_at'),
         supabase.from('characters').select('*').order('name'),
+        supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
+        supabase.from('games').select('id,tournament_id'),
+        supabase.from('season_plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,season_id,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
+        supabase.from('pitching_stints').select('*'),
+        supabase.from('season_pitching_stints').select('*'),
+        supabase.from('game_fielders').select('*'),
+        supabase.from('season_game_fielders').select('*'),
+        supabase.from('season_teams').select('id,player_id'),
       ])
 
       if (!active) return
 
       setCharacters(charactersData || [])
+      setPlateAppearances(paData || [])
+      setGames(gData || [])
+      setPitchingStints(pitchData || [])
+      setSeasonPitchingStints(seasonPitchData || [])
+      setGameFielders(fieldersData || [])
+      setSeasonGameFielders(seasonFieldersData || [])
+      setSeasonPlateAppearances(seasonPaData || [])
+      setAllSeasonTeams(seasonTeamsData || [])
       const orderedPlayers = isSeasonMode
         ? [...(seasonTeams || [])]
             .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
@@ -1892,13 +1920,42 @@ function DraftPresentation({ mode = 'tournament' }) {
   }, [])
 
   const charactersById = useMemo(() => Object.fromEntries(characters.map((character) => [character.id, character])), [characters])
+  const charactersByName = useMemo(() => Object.fromEntries(characters.map((character) => [character.name, character])), [characters])
+  // Built from every season's teams (not just the one being drafted) since the fielding history
+  // below pools chances across all past seasons and tournaments — resolving a historical team_id
+  // only against the active draft's roster would silently drop or misattribute every other
+  // season's team-relative comparison.
+  const seasonTeamPlayerById = useMemo(
+    () => Object.fromEntries((allSeasonTeams || []).map((team) => [team.id, team.player_id])),
+    [allSeasonTeams],
+  )
+  const gameHistoryByCharacter = useMemo(
+    () => buildCharacterGameHistory(plateAppearances, games, allTournaments || [], seasonPlateAppearances, allSeasons || []),
+    [plateAppearances, games, allTournaments, seasonPlateAppearances, allSeasons],
+  )
+  const pitchingGameHistoryByCharacter = useMemo(
+    () => buildCharacterPitchingGameHistory(pitchingStints, games, allTournaments || [], seasonPitchingStints, allSeasons || []),
+    [pitchingStints, games, allTournaments, seasonPitchingStints, allSeasons],
+  )
+  const fieldingGameHistoryByCharacter = useMemo(
+    () => buildCharacterFieldingGameHistory(
+      plateAppearances, gameFielders, games, allTournaments || [],
+      seasonPlateAppearances, seasonGameFielders, allSeasons || [], charactersByName, seasonTeamPlayerById,
+    ),
+    [plateAppearances, gameFielders, games, allTournaments, seasonPlateAppearances, seasonGameFielders, allSeasons, charactersByName, seasonTeamPlayerById],
+  )
   const characterAnalysesById = useMemo(
     () => Object.fromEntries(
       characters
-        .map((character) => [character.id, analyzeCharacterTalent(character)])
+        .map((character) => [character.id, analyzeCharacterTalent(
+          character,
+          gameHistoryByCharacter[character.id] || [],
+          pitchingGameHistoryByCharacter[character.id] || [],
+          fieldingGameHistoryByCharacter[character.id] || [],
+        )])
         .filter(([, analysis]) => Boolean(analysis)),
     ),
-    [characters],
+    [characters, gameHistoryByCharacter, pitchingGameHistoryByCharacter, fieldingGameHistoryByCharacter],
   )
   const overallRankByCharacterId = useMemo(
     () => buildCharacterValueRanks(characterAnalysesById),

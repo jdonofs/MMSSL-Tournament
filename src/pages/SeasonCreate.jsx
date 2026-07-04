@@ -225,6 +225,7 @@ export default function SeasonCreate() {
     const seasonPayload = getSeasonPayload(form)
 
     setCreating(true)
+    let createdSeasonId = null
     try {
       const { data: season, error: seasonError } = await supabase
         .from('seasons')
@@ -235,6 +236,7 @@ export default function SeasonCreate() {
         .select()
         .single()
       if (seasonError) throw seasonError
+      createdSeasonId = season.id
 
       const orderedTeams = draftOrder.map((entry, index) => ({
         season_id: season.id,
@@ -242,6 +244,9 @@ export default function SeasonCreate() {
         team_name: entry.team_name || `${entry.name}'s Club`,
         team_location: entry.team_location || null,
         team_mascot: entry.team_mascot || null,
+        team_abbreviation: entry.team_abbreviation || null,
+        team_primary_color: entry.team_primary_color || null,
+        team_secondary_color: entry.team_secondary_color || null,
         team_logo_key: null,
         logo_url: entry.team_logo_url || null,
         created_at: new Date(Date.now() + index * 1000).toISOString(),
@@ -267,10 +272,14 @@ export default function SeasonCreate() {
       const { error: scheduleError } = await supabase.from('season_schedule').insert(schedulePayload)
       if (scheduleError) throw scheduleError
 
+      createdSeasonId = null // committed — don't roll back
       await refreshSeasons(season.id)
       pushToast({ title: 'Season created', message: `${seasonPayload.name} is ready.`, type: 'success' })
       navigate('/season/draft')
     } catch (error) {
+      if (createdSeasonId) {
+        await supabase.from('seasons').delete().eq('id', createdSeasonId)
+      }
       pushToast({ title: 'Unable to create season', message: error.message, type: 'error' })
     } finally {
       setCreating(false)

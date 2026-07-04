@@ -185,8 +185,10 @@ export function chemBreakdown(candidateName, rosterNames) {
   for (const r of rosterNames) {
     const candidateChem = getChemistry(candidateName)
     const rosterChem = getChemistry(r)
-    const good = candidateChem.good.includes(r) || rosterChem.good.includes(candidateName)
-    const bad = candidateChem.bad.includes(r) || rosterChem.bad.includes(candidateName)
+    const good = candidateChem.good.some((name) => chemistryNamesMatch(name, r))
+      || rosterChem.good.some((name) => chemistryNamesMatch(name, candidateName))
+    const bad = candidateChem.bad.some((name) => chemistryNamesMatch(name, r))
+      || rosterChem.bad.some((name) => chemistryNamesMatch(name, candidateName))
     if (good && !bad) positive++
     if (bad && !good) negative++
   }

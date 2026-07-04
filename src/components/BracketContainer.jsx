@@ -16,8 +16,25 @@ export default function BracketContainer({
     () => games.filter((game) => game.status === 'complete' || game.status === 'completed'),
     [games],
   )
-  const lastCompletedGame = completedGames[completedGames.length - 1] || null
-  const championId = lastCompletedGame?.winner_player_id || null
+  const championId = useMemo(() => {
+    // Prefer Championship Reset (double elim tiebreak), then Championship/Winners Final, then last completed
+    const reset = completedGames.find(g => g.stage?.includes('Reset') || g.stage?.includes('CG-2'))
+    if (reset?.winner_player_id) return reset.winner_player_id
+    const championship = completedGames.find(g =>
+      g.stage === 'Championship' || g.stage?.includes('CG-1') || g.stage?.includes('Winners Final')
+    )
+    if (championship?.winner_player_id) return championship.winner_player_id
+    // Single-elim final round: highest round number among completed games
+    const withRound = completedGames
+      .map(g => ({ g, round: Number((g.stage || '').match(/Round (\d+)/)?.[1] || 0) }))
+      .filter(x => x.round > 0)
+    if (withRound.length) {
+      const maxRound = Math.max(...withRound.map(x => x.round))
+      const finals = withRound.filter(x => x.round === maxRound)
+      if (finals.length === 1) return finals[0].g.winner_player_id || null
+    }
+    return null
+  }, [completedGames])
 
   return (
     <div className="page-stack" style={{ gap: 12 }}>

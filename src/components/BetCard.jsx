@@ -1,4 +1,4 @@
-import { payoutFromOdds } from '../utils/oddsEngine'
+import { calculatePayout } from '../utils/oddsEngine'
 
 export default function BetCard({ bet, playersById, charactersById }) {
   const bettor = playersById[bet.bettor_player_id]?.name || 'Unknown'
@@ -6,7 +6,7 @@ export default function BetCard({ bet, playersById, charactersById }) {
   const targetCharacter = charactersById[bet.target_character_id]?.name
   const oddsLabel = bet.generated_odds > 0 ? `+${bet.generated_odds}` : `${bet.generated_odds}`
   const wager = bet.drinks_wagered || bet.points_wagered || 0
-  const toWin = bet.drinks_to_win || bet.points_to_win || payoutFromOdds(wager, bet.generated_odds)
+  const toWin = bet.drinks_to_win || bet.points_to_win || calculatePayout(wager, bet.generated_odds)
 
   return (
     <article className="bet-card">

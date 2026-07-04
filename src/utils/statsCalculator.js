@@ -1,10 +1,12 @@
-const hitResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
+import { parseFielderChainFromNotation } from './notation'
+
+export const hitResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const plateAppearanceResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'BB', 'HBP', 'K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
 const outResults = new Set(['K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH'])
 const battedBallResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
 const swingPitchResults = new Set(['swinging_miss', 'foul', 'in_play'])
 
-function isOfficialAtBat(pa = {}) {
+export function isOfficialAtBat(pa = {}) {
   if (typeof pa.is_official_ab === 'boolean') return pa.is_official_ab
   return !['BB', 'HBP', 'SF', 'SH'].includes(pa.result)
 }
@@ -42,9 +44,7 @@ export function normalizeRbiForPaResult(result, rbi = 0, isError = false) {
 }
 
 export function getCreditedRbiForPa(pa = {}) {
-  const base = normalizeRbiForPaResult(pa.result, pa.rbi, pa.is_error)
-  // Batter always drives themselves in on a home run (including inside-the-park)
-  return (pa.result === 'HR' || pa.result === 'IPHR') ? base + 1 : base
+  return normalizeRbiForPaResult(pa.result, pa.rbi, pa.is_error)
 }
 
 export function summarizeBatting(plateAppearances = []) {
@@ -125,6 +125,23 @@ export function summarizePitching(stints = []) {
   }
 }
 
+export function hasPitchingStatLine(pitching = {}) {
+  return [
+    pitching.innings,
+    pitching.wins,
+    pitching.losses,
+    pitching.saves,
+    pitching.shutouts,
+    pitching.completeGames,
+    pitching.strikeouts,
+    pitching.hitsAllowed,
+    pitching.runsAllowed,
+    pitching.earnedRuns,
+    pitching.walks,
+    pitching.homeRunsAllowed,
+  ].some((value) => Number(value || 0) > 0)
+}
+
 export function summarizeBattedBallProfile(plateAppearances = []) {
   const battedBalls = plateAppearances.filter((pa) => battedBallResults.has(pa.result) && pa.trajectory)
   const total = battedBalls.length || 0
@@ -146,6 +163,14 @@ export function summarizeSprayProfile(plateAppearances = []) {
   const hits = plateAppearances.filter((pa) => hitResults.has(pa.result))
   const total = hits.length || 0
   const count = (direction) => hits.filter((pa) => pa.direction === direction).length
+  // hit_angle_deg is signed relative to straightaway CF (0deg): negative is the
+  // pull side, positive is the oppo side, per the same convention Scorebook's
+  // directionForFielderPosition() uses to bucket fielder positions into Pull/
+  // Center/Oppo. This continuous version supplements those 3 coarse buckets.
+  const withAngle = hits.filter((pa) => pa.hit_angle_deg != null && Number.isFinite(Number(pa.hit_angle_deg)))
+  const avgSprayAngle = withAngle.length
+    ? Math.round((withAngle.reduce((sum, pa) => sum + Number(pa.hit_angle_deg), 0) / withAngle.length) * 10) / 10
+    : null
   return {
     total,
     pull: count('Pull'),
@@ -154,6 +179,7 @@ export function summarizeSprayProfile(plateAppearances = []) {
     pullRate: total ? count('Pull') / total : 0,
     centerRate: total ? count('Center') / total : 0,
     oppoRate: total ? count('Oppo') / total : 0,
+    avgSprayAngle,
   }
 }
 
@@ -412,6 +438,657 @@ export function buildCharacterTournamentHistory(plateAppearances = [], games = [
   return result
 }
 
+// Per-game character history, unified across tournaments and seasons. Returns:
+// { [characterId]: [{ gameId, eventKey, eventId, eventType, eventNumber, eventSortKey,
+//                      playerId, pa, avg, ops, hr, rbi, perfScore, gameDelta, rawPas }] }
+// perfScore is derived from a wRC+-style, league-relative metric (see wobaForPas/perfScoreFromIndexPlus
+// below), only included if pa >= MIN_PA_PER_GAME.
+// gameDelta = perfScore - (the same player's OTHER characters' combined perfScore-equivalent
+// in that same event), so a game is judged relative to how the owning player was doing with
+// the rest of their roster at the time, not in isolation. Falls back to a neutral 0 delta when
+// the player has no other qualifying characters in that event.
+export const MIN_PA_PER_GAME = 3
+
+// A single extreme game (a perfect outing vs. a teammate's disastrous one) can otherwise produce
+// a 10+ point gap that alone saturates the history blend's final ±2 clamp, drowning out every
+// other game in the sample. Clamping each game's delta at the source keeps one outlier game from
+// single-handedly maxing out the OVR swing.
+const GAME_DELTA_CLAMP = 3
+function clampGameDelta(value) {
+  return Math.max(-GAME_DELTA_CLAMP, Math.min(GAME_DELTA_CLAMP, value))
+}
+
+// wOBA for a single game's worth of PAs, using the same linear weights as computeLeagueConstants/
+// summarizeAdvancedBatting so the per-game perf score and the season/career advanced stats agree.
+function wobaForPas(pas = []) {
+  const abs = pas.filter((pa) => isOfficialAtBat(pa)).length
+  const singles = pas.filter((pa) => pa.result === '1B').length
+  const doubles = pas.filter((pa) => pa.result === '2B').length
+  const triples = pas.filter((pa) => pa.result === '3B').length
+  const hrs = pas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length
+  const walks = pas.filter((pa) => pa.result === 'BB').length
+  const hbp = pas.filter((pa) => pa.result === 'HBP').length
+  const sfs = pas.filter((pa) => pa.result === 'SF').length
+  const denom = abs + walks + sfs + hbp
+  if (!denom) return 0
+  return ((0.69 * walks) + (0.72 * hbp) + (0.89 * singles) + (1.27 * doubles) + (1.62 * triples) + (2.10 * hrs)) / denom
+}
+
+// Rescales a league-relative "-plus"/"-minus" index (100 = league average) onto the 0-10 perf
+// scale buildHistoryAdjustment expects, so its confidence-weighting/clamping machinery keeps
+// working unchanged regardless of which advanced metric feeds it. `invert: true` is for metrics
+// where LOWER is better (e.g. FIP-), so a below-average index still maps to an above-5 perf score.
+function perfScoreFromIndexPlus(indexPlus, { invert = false } = {}) {
+  const signed = invert ? (200 - indexPlus) : indexPlus
+  return Math.max(0, Math.min(10, signed / 20))
+}
+
+function buildGameMetaById(games = [], eventLookupById = {}, eventType, eventIdKey, eventNumberOf, sortKeyOf) {
+  const metaById = {}
+  for (const game of games) {
+    const eventId = game[eventIdKey]
+    const event = eventLookupById[eventId]
+    metaById[game.id] = {
+      eventId,
+      eventType,
+      eventKey: `${eventType}:${eventId}`,
+      eventNumber: eventNumberOf(event, eventId),
+      eventSortKey: sortKeyOf(event, game),
+    }
+  }
+  return metaById
+}
+
+// season_plate_appearances rows already carry season_id directly, so season game metadata
+// can be derived straight from the PA rows without a season_schedule join.
+function buildSeasonGameMetaFromPAs(seasonPlateAppearances = [], seasonById = {}) {
+  const metaById = {}
+  for (const pa of seasonPlateAppearances) {
+    if (metaById[pa.game_id]) continue
+    const season = seasonById[pa.season_id]
+    metaById[pa.game_id] = {
+      eventId: pa.season_id,
+      eventType: 'season',
+      eventKey: `season:${pa.season_id}`,
+      eventNumber: season?.name ?? pa.season_id,
+      eventSortKey: new Date(season?.created_at || 0).getTime(),
+    }
+  }
+  return metaById
+}
+
+function buildPlayerEventPAs(plateAppearances = [], gameMetaById = {}) {
+  const map = {}
+  for (const pa of plateAppearances) {
+    const meta = gameMetaById[pa.game_id]
+    if (!meta) continue
+    const key = `${meta.eventKey}:${pa.player_id}`
+    if (!map[key]) map[key] = []
+    map[key].push(pa)
+  }
+  return map
+}
+
+function buildPerGameEntries(plateAppearances = [], gameMetaById = {}, playerEventPAs = {}, leagueConstants = {}) {
+  const lgwOBA = leagueConstants.lgwOBA || computeLeagueConstants(plateAppearances).lgwOBA
+  const perfScoreForPas = (pas) => perfScoreFromIndexPlus((wobaForPas(pas) / lgwOBA) * 100)
+
+  const byCharGame = {}
+  for (const pa of plateAppearances) {
+    const meta = gameMetaById[pa.game_id]
+    if (!meta) continue
+    if (!byCharGame[pa.character_id]) byCharGame[pa.character_id] = {}
+    if (!byCharGame[pa.character_id][pa.game_id]) byCharGame[pa.character_id][pa.game_id] = []
+    byCharGame[pa.character_id][pa.game_id].push(pa)
+  }
+
+  const result = {}
+  for (const [charId, byGame] of Object.entries(byCharGame)) {
+    result[charId] = Object.entries(byGame).map(([gameId, pas]) => {
+      const meta = gameMetaById[gameId] || gameMetaById[pas[0].game_id]
+      const b = summarizeBatting(pas)
+      b.ops = b.obp + b.slg
+      const perfScore = pas.length >= MIN_PA_PER_GAME ? perfScoreForPas(pas) : null
+      const playerId = pas[0].player_id ?? null
+
+      let gameDelta = null
+      if (perfScore !== null) {
+        const eventPlayerPas = playerEventPAs[`${meta.eventKey}:${playerId}`] || []
+        const otherCharPas = eventPlayerPas.filter((pa) => pa.character_id !== charId)
+        if (otherCharPas.length > 0) {
+          const baselinePerf = perfScoreForPas(otherCharPas)
+          gameDelta = clampGameDelta(perfScore - baselinePerf)
+        } else {
+          gameDelta = 0
+        }
+      }
+
+      return {
+        gameId,
+        eventId: meta.eventId,
+        eventType: meta.eventType,
+        eventKey: meta.eventKey,
+        eventNumber: meta.eventNumber,
+        eventSortKey: meta.eventSortKey,
+        playerId,
+        pa: pas.length,
+        avg: b.avg,
+        ops: b.ops,
+        hr: b.homeRuns,
+        rbi: b.rbi,
+        perfScore,
+        gameDelta,
+        rawPas: pas,
+      }
+    })
+  }
+  return result
+}
+
+// leagueConstants (from computeLeagueConstants) is optional — when omitted, it's derived from
+// the PAs passed in here so every caller keeps working, but callers that already pool the full
+// PA dataset elsewhere should pass it in explicitly to avoid recomputing it per character.
+export function buildCharacterGameHistory(
+  plateAppearances = [],
+  games = [],
+  tournaments = [],
+  seasonPlateAppearances = [],
+  seasons = [],
+  leagueConstants = null,
+) {
+  const resolvedLeagueConstants = leagueConstants || computeLeagueConstants([...plateAppearances, ...seasonPlateAppearances])
+
+  const tournamentById = Object.fromEntries(tournaments.map((t) => [t.id, t]))
+  const seasonById = Object.fromEntries(seasons.map((s) => [s.id, s]))
+
+  const tournamentGameMetaById = buildGameMetaById(
+    games, tournamentById, 'tournament', 'tournament_id',
+    (tournament, id) => tournament?.tournament_number ?? id,
+    (tournament) => tournament?.tournament_number ?? 0,
+  )
+  const seasonGameMetaById = buildSeasonGameMetaFromPAs(seasonPlateAppearances, seasonById)
+
+  const tournamentPlayerEventPAs = buildPlayerEventPAs(plateAppearances, tournamentGameMetaById)
+  const seasonPlayerEventPAs = buildPlayerEventPAs(seasonPlateAppearances, seasonGameMetaById)
+
+  const tournamentEntries = buildPerGameEntries(plateAppearances, tournamentGameMetaById, tournamentPlayerEventPAs, resolvedLeagueConstants)
+  const seasonEntries = buildPerGameEntries(seasonPlateAppearances, seasonGameMetaById, seasonPlayerEventPAs, resolvedLeagueConstants)
+
+  const charIds = new Set([...Object.keys(tournamentEntries), ...Object.keys(seasonEntries)])
+  const result = {}
+  charIds.forEach((charId) => {
+    result[charId] = [...(tournamentEntries[charId] || []), ...(seasonEntries[charId] || [])]
+      .sort((a, b) => (a.eventSortKey - b.eventSortKey) || (a.eventType > b.eventType ? 1 : -1))
+  })
+  return result
+}
+
+// Rolls per-game history entries back up into one row per event (tournament or season),
+// for display purposes. The OVR formula consumes the per-game entries directly; this is for
+// UI tables/dropdowns that want a readable one-row-per-event summary instead of dozens of rows.
+export function aggregateGameHistoryByEvent(entries = []) {
+  const groups = {}
+  entries.forEach((entry) => {
+    if (!groups[entry.eventKey]) groups[entry.eventKey] = []
+    groups[entry.eventKey].push(entry)
+  })
+
+  return Object.values(groups)
+    .map((group) => {
+      const first = group[0]
+      const allPas = group.flatMap((g) => g.rawPas || [])
+      const b = summarizeBatting(allPas)
+      b.ops = b.obp + b.slg
+      const totalPA = group.reduce((sum, g) => sum + (g.pa || 0), 0)
+      const deltaEntries = group.filter((g) => Number.isFinite(g.gameDelta))
+      const deltaPA = deltaEntries.reduce((sum, g) => sum + (g.pa || 0), 0)
+      const avgDelta = deltaPA > 0
+        ? deltaEntries.reduce((sum, g) => sum + g.gameDelta * g.pa, 0) / deltaPA
+        : null
+
+      return {
+        eventKey: first.eventKey,
+        eventId: first.eventId,
+        eventType: first.eventType,
+        eventNumber: first.eventNumber,
+        eventSortKey: first.eventSortKey,
+        // sortGroup/sortValue/rawPas mirror the shape CharacterDetailModal's source dropdown
+        // already expects (tournaments before seasons, then chronological within each).
+        sortGroup: first.eventType === 'tournament' ? 0 : 1,
+        sortValue: first.eventSortKey,
+        games: group.length,
+        pa: totalPA,
+        avg: b.avg,
+        ops: b.ops,
+        hr: b.homeRuns,
+        rbi: b.rbi,
+        avgDelta,
+        rawPas: allPas,
+      }
+    })
+    .sort((a, b) => (a.eventSortKey - b.eventSortKey) || (a.eventType > b.eventType ? 1 : -1))
+}
+
+// Per-game pitching history, mirroring buildCharacterGameHistory's batting approach but sourced
+// from pitching_stints/season_pitching_stints. pitchPerfScore is derived from a FIP--style,
+// league-relative metric (see fipForStints/perfScoreFromIndexPlus). gameDelta is judged the same
+// player-relative way: this character's pitchPerfScore vs the same player's OTHER pitchers in
+// that event, so a rough outing counts less if the player's whole staff struggled that event.
+// Raised from 1 inning (3 outs) to 2 innings: FIP's 13x HR multiplier makes a single home run in
+// a 1-inning sample swing wildly, which is far noisier than ERA was at the same sample size.
+export const MIN_OUTS_PER_GAME = 6
+
+// FIP for a single game's worth of stints, using the same formula/constant as computeLeagueConstants/
+// summarizeAdvancedPitching so per-game perf scores agree with the season/career advanced stats.
+function fipForStints(stints = [], FIP_constant = 3.2) {
+  const outs = stints.reduce((sum, stint) => sum + outsFromInningsPitched(stint.innings_pitched), 0)
+  const ip = outs / 3
+  if (!ip) return null
+  const bb = stints.reduce((sum, stint) => sum + (stint.walks || 0), 0)
+  const k = stints.reduce((sum, stint) => sum + (stint.strikeouts || 0), 0)
+  const hr = stints.reduce((sum, stint) => sum + (stint.hr_allowed || 0), 0)
+  return (((13 * hr) + (3 * bb) - (2 * k)) / ip) + FIP_constant
+}
+
+function buildPlayerEventStints(stints = [], gameMetaById = {}) {
+  const map = {}
+  for (const stint of stints) {
+    const meta = gameMetaById[stint.game_id]
+    if (!meta) continue
+    const key = `${meta.eventKey}:${stint.player_id}`
+    if (!map[key]) map[key] = []
+    map[key].push(stint)
+  }
+  return map
+}
+
+function buildPerGamePitchingEntries(stints = [], gameMetaById = {}, playerEventStints = {}, leagueConstants = {}) {
+  const lgFIP = leagueConstants.lgFIP || computeLeagueConstants([], stints).lgFIP
+  const FIP_constant = leagueConstants.FIP_constant ?? computeLeagueConstants([], stints).FIP_constant
+  const pitchPerfScoreForStints = (gameStints) => {
+    const fip = fipForStints(gameStints, FIP_constant)
+    return fip === null ? null : perfScoreFromIndexPlus((fip / lgFIP) * 100, { invert: true })
+  }
+
+  const byCharGame = {}
+  for (const stint of stints) {
+    const meta = gameMetaById[stint.game_id]
+    if (!meta) continue
+    if (!byCharGame[stint.character_id]) byCharGame[stint.character_id] = {}
+    if (!byCharGame[stint.character_id][stint.game_id]) byCharGame[stint.character_id][stint.game_id] = []
+    byCharGame[stint.character_id][stint.game_id].push(stint)
+  }
+
+  const result = {}
+  for (const [charId, byGame] of Object.entries(byCharGame)) {
+    result[charId] = Object.entries(byGame).map(([gameId, gameStints]) => {
+      const meta = gameMetaById[gameId] || gameMetaById[gameStints[0].game_id]
+      const p = summarizePitching(gameStints)
+      const outs = gameStints.reduce((sum, stint) => sum + outsFromInningsPitched(stint.innings_pitched), 0)
+      const qualifies = outs >= MIN_OUTS_PER_GAME
+      const pitchPerfScore = qualifies ? pitchPerfScoreForStints(gameStints) : null
+      const playerId = gameStints[0].player_id ?? null
+
+      let gameDelta = null
+      if (pitchPerfScore !== null) {
+        const eventPlayerStints = playerEventStints[`${meta.eventKey}:${playerId}`] || []
+        const otherCharStints = eventPlayerStints.filter((stint) => stint.character_id !== charId)
+        if (otherCharStints.length > 0) {
+          const baselinePerf = pitchPerfScoreForStints(otherCharStints)
+          gameDelta = baselinePerf === null ? 0 : clampGameDelta(pitchPerfScore - baselinePerf)
+        } else {
+          gameDelta = 0
+        }
+      }
+
+      return {
+        gameId,
+        eventId: meta.eventId,
+        eventType: meta.eventType,
+        eventKey: meta.eventKey,
+        eventNumber: meta.eventNumber,
+        eventSortKey: meta.eventSortKey,
+        playerId,
+        outs,
+        innings: p.innings,
+        era: p.era,
+        whip: p.whip,
+        pitchPerfScore,
+        gameDelta,
+        rawStints: gameStints,
+      }
+    })
+  }
+  return result
+}
+
+// leagueConstants is optional — see buildCharacterGameHistory's comment for the same pattern.
+export function buildCharacterPitchingGameHistory(
+  pitchingStints = [],
+  games = [],
+  tournaments = [],
+  seasonPitchingStints = [],
+  seasons = [],
+  leagueConstants = null,
+) {
+  const resolvedLeagueConstants = leagueConstants || computeLeagueConstants([], [...pitchingStints, ...seasonPitchingStints])
+
+  const tournamentById = Object.fromEntries(tournaments.map((t) => [t.id, t]))
+  const seasonById = Object.fromEntries(seasons.map((s) => [s.id, s]))
+
+  const tournamentGameMetaById = buildGameMetaById(
+    games, tournamentById, 'tournament', 'tournament_id',
+    (tournament, id) => tournament?.tournament_number ?? id,
+    (tournament) => tournament?.tournament_number ?? 0,
+  )
+  const seasonGameMetaById = buildSeasonGameMetaFromPAs(seasonPitchingStints, seasonById)
+
+  const tournamentPlayerEventStints = buildPlayerEventStints(pitchingStints, tournamentGameMetaById)
+  const seasonPlayerEventStints = buildPlayerEventStints(seasonPitchingStints, seasonGameMetaById)
+
+  const tournamentEntries = buildPerGamePitchingEntries(pitchingStints, tournamentGameMetaById, tournamentPlayerEventStints, resolvedLeagueConstants)
+  const seasonEntries = buildPerGamePitchingEntries(seasonPitchingStints, seasonGameMetaById, seasonPlayerEventStints, resolvedLeagueConstants)
+
+  const charIds = new Set([...Object.keys(tournamentEntries), ...Object.keys(seasonEntries)])
+  const result = {}
+  charIds.forEach((charId) => {
+    result[charId] = [...(tournamentEntries[charId] || []), ...(seasonEntries[charId] || [])]
+      .sort((a, b) => (a.eventSortKey - b.eventSortKey) || (a.eventType > b.eventType ? 1 : -1))
+  })
+  return result
+}
+
+// Per-game fielding history. Chances are matched the same way summarizeFielding does (position +
+// inning + defensive team), so a chance only resolves when defensive_team_id was actually
+// recorded for that play — currently only true for season games (tournament plate_appearances
+// don't get a defensive_team_id stamped today, see TournamentGameSessionProvider). Games that
+// can't be matched to a fielder simply contribute no chances rather than guessing.
+// fieldPerfScore is derived from "Fielding%+" — fielding percentage relative to the league-average
+// fielding percentage (100 = average), the best available league-relative metric given the data:
+// only error/no-error per attempted chance is tracked today, with no putout/assist/range data to
+// support a true defensive-range metric. gameDelta is the same player-relative comparison as
+// batting/pitching, against the player's OTHER fielders in that event.
+export const MIN_FIELDING_CHANCES_PER_GAME = 2
+
+// League-average fielding percentage across every tracked chance, computed dynamically the same
+// way computeLeagueConstants derives lgwOBA/lgFIP — no hardcoded constant.
+export function computeFieldingLeagueConstants(allChances = []) {
+  if (!allChances.length) return { lgFieldPct: 1 }
+  const errors = allChances.filter((c) => c.isError).length
+  return { lgFieldPct: 1 - (errors / allChances.length) }
+}
+
+function matchFielderForPa(pa, gameFieldersByGameId, position) {
+  const candidates = gameFieldersByGameId[pa.game_id]
+  if (!candidates) return null
+  const resolvedPosition = Number(position ?? (pa.hit_location || pa.error_position))
+  if (!Number.isFinite(resolvedPosition)) return null
+  return candidates.find((fielder) => (
+    Number(fielder.position) === resolvedPosition &&
+    Number(fielder.inning_from || 1) <= Number(pa.inning || 1) &&
+    (fielder.inning_to == null || Number(fielder.inning_to) >= Number(pa.inning || 1)) &&
+    String(fielder.team_id) === String(pa.defensive_team_id)
+  )) || null
+}
+
+// resolveTeamPlayerId maps a fielder's team_id to the owning player_id. For tournament games
+// team_id IS the player_id already (players are teams); for season games team_id is a
+// season_teams.id and needs the season_teams.player_id lookup passed in by the caller.
+//
+// Putout/assist: the fielder chain (e.g. "G6-4-3") is recovered from pa.hit_notation via
+// parseFielderChainFromNotation — the LAST position in the chain gets the putout, every
+// earlier position gets an assist (this is the same convention already used live during
+// scorebook entry, see Scorebook.jsx's putoutPosition/touchedBases derivation). Older rows
+// without hit_notation fall back to the single hit_location/error_position chance as a putout,
+// same as the pre-existing behavior.
+function buildFieldingChances(plateAppearances = [], gameFielders = [], charactersByName = {}, resolveTeamPlayerId = (teamId) => teamId) {
+  const gameFieldersByGameId = groupBy(gameFielders, 'game_id')
+  const chances = []
+  for (const pa of plateAppearances) {
+    const chain = parseFielderChainFromNotation(pa.hit_notation)
+    const positions = chain.length ? chain : (pa.hit_location ? [pa.hit_location] : [])
+    if (!positions.length) continue
+
+    positions.forEach((position, index) => {
+      const fielder = matchFielderForPa(pa, gameFieldersByGameId, position)
+      if (!fielder) return
+      const character = charactersByName[fielder.character]
+      if (!character) return
+      chances.push({
+        gameId: pa.game_id,
+        characterId: character.id,
+        playerId: resolveTeamPlayerId(fielder.team_id),
+        isError: Boolean(pa.is_error) && String(pa.error_character) === String(fielder.character),
+        isPutout: index === positions.length - 1,
+        isAssist: index !== positions.length - 1,
+      })
+    })
+  }
+  return chances
+}
+
+function buildPlayerEventChances(chances = [], gameMetaById = {}) {
+  const map = {}
+  for (const chance of chances) {
+    const meta = gameMetaById[chance.gameId]
+    if (!meta) continue
+    const key = `${meta.eventKey}:${chance.playerId}`
+    if (!map[key]) map[key] = []
+    map[key].push(chance)
+  }
+  return map
+}
+
+function buildPerGameFieldingEntries(chances = [], gameMetaById = {}, playerEventChances = {}, fieldingLeagueConstants = {}) {
+  const lgFieldPct = fieldingLeagueConstants.lgFieldPct || computeFieldingLeagueConstants(chances).lgFieldPct
+  const fieldPerfScoreForChances = (gameChances) => {
+    if (!gameChances.length) return null
+    const errors = gameChances.filter((c) => c.isError).length
+    const fieldPctPlus = ((1 - (errors / gameChances.length)) / lgFieldPct) * 100
+    return perfScoreFromIndexPlus(fieldPctPlus)
+  }
+
+  const byCharGame = {}
+  for (const chance of chances) {
+    const meta = gameMetaById[chance.gameId]
+    if (!meta) continue
+    if (!byCharGame[chance.characterId]) byCharGame[chance.characterId] = {}
+    if (!byCharGame[chance.characterId][chance.gameId]) byCharGame[chance.characterId][chance.gameId] = []
+    byCharGame[chance.characterId][chance.gameId].push(chance)
+  }
+
+  const result = {}
+  for (const [charId, byGame] of Object.entries(byCharGame)) {
+    result[charId] = Object.entries(byGame).map(([gameId, gameChances]) => {
+      const meta = gameMetaById[gameId] || gameMetaById[gameChances[0].gameId]
+      const fieldPerfScore = gameChances.length >= MIN_FIELDING_CHANCES_PER_GAME ? fieldPerfScoreForChances(gameChances) : null
+      const playerId = gameChances[0].playerId ?? null
+
+      let gameDelta = null
+      if (fieldPerfScore !== null) {
+        const eventPlayerChances = playerEventChances[`${meta.eventKey}:${playerId}`] || []
+        const otherCharChances = eventPlayerChances.filter((chance) => chance.characterId !== charId)
+        if (otherCharChances.length > 0) {
+          const baselinePerf = fieldPerfScoreForChances(otherCharChances)
+          gameDelta = baselinePerf === null ? 0 : clampGameDelta(fieldPerfScore - baselinePerf)
+        } else {
+          gameDelta = 0
+        }
+      }
+
+      return {
+        gameId,
+        eventId: meta.eventId,
+        eventType: meta.eventType,
+        eventKey: meta.eventKey,
+        eventNumber: meta.eventNumber,
+        eventSortKey: meta.eventSortKey,
+        playerId,
+        chances: gameChances.length,
+        errors: gameChances.filter((c) => c.isError).length,
+        putouts: gameChances.filter((c) => c.isPutout).length,
+        assists: gameChances.filter((c) => c.isAssist).length,
+        fieldPerfScore,
+        gameDelta,
+      }
+    })
+  }
+  return result
+}
+
+// fieldingLeagueConstants is optional — see buildCharacterGameHistory's comment for the same pattern.
+export function buildCharacterFieldingGameHistory(
+  plateAppearances = [],
+  gameFielders = [],
+  games = [],
+  tournaments = [],
+  seasonPlateAppearances = [],
+  seasonGameFielders = [],
+  seasons = [],
+  charactersByName = {},
+  seasonTeamPlayerById = {},
+  fieldingLeagueConstants = null,
+) {
+  const tournamentById = Object.fromEntries(tournaments.map((t) => [t.id, t]))
+  const seasonById = Object.fromEntries(seasons.map((s) => [s.id, s]))
+
+  const tournamentGameMetaById = buildGameMetaById(
+    games, tournamentById, 'tournament', 'tournament_id',
+    (tournament, id) => tournament?.tournament_number ?? id,
+    (tournament) => tournament?.tournament_number ?? 0,
+  )
+  const seasonGameMetaById = buildSeasonGameMetaFromPAs(seasonPlateAppearances, seasonById)
+
+  const tournamentChances = buildFieldingChances(plateAppearances, gameFielders, charactersByName)
+  const seasonChances = buildFieldingChances(
+    seasonPlateAppearances, seasonGameFielders, charactersByName,
+    (teamId) => seasonTeamPlayerById[teamId] ?? teamId,
+  )
+
+  const resolvedFieldingLeagueConstants = fieldingLeagueConstants || computeFieldingLeagueConstants([...tournamentChances, ...seasonChances])
+
+  const tournamentPlayerEventChances = buildPlayerEventChances(tournamentChances, tournamentGameMetaById)
+  const seasonPlayerEventChances = buildPlayerEventChances(seasonChances, seasonGameMetaById)
+
+  const tournamentEntries = buildPerGameFieldingEntries(tournamentChances, tournamentGameMetaById, tournamentPlayerEventChances, resolvedFieldingLeagueConstants)
+  const seasonEntries = buildPerGameFieldingEntries(seasonChances, seasonGameMetaById, seasonPlayerEventChances, resolvedFieldingLeagueConstants)
+
+  const charIds = new Set([...Object.keys(tournamentEntries), ...Object.keys(seasonEntries)])
+  const result = {}
+  charIds.forEach((charId) => {
+    result[charId] = [...(tournamentEntries[charId] || []), ...(seasonEntries[charId] || [])]
+      .sort((a, b) => (a.eventSortKey - b.eventSortKey) || (a.eventType > b.eventType ? 1 : -1))
+  })
+  return result
+}
+
+// Rolls per-game pitching history (buildCharacterPitchingGameHistory's output) back up into one
+// row per event, mirroring aggregateGameHistoryByEvent's batting contract — used where a full
+// per-season pitching line is needed for every character at once (e.g. league-wide awards),
+// rather than the single-character tournament/season grouping useCharacterProfileData's
+// buildPitchingHistory does for the profile page's own Stats section.
+export function aggregatePitchingHistoryByEvent(entries = []) {
+  const groups = {}
+  entries.forEach((entry) => {
+    if (!groups[entry.eventKey]) groups[entry.eventKey] = []
+    groups[entry.eventKey].push(entry)
+  })
+
+  return Object.values(groups)
+    .map((group) => {
+      const first = group[0]
+      const allStints = group.flatMap((g) => g.rawStints || [])
+      const p = summarizePitching(allStints)
+      return {
+        eventKey: first.eventKey,
+        eventId: first.eventId,
+        eventType: first.eventType,
+        eventNumber: first.eventNumber,
+        eventSortKey: first.eventSortKey,
+        sortGroup: first.eventType === 'tournament' ? 0 : 1,
+        sortValue: first.eventSortKey,
+        games: group.length,
+        ...p,
+        rawStints: allStints,
+      }
+    })
+    .sort((a, b) => (a.eventSortKey - b.eventSortKey) || (a.eventType > b.eventType ? 1 : -1))
+}
+
+// Rolls per-game fielding history back up into one row per event (tournament or season),
+// mirroring aggregateGameHistoryByEvent's grouping/sort contract for batting so CharacterPage
+// can treat batting/pitching/fielding history uniformly in a year-by-year table.
+export function aggregateFieldingHistoryByEvent(entries = []) {
+  const groups = {}
+  entries.forEach((entry) => {
+    if (!groups[entry.eventKey]) groups[entry.eventKey] = []
+    groups[entry.eventKey].push(entry)
+  })
+
+  return Object.values(groups)
+    .map((group) => {
+      const first = group[0]
+      const chances = group.reduce((sum, g) => sum + (g.chances || 0), 0)
+      const putouts = group.reduce((sum, g) => sum + (g.putouts || 0), 0)
+      const assists = group.reduce((sum, g) => sum + (g.assists || 0), 0)
+      const errors = group.reduce((sum, g) => sum + (g.errors || 0), 0)
+      return {
+        eventKey: first.eventKey,
+        eventId: first.eventId,
+        eventType: first.eventType,
+        eventNumber: first.eventNumber,
+        eventSortKey: first.eventSortKey,
+        sortGroup: first.eventType === 'tournament' ? 0 : 1,
+        sortValue: first.eventSortKey,
+        games: group.length,
+        chances,
+        putouts,
+        assists,
+        errors,
+        fieldingPct: chances ? (chances - errors) / chances : null,
+      }
+    })
+    .sort((a, b) => (a.eventSortKey - b.eventSortKey) || (a.eventType > b.eventType ? 1 : -1))
+}
+
+// Returns the percentile (0-100) of `value` within `allValues` — "% of the field at or below
+// this value." Pass `invert: true` for stats where lower is better (ERA, whiff%, K%) so the
+// returned percentile still reads as "better than X% of the league" either way. Generalizes the
+// one-off sorted/findIndex ranking pattern already used for stadium park-factor rankings.
+export function percentileOfValue(value, allValues = [], { invert = false } = {}) {
+  const clean = allValues.filter((v) => Number.isFinite(v))
+  if (!Number.isFinite(value) || clean.length < 2) return null
+  const sorted = [...clean].sort((a, b) => a - b)
+  const countBelowOrEqual = sorted.filter((v) => v <= value).length
+  const rawPct = (countBelowOrEqual / sorted.length) * 100
+  return Math.round(invert ? 100 - rawPct : rawPct)
+}
+
+// Convenience wrapper: builds { [characterId]: { value, percentile } } for one metric across a
+// whole roster in one pass.
+export function buildPercentileLookup(valuesByCharacterId = {}, { invert = false } = {}) {
+  const allValues = Object.values(valuesByCharacterId)
+  const result = {}
+  for (const [charId, value] of Object.entries(valuesByCharacterId)) {
+    result[charId] = { value, percentile: percentileOfValue(value, allValues, { invert }) }
+  }
+  return result
+}
+
+// Computes rank + "led league"/top-N flags for one stat across all characters within a single
+// event (tournament or season), given rows of { characterId, value, ... }. qualifier(row) lets
+// callers gate rate stats (AVG/ERA) behind a minimum PA/IP threshold before ranking.
+export function rankStatWithinEvent(rows = [], { higherIsBetter = true, qualifier = () => true, topN = 3 } = {}) {
+  const qualifying = rows.filter(qualifier).filter((r) => Number.isFinite(r.value))
+  const sorted = [...qualifying].sort((a, b) => (higherIsBetter ? b.value - a.value : a.value - b.value))
+  return sorted.map((row, index) => ({
+    ...row,
+    rank: index + 1,
+    led: index === 0,
+    topN: index < topN,
+  }))
+}
+
 export function buildHeadToHead(games = [], playerOneId, playerTwoId) {
   const matchupGames = games.filter(
     (game) =>
@@ -602,11 +1279,11 @@ export function calculateParkFactors(stadiumPas = [], allPas = []) {
     return allRate > 0 ? stadiumRate / allRate : 1
   }
 
+  const countResult = (pas, result) => pas.filter((pa) => pa.result === result).length
+  const countHr = (pas) => pas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length
+
   return {
-    hr: factor(
-      stadiumPas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length,
-      allPas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length,
-    ),
+    hr: factor(countHr(stadiumPas), countHr(allPas)),
     r: factor(
       stadiumPas.filter((pa) => pa.run_scored).length,
       allPas.filter((pa) => pa.run_scored).length,
@@ -615,14 +1292,20 @@ export function calculateParkFactors(stadiumPas = [], allPas = []) {
       stadiumPas.filter((pa) => hitResults.has(pa.result)).length,
       allPas.filter((pa) => hitResults.has(pa.result)).length,
     ),
-    double: factor(
-      stadiumPas.filter((pa) => pa.result === '2B').length,
-      allPas.filter((pa) => pa.result === '2B').length,
+    single: factor(countResult(stadiumPas, '1B'), countResult(allPas, '1B')),
+    double: factor(countResult(stadiumPas, '2B'), countResult(allPas, '2B')),
+    triple: factor(countResult(stadiumPas, '3B'), countResult(allPas, '3B')),
+    walk: factor(countResult(stadiumPas, 'BB'), countResult(allPas, 'BB')),
+    strikeout: factor(countResult(stadiumPas, 'K'), countResult(allPas, 'K')),
+    hbp: factor(countResult(stadiumPas, 'HBP'), countResult(allPas, 'HBP')),
+    sacFly: factor(countResult(stadiumPas, 'SF'), countResult(allPas, 'SF')),
+    sacHit: factor(countResult(stadiumPas, 'SH'), countResult(allPas, 'SH')),
+    error: factor(
+      stadiumPas.filter((pa) => pa.is_error).length,
+      allPas.filter((pa) => pa.is_error).length,
     ),
-    triple: factor(
-      stadiumPas.filter((pa) => pa.result === '3B').length,
-      allPas.filter((pa) => pa.result === '3B').length,
-    ),
+    doublePlay: factor(countResult(stadiumPas, 'DP'), countResult(allPas, 'DP')),
+    reachedOnError: factor(countResult(stadiumPas, 'ROE'), countResult(allPas, 'ROE')),
   }
 }
 

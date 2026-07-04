@@ -236,7 +236,12 @@ async function syncSeasonPlayoffTemplate({
     )
 
     if (needsReset) {
-      await clearSeasonGameArtifacts(supabase, existing.id, season.id)
+      try {
+        await clearSeasonGameArtifacts(supabase, existing.id, season.id)
+      } catch (err) {
+        await updateSeasonPlayoffGame(supabase, updated, existing.home_team_id, existing.away_team_id, false)
+        throw err
+      }
     }
 
     const workingIndex = workingGames.findIndex((game) => game.id === existing.id)
@@ -297,7 +302,12 @@ async function syncSeasonChampionshipResetState({
     )
 
     if (needsReset) {
-      await clearSeasonGameArtifacts(supabase, resetGame.id, season.id)
+      try {
+        await clearSeasonGameArtifacts(supabase, resetGame.id, season.id)
+      } catch (err) {
+        await updateSeasonPlayoffGame(supabase, updated, resetGame.home_team_id, resetGame.away_team_id, false)
+        throw err
+      }
     }
 
     return [updated]

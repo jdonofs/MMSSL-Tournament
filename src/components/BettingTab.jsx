@@ -8,6 +8,7 @@ import { useTournament } from '../context/TournamentContext'
 import CharacterPortrait from './CharacterPortrait'
 import PlayerTag from './PlayerTag'
 import SettleUp from './SettleUp'
+import SipPriceSparkline from './SipPriceSparkline'
 import TeamLogo from './TeamLogo'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import {
@@ -33,7 +34,7 @@ import {
 } from '../utils/stadiums'
 import { getTeamShortName } from '../utils/teamIdentity'
 import { computeBalance, computeSipCount, computeTotalSipsHeld, getSipPrice } from '../utils/economy'
-import { DEFAULT_REGULATION_INNINGS, getFinalStatusLabel, normalizeRegulationInnings } from '../utils/gameRules'
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
 
 const GAME_STATUSES = new Set(['pending', 'active', 'scheduled', 'in_progress', 'complete'])
 const ACTIVE_STATUSES = new Set(['pending', 'active', 'scheduled', 'in_progress'])
@@ -41,6 +42,7 @@ const BOARD_COLUMN_HEADERS = ['Run Line', 'Total', 'Moneyline']
 const ODDS_FLASH_FIELDS = ['odds_home', 'odds_away', 'odds_over', 'odds_under', 'odds_yes', 'odds_no']
 const ODDS_FLASH_DURATION_MS = 700
 const COUNT_PROP_TYPES = new Set(['hr_prop', 'hit_prop', 'k_prop'])
+const ODDS_MODEL_VERSION = 'run-line-pickem-v2'
 const DETAIL_TABS = [
   { id: 'game-odds', label: 'Game Odds' },
   { id: 'batter-props', label: 'Batter Props' },
@@ -173,20 +175,48 @@ function buildLeaderboard(players, games, bets, sourceId, options = {}) {
     sourceIdField = 'tournament_id',
     payoutField = 'potential_payout_dollars',
     wagerField = 'wager_dollars',
+    ledgerEntries = [],
+    ledgerField = 'points_change',
+    balanceAwards = [],
+    sipTransactions = [],
+    sipRedemptions = [],
   } = options
   const tournamentGameIds = new Set(games.filter((game) => game[sourceIdField] === sourceId || game.tournament_id === sourceId).map((game) => game.id))
   return players
     .map((player) => {
-      const net = bets
+      const betNet = bets
         .filter((bet) => bet.player_id === player.id && tournamentGameIds.has(bet.game_id))
         .reduce((sum, bet) => {
           if (bet.status === 'won') return sum + Number(bet[payoutField] || 0)
           if (bet.status === 'lost') return sum - Number(bet[wagerField] || 0)
           return sum
         }, 0)
-      return { ...player, net: Math.round(net * 100) / 100 }
+      const balance = computeBalance({
+        playerId: player.id,
+        ledgerEntries,
+        ledgerField,
+        balanceAwards,
+        sipTransactions,
+      })
+      const drinksSpent = sipTransactions
+        .filter((tx) => tx.player_id === player.id && tx.type === 'buy')
+        .reduce((sum, tx) => sum + Number(tx.amount_dollars || 0), 0)
+      const drinksOwned = computeSipCount({ playerId: player.id, sipTransactions, sipRedemptions })
+      return {
+        ...player,
+        net: Math.round(betNet * 100) / 100,
+        balance: Math.round(balance * 100) / 100,
+        drinksSpent: Math.round(drinksSpent * 100) / 100,
+        drinksOwned,
+      }
     })
-    .sort((a, b) => b.net - a.net)
+    .sort((a, b) => b.balance - a.balance || b.net - a.net || b.drinksSpent - a.drinksSpent)
+    .reduce((ranked, entry, index) => {
+      const prev = ranked[index - 1]
+      const tied = prev && prev.balance === entry.balance && prev.net === entry.net && prev.drinksSpent === entry.drinksSpent
+      ranked.push({ ...entry, rank: tied ? prev.rank : index + 1 })
+      return ranked
+    }, [])
 }
 
 function mergeRowsById(currentRows, nextRows, getId = (row) => row.id) {
@@ -622,6 +652,70 @@ function getAltRunLinePricing({ spread, runLineRow, moneylineRow, completedGameM
   }
 }
 
+function isHalfHookSpread(spread) {
+  const numeric = Number(spread || 0)
+  return Math.abs((numeric % 1) - 0.5) < 0.001 || Math.abs(numeric - 0.5) < 0.001
+}
+
+function getRunLinePricingState({ spread, runLineRow, moneylineRow, completedGameMargins = [] }) {
+  if (!runLineRow || !moneylineRow) return null
+  const numericSpread = Number(spread || runLineRow.line || 0.5)
+  if (numericSpread === Number(runLineRow.line || 0.5)) {
+    return {
+      spread: numericSpread,
+      homeProb: Number(runLineRow.predicted_probability || 0.5),
+      awayProb: 1 - Number(runLineRow.predicted_probability || 0.5),
+      homeOdds: runLineRow.odds_home,
+      awayOdds: runLineRow.odds_away,
+      isAlt: false,
+    }
+  }
+
+  const altPricing = getAltRunLinePricing({
+    spread: numericSpread,
+    runLineRow,
+    moneylineRow,
+    completedGameMargins,
+  })
+  if (!altPricing) return null
+
+  return {
+    spread: numericSpread,
+    ...altPricing,
+    isAlt: true,
+  }
+}
+
+function getClosestPickEmRunLine({ runLineRow, moneylineRow, completedGameMargins = [] }) {
+  if (!runLineRow || !moneylineRow) return null
+
+  const baseSpread = Number(runLineRow.line || 0.5)
+  const candidateSpreads = [baseSpread, ...getAltSpreads(baseSpread)]
+    .filter(isHalfHookSpread)
+    .filter((spread, index, values) => values.findIndex((entry) => Number(entry) === Number(spread)) === index)
+
+  let bestState = null
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  candidateSpreads.forEach((spread) => {
+    const pricingState = getRunLinePricingState({
+      spread,
+      runLineRow,
+      moneylineRow,
+      completedGameMargins,
+    })
+    if (!pricingState) return
+
+    const distance = Math.abs(Number(pricingState.homeProb || 0.5) - 0.5)
+    if (distance < bestDistance - 0.0001) {
+      bestState = pricingState
+      bestDistance = distance
+    }
+  })
+
+  return bestState || getRunLinePricingState({ spread: baseSpread, runLineRow, moneylineRow, completedGameMargins })
+}
+
 function getAltTotalPricing({ line, totalRow, stadiumModel }) {
   if (!totalRow) return null
   const defaultLine = Number(totalRow.line || 0)
@@ -779,6 +873,7 @@ function boardGameCardEqual(prev, next) {
     JSON.stringify(prev.moneyline) === JSON.stringify(next.moneyline) &&
     JSON.stringify(prev.total) === JSON.stringify(next.total) &&
     JSON.stringify(prev.runLine) === JSON.stringify(next.runLine) &&
+    JSON.stringify(prev.runLineDisplay) === JSON.stringify(next.runLineDisplay) &&
     JSON.stringify(prev.stadiumData) === JSON.stringify(next.stadiumData) &&
     prev.flashSignature === next.flashSignature &&
     JSON.stringify(prev.gameBetSlip) === JSON.stringify(next.gameBetSlip) &&
@@ -796,6 +891,7 @@ const BoardGameCard = memo(function BoardGameCard({
   moneyline,
   total,
   runLine,
+  runLineDisplay,
   stadiumData,
   flashSignature,
   gameBetSlip,
@@ -815,11 +911,19 @@ const BoardGameCard = memo(function BoardGameCard({
   const matchupLabel = formatBettingGameMatchup(game, playersById, identitiesByPlayerId)
 
   const getRunLineSide = (isHome) => {
-    if (!runLine) return { label: 'Not live', odds: null, selectable: false }
+    if (!runLine || !runLineDisplay) return { label: 'Not live', odds: null, selectable: false }
     const showMinus = isHome ? homeIsFav : !homeIsFav
-    const label = `${showMinus ? '-' : '+'}${Number(runLine.line || 1.5).toFixed(1)}`
-    const odds = isHome ? runLine.odds_home : runLine.odds_away
-    return { label, odds, selectable: true, side: isHome ? 'home' : 'away' }
+    const label = `${showMinus ? '-' : '+'}${Number(runLineDisplay.spread || 1.5).toFixed(1)}`
+    const odds = isHome ? runLineDisplay.homeOdds : runLineDisplay.awayOdds
+    return {
+      label,
+      odds,
+      selectable: true,
+      side: isHome ? 'home' : 'away',
+      customLine: runLineDisplay.isAlt ? runLineDisplay.spread : undefined,
+      customOdds: runLineDisplay.isAlt ? odds : undefined,
+      customProb: runLineDisplay.isAlt ? (isHome ? runLineDisplay.homeProb : runLineDisplay.awayProb) : undefined,
+    }
   }
 
   const getTotalSide = (isOver) => {
@@ -924,7 +1028,14 @@ const BoardGameCard = memo(function BoardGameCard({
                 onClick={(event) => {
                   event.stopPropagation()
                   if (!runLine) return
-                  toggleSlipSelection(game, runLine, rl.side)
+                  toggleSlipSelection(
+                    game,
+                    runLine,
+                    rl.side,
+                    rl.customLine != null
+                      ? { customLine: rl.customLine, customOdds: rl.customOdds, customProb: rl.customProb }
+                      : null,
+                  )
                 }}
               >
                 <span className="sportsbook-odds-line">{rl.label}</span>
@@ -1493,6 +1604,9 @@ export default function BettingTab({ mode = 'tournament' }) {
         playerId: team.player_id,
         teamName: profile?.team_name || team.team_name || profile?.name || 'Season Team',
         teamMascot: profile?.team_mascot || team.team_mascot || null,
+        teamAbbreviation: profile?.team_abbreviation || team.team_abbreviation || null,
+        teamPrimaryColor: profile?.team_primary_color || team.team_primary_color || null,
+        teamSecondaryColor: profile?.team_secondary_color || team.team_secondary_color || null,
         teamLogoKey: team.team_logo_key || null,
         teamLogoUrl: profile?.team_logo_url || team.logo_url || null,
       }]
@@ -1715,12 +1829,17 @@ export default function BettingTab({ mode = 'tournament' }) {
     [settlements, detailGame],
   )
   const leaderboard = useMemo(
-    () => buildLeaderboard(players, boardGames, bets, sourceContext?.id, {
+    () => buildLeaderboard(players, tournamentGames, bets, sourceContext?.id, {
       sourceIdField: sourceTables.sourceIdField,
       payoutField: sourceTables.payoutField,
       wagerField: sourceTables.wagerField,
+      ledgerEntries,
+      ledgerField: sourceTables.ledgerChangeField,
+      balanceAwards,
+      sipTransactions,
+      sipRedemptions,
     }),
-    [players, boardGames, bets, sourceContext?.id, sourceTables, isSeasonMode],
+    [players, tournamentGames, bets, sourceContext?.id, sourceTables, isSeasonMode, ledgerEntries, balanceAwards, sipTransactions, sipRedemptions],
   )
 
   const oddsByGameId = useMemo(() => {
@@ -1821,10 +1940,10 @@ export default function BettingTab({ mode = 'tournament' }) {
       boardGames.forEach((game) => {
         const sourceId = isSeasonMode ? sourceContext?.id : game.tournament_id
         if (!sourceId) return
-        const table = isSeasonMode ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
+        const tableConfig = isSeasonMode ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
         ;[game.team_a_player_id, game.team_b_player_id].forEach((playerId) => {
           if (!playerId) return
-          lookups.push({ key: `${sourceId}:${playerId}`, table, sourceId, playerId })
+          lookups.push({ key: `${sourceId}:${playerId}`, table: tableConfig.table, idField: tableConfig.idField, sourceId, playerId })
         })
       })
 
@@ -1923,6 +2042,7 @@ export default function BettingTab({ mode = 'tournament' }) {
         return {
           game,
           signature: [
+            ODDS_MODEL_VERSION,
             game.id,
             game.status,
             Number(game.team_a_runs || 0),
@@ -2334,6 +2454,7 @@ export default function BettingTab({ mode = 'tournament' }) {
         const moneyline = rows.find((entry) => entry.bet_type === 'moneyline')
         const total = rows.find((entry) => entry.bet_type === 'over_under')
         const runLine = rows.find((entry) => entry.bet_type === 'run_line')
+        const runLineDisplay = getClosestPickEmRunLine({ runLineRow: runLine, moneylineRow: moneyline, completedGameMargins })
         const stadiumData = buildStadiumDisplayModel(game, stadiumsById, stadiumGameLog)
         const gamePAs = plateAppearances.filter((entry) => entry.game_id === game.id)
         const gamePAInnings = gamePAs.map((entry) => Number(entry.inning || 1))
@@ -2361,6 +2482,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           moneyline,
           total,
           runLine,
+          runLineDisplay,
           stadiumData,
           homeRow: getBoardRow({ moneyline, total, runLine }, 'home', game, playersById, identitiesByPlayerId),
           awayRow: getBoardRow({ moneyline, total, runLine }, 'away', game, playersById, identitiesByPlayerId),
@@ -2369,7 +2491,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           headerKicker: getBettingGameHeaderKicker(game, isSeasonMode, seasonWeekByGameId),
         }
       }),
-    [boardGames, oddsByGameId, playersById, stadiumsById, stadiumGameLog, plateAppearances, isOddsFlashing, betSlip, identitiesByPlayerId, isSeasonMode, seasonWeekByGameId],
+    [boardGames, oddsByGameId, playersById, stadiumsById, stadiumGameLog, plateAppearances, isOddsFlashing, betSlip, identitiesByPlayerId, isSeasonMode, seasonWeekByGameId, completedGameMargins],
   )
 
   const detailTabSections = useMemo(() => {
@@ -2401,12 +2523,16 @@ export default function BettingTab({ mode = 'tournament' }) {
   const detailMoneylineRow = detailOdds.find((row) => row.bet_type === 'moneyline') || null
   const detailRunLineRow = detailOdds.find((row) => row.bet_type === 'run_line') || null
   const detailTotalRow = detailOdds.find((row) => row.bet_type === 'over_under') || null
+  const detailPreferredRunLine = detailRunLineRow && detailMoneylineRow
+    ? getClosestPickEmRunLine({ runLineRow: detailRunLineRow, moneylineRow: detailMoneylineRow, completedGameMargins })
+    : null
   const detailRunLineOptions = detailRunLineRow ? getAltSpreads(Number(detailRunLineRow.line)) : []
   const detailTotalOptions = detailTotalRow ? getAltTotals(Number(detailTotalRow.line)) : []
-  const detailActiveSpread = detailGame ? getDetailSliderValue(altRunLine[detailGame.id]?.spread, detailRunLineOptions) : undefined
+  const detailDefaultSpread = detailPreferredRunLine?.spread ?? detailRunLineRow?.line
+  const detailActiveSpread = detailGame ? getDetailSliderValue(altRunLine[detailGame.id]?.spread ?? detailDefaultSpread, detailRunLineOptions) : undefined
   const detailActiveTotal = detailGame ? getDetailSliderValue(altTotal[detailGame.id]?.line, detailTotalOptions) : undefined
   const detailRunLinePricing = detailRunLineRow && detailMoneylineRow && detailActiveSpread
-    ? getAltRunLinePricing({ spread: detailActiveSpread, runLineRow: detailRunLineRow, moneylineRow: detailMoneylineRow, completedGameMargins })
+    ? getRunLinePricingState({ spread: detailActiveSpread, runLineRow: detailRunLineRow, moneylineRow: detailMoneylineRow, completedGameMargins })
     : null
   const detailTotalPricing = detailTotalRow && detailActiveTotal
     ? getAltTotalPricing({
@@ -2547,19 +2673,34 @@ export default function BettingTab({ mode = 'tournament' }) {
             <h2>Leaderboard</h2>
           </div>
           {leaderboard.length ? (
-            <div className="feed-list">
-              {leaderboard.map((entry, index) => (
-                <div className="feed-row" key={entry.id}>
-                  <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span>{index + 1}.</span>
-                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} player={entry} />
-                  </strong>
-                  <span style={{ color: entry.net >= 0 ? '#22C55E' : '#EF4444', fontWeight: 700 }}>
-                    {`${entry.net >= 0 ? '+' : '-'}$${Math.abs(entry.net).toFixed(2)}`}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <table className="data-table leaderboard-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Player</th>
+                  <th>$</th>
+                  <th>P/L</th>
+                  <th>Spent</th>
+                  <th>Owned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboard.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{entry.rank}</td>
+                    <td>
+                      <PlayerTag height={20} identitiesByPlayerId={identitiesByPlayerId} nameMode="abbreviation" player={entry} />
+                    </td>
+                    <td style={{ fontWeight: 700 }}>${entry.balance.toFixed(0)}</td>
+                    <td style={{ color: entry.net >= 0 ? '#22C55E' : '#EF4444', fontWeight: 700 }}>
+                      {`${entry.net >= 0 ? '+' : '-'}$${Math.abs(entry.net).toFixed(0)}`}
+                    </td>
+                    <td>${entry.drinksSpent.toFixed(0)}</td>
+                    <td>{entry.drinksOwned}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
             <div className="empty-state">
               <strong>No entries</strong>
@@ -2568,83 +2709,99 @@ export default function BettingTab({ mode = 'tournament' }) {
           )}
         </div>
       ) : viewMode === 'sips' ? (
-        <div className="panel" key={viewMode}>
-          <div className="section-head">
-            <h2>Buy Sips</h2>
-            <strong>{mySipCount} sip{mySipCount === 1 ? '' : 's'} owned</strong>
-          </div>
-          <div className="balance-bar-actions">
-            <div>
-              <span className="muted">Current price</span>
-              <strong>${sipSellPrice.toFixed(2)}</strong>
+        <div className="sips-tab-grid" key={viewMode}>
+          <div className="panel">
+            <div className="section-head">
+              <h2>Buy Sips</h2>
+              <strong>{mySipCount} sip{mySipCount === 1 ? '' : 's'} owned</strong>
             </div>
-            <button className="ghost-button" disabled={economyActionLoading || myBalance < sipBuyPrice} onClick={handleBuySip} type="button">
-              Buy Sip (${sipBuyPrice.toFixed(2)})
-            </button>
-            <button className="ghost-button" disabled={economyActionLoading || mySipCount < 1} onClick={handleSellSip} type="button">
-              Sell Sip (${sipSellPrice.toFixed(2)})
-            </button>
-            <select
-              className="balance-bar-select"
-              disabled={economyActionLoading || mySipCount < 1}
-              onChange={(event) => setRedeemTargetId(event.target.value)}
-              value={redeemTargetId}
-            >
-              <option value="">Force a sip on...</option>
-              {players.filter((entry) => entry.id !== player?.id).map((entry) => (
-                <option key={entry.id} value={entry.id}>{identitiesByPlayerId?.[entry.id]?.teamName || entry.name}</option>
-              ))}
-            </select>
-            <input
-              className="balance-bar-note"
-              disabled={economyActionLoading || mySipCount < 1}
-              onChange={(event) => setRedeemNote(event.target.value)}
-              placeholder="Note (optional)"
-              type="text"
-              value={redeemNote}
-            />
-            <input
-              className="balance-bar-note"
-              disabled={economyActionLoading || mySipCount < 1}
-              max={mySipCount}
-              min={1}
-              onChange={(event) => setRedeemQty(event.target.value)}
-              style={{ width: 64 }}
-              type="number"
-              value={redeemQty}
-            />
-            <button className="solid-button" disabled={economyActionLoading || mySipCount < 1 || !redeemTargetId} onClick={handleRedeemSip} type="button">
-              Redeem
-            </button>
-          </div>
-          {myPendingSipRedemptions.length ? (
-            <div className="feed-list">
-              <strong className="muted">Sips you owe</strong>
-              {myPendingSipRedemptions.map((entry) => (
-                <div className="feed-row" key={entry.id}>
-                  <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={entry.from_player_id} playersById={playersById} />
-                    <span className="muted">forced you to drink</span>
-                    {entry.note ? <span className="muted">"{entry.note}"</span> : null}
-                  </strong>
-                  <button className="ghost-button" disabled={economyActionLoading} onClick={() => handleConfirmSipTaken(entry.id)} type="button">
-                    Confirm taken
-                  </button>
-                </div>
-              ))}
+            <div className="sip-price-row">
+              <div>
+                <span className="muted">Current price</span>
+                <strong>${sipSellPrice.toFixed(2)}</strong>
+              </div>
+              <SipPriceSparkline sipTransactions={sipTransactions} />
             </div>
-          ) : null}
-          {pendingSipsByPlayer.length ? (
-            <div className="feed-list">
-              <strong className="muted">Sips still owed</strong>
-              {pendingSipsByPlayer.map(({ playerId, count }) => (
-                <div className="feed-row" key={playerId}>
-                  <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={playerId} playersById={playersById} />
-                  </strong>
-                  <span className="muted">{count} sip{count === 1 ? '' : 's'} to take</span>
+            <div className="sip-buy-sell-actions">
+              <button className="ghost-button" disabled={economyActionLoading || myBalance < sipBuyPrice} onClick={handleBuySip} type="button">
+                Buy Sip (${sipBuyPrice.toFixed(2)})
+              </button>
+              <button className="ghost-button" disabled={economyActionLoading || mySipCount < 1} onClick={handleSellSip} type="button">
+                Sell Sip (${sipSellPrice.toFixed(2)})
+              </button>
+            </div>
+          </div>
+          <div className="panel">
+            <div className="section-head">
+              <h2>Force a Sip</h2>
+            </div>
+            <div className="balance-bar-actions">
+              <select
+                className="balance-bar-select"
+                disabled={economyActionLoading || mySipCount < 1}
+                onChange={(event) => setRedeemTargetId(event.target.value)}
+                value={redeemTargetId}
+              >
+                <option value="">Force a sip on...</option>
+                {players.filter((entry) => entry.id !== player?.id).map((entry) => (
+                  <option key={entry.id} value={entry.id}>{identitiesByPlayerId?.[entry.id]?.teamName || entry.name}</option>
+                ))}
+              </select>
+              <input
+                className="balance-bar-note"
+                disabled={economyActionLoading || mySipCount < 1}
+                onChange={(event) => setRedeemNote(event.target.value)}
+                placeholder="Note (optional)"
+                type="text"
+                value={redeemNote}
+              />
+              <input
+                className="balance-bar-note"
+                disabled={economyActionLoading || mySipCount < 1}
+                max={mySipCount}
+                min={1}
+                onChange={(event) => setRedeemQty(event.target.value)}
+                style={{ width: 64 }}
+                type="number"
+                value={redeemQty}
+              />
+              <button className="solid-button" disabled={economyActionLoading || mySipCount < 1 || !redeemTargetId} onClick={handleRedeemSip} type="button">
+                Redeem
+              </button>
+            </div>
+          </div>
+          {myPendingSipRedemptions.length || pendingSipsByPlayer.length ? (
+            <div className="panel sips-tab-grid-full">
+              {myPendingSipRedemptions.length ? (
+                <div className="feed-list">
+                  <strong className="muted">Sips you owe</strong>
+                  {myPendingSipRedemptions.map((entry) => (
+                    <div className="feed-row" key={entry.id}>
+                      <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={entry.from_player_id} playersById={playersById} />
+                        <span className="muted">forced you to drink</span>
+                        {entry.note ? <span className="muted">"{entry.note}"</span> : null}
+                      </strong>
+                      <button className="ghost-button" disabled={economyActionLoading} onClick={() => handleConfirmSipTaken(entry.id)} type="button">
+                        Confirm taken
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : null}
+              {pendingSipsByPlayer.length ? (
+                <div className="feed-list">
+                  <strong className="muted">Sips still owed</strong>
+                  {pendingSipsByPlayer.map(({ playerId, count }) => (
+                    <div className="feed-row" key={playerId}>
+                      <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={playerId} playersById={playersById} />
+                      </strong>
+                      <span className="muted">{count} sip{count === 1 ? '' : 's'} to take</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -2702,6 +2859,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                   moneyline={card.moneyline}
                   total={card.total}
                   runLine={card.runLine}
+                  runLineDisplay={card.runLineDisplay}
                   stadiumData={card.stadiumData}
                   flashSignature={card.flashSignature}
                   gameBetSlip={card.gameBetSlip}
@@ -2746,14 +2904,11 @@ export default function BettingTab({ mode = 'tournament' }) {
                       </div>
                     ) : null
                   })()}
-                  <span className="brand-kicker">Game Detail</span>
-                  <h2>{formatBettingGameMatchup(detailGame, playersById, identitiesByPlayerId)}</h2>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_a_player_id} playersById={playersById} />
                     <span className="muted">vs</span>
                     <PlayerTag height={32} identitiesByPlayerId={identitiesByPlayerId} playerId={detailGame.team_b_player_id} playersById={playersById} />
                   </div>
-                  <span className="muted">{getGameStatusLabel(detailGame, detailGame?.innings ?? sourceContext?.innings)}</span>
                 </div>
               </div>
 

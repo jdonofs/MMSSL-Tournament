@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, RotateCcw, X, Zap } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -6,8 +7,7 @@ import { useSeason } from '../context/SeasonContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
 import PlayerTag from '../components/PlayerTag'
-import SharedCharacterDetailModal from '../components/CharacterDetailModal'
-import { buildCharacterTournamentHistory, MIN_PA_THRESHOLD, summarizeBatting, summarizePitching } from '../utils/statsCalculator'
+import { buildCharacterGameHistory, buildCharacterPitchingGameHistory, buildCharacterFieldingGameHistory, aggregateGameHistoryByEvent, MIN_PA_PER_GAME, summarizeBatting, summarizePitching } from '../utils/statsCalculator'
 import { analyzeCharacterTalent, getTalentTierMeta } from '../utils/characterAnalysis'
 import CharacterPortrait from '../components/CharacterPortrait'
 import StatIcon from '../components/StatIcon'
@@ -15,6 +15,18 @@ import { chemBreakdown, chemScore, getChemistry, isChemistryNameOnRoster, CHARAC
 import { formatCharacterDisplayName, getCharacterChemistryName, isMiiCharacter, MII_COLOR_OPTIONS } from '../utils/mii'
 import { buildTournamentTeamIdentityMap, getCaptainIdentityFromName, getTeamShortName, isCaptainCharacterName } from '../utils/teamIdentity'
 import { getCurrentDraftState, normalizeSeasonDraftPicks, snakeOrder } from '../utils/draftOrder'
+
+function formatSignedDelta(delta) {
+  if (delta === null || delta === undefined || !Number.isFinite(delta)) return '—'
+  const sign = delta > 0 ? '+' : ''
+  return `${sign}${delta.toFixed(1)}`
+}
+
+function formatSignedInt(value) {
+  if (!Number.isFinite(value)) return '—'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value}`
+}
 
 function trendSymbol(history) {
   const valid = (history || []).filter(t => t.perfScore !== null)
@@ -94,7 +106,7 @@ function getCompactDraftBoardName(name, miiColor) {
 }
 
 // ─── Player card panel ────────────────────────────────────────────────────────
-function PlayerCard({ stack, charactersById, tournHistories, rosterNames, draftedNames, picksByCharacter, playersById, teamIdentitiesByPlayerId, isYourTurn, isDrafting, onDraft, onClose, onNavigate }) {
+function PlayerCard({ stack, charactersById, tournHistories, pitchingTournHistories, fieldingTournHistories, rosterNames, draftedNames, picksByCharacter, playersById, teamIdentitiesByPlayerId, isYourTurn, isDrafting, onDraft, onClose, onNavigate }) {
   const charId = stack[stack.length - 1]
   const c = charactersById[charId]
   if (!c) return null
@@ -103,8 +115,13 @@ function PlayerCard({ stack, charactersById, tournHistories, rosterNames, drafte
   const isDrafted = Boolean(pick)
   const history = tournHistories[c.id] || []
   const validHistory = history.filter(t => t.perfScore !== null)
-  const analysis = analyzeCharacterTalent(c, history)
+  const eventHistory = useMemo(() => aggregateGameHistoryByEvent(history), [history])
+  const analysis = analyzeCharacterTalent(c, history, pitchingTournHistories?.[c.id], fieldingTournHistories?.[c.id])
   const tierMeta = getTalentTierMeta(analysis?.tier)
+  const battingTierMeta = getTalentTierMeta(analysis?.battingTier)
+  const pitchingTierMeta = getTalentTierMeta(analysis?.pitchingTier)
+  const fieldingTierMeta = getTalentTierMeta(analysis?.fieldingTier)
+  const speedTierMeta = getTalentTierMeta(analysis?.speedTier)
   const displayName = formatCharacterDisplayName(c.name, pick?.mii_color)
   const chemistryName = getCharacterChemistryName(c.name, pick?.mii_color)
   const chem = getChemistry(chemistryName)
@@ -192,16 +209,28 @@ function PlayerCard({ stack, charactersById, tournHistories, rosterNames, drafte
         <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Role OVR</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-            <div style={{ background: '#0F172A', borderRadius: 8, padding: '8px 10px' }}>
-              <div style={{ fontSize: 10, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>Bat OVR</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#F8FAFC', lineHeight: 1.1 }}>{analysis?.displayRatings?.batting ?? '—'}</div>
-              <div style={{ fontSize: 11, color: battingTierMeta.color, fontWeight: 700 }}>{battingTierMeta.label}</div>
-            </div>
-            <div style={{ background: '#0F172A', borderRadius: 8, padding: '8px 10px' }}>
-              <div style={{ fontSize: 10, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>Pitch OVR</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#F8FAFC', lineHeight: 1.1 }}>{analysis?.displayRatings?.pitching ?? '—'}</div>
-              <div style={{ fontSize: 11, color: pitchingTierMeta.color, fontWeight: 700 }}>{pitchingTierMeta.label}</div>
-            </div>
+            {[
+              { label: 'Bat OVR', value: analysis?.displayRatings?.batting, tierMeta: battingTierMeta, impact: analysis?.skillImpact?.batting },
+              { label: 'Pitch OVR', value: analysis?.displayRatings?.pitching, tierMeta: pitchingTierMeta, impact: analysis?.skillImpact?.pitching },
+              { label: 'Field OVR', value: analysis?.displayRatings?.fielding, tierMeta: fieldingTierMeta, impact: analysis?.skillImpact?.fielding },
+              { label: 'Speed OVR', value: analysis?.displayRatings?.speed, tierMeta: speedTierMeta, impact: analysis?.skillImpact?.speed },
+            ].map(({ label, value, tierMeta: skillTierMeta, impact }) => {
+              const hasImpact = impact && impact.impact !== 0
+              const impactColor = hasImpact ? (impact.impact > 0 ? '#22C55E' : '#F87171') : '#64748B'
+              return (
+                <div key={label} style={{ background: '#0F172A', borderRadius: 8, padding: '8px 10px' }}>
+                  <div style={{ fontSize: 10, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>{label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#F8FAFC', lineHeight: 1.1 }}>{value ?? '—'}</div>
+                  <div style={{ fontSize: 11, color: skillTierMeta.color, fontWeight: 700 }}>{skillTierMeta.label}</div>
+                  {hasImpact ? (
+                    <div style={{ fontSize: 10, color: '#64748B', marginTop: 2 }}>
+                      Talent {impact.base}
+                      <span style={{ color: impactColor, fontWeight: 700 }}> {formatSignedInt(impact.impact)}</span>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
           </div>
           <div style={{ fontSize: 11, color: '#64748B', marginBottom: 10 }}>{analysis?.archetype || 'Balanced contributor'}</div>
           <div style={{ display: 'grid', gap: 8 }}>
@@ -225,7 +254,7 @@ function PlayerCard({ stack, charactersById, tournHistories, rosterNames, drafte
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 12 }}>
             {[
               { label: 'Talent', value: analysis?.displayRatings?.overall ?? '—' },
-              { label: 'History', value: analysis?.historyScore !== null ? String(Math.max(1, Math.min(99, Math.round(analysis.historyScore)))) : '—' },
+              { label: 'History', value: formatSignedDelta(analysis?.historyDelta) },
               { label: 'Blend', value: analysis?.historyWeight ? `${Math.round(analysis.historyWeight * 100)}%` : '0%' },
             ].map(({ label, value }) => (
               <div key={label} style={{ border: '1px solid #334155', borderRadius: 10, padding: '8px 10px', background: '#0F172A' }}>
@@ -254,36 +283,37 @@ function PlayerCard({ stack, charactersById, tournHistories, rosterNames, drafte
               ))}
             </div>
           ) : null}
-          {analysis?.historyScore !== null ? (
+          {analysis?.historyDelta !== null ? (
             <div style={{ marginTop: 10, fontSize: 12, color: '#64748B' }}>
-              Tournament results are contributing {Math.round((analysis.historyWeight || 0) * 100)}% of this grade across {analysis.historyTournaments} event{analysis.historyTournaments === 1 ? '' : 's'}.
+              Game results are contributing {Math.round((analysis.historyWeight || 0) * 100)}% of this grade across {analysis.historyGames} game{analysis.historyGames === 1 ? '' : 's'} ({analysis.historyTotalPA} PA).
             </div>
           ) : null}
         </div>
 
-        {/* Tournament history */}
-        {history.length > 0 && (
+        {/* Performance history */}
+        {eventHistory.length > 0 && (
           <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Tournament History</div>
+            <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Performance History</div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ color: '#64748B', borderBottom: '1px solid #334155' }}>
-                  {['T#', 'PA', 'AVG', 'OPS', 'HR', 'RBI', 'Score'].map(h => (
-                    <th key={h} style={{ textAlign: h === 'T#' ? 'left' : 'center', padding: '3px 4px', fontWeight: 700 }}>{h}</th>
+                  {['Event', 'G', 'PA', 'AVG', 'OPS', 'HR', 'RBI', 'Δ'].map(h => (
+                    <th key={h} style={{ textAlign: h === 'Event' ? 'left' : 'center', padding: '3px 4px', fontWeight: 700 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {history.map((t) => (
-                  <tr key={t.tournamentId} style={{ borderBottom: '1px solid #0F172A', color: t.perfScore === null ? '#475569' : '#CBD5E1' }}>
-                    <td style={{ padding: '4px 4px', fontWeight: 700 }}>T{t.tournamentNumber}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.pa}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.avg.toFixed(3)}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.ops.toFixed(3)}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.hr}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{t.rbi}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px', fontWeight: 700, color: t.perfScore === null ? '#334155' : '#EAB308' }}>
-                      {t.perfScore !== null ? t.perfScore.toFixed(1) : `<${MIN_PA_THRESHOLD}PA`}
+                {eventHistory.map((e) => (
+                  <tr key={e.eventKey} style={{ borderBottom: '1px solid #0F172A', color: '#CBD5E1' }}>
+                    <td style={{ padding: '4px 4px', fontWeight: 700 }}>{e.eventType === 'tournament' ? `T${e.eventNumber}` : e.eventNumber}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.games}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.pa}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.avg.toFixed(3)}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.ops.toFixed(3)}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.hr}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.rbi}</td>
+                    <td style={{ textAlign: 'center', padding: '4px 4px', fontWeight: 700, color: e.avgDelta === null ? '#334155' : e.avgDelta >= 0 ? '#22C55E' : '#F87171' }}>
+                      {formatSignedDelta(e.avgDelta)}
                     </td>
                   </tr>
                 ))}
@@ -339,10 +369,11 @@ export default function Draft() {
 }
 
 export function DraftExperience({ mode = 'tournament' }) {
+  const navigate = useNavigate()
   const { player, is_logged_in } = useAuth()
   const { pushToast } = useToast()
   const { currentTournament, allTournaments } = useTournament()
-  const { currentSeason, seasonTeams } = useSeason()
+  const { currentSeason, seasonTeams, allSeasons } = useSeason()
   const isSeasonMode = mode === 'season'
   const activeDraftContext = isSeasonMode ? currentSeason : currentTournament
 
@@ -352,12 +383,16 @@ export function DraftExperience({ mode = 'tournament' }) {
   const [plateAppearances, setPlateAppearances] = useState([])
   const [pitchingStints, setPitchingStints] = useState([])
   const [games, setGames] = useState([])
+  const [seasonPlateAppearances, setSeasonPlateAppearances] = useState([])
+  const [seasonPitchingStints, setSeasonPitchingStints] = useState([])
+  const [gameFielders, setGameFielders] = useState([])
+  const [seasonGameFielders, setSeasonGameFielders] = useState([])
+  const [allSeasonTeams, setAllSeasonTeams] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState('ovr')
   const [sortDesc, setSortDesc] = useState(true)
   const [availabilityFilter, setAvailabilityFilter] = useState('available')
-  const [cardStack, setCardStack] = useState([])
   const [pendingMiiPick, setPendingMiiPick] = useState(null)
   const [isAutoDrafting, setIsAutoDrafting] = useState(false)
   const [draftError, setDraftError] = useState('')
@@ -377,15 +412,23 @@ export function DraftExperience({ mode = 'tournament' }) {
   useEffect(() => {
     const load = async () => {
       if (!hasLoadedRef.current) setLoading(true)
-      const [{ data: pData }, { data: cData }, { data: dData }, { data: paData }, { data: gData }, { data: pitchData }] = await Promise.all([
+      const [
+        { data: pData }, { data: cData }, { data: dData }, { data: paData }, { data: gData }, { data: pitchData }, { data: seasonPaData },
+        { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData }, { data: seasonTeamsData },
+      ] = await Promise.all([
         supabase.from('players').select('*').order('created_at'),
         supabase.from('characters').select('*').order('name'),
         isSeasonMode
           ? supabase.from('season_roster').select('*').eq('season_id', activeDraftContext?.id || -1).order('created_at')
           : supabase.from('draft_picks').select('*').order('pick_number'),
-        supabase.from('plate_appearances').select('game_id,character_id,result,run_scored,rbi'),
+        supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
         supabase.from('games').select('id,tournament_id'),
         supabase.from('pitching_stints').select('*'),
+        supabase.from('season_plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,season_id,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
+        supabase.from('season_pitching_stints').select('*'),
+        supabase.from('game_fielders').select('*'),
+        supabase.from('season_game_fielders').select('*'),
+        supabase.from('season_teams').select('id,player_id'),
       ])
       const orderedPlayers = isSeasonMode
         ? [...(seasonTeams || [])]
@@ -409,6 +452,11 @@ export function DraftExperience({ mode = 'tournament' }) {
       setPlateAppearances(paData || [])
       setGames(gData || [])
       setPitchingStints(pitchData || [])
+      setSeasonPlateAppearances(seasonPaData || [])
+      setSeasonPitchingStints(seasonPitchData || [])
+      setGameFielders(fieldersData || [])
+      setSeasonGameFielders(seasonFieldersData || [])
+      setAllSeasonTeams(seasonTeamsData || [])
       setLoading(false)
       hasLoadedRef.current = true
     }
@@ -554,7 +602,9 @@ export function DraftExperience({ mode = 'tournament' }) {
     [draftPicks, charactersById, isSeasonMode, seasonTeams],
   )
 
-  // Historical performance per character per tournament (exclude current tournament)
+  // Historical performance per character per game, across tournaments and seasons
+  // (exclude the event currently being drafted — you can't know how someone does
+  // in the tournament/season you're drafting for).
   const historicalGames = useMemo(
     () => games.filter(g => g.tournament_id !== activeDraftContext?.id),
     [games, activeDraftContext?.id]
@@ -563,16 +613,62 @@ export function DraftExperience({ mode = 'tournament' }) {
     const hGameIds = new Set(historicalGames.map(g => g.id))
     return plateAppearances.filter(pa => hGameIds.has(pa.game_id))
   }, [plateAppearances, historicalGames])
+  const historicalSeasonPAs = useMemo(() => {
+    if (!isSeasonMode) return seasonPlateAppearances
+    return seasonPlateAppearances.filter(pa => String(pa.season_id) !== String(activeDraftContext?.id))
+  }, [seasonPlateAppearances, isSeasonMode, activeDraftContext?.id])
 
   const tournHistories = useMemo(
-    () => buildCharacterTournamentHistory(historicalPAs, historicalGames, allTournaments || []),
-    [historicalPAs, historicalGames, allTournaments]
+    () => buildCharacterGameHistory(historicalPAs, historicalGames, allTournaments || [], historicalSeasonPAs, allSeasons || []),
+    [historicalPAs, historicalGames, allTournaments, historicalSeasonPAs, allSeasons]
   )
 
-  // All-tournament batting history (includes current tournament) — used by SharedCharacterDetailModal
+  const charactersByName = useMemo(
+    () => Object.fromEntries(characters.map((entry) => [entry.name, entry])),
+    [characters],
+  )
+  // Built from every season's teams (not just the one being drafted) since the fielding history
+  // below pools chances across all past seasons and tournaments — resolving a historical team_id
+  // only against the active draft's roster would silently drop or misattribute every other
+  // season's team-relative comparison.
+  const seasonTeamPlayerById = useMemo(
+    () => Object.fromEntries((allSeasonTeams || []).map((team) => [team.id, team.player_id])),
+    [allSeasonTeams],
+  )
+
+  const historicalPitchingStints = useMemo(() => {
+    const hGameIds = new Set(historicalGames.map(g => g.id))
+    return pitchingStints.filter(stint => hGameIds.has(stint.game_id))
+  }, [pitchingStints, historicalGames])
+  const historicalSeasonPitchingStints = useMemo(() => {
+    if (!isSeasonMode) return seasonPitchingStints
+    return seasonPitchingStints.filter(stint => String(stint.season_id) !== String(activeDraftContext?.id))
+  }, [seasonPitchingStints, isSeasonMode, activeDraftContext?.id])
+
+  const pitchingTournHistories = useMemo(
+    () => buildCharacterPitchingGameHistory(historicalPitchingStints, historicalGames, allTournaments || [], historicalSeasonPitchingStints, allSeasons || []),
+    [historicalPitchingStints, historicalGames, allTournaments, historicalSeasonPitchingStints, allSeasons]
+  )
+
+  const fieldingTournHistories = useMemo(
+    () => buildCharacterFieldingGameHistory(
+      historicalPAs, gameFielders, historicalGames, allTournaments || [],
+      historicalSeasonPAs, seasonGameFielders, allSeasons || [], charactersByName, seasonTeamPlayerById,
+    ),
+    [historicalPAs, gameFielders, historicalGames, allTournaments, historicalSeasonPAs, seasonGameFielders, allSeasons, charactersByName, seasonTeamPlayerById]
+  )
+
+  const getCharacterAnalysis = useCallback(
+    (character) => character
+      ? analyzeCharacterTalent(character, tournHistories[character.id], pitchingTournHistories[character.id], fieldingTournHistories[character.id])
+      : null,
+    [tournHistories, pitchingTournHistories, fieldingTournHistories],
+  )
+
+  // All-game history (includes the current event)
   const allTournHistories = useMemo(
-    () => buildCharacterTournamentHistory(plateAppearances, games, allTournaments || []),
-    [plateAppearances, games, allTournaments]
+    () => buildCharacterGameHistory(plateAppearances, games, allTournaments || [], seasonPlateAppearances, allSeasons || []),
+    [plateAppearances, games, allTournaments, seasonPlateAppearances, allSeasons]
   )
 
   const pitchingHistoryByCharacter = useMemo(() => {
@@ -724,11 +820,11 @@ export function DraftExperience({ mode = 'tournament' }) {
     }
     const sorted = [...list].sort((a, b) => {
       let compareVal = 0
-      if (sortKey === 'value') compareVal = (analyzeCharacterTalent(b, tournHistories[b.id])?.battingScore || 0) - (analyzeCharacterTalent(a, tournHistories[a.id])?.battingScore || 0)
-      else if (sortKey === 'ovr') compareVal = (analyzeCharacterTalent(b, tournHistories[b.id])?.displayRatings?.overall || 0) - (analyzeCharacterTalent(a, tournHistories[a.id])?.displayRatings?.overall || 0)
-      else if (sortKey === 'pitchValue') compareVal = (analyzeCharacterTalent(b, tournHistories[b.id])?.pitchingScore || 0) - (analyzeCharacterTalent(a, tournHistories[a.id])?.pitchingScore || 0)
-      else if (sortKey === 'fieldValue') compareVal = (analyzeCharacterTalent(b, tournHistories[b.id])?.fieldingScore || 0) - (analyzeCharacterTalent(a, tournHistories[a.id])?.fieldingScore || 0)
-      else if (sortKey === 'speedValue') compareVal = (analyzeCharacterTalent(b, tournHistories[b.id])?.speedScore || 0) - (analyzeCharacterTalent(a, tournHistories[a.id])?.speedScore || 0)
+      if (sortKey === 'value') compareVal = (getCharacterAnalysis(b)?.battingScore || 0) - (getCharacterAnalysis(a)?.battingScore || 0)
+      else if (sortKey === 'ovr') compareVal = (getCharacterAnalysis(b)?.overallRaw || 0) - (getCharacterAnalysis(a)?.overallRaw || 0)
+      else if (sortKey === 'pitchValue') compareVal = (getCharacterAnalysis(b)?.pitchingScore || 0) - (getCharacterAnalysis(a)?.pitchingScore || 0)
+      else if (sortKey === 'fieldValue') compareVal = (getCharacterAnalysis(b)?.fieldingScore || 0) - (getCharacterAnalysis(a)?.fieldingScore || 0)
+      else if (sortKey === 'speedValue') compareVal = (getCharacterAnalysis(b)?.speedScore || 0) - (getCharacterAnalysis(a)?.speedScore || 0)
       else if (sortKey === 'history') {
         const ha = (tournHistories[a.id] || []).filter(t => t.perfScore !== null)
         const hb = (tournHistories[b.id] || []).filter(t => t.perfScore !== null)
@@ -767,15 +863,30 @@ export function DraftExperience({ mode = 'tournament' }) {
       return sortDesc ? compareVal : -compareVal
     })
     return sorted
-  }, [characters, picksByCharacter, availabilityFilter, isCaptainRoundLocked, search, sortKey, sortDesc, tournHistories, myRosterNames])
+  }, [characters, picksByCharacter, availabilityFilter, isCaptainRoundLocked, search, sortKey, sortDesc, tournHistories, getCharacterAnalysis, myRosterNames])
 
-  const openCard = useCallback((id) => setCardStack([id]), [])
-  const navigateCard = useCallback((id, goBack = false, stackIndex = null) => {
-    if (goBack) setCardStack(prev => prev.slice(0, -1))
-    else if (stackIndex !== null) setCardStack(prev => prev.slice(0, stackIndex + 1))
-    else setCardStack(prev => [...prev, id])
-  }, [])
-  const closeCard = useCallback(() => setCardStack([]), [])
+  const openCharacterPage = useCallback((id) => {
+    const character = charactersById[id]
+    if (!character) return
+    const pick = picksByCharacter[id]
+    const currentOwner = pick ? { player_id: pick.player_id } : null
+    navigate(`/character/${id}`, {
+      state: {
+        character,
+        allCharactersById: Object.fromEntries(characters.map((entry) => [entry.name, entry])),
+        playersById,
+        identitiesByPlayerId: teamIdentitiesByPlayerId,
+        currentOwner,
+        currentContext: activeDraftContext?.id ? { type: isSeasonMode ? 'season' : 'tournament', id: activeDraftContext.id } : null,
+        rosterNames: myRosterNames,
+        profileData: {
+          gameHistory: tournHistories[id] || [],
+          pitchingGameHistory: pitchingTournHistories[id] || [],
+          fieldingGameHistory: fieldingTournHistories[id] || [],
+        },
+      },
+    })
+  }, [charactersById, picksByCharacter, navigate, characters, playersById, teamIdentitiesByPlayerId, activeDraftContext, isSeasonMode, myRosterNames, tournHistories, pitchingTournHistories, fieldingTournHistories])
 
   const handleHeaderClick = useCallback((key) => {
     if (sortKey === key) {
@@ -875,7 +986,7 @@ export function DraftExperience({ mode = 'tournament' }) {
     }
     if (skipReveal) {
       const ok = await finalizeDraftPick({ targetPlayerId: currentDrafter.id, character, miiColor, toastTitle: 'Pick submitted', toastVerb: 'drafted' })
-      if (ok) { setPendingMiiPick(null); closeCard() }
+      if (ok) { setPendingMiiPick(null) }
       return
     }
     const pendingPickPayload = { playerId: currentDrafter.id, characterId: character.id, miiColor }
@@ -885,8 +996,7 @@ export function DraftExperience({ mode = 'tournament' }) {
     setDraftError('')
     pushToast({ title: 'Pick sent', message: `Your pick has been sent to the commissioner to reveal.`, type: 'success' })
     setPendingMiiPick(null)
-    closeCard()
-  }, [activeDraftContext, canDraft, currentDrafter, isDraftComplete, isYourTurn, closeCard, pushToast, validateCaptainPick, skipReveal, finalizeDraftPick])
+  }, [activeDraftContext, canDraft, currentDrafter, isDraftComplete, isYourTurn, pushToast, validateCaptainPick, skipReveal, finalizeDraftPick])
 
   const undoLastPick = useCallback(async () => {
     if (!draftPicks.length) return
@@ -1003,7 +1113,7 @@ export function DraftExperience({ mode = 'tournament' }) {
       if (available.length === 0) break
 
       const best = available.reduce((b, c) =>
-        (analyzeCharacterTalent(c, tournHistories[c.id])?.battingScore || 0) > (analyzeCharacterTalent(b, tournHistories[b.id])?.battingScore || 0) ? c : b
+        (getCharacterAnalysis(c)?.battingScore || 0) > (getCharacterAnalysis(b)?.battingScore || 0) ? c : b
       , available[0])
 
       const miiColor = isMiiCharacter(best) ? MII_COLOR_OPTIONS[0] : null
@@ -1059,7 +1169,7 @@ export function DraftExperience({ mode = 'tournament' }) {
     }
 
     setIsAutoDrafting(false)
-  }, [activeDraftContext, canDraft, players, draftPicks, characters, totalPicks, tournHistories, pushToast, isSeasonMode, seasonTeams, refreshSeasonDraftPicks, isCaptainRoundLocked])
+  }, [activeDraftContext, canDraft, players, draftPicks, characters, totalPicks, tournHistories, getCharacterAnalysis, pushToast, isSeasonMode, seasonTeams, refreshSeasonDraftPicks, isCaptainRoundLocked])
 
   const autoDraftCaptains = useCallback(async () => {
     if (!activeDraftContext || !canDraft || players.length === 0 || characters.length === 0 || !isCaptainRoundLocked) return
@@ -1076,8 +1186,8 @@ export function DraftExperience({ mode = 'tournament' }) {
 
       const bestIndex = captainCandidates.reduce((bestSoFar, candidate, index, collection) => {
         const best = collection[bestSoFar]
-        const candidateValue = analyzeCharacterTalent(candidate, tournHistories[candidate.id])?.pitchingScore || 0
-        const bestValue = analyzeCharacterTalent(best, tournHistories[best.id])?.pitchingScore || 0
+        const candidateValue = getCharacterAnalysis(candidate)?.pitchingScore || 0
+        const bestValue = getCharacterAnalysis(best)?.pitchingScore || 0
         return candidateValue > bestValue ? index : bestSoFar
       }, 0)
 
@@ -1130,7 +1240,7 @@ export function DraftExperience({ mode = 'tournament' }) {
     }
 
     setIsAutoDrafting(false)
-  }, [activeDraftContext, canDraft, players, characters, isCaptainRoundLocked, draftPicks, tournHistories, isSeasonMode, seasonTeams, pushToast, refreshSeasonDraftPicks])
+  }, [activeDraftContext, canDraft, players, characters, isCaptainRoundLocked, draftPicks, tournHistories, getCharacterAnalysis, isSeasonMode, seasonTeams, pushToast, refreshSeasonDraftPicks])
 
   return (
     <div style={{ position: 'relative' }}>
@@ -1253,7 +1363,7 @@ export function DraftExperience({ mode = 'tournament' }) {
           const pick = picksByCharacter[c.id]
           const isDrafted = Boolean(pick)
           const history = tournHistories[c.id] || []
-          const analysis = analyzeCharacterTalent(c, history)
+          const analysis = getCharacterAnalysis(c)
           const score = analysis?.displayRatings?.batting ?? 0
           const activeTierInfo = SORT_KEY_TIER[sortKey]
           const activeTier = activeTierInfo ? analysis?.[activeTierInfo.tierKey] : analysis?.tier
@@ -1267,7 +1377,7 @@ export function DraftExperience({ mode = 'tournament' }) {
           return (
             <div
               key={c.id}
-              onClick={() => openCard(c.id)}
+              onClick={() => openCharacterPage(c.id)}
               onMouseEnter={e => e.currentTarget.style.background = '#1E293B'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               style={{ display: 'grid', gridTemplateColumns: draftBoardColumns, gap: draftBoardGap, alignItems: 'center', padding: draftBoardRowPadding, borderBottom: '1px solid #0F172A', cursor: 'pointer' }}
@@ -1345,46 +1455,6 @@ export function DraftExperience({ mode = 'tournament' }) {
         </div>{/* end overflow-x scroll */}
       </div>
 
-      {/* Card panel */}
-      {cardStack.length > 0 && (
-        <SharedCharacterDetailModal
-          character={charactersById[cardStack[cardStack.length - 1]]}
-          allCharactersById={Object.fromEntries(characters.map((entry) => [entry.name, entry]))}
-          playersById={playersById}
-          identitiesByPlayerId={teamIdentitiesByPlayerId}
-          currentOwner={(() => {
-            const selected = charactersById[cardStack[cardStack.length - 1]]
-            const pick = selected ? picksByCharacter[selected.id] : null
-            return pick ? { player_id: pick.player_id } : null
-          })()}
-          battingHistory={(() => {
-            const selected = charactersById[cardStack[cardStack.length - 1]]
-            return selected ? (allTournHistories[selected.id] || []) : []
-          })()}
-          pitchingHistory={(() => {
-            const selected = charactersById[cardStack[cardStack.length - 1]]
-            return selected ? (pitchingHistoryByCharacter[selected.id] || []) : []
-          })()}
-          allTimeBatting={(() => {
-            const selected = charactersById[cardStack[cardStack.length - 1]]
-            if (!selected) return undefined
-            const pas = plateAppearances.filter(pa => String(pa.character_id) === String(selected.id))
-            if (!pas.length) return undefined
-            const b = summarizeBatting(pas)
-            b.ops = b.obp + b.slg
-            b.rawPas = pas
-            return b
-          })()}
-          allTimePitching={(() => {
-            const selected = charactersById[cardStack[cardStack.length - 1]]
-            if (!selected) return undefined
-            const stints = pitchingStints.filter(s => String(s.character_id) === String(selected.id))
-            return stints.length ? summarizePitching(stints) : undefined
-          })()}
-          rosterNames={myRosterNames}
-          onClose={closeCard}
-        />
-      )}
 
       {pendingMiiPick && (
         <>

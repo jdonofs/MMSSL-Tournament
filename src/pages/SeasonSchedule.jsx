@@ -184,7 +184,7 @@ function SeasonGameDetail({
             {lockReason ? <div className="feed-row"><strong>Status</strong><span>{lockReason}</span></div> : null}
             {game.status === 'completed' ? <div className="feed-row"><strong>Final</strong><span>Away {game.away_score} · Home {game.home_score}</span></div> : null}
           </div>
-          {['scheduled', 'in_progress'].includes(game.status) && (!game.stadium || showSetup) ? (
+          {(['scheduled', 'in_progress'].includes(game.status) && !game.stadium) || showSetup ? (
             <section className="panel" style={{ padding: 14, background: 'rgba(15,23,42,0.55)' }}>
               <div style={{ display: 'grid', gap: 12 }}>
                 <div>
@@ -491,6 +491,14 @@ export default function SeasonSchedule() {
       .eq('id', game.id)
     if (error) throw error
 
+    // A stadium is never actually changed mid/post-game — fixing it means correcting a
+    // setup mistake, so the denormalized historical log row must be corrected too.
+    const { error: logError } = await supabase
+      .from('season_stadium_game_log')
+      .update(patch)
+      .eq('game_id', game.id)
+    if (logError) throw logError
+
     setScheduleOverrides((prev) => ({ ...prev, [String(game.id)]: patch }))
     setGameModal((current) => (
       current && String(current.game.id) === String(game.id)
@@ -743,7 +751,7 @@ export default function SeasonSchedule() {
                 </div>
                 <div style={{ display: 'grid', gap: 8, color: '#94A3B8', fontSize: 13 }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    {canEditStadiumForGame(game) && ['scheduled', 'in_progress'].includes(game.status) ? (
+                    {canEditStadiumForGame(game) ? (
                       <span
                         role="button"
                         tabIndex={0}

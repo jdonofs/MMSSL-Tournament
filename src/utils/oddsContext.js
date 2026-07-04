@@ -2,6 +2,10 @@ import { buildBettingEntityLabel } from './oddsEngine'
 import { getPlayerSkillProfile } from './teamIdentity'
 import { inningsAsDecimal } from './statsCalculator'
 import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules'
+import { summarizeHitDistance } from './hitDistanceStats'
+
+const DEFAULT_AVG_DISTANCE_FT = 220
+const DEFAULT_HARD_HIT_RATE = 0.18
 
 const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 
@@ -58,6 +62,7 @@ function buildPlayerHistoricalSummary({
   const totalPas = relevantPAs.length || 1
   const totalInnings = relevantPitching.reduce((sum, entry) => sum + inningsAsDecimal(entry.innings_pitched), 0)
   const strikeouts = relevantPitching.reduce((sum, entry) => sum + Number(entry.strikeouts || 0), 0)
+  const distanceProfile = summarizeHitDistance(relevantPAs)
 
   return {
     gamesPlayed: relevantGames.length,
@@ -69,6 +74,8 @@ function buildPlayerHistoricalSummary({
     strikeoutsPerInning: totalInnings > 0 ? strikeouts / totalInnings : 0,
     strikeoutsPerGame: relevantPitching.length ? strikeouts / relevantPitching.length : 0,
     plateAppearances: relevantPAs.length,
+    avgDistance: distanceProfile.avgDistance ?? DEFAULT_AVG_DISTANCE_FT,
+    hardHitRate: distanceProfile.hardHitRate ?? DEFAULT_HARD_HIT_RATE,
   }
 }
 
@@ -88,6 +95,8 @@ function blendHistoricalSummaries(parts = []) {
     plateAppearances: Math.round(blend('plateAppearances')),
     samplePlateAppearances: maxOf('plateAppearances'),
     sampleGamesPlayed: maxOf('gamesPlayed'),
+    avgDistance: blend('avgDistance', DEFAULT_AVG_DISTANCE_FT),
+    hardHitRate: blend('hardHitRate', DEFAULT_HARD_HIT_RATE),
   }
 }
 
@@ -182,6 +191,7 @@ export function buildOddsGenerationContext({
   bets = [],
   liabilityCap = null,
   expectedPitcherByPlayer = {},
+  oddsWeights = null,
 }) {
   if (!game) return null
 
@@ -285,6 +295,11 @@ export function buildOddsGenerationContext({
     totalInnings: normalizeRegulationInnings(totalInnings, DEFAULT_REGULATION_INNINGS),
     marketVolume: buildMarketVolume(bets.filter((bet) => String(bet.game_id) === String(game.id))),
     ...(liabilityCap != null ? { liabilityCap } : {}),
+    // Calibrated char_stats_weight/historical_weight/live_weight from
+    // odds_engine_weights, recomputed after every resolved game based on
+    // actual prediction accuracy — lets the live win-probability model get
+    // more accurate over time instead of using fixed weights forever.
+    ...(oddsWeights ? { weights: oddsWeights } : {}),
   }
 
   ;[...homeRoster, ...awayRoster].forEach((entry) => {

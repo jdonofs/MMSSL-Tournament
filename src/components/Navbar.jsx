@@ -7,26 +7,40 @@ import { useSeason } from '../context/SeasonContext'
 import { useTournament } from '../context/TournamentContext'
 import { getModeStorageValue, setModeStorageValue } from '../utils/season'
 
+// `cluster` groups related pills with a divider between groups.
 const tournamentNavItems = [
-  { to: '/', label: 'Home', icon: House },
-  { to: '/draft', label: 'Draft', icon: ScrollText },
-  { to: '/roster', label: 'Roster', icon: Users2 },
-  { to: '/betting', label: 'Betting', icon: Trophy },
-  { to: '/stats', label: 'Stats', icon: BarChart3 },
-  { to: '/bracket', label: 'Bracket', icon: GanttChartSquare },
+  { to: '/', label: 'Home', icon: House, cluster: 'overview' },
+  { to: '/bracket', label: 'Bracket', icon: GanttChartSquare, cluster: 'overview' },
+  { to: '/draft', label: 'Draft', icon: ScrollText, cluster: 'team' },
+  { to: '/roster', label: 'Roster', icon: Users2, cluster: 'team' },
+  { to: '/betting', label: 'Betting', icon: Trophy, cluster: 'team' },
+  { to: '/stats', label: 'Stats', icon: BarChart3, cluster: 'stats' },
 ]
 
 const seasonNavItems = [
-  { to: '/season', label: 'Standings', icon: House },
-  { to: '/season/schedule', label: 'Schedule', icon: BookOpenText },
-  { to: '/season/draft', label: 'Draft', icon: ScrollText },
-  { to: '/season/roster', label: 'Roster', icon: Users2 },
-  { to: '/season/bets', label: 'Bets', icon: Trophy },
-  { to: '/season/stats', label: 'Stats', icon: BarChart3 },
-  { to: '/season/bracket', label: 'Bracket', icon: GanttChartSquare },
+  { to: '/season', label: 'Standings', icon: House, cluster: 'league' },
+  { to: '/season/schedule', label: 'Schedule', icon: BookOpenText, cluster: 'league' },
+  { to: '/season/bracket', label: 'Bracket', icon: GanttChartSquare, cluster: 'league' },
+  { to: '/season/draft', label: 'Draft', icon: ScrollText, cluster: 'team' },
+  { to: '/season/roster', label: 'Roster', icon: Users2, cluster: 'team' },
+  { to: '/season/bets', label: 'Bets', icon: Trophy, cluster: 'team' },
+  { to: '/season/stats', label: 'Stats', icon: BarChart3, cluster: 'stats' },
 ]
 
 const adminNavItem = { to: '/admin', label: 'Admin', icon: Settings }
+
+function groupByCluster(items) {
+  const groups = []
+  items.forEach((item) => {
+    const previous = groups[groups.length - 1]
+    if (previous && previous.cluster === item.cluster) {
+      previous.items.push(item)
+      return
+    }
+    groups.push({ cluster: item.cluster, items: [item] })
+  })
+  return groups
+}
 
 function isExactNavMatch(pathname, target) {
   if (target === '/' || target === '/season') {
@@ -50,6 +64,7 @@ export default function Navbar() {
   const isCommissioner = player?.is_commissioner === true
   const baseNavItems = mode === 'season' ? seasonNavItems : tournamentNavItems
   const navItems = isCommissioner ? [...baseNavItems, adminNavItem] : baseNavItems
+  const navClusters = groupByCluster(baseNavItems)
   const tournamentLabel = mode === 'season'
     ? (viewedSeason ? viewedSeason.name : currentSeason?.name || 'No Season')
     : (viewedTournament ? `Tournament ${viewedTournament.tournament_number}` : 'No Tournament')
@@ -308,79 +323,105 @@ export default function Navbar() {
       </aside>
 
       <header className="top-nav">
-        <div className="brand-block">
-          <span className="brand-kicker">Sluggers</span>
-          <strong>{mode === 'season' ? 'Season Mode' : 'Tournament Tracker'}</strong>
-        </div>
-        <nav className="nav-links">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/' || to === '/season'}
-              className={() => `nav-link ${isExactNavMatch(location.pathname, to) ? 'nav-link-active' : ''}`}
-            >
-              <Icon size={16} />
-              <span>{label}</span>
-              {to === '/season/roster' && pendingTradeCount > 0 ? <span className="status-pill availability-open">{pendingTradeCount}</span> : null}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="nav-user">
-          {allTournaments.length || allSeasons.length ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className={`tab-button ${mode === 'tournament' ? 'tab-button-active' : ''}`} onClick={() => handleModeChange('tournament')} type="button">Tournament</button>
-                <button className={`tab-button ${mode === 'season' ? 'tab-button-active' : ''}`} onClick={() => handleModeChange('season')} type="button">Season</button>
-              </div>
-              {mode === 'season' ? (
-                <select className="nav-select" onChange={handleSeasonChange} value={viewedSeason ? String(viewedSeason.id) : ''}>
-                  {allSeasons.map((season) => (
-                    <option key={season.id} value={season.id}>{season.name}</option>
-                  ))}
-                </select>
-              ) : (
-                <select
-                  className="nav-select"
-                  onChange={handleTournamentChange}
-                  value={viewedTournament ? String(viewedTournament.id) : ''}
-                >
-                  {activeTournaments.map(tournament => (
-                    <option key={tournament.id} value={tournament.id}>
-                      Tournament {tournament.tournament_number}
-                    </option>
-                  ))}
-                  {archivedTournaments.length > 0 && (
-                    <optgroup label="Archived">
-                      {archivedTournaments.map(tournament => (
-                        <option key={tournament.id} value={tournament.id}>
-                          Tournament {tournament.tournament_number} [archived]
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-              )}
+        <div className="nav-row-top">
+          <div className="brand-compact">
+            <img src="/MSL.png" alt="MSL Sluggers" className="brand-mark" />
+            <div className="brand-text">
+              <span className="brand-kicker">Sluggers</span>
+              <strong>{mode === 'season' ? 'Season Mode' : 'Tournament Tracker'}</strong>
             </div>
-          ) : null}
+          </div>
 
-          {player ? (
-            <>
-              <NavLink to="/team" className="player-pill" style={{ borderColor: player.color, textDecoration: 'none' }}>
-                <span className="player-dot" style={{ backgroundColor: player.color }} />
-                <span>{player.name}</span>
+          <div className="nav-row-top-right">
+            {allTournaments.length || allSeasons.length ? (
+              <div className="nav-context-group">
+                <div className="nav-mode-toggle">
+                  <button className={`nav-mode-btn ${mode === 'tournament' ? 'nav-mode-btn-active' : ''}`} onClick={() => handleModeChange('tournament')} type="button">Tournament</button>
+                  <button className={`nav-mode-btn ${mode === 'season' ? 'nav-mode-btn-active' : ''}`} onClick={() => handleModeChange('season')} type="button">Season</button>
+                </div>
+                {mode === 'season' ? (
+                  <select className="nav-season-select" onChange={handleSeasonChange} value={viewedSeason ? String(viewedSeason.id) : ''}>
+                    {allSeasons.map((season) => (
+                      <option key={season.id} value={season.id}>{season.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    className="nav-season-select"
+                    onChange={handleTournamentChange}
+                    value={viewedTournament ? String(viewedTournament.id) : ''}
+                  >
+                    {activeTournaments.map(tournament => (
+                      <option key={tournament.id} value={tournament.id}>
+                        Tournament {tournament.tournament_number}
+                      </option>
+                    ))}
+                    {archivedTournaments.length > 0 && (
+                      <optgroup label="Archived">
+                        {archivedTournaments.map(tournament => (
+                          <option key={tournament.id} value={tournament.id}>
+                            Tournament {tournament.tournament_number} [archived]
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                )}
+              </div>
+            ) : null}
+
+            {player ? (
+              <>
+                <NavLink to="/team" className="nav-player-pill" style={{ borderColor: player.color, textDecoration: 'none' }}>
+                  <span className="player-dot" style={{ backgroundColor: player.color }} />
+                  <span>{player.name}</span>
+                </NavLink>
+                <button className="nav-logout-button" onClick={handleLogout} type="button">
+                  <LogOut size={14} />
+                  <span>Logout</span>
+                </button>
+              </>
+            ) : (
+              <NavLink to="/login" className="nav-logout-button" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <LogIn size={14} />
+                <span>Login</span>
               </NavLink>
-              <button className="ghost-button" onClick={handleLogout} type="button">
-                <LogOut size={16} />
-                <span>Logout</span>
-              </button>
-            </>
-          ) : (
-            <NavLink to="/login" className="ghost-button" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <LogIn size={16} />
-              <span>Login</span>
-            </NavLink>
-          )}
+            )}
+          </div>
+        </div>
+
+        <div className="nav-row-main">
+          <nav className="nav-links">
+            {navClusters.map((group, groupIndex) => (
+              <div className={`nav-cluster ${groupIndex > 0 ? 'nav-cluster-divided' : ''}`} key={group.cluster}>
+                {group.items.map(({ to, label, icon: Icon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    end={to === '/' || to === '/season'}
+                    className={() => `nav-link ${isExactNavMatch(location.pathname, to) ? 'nav-link-active' : ''}`}
+                  >
+                    <Icon size={16} />
+                    <span>{label}</span>
+                    {to === '/season/roster' && pendingTradeCount > 0 ? <span className="status-pill availability-open">{pendingTradeCount}</span> : null}
+                  </NavLink>
+                ))}
+              </div>
+            ))}
+          </nav>
+
+          <div className="nav-row-main-right">
+            {isCommissioner ? (
+              <NavLink
+                to="/admin"
+                className={() => `nav-admin-button ${isExactNavMatch(location.pathname, '/admin') ? 'nav-admin-button-active' : ''}`}
+                aria-label="Admin"
+                title="Admin"
+              >
+                <Settings size={16} />
+              </NavLink>
+            ) : null}
+          </div>
         </div>
       </header>
 
