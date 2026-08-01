@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import {
+  abbreviateSeasonName,
   aggregateFieldingHistoryByEvent,
   aggregateGameHistoryByEvent,
   aggregatePitchingHistoryByEvent,
@@ -8,10 +9,20 @@ import {
   buildCharacterGameHistory,
   buildCharacterIntrinsics,
   buildCharacterPitchingGameHistory,
+  buildFieldingChances,
+  calculateParkFactors,
+  summarizeFieldingByPosition,
+  summarizeStarHitFieldingByPosition,
 } from '../utils/statsCalculator'
+import { computeRangeLeagueConstants, summarizeFieldingRange } from '../utils/fieldingRange'
+import { summarizeContactQuality } from '../utils/hitDistanceStats'
 import { analyzeCharacterTalent } from '../utils/characterAnalysis'
 import { buildCharacterAwardRows } from '../utils/awardsAndHonors'
 import { buildCharacterTransactionFeed } from '../utils/transactionHistory'
+import { buildPlayerTeamIdentity, buildSeasonTeamIdentity } from '../utils/teamIdentity'
+import { buildExpectedOutcomeModel, summarizeExpectedBatting } from '../utils/expectedStats'
+import { getStadiumNameByKey } from '../utils/stadiums'
+import { normalizeSeasonRowsByGameId } from '../utils/seasonGameIds'
 
 function createDefaultExtras() {
   return {
@@ -19,8 +30,16 @@ function createDefaultExtras() {
     leaguePerformanceByCharacterId: {},
     fieldingHistory: [],
     allTimeFielding: null,
+    characterGameFielders: [],
+    fieldingByPosition: { totalGames: 0, positions: [] },
+    starHitFieldingByPosition: { positions: [], totalChances: 0, totalErrors: 0, fieldingPct: null },
+    fieldingRangeByPosition: { positions: [], totalRangeable: 0, totalRangeRuns: null },
+    parkFactorRows: [],
+    teamHistory: [],
     transactions: [],
     awardRows: [],
+    battingHistoryByCharacter: {},
+    pitchingHistoryByCharacter: {},
     statMedians: null,
     statMaxes: null,
     statMins: null,
@@ -126,14 +145,22 @@ function buildStatPercentileBounds(characters, battingHistoryAllByCharacter, pit
 
 const extrasCache = new Map()
 
+function getCacheKey(characterId, scope) {
+  if (characterId == null) return null
+  const scopeType = scope?.type || 'career'
+  const scopeId = scope?.id || 'career'
+  return `${characterId}:${scopeType}:${scopeId}`
+}
+
 function battedBallRate(pas, predicate) {
   if (!pas.length) return null
   return (pas.filter(predicate).length / pas.length) * 100
 }
 
-// Builds the league-wide exit-velo/barrel/hard-hit/whiff/K/BB rate index used by the percentile
-// snapshot row, grouping league-wide batted-ball rows by character_id.
-function buildLeaguePerformanceIndex(battingRows = []) {
+// Builds the league-wide exit-velo/barrel/hard-hit/whiff/K/BB/xwOBA rate index used by the
+// percentile snapshot row, grouping league-wide batted-ball rows by character_id. The expected-
+// outcome model is built once, league-wide, so every character's xwOBA is on the same scale.
+function buildLeaguePerformanceIndex(battingRows = [], expectedModel = null) {
   const byCharacter = {}
   battingRows.forEach((pa) => {
     const charId = pa.character_id
@@ -148,6 +175,7 @@ function buildLeaguePerformanceIndex(battingRows = []) {
     // must be excluded by a null check before the finite check, or they'd average in as 0 mph.
     const withEv = pas.filter((pa) => pa.exit_velocity_mph != null && Number.isFinite(Number(pa.exit_velocity_mph)) && !pa.star_hit_used)
     const swings = pas.filter((pa) => pa.result != null)
+    const expected = expectedModel ? summarizeExpectedBatting(pas, expectedModel) : null
     result[charId] = {
       exitVelo: withEv.length ? withEv.reduce((sum, pa) => sum + Number(pa.exit_velocity_mph), 0) / withEv.length : null,
       barrelRate: battedBallRate(withEv, (pa) => Number(pa.exit_velocity_mph) >= 98 && Number(pa.launch_angle_deg) >= 8 && Number(pa.launch_angle_deg) <= 32),
@@ -155,6 +183,7 @@ function buildLeaguePerformanceIndex(battingRows = []) {
       whiffRate: battedBallRate(swings, (pa) => pa.result === 'K'),
       kRate: battedBallRate(swings, (pa) => pa.result === 'K'),
       bbRate: battedBallRate(swings, (pa) => pa.result === 'BB'),
+      xwoba: expected?.sampleSize ? expected.xwOBA : null,
     }
   })
   return result
@@ -164,9 +193,17 @@ function buildLeaguePerformanceIndex(battingRows = []) {
 // four new sections (percentile row, fielding, awards, transactions) look identical no matter
 // which page the user clicked in from (Roster/SeasonRoster/Draft/Scorebook/Stats) or a direct
 // URL load, rather than being fuller/thinner depending on entry point.
-export default function useCharacterExtras(character) {
-  const cacheKey = character?.id != null ? String(character.id) : null
+export default function useCharacterExtras(character, scope = null) {
+  const cacheKey = getCacheKey(character?.id, scope)
   const [extras, setExtras] = useState(() => (cacheKey && extrasCache.has(cacheKey) ? extrasCache.get(cacheKey) : createDefaultExtras()))
+
+  useEffect(() => {
+    if (!cacheKey) {
+      setExtras(createDefaultExtras())
+      return
+    }
+    setExtras(extrasCache.get(cacheKey) || createDefaultExtras())
+  }, [cacheKey])
 
   useEffect(() => {
     if (!character?.id) {
@@ -184,26 +221,30 @@ export default function useCharacterExtras(character) {
         tournamentPitchingStintsResult, seasonPitchingStintsResult,
         tournamentFieldingPasResult, seasonFieldingPasResult,
         gameFieldersResult, seasonGameFieldersResult,
+        tournamentRunEventsResult, seasonRunEventsResult,
         gamesResult, tournamentsResult, seasonsResult,
         charactersResult, seasonTeamsResult,
         draftPicksResult,
         tournamentTradeProposalsResult, tournamentTradeMovesResult,
         seasonTradeProposalsResult, seasonTradeMovesResult,
         seasonWaiversResult, seasonRosterResult,
+        playersResult,
       ] = await Promise.all([
-        supabase.from('plate_appearances').select('character_id,pitcher_id,result,exit_velocity_mph,launch_angle_deg,star_hit_used,game_id'),
-        supabase.from('season_plate_appearances').select('character_id,pitcher_id,result,exit_velocity_mph,launch_angle_deg,star_hit_used,season_id'),
+        supabase.from('plate_appearances').select('character_id,pitcher_id,result,exit_velocity_mph,launch_angle_deg,star_hit_used,game_id,hit_stadium_key,is_error,run_scored'),
+        supabase.from('season_plate_appearances').select('character_id,pitcher_id,result,exit_velocity_mph,launch_angle_deg,star_hit_used,season_id,game_id,hit_stadium_key,is_error,run_scored'),
         supabase.from('pitching_stints').select('*'),
         supabase.from('season_pitching_stints').select('*'),
-        supabase.from('plate_appearances').select('game_id,character_id,hit_location,hit_notation,error_position,error_character,is_error,inning,defensive_team_id'),
-        supabase.from('season_plate_appearances').select('game_id,season_id,character_id,hit_location,hit_notation,error_position,error_character,is_error,inning,defensive_team_id'),
+        supabase.from('plate_appearances').select('game_id,character_id,hit_location,hit_notation,error_notation,error_position,error_character,is_error,is_nice_play,inning,defensive_team_id,result,outs_on_play,star_hit_used,is_buddy_jump,buddy_jump_assist_position,buddy_jump_putout_position,hit_distance_ft,hit_angle_deg,hit_stadium_key,fielded_x,fielded_y,hang_time_sec,contact_video_sec,fielded_video_sec'),
+        supabase.from('season_plate_appearances').select('game_id,season_id,character_id,hit_location,hit_notation,error_notation,error_position,error_character,is_error,is_nice_play,inning,defensive_team_id,result,outs_on_play,star_hit_used,is_buddy_jump,buddy_jump_assist_position,buddy_jump_putout_position,hit_distance_ft,hit_angle_deg,hit_stadium_key,fielded_x,fielded_y,hang_time_sec,contact_video_sec,fielded_video_sec'),
         supabase.from('game_fielders').select('*'),
         supabase.from('season_game_fielders').select('*'),
+        supabase.from('runs_scored').select('*'),
+        supabase.from('season_runs_scored').select('*'),
         supabase.from('games').select('id,tournament_id'),
         supabase.from('tournaments').select('id,tournament_number').order('tournament_number'),
         supabase.from('seasons').select('id,name,created_at').order('created_at'),
         supabase.from('characters').select('*'),
-        supabase.from('season_teams').select('id,player_id,season_id'),
+        supabase.from('season_teams').select('*'),
         supabase.from('draft_picks').select('*'),
         supabase.from('tournament_trade_proposals').select('*'),
         supabase.from('tournament_trade_proposal_moves').select('*'),
@@ -211,18 +252,21 @@ export default function useCharacterExtras(character) {
         supabase.from('season_trade_proposal_moves').select('*'),
         supabase.from('season_waivers').select('*'),
         supabase.from('season_roster').select('character_name,team_id,acquired_via,created_at,season_id'),
+        supabase.from('players').select('*'),
       ])
 
       if (cancelled) return
 
       const tournamentBattingPas = tournamentBattingResult.data || []
-      const seasonBattingPas = seasonBattingResult.data || []
+      const seasonBattingPas = normalizeSeasonRowsByGameId(seasonBattingResult.data || [])
       const tournamentStints = tournamentPitchingStintsResult.data || []
-      const seasonStints = seasonPitchingStintsResult.data || []
+      const seasonStints = normalizeSeasonRowsByGameId(seasonPitchingStintsResult.data || [])
       const tournamentFieldingPas = tournamentFieldingPasResult.data || []
-      const seasonFieldingPas = seasonFieldingPasResult.data || []
+      const seasonFieldingPas = normalizeSeasonRowsByGameId(seasonFieldingPasResult.data || [])
       const gameFielders = gameFieldersResult.data || []
-      const seasonGameFielders = seasonGameFieldersResult.data || []
+      const seasonGameFielders = normalizeSeasonRowsByGameId(seasonGameFieldersResult.data || [])
+      const tournamentRunEvents = tournamentRunEventsResult.data || []
+      const seasonRunEvents = normalizeSeasonRowsByGameId(seasonRunEventsResult.data || [])
       const games = gamesResult.data || []
       const tournaments = tournamentsResult.data || []
       const seasons = seasonsResult.data || []
@@ -235,14 +279,67 @@ export default function useCharacterExtras(character) {
       const seasonTradeMoves = seasonTradeMovesResult.data || []
       const seasonWaivers = seasonWaiversResult.data || []
       const seasonRosterRaw = seasonRosterResult.data || []
+      const players = playersResult.data || []
 
       const charactersByName = Object.fromEntries(characters.map((c) => [c.name, c]))
       const seasonTeamPlayerById = Object.fromEntries(seasonTeams.map((t) => [t.id, t.player_id]))
+      const seasonTeamsById = Object.fromEntries(seasonTeams.map((t) => [t.id, t]))
+      const playersById = Object.fromEntries(players.map((p) => [p.id, p]))
+      const playerNameById = Object.fromEntries(players.map((p) => [p.id, p.name]))
       const tournamentById = Object.fromEntries(tournaments.map((t) => [String(t.id), t]))
       const seasonById = Object.fromEntries(seasons.map((s) => [String(s.id), s]))
 
       // Percentile snapshot: league-wide batted-ball performance per character.
-      const leaguePerformanceByCharacterId = buildLeaguePerformanceIndex([...tournamentBattingPas, ...seasonBattingPas])
+      const allLeagueBattingRows = [...tournamentBattingPas, ...seasonBattingPas]
+      const leagueExpectedModel = buildExpectedOutcomeModel(allLeagueBattingRows)
+      const leaguePerformanceByCharacterId = buildLeaguePerformanceIndex(allLeagueBattingRows, leagueExpectedModel)
+      const scopedSeasonGameIds = new Set(
+        scope?.type === 'season'
+          ? seasonBattingPas
+            .filter((pa) => String(pa.season_id) === String(scope.id))
+            .map((pa) => String(pa.game_id))
+          : [],
+      )
+      const scopedTournamentGameIds = new Set(
+        scope?.type === 'tournament'
+          ? games.filter((game) => String(game.tournament_id) === String(scope.id)).map((game) => String(game.id))
+          : [],
+      )
+      const parkFactorLeagueBattingRows = scope?.type === 'season'
+        ? seasonBattingPas.filter((pa) => String(pa.season_id) === String(scope.id))
+        : scope?.type === 'tournament'
+          ? tournamentBattingPas.filter((pa) => scopedTournamentGameIds.has(String(pa.game_id)))
+          : allLeagueBattingRows
+      const parkFactorLeagueRunEvents = scope?.type === 'season'
+        ? seasonRunEvents.filter((run) => scopedSeasonGameIds.has(String(run.game_id)))
+        : scope?.type === 'tournament'
+          ? tournamentRunEvents.filter((run) => scopedTournamentGameIds.has(String(run.game_id)))
+          : [...tournamentRunEvents, ...seasonRunEvents]
+
+      // Park Factors (for the stadiums this character has actually played at) — a park factor
+      // describes the STADIUM's own league-wide effect on an outcome, not anything about this
+      // character specifically; this just filters the full park-factor list down to the parks this
+      // character's own PAs carry a hit_stadium_key for.
+      const characterOwnBattingRows = parkFactorLeagueBattingRows.filter((pa) => String(pa.character_id) === String(character.id))
+      const leagueContactQualityAll = summarizeContactQuality(parkFactorLeagueBattingRows)
+      const characterStadiumKeys = [...new Set(characterOwnBattingRows.map((pa) => pa.hit_stadium_key).filter(Boolean))]
+      const parkFactorRows = characterStadiumKeys.map((key) => {
+        const stadiumPas = parkFactorLeagueBattingRows.filter((pa) => pa.hit_stadium_key === key)
+        const stadiumGameIds = new Set(stadiumPas.map((pa) => String(pa.game_id)))
+        const stadiumRunEvents = parkFactorLeagueRunEvents.filter((run) => stadiumGameIds.has(String(run.game_id)))
+        const factors = calculateParkFactors(stadiumPas, parkFactorLeagueBattingRows, stadiumRunEvents, parkFactorLeagueRunEvents)
+        const stadiumContactQuality = summarizeContactQuality(stadiumPas)
+        const rateFactor = (stadiumRate, leagueRate) => (leagueRate ? stadiumRate / leagueRate : 1)
+        return {
+          stadiumKey: key,
+          stadiumName: getStadiumNameByKey(key) || key,
+          ...factors,
+          hardHit: (stadiumContactQuality.hardHitRate != null && leagueContactQualityAll.hardHitRate)
+            ? rateFactor(stadiumContactQuality.hardHitRate, leagueContactQualityAll.hardHitRate) : 1,
+          barrel: (stadiumContactQuality.barrelRate != null && leagueContactQualityAll.barrelRate)
+            ? rateFactor(stadiumContactQuality.barrelRate, leagueContactQualityAll.barrelRate) : 1,
+        }
+      }).sort((a, b) => a.stadiumName.localeCompare(b.stadiumName))
 
       // Fielding: this character's per-season chances/putouts/assists/errors.
       const fieldingByCharacter = buildCharacterFieldingGameHistory(
@@ -251,12 +348,26 @@ export default function useCharacterExtras(character) {
       )
       const fieldingGameHistory = fieldingByCharacter[character.id] || []
       const fieldingHistory = aggregateFieldingHistoryByEvent(fieldingGameHistory)
+      const characterGameFielders = [...gameFielders, ...seasonGameFielders].filter((row) => row.character === character.name)
+      // League-wide (every character) — feeds the Range Runs baseline below, same "compute
+      // from everyone before filtering to one character" ordering as computeFieldingLeagueConstants.
+      const allFieldingChances = [
+        ...buildFieldingChances(tournamentFieldingPas, gameFielders, charactersByName),
+        ...buildFieldingChances(seasonFieldingPas, seasonGameFielders, charactersByName, (teamId) => seasonTeamPlayerById[teamId] ?? teamId),
+      ]
+      const characterFieldingChances = allFieldingChances.filter((chance) => String(chance.characterId) === String(character.id))
+      const fieldingByPosition = summarizeFieldingByPosition(characterGameFielders, characterFieldingChances)
+      const starHitFieldingByPosition = summarizeStarHitFieldingByPosition(characterFieldingChances)
+      const rangeLeagueConstants = computeRangeLeagueConstants(allFieldingChances)
+      const fieldingRangeByPosition = summarizeFieldingRange(characterFieldingChances, rangeLeagueConstants)
       const allTimeFielding = fieldingGameHistory.length ? (() => {
         const chances = fieldingGameHistory.reduce((sum, g) => sum + (g.chances || 0), 0)
         const putouts = fieldingGameHistory.reduce((sum, g) => sum + (g.putouts || 0), 0)
         const assists = fieldingGameHistory.reduce((sum, g) => sum + (g.assists || 0), 0)
         const errors = fieldingGameHistory.reduce((sum, g) => sum + (g.errors || 0), 0)
-        return { chances, putouts, assists, errors, fieldingPct: chances ? (chances - errors) / chances : null }
+        const buddyJumps = fieldingGameHistory.reduce((sum, g) => sum + (g.buddyJumps || 0), 0)
+        const nicePlays = fieldingGameHistory.reduce((sum, g) => sum + (g.nicePlays || 0), 0)
+        return { chances, putouts, assists, errors, buddyJumps, nicePlays, fieldingPct: chances ? (chances - errors) / chances : null }
       })() : null
 
       // Transactions: draft picks (id-keyed) + trades (name-keyed, normalized to player ids).
@@ -313,10 +424,52 @@ export default function useCharacterExtras(character) {
       const seasonRosterEntries = seasonRosterRaw.map((entry) => ({
         ...entry,
         team_id: seasonTeamPlayerById[entry.team_id] ?? entry.team_id,
-        season_name: seasonById[String(entry.season_id)]?.name ?? null,
+        season_name: abbreviateSeasonName(seasonById[String(entry.season_id)]?.name) ?? null,
         round: draftOrderByRow.get(entry)?.round ?? null,
         pick_number: draftOrderByRow.get(entry)?.pickNumber ?? null,
       }))
+
+      // Team ownership history: one row per season/tournament this character has been rostered
+      // in — not a trade-by-trade reconstruction within the event, just whichever team the roster
+      // record shows for that event (the most recently created season_roster row when a season
+      // has more than one, e.g. after a trade) — so the career-page header can list every team
+      // they've ever played for, not just the current owner.
+      const tournamentOwnershipRows = draftPicksWithLabels
+        .filter((p) => String(p.character_id) === String(character.id) && p.tournament_id)
+        .map((p) => ({
+          eventType: 'tournament',
+          eventId: p.tournament_id,
+          playerId: p.player_id,
+          playerName: playersById[p.player_id]?.name ?? null,
+          identity: buildPlayerTeamIdentity(playersById[p.player_id]),
+          eventLabel: `MST ${tournamentById[String(p.tournament_id)]?.tournament_number ?? p.tournament_id}`,
+          sortValue: new Date(tournamentById[String(p.tournament_id)]?.created_at || p.created_at || 0).getTime(),
+        }))
+      const seasonOwnershipBySeasonId = new Map()
+      seasonRosterRaw
+        .filter((entry) => entry.character_name === character.name)
+        .forEach((entry) => {
+          const existing = seasonOwnershipBySeasonId.get(entry.season_id)
+          if (!existing || new Date(entry.created_at || 0) > new Date(existing.created_at || 0)) {
+            seasonOwnershipBySeasonId.set(entry.season_id, entry)
+          }
+        })
+      const seasonOwnershipRows = [...seasonOwnershipBySeasonId.values()].map((entry) => {
+        const seasonTeamRow = seasonTeamsById[entry.team_id]
+        const resolvedPlayerId = seasonTeamPlayerById[entry.team_id] ?? entry.team_id
+        return {
+          eventType: 'season',
+          eventId: entry.season_id,
+          playerId: resolvedPlayerId,
+          playerName: playersById[resolvedPlayerId]?.name ?? null,
+          identity: seasonTeamRow ? buildSeasonTeamIdentity(seasonTeamRow) : null,
+          eventLabel: abbreviateSeasonName(seasonById[String(entry.season_id)]?.name) ?? `Season ${entry.season_id}`,
+          sortValue: new Date(seasonById[String(entry.season_id)]?.created_at || entry.created_at || 0).getTime(),
+        }
+      })
+      const teamHistory = [...tournamentOwnershipRows, ...seasonOwnershipRows]
+        .filter((row) => row.playerId != null)
+        .sort((a, b) => b.sortValue - a.sortValue)
 
       const transactions = buildCharacterTransactionFeed({
         draftPicks: draftPicksWithLabels,
@@ -333,7 +486,7 @@ export default function useCharacterExtras(character) {
       Object.entries(battingHistoryAllByCharacter).forEach(([charId, entries]) => {
         battingHistoryByCharacter[charId] = aggregateGameHistoryByEvent(entries)
       })
-      const pitchingHistoryAllByCharacter = buildCharacterPitchingGameHistory(tournamentStints, games, tournaments, seasonStints, seasons)
+      const pitchingHistoryAllByCharacter = buildCharacterPitchingGameHistory(tournamentStints, games, tournaments, seasonStints, seasons, null, playerNameById)
       const pitchingHistoryByCharacter = {}
       Object.entries(pitchingHistoryAllByCharacter).forEach(([charId, entries]) => {
         pitchingHistoryByCharacter[charId] = aggregatePitchingHistoryByEvent(entries)
@@ -351,8 +504,16 @@ export default function useCharacterExtras(character) {
         leaguePerformanceByCharacterId,
         fieldingHistory,
         allTimeFielding,
+        characterGameFielders,
+        fieldingByPosition,
+        starHitFieldingByPosition,
+        fieldingRangeByPosition,
+        parkFactorRows,
+        teamHistory,
         transactions,
         awardRows,
+        battingHistoryByCharacter,
+        pitchingHistoryByCharacter,
         statMedians,
         statMaxes,
         statMins,
@@ -363,7 +524,22 @@ export default function useCharacterExtras(character) {
     }
 
     load()
-    return () => { cancelled = true }
+
+    // Re-fetch when at-bat data changes elsewhere, so awards/percentile bars
+    // stay in sync with edits made on AtBatPage or Scorebook.
+    const channel = supabase
+      .channel(`character-extras-${cacheKey}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'runs_scored' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_runs_scored' }, load)
+      .subscribe()
+
+    return () => { cancelled = true; supabase.removeChannel(channel) }
   }, [character?.id, character?.name, cacheKey])
 
   return extras

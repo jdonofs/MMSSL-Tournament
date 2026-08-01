@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import CharacterPortrait from './CharacterPortrait'
 import { POSITION_GROUP_COLORS } from './RosterLineupWidgets'
 
@@ -180,6 +180,7 @@ export const STADIUM_KEY_LABELS = {
   bowser_jr_playroom: "Bowser Jr. Playroom",
   bowser_castle: 'Bowser Castle',
   luigis_mansion: "Luigi's Mansion",
+  generic_field: 'Generic Field',
 }
 
 export const STADIUM_CONFIGS = {
@@ -193,15 +194,15 @@ export const STADIUM_CONFIGS = {
       { x: 82.8, y: 44.6, dist: 259 },  // RF foul pole
     ],
     positions: [
-      { position: 8, label: 'CF', left: '50.4%', top: '34.4%', group: 'outfield' },
+      { position: 8, label: 'CF', left: '50.4%', top: '34.5%', group: 'outfield' },
       { position: 7, label: 'LF', left: '31.6%', top: '43.9%', group: 'outfield' },
       { position: 9, label: 'RF', left: '69.2%', top: '44.1%', group: 'outfield' },
-      { position: 6, label: 'SS', left: '43.4%', top: '60.0%', group: 'infield' },
-      { position: 4, label: '2B', left: '56.9%', top: '60.7%', group: 'infield' },
-      { position: 5, label: '3B', left: '37.9%', top: '69.8%', group: 'infield' },
-      { position: 1, label: 'P',  left: '50.3%', top: '75.2%', group: 'battery' },
-      { position: 3, label: '1B', left: '62.6%', top: '70.2%', group: 'infield' },
-      { position: 2, label: 'C',  left: '50.0%', top: '96.6%', group: 'battery' },
+      { position: 6, label: 'SS', left: '42.9%', top: '54.2%', group: 'infield' },
+      { position: 4, label: '2B', left: '59.1%', top: '54.5%', group: 'infield' },
+      { position: 5, label: '3B', left: '38.1%', top: '70.6%', group: 'infield' },
+      { position: 1, label: 'P',  left: '50.3%', top: '74.9%', group: 'battery' },
+      { position: 3, label: '1B', left: '62.2%', top: '71.4%', group: 'infield' },
+      { position: 2, label: 'C',  left: '49.9%', top: '97%', group: 'battery' },
     ],
   },
   'yoshi_park': {
@@ -235,15 +236,15 @@ export const STADIUM_CONFIGS = {
       { x: 86.9, y: 43.2, dist: 289 },  // RF foul pole
     ],
     positions: [
-      { position: 8, label: 'CF', left: '51.2%', top: '36.4%', group: 'outfield' },
-      { position: 7, label: 'LF', left: '31.9%', top: '45.6%', group: 'outfield' },
-      { position: 9, label: 'RF', left: '70.2%', top: '46.5%', group: 'outfield' },
-      { position: 6, label: 'SS', left: '43.9%', top: '62.6%', group: 'infield' },
-      { position: 4, label: '2B', left: '57.4%', top: '62.6%', group: 'infield' },
-      { position: 5, label: '3B', left: '37.2%', top: '71.0%', group: 'infield' },
-      { position: 1, label: 'P',  left: '50.6%', top: '76.7%', group: 'battery' },
-      { position: 3, label: '1B', left: '64.8%', top: '71.4%', group: 'infield' },
-      { position: 2, label: 'C',  left: '50.0%', top: '97.0%', group: 'battery' },
+      { position: 8, label: 'CF', left: '51.4%', top: '36.7%', group: 'outfield' },
+      { position: 7, label: 'LF', left: '31.8%', top: '45.5%', group: 'outfield' },
+      { position: 9, label: 'RF', left: '70.6%', top: '46.3%', group: 'outfield' },
+      { position: 6, label: 'SS', left: '41.6%', top: '55.7%', group: 'infield' },
+      { position: 4, label: '2B', left: '58.5%', top: '55.7%', group: 'infield' },
+      { position: 5, label: '3B', left: '37%', top: '70.8%', group: 'infield' },
+      { position: 1, label: 'P',  left: '50.4%', top: '76.4%', group: 'battery' },
+      { position: 3, label: '1B', left: '64.3%', top: '69.8%', group: 'infield' },
+      { position: 2, label: 'C',  left: '50%', top: '97.2%', group: 'battery' },
     ],
   },
   'dk_jungle': {
@@ -256,15 +257,15 @@ export const STADIUM_CONFIGS = {
       { x: 83.9, y: 39.4, dist: 275 },  // RF foul pole
     ],
     positions: [
-      { position: 8, label: 'CF', left: '49.9%', top: '34.0%', group: 'outfield' },
-      { position: 7, label: 'LF', left: '30.6%', top: '43.3%', group: 'outfield' },
-      { position: 9, label: 'RF', left: '69.1%', top: '42.7%', group: 'outfield' },
-      { position: 6, label: 'SS', left: '43.2%', top: '60.0%', group: 'infield' },
-      { position: 4, label: '2B', left: '56.9%', top: '60.1%', group: 'infield' },
-      { position: 5, label: '3B', left: '37.3%', top: '69.6%', group: 'infield' },
-      { position: 1, label: 'P',  left: '50.2%', top: '75.0%', group: 'battery' },
-      { position: 3, label: '1B', left: '63.4%', top: '69.5%', group: 'infield' },
-      { position: 2, label: 'C',  left: '50.1%', top: '96.1%', group: 'battery' },
+      { position: 8, label: 'CF', left: '49.9%', top: '33.9%', group: 'outfield' },
+      { position: 7, label: 'LF', left: '30.5%', top: '43.3%', group: 'outfield' },
+      { position: 9, label: 'RF', left: '69.1%', top: '42.8%', group: 'outfield' },
+      { position: 6, label: 'SS', left: '43.8%', top: '53.3%', group: 'infield' },
+      { position: 4, label: '2B', left: '58.9%', top: '53.5%', group: 'infield' },
+      { position: 5, label: '3B', left: '37%', top: '69.4%', group: 'infield' },
+      { position: 1, label: 'P',  left: '50.2%', top: '74.6%', group: 'battery' },
+      { position: 3, label: '1B', left: '63.1%', top: '70%', group: 'infield' },
+      { position: 2, label: 'C',  left: '50.2%', top: '95.7%', group: 'battery' },
     ],
   },
   'bowser_castle': {
@@ -277,15 +278,15 @@ export const STADIUM_CONFIGS = {
       { x: 84.4, y: 43.8, dist: 277 },  // RF foul pole
     ],
     positions: [
-      { position: 8, label: 'CF', left: '49.2%', top: '38.4%', group: 'outfield' },
-      { position: 7, label: 'LF', left: '29.6%', top: '47.4%', group: 'outfield' },
-      { position: 9, label: 'RF', left: '68.8%', top: '47.5%', group: 'outfield' },
-      { position: 6, label: 'SS', left: '42.4%', top: '63.4%', group: 'infield' },
-      { position: 4, label: '2B', left: '56.3%', top: '62.5%', group: 'infield' },
-      { position: 5, label: '3B', left: '36.6%', top: '73.0%', group: 'infield' },
-      { position: 1, label: 'P',  left: '49.7%', top: '76.9%', group: 'battery' },
-      { position: 3, label: '1B', left: '61.9%', top: '72.8%', group: 'infield' },
-      { position: 2, label: 'C',  left: '49.6%', top: '95.7%', group: 'battery' },
+      { position: 8, label: 'CF', left: '49.3%', top: '38.4%', group: 'outfield' },
+      { position: 7, label: 'LF', left: '29.6%', top: '47.7%', group: 'outfield' },
+      { position: 9, label: 'RF', left: '68.6%', top: '47.2%', group: 'outfield' },
+      { position: 6, label: 'SS', left: '42.4%', top: '58.2%', group: 'infield' },
+      { position: 4, label: '2B', left: '57.9%', top: '58.1%', group: 'infield' },
+      { position: 5, label: '3B', left: '36.9%', top: '73.6%', group: 'infield' },
+      { position: 1, label: 'P',  left: '49.6%', top: '76.6%', group: 'battery' },
+      { position: 3, label: '1B', left: '61.4%', top: '73.8%', group: 'infield' },
+      { position: 2, label: 'C',  left: '49.5%', top: '94.7%', group: 'battery' },
     ],
   },
   'bowser_jr_playroom': {
@@ -298,15 +299,15 @@ export const STADIUM_CONFIGS = {
       { x: 86.0, y: 44.3, dist: 264 },  // RF foul pole
     ],
     positions: [
-      { position: 8, label: 'CF', left: '50.4%', top: '37.6%', group: 'outfield' },
-      { position: 7, label: 'LF', left: '29.6%', top: '46.3%', group: 'outfield' },
-      { position: 9, label: 'RF', left: '70.6%', top: '46.8%', group: 'outfield' },
-      { position: 6, label: 'SS', left: '42.7%', top: '62.4%', group: 'infield' },
-      { position: 4, label: '2B', left: '57.3%', top: '62.5%', group: 'infield' },
-      { position: 5, label: '3B', left: '36.2%', top: '71.9%', group: 'infield' },
-      { position: 1, label: 'P',  left: '50.1%', top: '76.1%', group: 'battery' },
-      { position: 3, label: '1B', left: '63.0%', top: '72.1%', group: 'infield' },
-      { position: 2, label: 'C',  left: '49.8%', top: '95.5%', group: 'battery' },
+      { position: 8, label: 'CF', left: '50.1%', top: '37.7%', group: 'outfield' },
+      { position: 7, label: 'LF', left: '29.5%', top: '46%', group: 'outfield' },
+      { position: 9, label: 'RF', left: '70.6%', top: '46.6%', group: 'outfield' },
+      { position: 6, label: 'SS', left: '41.9%', top: '56.4%', group: 'infield' },
+      { position: 4, label: '2B', left: '59.4%', top: '56.3%', group: 'infield' },
+      { position: 5, label: '3B', left: '36.8%', top: '72.3%', group: 'infield' },
+      { position: 1, label: 'P',  left: '50%', top: '76.3%', group: 'battery' },
+      { position: 3, label: '1B', left: '62.8%', top: '73%', group: 'infield' },
+      { position: 2, label: 'C',  left: '49.9%', top: '95.5%', group: 'battery' },
     ],
   },
   'daisy_cruiser': {
@@ -319,15 +320,15 @@ export const STADIUM_CONFIGS = {
       { x: 75.3, y: 61.7, dist: 231 },  // RF foul pole
     ],
     positions: [
-      { position: 8, label: 'CF', left: '50.2%', top: '49.0%', group: 'outfield' },
-      { position: 7, label: 'LF', left: '33.6%', top: '56.6%', group: 'outfield' },
-      { position: 9, label: 'RF', left: '66.7%', top: '56.7%', group: 'outfield' },
-      { position: 6, label: 'SS', left: '44.4%', top: '70.0%', group: 'infield' },
-      { position: 4, label: '2B', left: '56.1%', top: '70.2%', group: 'infield' },
-      { position: 5, label: '3B', left: '39.4%', top: '77.3%', group: 'infield' },
-      { position: 1, label: 'P',  left: '50.1%', top: '80.9%', group: 'battery' },
-      { position: 3, label: '1B', left: '60.8%', top: '77.9%', group: 'infield' },
-      { position: 2, label: 'C',  left: '50.2%', top: '96.4%', group: 'battery' },
+      { position: 8, label: 'CF', left: '50.2%', top: '48.9%', group: 'outfield' },
+      { position: 7, label: 'LF', left: '33.4%', top: '56.7%', group: 'outfield' },
+      { position: 9, label: 'RF', left: '66.7%', top: '56.8%', group: 'outfield' },
+      { position: 6, label: 'SS', left: '43.8%', top: '64.9%', group: 'infield' },
+      { position: 4, label: '2B', left: '58.8%', top: '64.6%', group: 'infield' },
+      { position: 5, label: '3B', left: '39.3%', top: '76.8%', group: 'infield' },
+      { position: 1, label: 'P',  left: '50.3%', top: '80.7%', group: 'battery' },
+      { position: 3, label: '1B', left: '61.2%', top: '76.6%', group: 'infield' },
+      { position: 2, label: 'C',  left: '50.2%', top: '95.9%', group: 'battery' },
     ],
   },
   'peach_ice_garden': {
@@ -340,15 +341,15 @@ export const STADIUM_CONFIGS = {
       { x: 86.6, y: 42.9, dist: 313 },  // RF foul pole
     ],
     positions: [
-      { position: 8, label: 'CF', left: '50.2%', top: '39.4%', group: 'outfield' },
-      { position: 7, label: 'LF', left: '31.6%', top: '48.3%', group: 'outfield' },
-      { position: 9, label: 'RF', left: '68.8%', top: '48.5%', group: 'outfield' },
-      { position: 6, label: 'SS', left: '43.7%', top: '64.7%', group: 'infield' },
-      { position: 4, label: '2B', left: '56.8%', top: '63.8%', group: 'infield' },
-      { position: 5, label: '3B', left: '38.4%', top: '72.3%', group: 'infield' },
-      { position: 1, label: 'P',  left: '50.5%', top: '77.5%', group: 'battery' },
-      { position: 3, label: '1B', left: '62.2%', top: '73.8%', group: 'infield' },
-      { position: 2, label: 'C',  left: '50.0%', top: '96.2%', group: 'battery' },
+      { position: 8, label: 'CF', left: '50.4%', top: '39.2%', group: 'outfield' },
+      { position: 7, label: 'LF', left: '31.2%', top: '48.3%', group: 'outfield' },
+      { position: 9, label: 'RF', left: '69%', top: '48.7%', group: 'outfield' },
+      { position: 6, label: 'SS', left: '44.1%', top: '58.7%', group: 'infield' },
+      { position: 4, label: '2B', left: '58.5%', top: '58.4%', group: 'infield' },
+      { position: 5, label: '3B', left: '37.9%', top: '72.9%', group: 'infield' },
+      { position: 1, label: 'P',  left: '50.4%', top: '77.4%', group: 'battery' },
+      { position: 3, label: '1B', left: '62.8%', top: '73.6%', group: 'infield' },
+      { position: 2, label: 'C',  left: '49.9%', top: '96.5%', group: 'battery' },
     ],
   },
   'luigis_mansion': {
@@ -361,78 +362,331 @@ export const STADIUM_CONFIGS = {
       { x: 85.8, y: 48.9, dist: 287 },  // RF foul pole
     ],
     positions: [
-      { position: 8, label: 'CF', left: '49.8%', top: '42.6%', group: 'outfield' },
-      { position: 7, label: 'LF', left: '29.4%', top: '51.1%', group: 'outfield' },
-      { position: 9, label: 'RF', left: '69.4%', top: '50.4%', group: 'outfield' },
-      { position: 6, label: 'SS', left: '42.9%', top: '64.7%', group: 'infield' },
-      { position: 4, label: '2B', left: '57.0%', top: '65.1%', group: 'infield' },
-      { position: 5, label: '3B', left: '36.0%', top: '71.9%', group: 'infield' },
-      { position: 1, label: 'P',  left: '49.9%', top: '76.8%', group: 'battery' },
-      { position: 3, label: '1B', left: '63.4%', top: '71.4%', group: 'infield' },
-      { position: 2, label: 'C',  left: '49.9%', top: '92.9%', group: 'battery' },
+      { position: 8, label: 'CF', left: '49.6%', top: '42.7%', group: 'outfield' },
+      { position: 7, label: 'LF', left: '29.6%', top: '50.6%', group: 'outfield' },
+      { position: 9, label: 'RF', left: '69.4%', top: '50.7%', group: 'outfield' },
+      { position: 6, label: 'SS', left: '42.6%', top: '58.5%', group: 'infield' },
+      { position: 4, label: '2B', left: '58.6%', top: '58.5%', group: 'infield' },
+      { position: 5, label: '3B', left: '36.6%', top: '72.3%', group: 'infield' },
+      { position: 1, label: 'P',  left: '49.9%', top: '76.7%', group: 'battery' },
+      { position: 3, label: '1B', left: '63.3%', top: '72.3%', group: 'infield' },
+      { position: 2, label: 'C',  left: '49.9%', top: '92.7%', group: 'battery' },
+    ],
+  },
+  'generic_field': {
+    image: '/stadiums/spray chart.png',
+    aspectRatio: '1254/1254',
+    homePlate: { x: 49.9, y: 90.4 },
+    wallRefs: [
+      { x: 9.4, y: 52.3, dist: 272 },  // LF foul pole
+      { x: 50.6, y: 22.1, dist: 334 },  // CF wall
+      { x: 90.4, y: 52.2, dist: 272 },  // RF foul pole
+    ],
+    positions: [
+      { position: 8, label: 'CF', left: '50.5%', top: '35.7%', group: 'outfield' },
+      { position: 7, label: 'LF', left: '23.9%', top: '47.9%', group: 'outfield' },
+      { position: 9, label: 'RF', left: '76.1%', top: '47.9%', group: 'outfield' },
+      { position: 6, label: 'SS', left: '39.1%', top: '56.7%', group: 'infield' },
+      { position: 4, label: '2B', left: '60.2%', top: '57%', group: 'infield' },
+      { position: 5, label: '3B', left: '30.7%', top: '69.5%', group: 'infield' },
+      { position: 1, label: 'P',  left: '50%', top: '73.1%', group: 'battery' },
+      { position: 3, label: '1B', left: '68.5%', top: '70%', group: 'infield' },
+      { position: 2, label: 'C',  left: '49.9%', top: '94%', group: 'battery' },
     ],
   },
 }
 
+// Cropped, zoomed-in infield diamond art (public/stadiums/<key>-runners.png)
+// used by BaserunnerField for the baserunner diamond — one per stadium, in
+// the same orientation every time (home at bottom, 2B at top). Base spot
+// percentages come from public/calibrate-runners.html (same click-to-measure
+// approach as FieldPlayBuilder's own calibrate.html) — re-run it and paste
+// the output here if a runner token ever looks off-base.
+export const STADIUM_RUNNER_CONFIGS = {
+  mario_stadium: {
+    image: '/stadiums/mario-stadium-runners.png',
+    bases: { second: { left: '51%', top: '12.1%' }, first: { left: '93.1%', top: '49%' }, third: { left: '8%', top: '49.1%' }, home: { left: '49.9%', top: '91.7%' } },
+  },
+  yoshi_park: {
+    image: '/stadiums/yoshi-park-runners.png',
+    bases: { second: { left: '50.2%', top: '9.1%' }, first: { left: '88.1%', top: '47.6%' }, third: { left: '12.4%', top: '47.9%' }, home: { left: '50.2%', top: '90.8%' } },
+  },
+  wario_city: {
+    image: '/stadiums/wario-stadium-runners.png',
+    bases: { second: { left: '49.3%', top: '13.1%' }, first: { left: '85.9%', top: '51.6%' }, third: { left: '10.7%', top: '50.3%' }, home: { left: '47.3%', top: '94.6%' } },
+  },
+  dk_jungle: {
+    image: '/stadiums/dk-jungle-runners.png',
+    bases: { second: { left: '50%', top: '5.9%' }, first: { left: '96.6%', top: '42.7%' }, third: { left: '4.2%', top: '43.6%' }, home: { left: '51%', top: '88.2%' } },
+  },
+  bowser_castle: {
+    image: '/stadiums/bowser-castle-runners.png',
+    bases: { second: { left: '49.6%', top: '9.6%' }, first: { left: '89%', top: '42.9%' }, third: { left: '10.8%', top: '44%' }, home: { left: '50.3%', top: '82.2%' } },
+  },
+  bowser_jr_playroom: {
+    image: '/stadiums/bowser-jr-playroom-runners.png',
+    bases: { second: { left: '49.3%', top: '9.1%' }, first: { left: '86.9%', top: '43.5%' }, third: { left: '12.1%', top: '43%' }, home: { left: '49.1%', top: '82.5%' } },
+  },
+  daisy_cruiser: {
+    image: '/stadiums/daisy-cruiser-runners.png',
+    bases: { second: { left: '50.3%', top: '8.3%' }, first: { left: '92%', top: '44.4%' }, third: { left: '8.3%', top: '44.2%' }, home: { left: '50.3%', top: '83.4%' } },
+  },
+  peach_ice_garden: {
+    image: '/stadiums/peach-ice-garden-runners.png',
+    bases: { second: { left: '50.3%', top: '6.9%' }, first: { left: '95.1%', top: '44.7%' }, third: { left: '5.3%', top: '44.6%' }, home: { left: '50.3%', top: '88.1%' } },
+  },
+  luigis_mansion: {
+    image: "/stadiums/luigi's-mansion-runners.png",
+    bases: { second: { left: '49.9%', top: '5.2%' }, first: { left: '96.7%', top: '44.8%' }, third: { left: '3.3%', top: '45.4%' }, home: { left: '50.9%', top: '89.6%' } },
+  },
+}
+
 // Tap the field once to drop a landing-spot marker, then tap fielders in the
-// order they touched the ball. Tapping a selected fielder again removes them —
-// this lets a single diagram capture "where it landed" + "who's credited" + the
-// play sequence (e.g. 6-3) without separate screens.
+// order they touched the ball. By default tapping a selected fielder again
+// removes them; a caller that instead wants to allow the same fielder to
+// appear more than once in the chain (e.g. a 3-4-3 double play) can pass
+// onFielderContextMenu, which fires on right-click and is the only way to
+// remove a fielder in that mode — left-click then always adds another touch.
+// Either way this lets a single diagram capture "where it landed" + "who's
+// credited" + the play sequence (e.g. 6-3) without separate screens.
+//
+// A second, independent marker (secondarySpot/onSecondaryTap) can be layered
+// on the same diagram via right-click — used by At-Bat Data Entry to capture
+// where a ball was actually fielded alongside where it was hit, without
+// needing two separate field images. Rendered with a distinct shape/color
+// (square vs. the primary marker's circle) so the two stay visually
+// distinguishable at a glance.
+// Zoom is applied by growing the inner image container's own width (not a
+// CSS transform:scale), so its getBoundingClientRect stays the source of
+// truth for click-to-percentage math below — no separate coordinate
+// remapping needed at any zoom level. 1 is the base/fit view and also the
+// floor: you can zoom in past it but never out past the whole field.
+const FIELD_ZOOM_MIN = 1
+const FIELD_ZOOM_MAX = 3
+const FIELD_ZOOM_STEP = 0.15
+
 export default function FieldPlayBuilder({
   fieldersByPosition = {},
   fielderChain = [],
   landingSpot = null,
   onFieldTap,
   onToggleFielder,
+  onFielderContextMenu,
   notation = '',
   accent = '#EAB308',
   label = 'Build The Play',
   allowedPositions = null,
   allowFielderSelection = true,
   stadiumKey = null,
+  secondarySpot = null,
+  onSecondaryTap,
+  secondaryAccent = '#38BDF8',
+  primaryMarkerLabel = null,
+  secondaryMarkerLabel = null,
+  showFielderMarkers = true,
 }) {
+  const viewportRef = useRef(null)
   const containerRef = useRef(null)
+  const [zoom, setZoom] = useState(1)
+  const zoomRef = useRef(zoom)
+  const [isPanning, setIsPanning] = useState(false)
   const allowedSet = allowedPositions ? new Set(allowedPositions.map((position) => String(position))) : null
   const stadiumConfig = stadiumKey ? STADIUM_CONFIGS[stadiumKey] : null
   const activePositions = stadiumConfig?.positions ?? FIELD_POSITIONS
   const fieldImage = stadiumConfig?.image ?? '/baseball-field.jpg'
   const fieldAspectRatio = stadiumConfig?.aspectRatio ?? '1/1.02'
 
-  const handleFieldClick = (event) => {
-    if (!containerRef.current) return
+  useEffect(() => {
+    zoomRef.current = zoom
+  }, [zoom])
+
+  const spotFromEvent = (event) => {
+    if (!containerRef.current) return null
     const rect = containerRef.current.getBoundingClientRect()
     const x = Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100))
     const y = Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100))
-    onFieldTap?.({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 })
+    return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 }
   }
+
+  const handleFieldClick = (event) => {
+    const spot = spotFromEvent(event)
+    if (spot) onFieldTap?.(spot)
+  }
+
+  const handleFieldContextMenu = (event) => {
+    if (!onSecondaryTap) return
+    event.preventDefault()
+    const spot = spotFromEvent(event)
+    if (spot) onSecondaryTap(spot)
+  }
+
+  // Scroll-to-zoom, scoped to this diagram only. Attached as a real DOM
+  // listener (not React's onWheel) with { passive: false } — React attaches
+  // JSX onWheel handlers as passive, which silently no-ops preventDefault()
+  // and was letting the browser's native scroll fire on this same
+  // scrollable element right alongside the zoom, panning it unintentionally
+  // on every wheel tick. A native listener is the only way to actually stop
+  // that default scroll here. Zooms toward the cursor: the image point
+  // under the pointer stays put by adjusting scroll offset to match the
+  // new (larger/smaller) content size. Clamped at FIELD_ZOOM_MIN (1) — you
+  // can never zoom out past the whole field.
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return undefined
+
+    // A single scroll gesture fires many wheel events in quick succession
+    // (trackpads especially) — applying a resize on every one of them was
+    // forcing the browser to re-layout/re-decode this (often large) image
+    // faster than it could keep up, which is what showed up as flashing.
+    // Coalescing into at most one zoom step per animation frame fixes that
+    // without changing the step size or feel.
+    let pendingDeltaY = 0
+    let lastCursor = null
+    let rafId = null
+
+    function applyPendingZoom() {
+      rafId = null
+      const delta = pendingDeltaY
+      pendingDeltaY = 0
+      if (delta === 0 || !lastCursor) return
+      const currentZoom = zoomRef.current
+      const rect = viewport.getBoundingClientRect()
+      const { cursorXRatio, cursorYRatio } = lastCursor
+      const direction = delta < 0 ? 1 : -1
+      const nextZoom = Math.min(FIELD_ZOOM_MAX, Math.max(FIELD_ZOOM_MIN, Math.round((currentZoom + direction * FIELD_ZOOM_STEP) * 100) / 100))
+      if (nextZoom === currentZoom) return
+      const contentX = viewport.scrollLeft + cursorXRatio * rect.width
+      const contentY = viewport.scrollTop + cursorYRatio * rect.height
+      const scaleRatio = nextZoom / currentZoom
+      setZoom(nextZoom)
+      requestAnimationFrame(() => {
+        viewport.scrollLeft = contentX * scaleRatio - cursorXRatio * rect.width
+        viewport.scrollTop = contentY * scaleRatio - cursorYRatio * rect.height
+      })
+    }
+
+    function onWheel(event) {
+      event.preventDefault()
+      const rect = viewport.getBoundingClientRect()
+      pendingDeltaY += event.deltaY
+      lastCursor = {
+        cursorXRatio: (event.clientX - rect.left) / rect.width,
+        cursorYRatio: (event.clientY - rect.top) / rect.height,
+      }
+      if (rafId == null) rafId = requestAnimationFrame(applyPendingZoom)
+    }
+
+    viewport.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      viewport.removeEventListener('wheel', onWheel)
+      if (rafId != null) cancelAnimationFrame(rafId)
+    }
+  }, [])
+
+  // Middle-mouse-button drag to pan once zoomed in — the other way to move
+  // around besides dragging the scrollbars directly, since the wheel is
+  // reserved for zoom only (see above) and left-click is already spoken for
+  // (placing hit/fielded markers).
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return undefined
+
+    function onMouseDown(event) {
+      if (event.button !== 1) return
+      event.preventDefault()
+      const startX = event.clientX
+      const startY = event.clientY
+      const startScrollLeft = viewport.scrollLeft
+      const startScrollTop = viewport.scrollTop
+      setIsPanning(true)
+
+      function onMouseMove(moveEvent) {
+        viewport.scrollLeft = startScrollLeft - (moveEvent.clientX - startX)
+        viewport.scrollTop = startScrollTop - (moveEvent.clientY - startY)
+      }
+      function onMouseUp() {
+        setIsPanning(false)
+        document.removeEventListener('mousemove', onMouseMove)
+        document.removeEventListener('mouseup', onMouseUp)
+      }
+      document.addEventListener('mousemove', onMouseMove)
+      document.addEventListener('mouseup', onMouseUp)
+    }
+
+    viewport.addEventListener('mousedown', onMouseDown)
+    return () => viewport.removeEventListener('mousedown', onMouseDown)
+  }, [])
+
+  const showMarkerLegend = Boolean(onSecondaryTap || secondarySpot)
 
   return (
     <div>
-      {(label || notation) ? (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+      {(label || notation || showMarkerLegend) ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
           {label ? <div style={{ fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase' }}>{label}</div> : <span />}
+          {showMarkerLegend ? (
+            <div style={{ display: 'flex', gap: 12, fontSize: 10, fontWeight: 700 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: accent }}>
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: accent, display: 'inline-block' }} />
+                {primaryMarkerLabel || (onSecondaryTap ? 'Left-click: hit' : 'Hit')}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: secondaryAccent }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: secondaryAccent, display: 'inline-block' }} />
+                {secondaryMarkerLabel || (onSecondaryTap ? 'Right-click: fielded' : 'Fielded')}
+              </span>
+            </div>
+          ) : null}
           {notation ? (
             <div style={{ fontSize: 16, fontWeight: 800, color: accent, letterSpacing: '.04em' }}>{notation}</div>
           ) : null}
         </div>
       ) : null}
+      <div style={{ position: 'relative', width: '100%', maxWidth: stadiumConfig ? 480 : 320, margin: '0 auto' }}>
       <div
-        ref={containerRef}
-        onClick={handleFieldClick}
-        role="button"
-        tabIndex={0}
+        ref={viewportRef}
         style={{
           position: 'relative',
           width: '100%',
-          maxWidth: stadiumConfig ? 480 : 320,
-          margin: '0 auto',
+          aspectRatio: fieldAspectRatio,
           border: stadiumConfig ? 'none' : '1.5px solid rgba(148,163,184,0.35)',
           borderRadius: 18,
-          cursor: 'crosshair',
-          overflow: 'visible',
+          // 'visible' at the base zoom so distance-label text that pokes a
+          // few px past the image edge (near-the-fence taps) isn't clipped
+          // like it would be under 'auto' — only switches to a real
+          // scrollable clip once there's actually zoomed content to pan.
+          overflow: zoom > FIELD_ZOOM_MIN ? 'auto' : 'visible',
+          cursor: isPanning ? 'grabbing' : undefined,
         }}
       >
-        <img src={fieldImage} alt="Baseball field" style={{ display: 'block', width: '100%', height: 'auto', pointerEvents: 'none', borderRadius: 18 }} />
+        <div
+          ref={containerRef}
+          onClick={handleFieldClick}
+          onContextMenu={handleFieldContextMenu}
+          role="button"
+          tabIndex={0}
+          style={{
+            position: 'relative',
+            width: '100%',
+            // A GPU-composited transform instead of an actual width resize —
+            // resizing the real box forces the browser to re-layout and
+            // re-rasterize the (often large) stadium image on every zoom
+            // step, which is what was flashing. Scaling the already-painted
+            // layer instead has nothing to re-decode. getBoundingClientRect()
+            // (used by spotFromEvent below) already reflects the transformed
+            // size/position, so the click math needs no changes for this.
+            transform: `scale(${zoom})`,
+            transformOrigin: '0 0',
+            // Without this hint, the browser can still drop the layer
+            // between transform updates and re-rasterize the image from
+            // scratch on the next one — same flash as the width-resize
+            // approach, just from a different cause. This keeps it
+            // permanently promoted to its own GPU layer so scaling only
+            // ever recomposites, never repaints.
+            willChange: 'transform',
+            cursor: onFieldTap || onSecondaryTap ? 'crosshair' : 'default',
+          }}
+        >
+          <img src={fieldImage} alt="Baseball field" style={{ display: 'block', width: '100%', height: 'auto', pointerEvents: 'none', borderRadius: 18 }} />
         {landingSpot ? (() => {
           const dist = estimateHitDistance(landingSpot, stadiumConfig)
           return (
@@ -442,14 +696,14 @@ export default function FieldPlayBuilder({
                   position: 'absolute',
                   left: `${landingSpot.x}%`,
                   top: `${landingSpot.y}%`,
-                  width: 14,
-                  height: 14,
+                  width: 8,
+                  height: 8,
                   borderRadius: '50%',
                   background: `${accent}33`,
-                  border: `2px solid ${accent}`,
+                  border: `1.5px solid ${accent}`,
                   transform: 'translate(-50%, -50%)',
                   pointerEvents: 'none',
-                  boxShadow: `0 0 0 3px ${accent}1A`,
+                  boxShadow: `0 0 0 2px ${accent}1A`,
                 }}
               />
               {dist != null ? (
@@ -473,13 +727,53 @@ export default function FieldPlayBuilder({
             </>
           )
         })() : null}
-        {activePositions.map((slot) => {
+        {secondarySpot ? (() => {
+          const dist = estimateHitDistance(secondarySpot, stadiumConfig)
+          return (
+            <>
+              <div
+                style={{
+                  position: 'absolute',
+                  left: `${secondarySpot.x}%`,
+                  top: `${secondarySpot.y}%`,
+                  width: 7,
+                  height: 7,
+                  borderRadius: 2,
+                  background: `${secondaryAccent}33`,
+                  border: `1.5px solid ${secondaryAccent}`,
+                  transform: 'translate(-50%, -50%) rotate(45deg)',
+                  pointerEvents: 'none',
+                  boxShadow: `0 0 0 2px ${secondaryAccent}1A`,
+                }}
+              />
+              {dist != null ? (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: `${secondarySpot.x}%`,
+                    top: `${secondarySpot.y}%`,
+                    transform: 'translate(10px, -50%)',
+                    pointerEvents: 'none',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: secondaryAccent,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {dist} ft
+                </div>
+              ) : null}
+            </>
+          )
+        })() : null}
+        {showFielderMarkers && activePositions.map((slot) => {
           const fielder = fieldersByPosition[String(slot.position)] || null
           const chainIndex = fielderChain.indexOf(String(slot.position))
           const selected = chainIndex !== -1
           const disabled = !allowFielderSelection || (allowedSet ? !allowedSet.has(String(slot.position)) : false)
-          const portraitSize = stadiumConfig ? 22 : 26
-          const badgeSize = stadiumConfig ? 12 : 14
+          const portraitSize = stadiumConfig ? 32 : 36
+          const badgeSize = stadiumConfig ? 15 : 17
           return (
             <button
               key={slot.position}
@@ -489,6 +783,12 @@ export default function FieldPlayBuilder({
                 event.stopPropagation()
                 if (disabled) return
                 onToggleFielder?.(String(slot.position))
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                if (disabled || !onFielderContextMenu) return
+                onFielderContextMenu(String(slot.position))
               }}
               style={{
                 position: 'absolute',
@@ -544,12 +844,37 @@ export default function FieldPlayBuilder({
                   </span>
                 ) : null}
               </div>
-              <div style={{ fontSize: stadiumConfig ? 6 : 7.5, fontWeight: 800, color: selected ? accent : disabled ? '#475569' : '#F8FAFC', marginTop: 1, textShadow: '0 1px 2px rgba(0,0,0,0.7)' }}>
+              <div style={{ fontSize: stadiumConfig ? 8 : 9, fontWeight: 800, color: selected ? accent : disabled ? '#475569' : '#F8FAFC', marginTop: 1, textShadow: '0 1px 2px rgba(0,0,0,0.7)' }}>
                 {slot.label}
               </div>
             </button>
           )
         })}
+        </div>
+      </div>
+      {zoom > FIELD_ZOOM_MIN ? (
+        <button
+          type="button"
+          onClick={() => setZoom(FIELD_ZOOM_MIN)}
+          title="Reset zoom"
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            zIndex: 1,
+            padding: '3px 8px',
+            borderRadius: 999,
+            border: '1px solid rgba(148,163,184,0.4)',
+            background: 'rgba(15,23,42,0.85)',
+            color: '#F8FAFC',
+            fontSize: 10,
+            fontWeight: 800,
+            cursor: 'pointer',
+          }}
+        >
+          {Math.round(zoom * 100)}% ↺
+        </button>
+      ) : null}
       </div>
     </div>
   )

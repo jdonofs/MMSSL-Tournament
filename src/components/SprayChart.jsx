@@ -1,6 +1,20 @@
 import { useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { GENERIC_FIELD_CONFIG, STADIUM_CONFIGS, STADIUM_KEY_LABELS, projectDistanceAngleToSpot } from './FieldPlayBuilder'
 import { isBarrel } from '../utils/hitDistanceStats'
+import { buildAtBatPath } from '../utils/scorebookRouting'
+
+// Devices with a fine pointer and real hover (mouse/trackpad) can preview a
+// dot on hover, so a click can afford to jump straight to the at-bat page.
+// Touch devices have no hover preview, so a tap opens the tooltip first —
+// the user then taps its "View at-bat" link when they actually want to go.
+function usePointerIsPrecise() {
+  return useMemo(() => (
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(hover: hover) and (pointer: fine)').matches
+      : false
+  ), [])
+}
 
 // Colors follow the Baseball Savant spray-chart convention: orange/purple/
 // gold/magenta for 1B/2B/3B/HR.
@@ -12,7 +26,7 @@ const DOT_COLORS = {
   '1B': '#F2761E',
 }
 const OUT_DOT_COLOR = '#94A3B8'
-const ERROR_DOT_COLOR = '#EF4444'
+const ERROR_DOT_COLOR = '#06B6D4'
 const ALL_PARKS_KEY = '__all__'
 
 const LEGEND_ITEMS = [
@@ -109,6 +123,16 @@ function HitTooltip({ pa, onClose, stadiumLabel, characterName }) {
         ? <div style={{ color: '#FDE68A', fontWeight: 700 }}>⬤ Barrel</div>
         : null}
       {!hasDistance && !hasExitVelo && !hasLaunchAngle ? <div style={{ color: '#94A3B8' }}>No hit data tracked</div> : null}
+      {pa.id != null ? (
+        <div style={{ marginTop: 4 }}>
+          <Link
+            to={buildAtBatPath({ id: pa.id, source: pa.season_id != null ? 'season' : 'tournament' })}
+            style={{ color: '#EAB308', fontWeight: 700 }}
+          >
+            View at-bat →
+          </Link>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -143,6 +167,8 @@ export default function SprayChart({ plateAppearances = [], initialStadiumKey = 
   const defaultKey = initialStadiumKey || (showAllParksOption ? ALL_PARKS_KEY : stadiumKeys[0])
   const [selectedKey, setSelectedKey] = useState(defaultKey)
   const [activeDotKey, setActiveDotKey] = useState(null)
+  const navigate = useNavigate()
+  const isPointerPrecise = usePointerIsPrecise()
   const validKeys = showAllParksOption ? [ALL_PARKS_KEY, ...stadiumKeys] : stadiumKeys
   const activeKey = validKeys.includes(selectedKey) ? selectedKey : validKeys[0]
   const isAllParks = activeKey === ALL_PARKS_KEY
@@ -221,6 +247,10 @@ export default function SprayChart({ plateAppearances = [], initialStadiumKey = 
               tabIndex={0}
               onClick={(e) => {
                 e.stopPropagation()
+                if (isPointerPrecise && pa.id != null) {
+                  navigate(buildAtBatPath({ id: pa.id, source: pa.season_id != null ? 'season' : 'tournament' }))
+                  return
+                }
                 setActiveDotKey((prev) => (prev === dotKey ? null : dotKey))
               }}
               onMouseEnter={() => setActiveDotKey(dotKey)}

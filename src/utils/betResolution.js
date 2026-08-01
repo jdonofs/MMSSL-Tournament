@@ -1,5 +1,5 @@
-import { supabase } from '../supabaseClient'
-import { adjustWeights, computeBrierScore } from './oddsEngine'
+import { supabase } from '../supabaseClient.js'
+import { adjustWeights, computeBrierScore } from './oddsEngine.js'
 
 const PROP_TYPES = new Set(['hr_prop', 'hit_prop', 'k_prop'])
 const BET_PLACED_REASON_PREFIX = 'bet_placed'
@@ -19,6 +19,20 @@ function buildUpsertPayload(bet, isCorrect) {
     id: bet.id,
     status: getResolvedStatus(isCorrect),
     result_correct: isCorrect,
+    resolved_at: new Date().toISOString(),
+  }
+}
+
+// A push: the market landed exactly on the line (or the game itself ended in
+// a tie), so neither side won or lost — void the bet so syncLedger refunds
+// the wager instead of leaving strict >/< comparisons resolve it as a loss
+// for both sides (over_under) or an unintended win for the other side
+// (run_line).
+function buildPushPayload(bet) {
+  return {
+    id: bet.id,
+    status: 'void',
+    result_correct: null,
     resolved_at: new Date().toISOString(),
   }
 }
@@ -256,12 +270,22 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
 
   for (const bet of openBets || []) {
     if (bet.bet_type === 'moneyline') {
+      // A tied final score (winningSide === null) is a push, not a loss for
+      // both sides — chosen_side ('home'/'away') can never equal null.
+      if (winningSide == null) {
+        updates.push(buildPushPayload(bet))
+        continue
+      }
       updates.push(buildUpsertPayload(bet, bet.chosen_side === winningSide))
       continue
     }
 
     if (bet.bet_type === 'run_line') {
       const spread = Number(bet.line || 1.5)
+      if (winningSide == null || margin === spread) {
+        updates.push(buildPushPayload(bet))
+        continue
+      }
       const homeCovers = winningSide === 'home' && margin > spread
       updates.push(buildUpsertPayload(bet, bet.chosen_side === 'home' ? homeCovers : !homeCovers))
       continue
@@ -269,6 +293,10 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
 
     if (bet.bet_type === 'over_under') {
       const line = Number(bet.line || 0)
+      if (totalRuns === line) {
+        updates.push(buildPushPayload(bet))
+        continue
+      }
       const isCorrect = bet.chosen_side === 'over' ? totalRuns > line : totalRuns < line
       updates.push(buildUpsertPayload(bet, isCorrect))
       continue
@@ -332,7 +360,7 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
 
 export async function reopenGameBets(gameId, config = {}) {
   const resolvedConfig = buildResolutionConfig(config)
-  const reversibleTypes = ['moneyline', 'run_line', 'over_under', 'k_prop', 'hr_prop', 'hit_prop']
+  const reversibleTypes = ['moneyline', 'run_line', 'over_under', 'first_inning_run', 'k_prop', 'hr_prop', 'hit_prop']
   const { data: resolvedBets, error } = await supabase
     .from(resolvedConfig.betsTable)
     .select('*')

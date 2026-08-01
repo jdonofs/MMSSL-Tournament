@@ -1,11 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import useRealtimeEnabled from '../hooks/useRealtimeEnabled'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { BarChart3, BookOpenText, GanttChartSquare, House, LogIn, LogOut, ScrollText, Settings, Trophy, Users2 } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { useConfirmLeave } from '../context/UnsavedChangesContext'
 import { useSeason } from '../context/SeasonContext'
 import { useTournament } from '../context/TournamentContext'
 import { getModeStorageValue, setModeStorageValue } from '../utils/season'
+import { buildPlayerTeamIdentity, buildSeasonTeamIdentity } from '../utils/teamIdentity'
+import PlayerTag from './PlayerTag'
 
 // `cluster` groups related pills with a divider between groups.
 const tournamentNavItems = [
@@ -28,6 +32,35 @@ const seasonNavItems = [
 ]
 
 const adminNavItem = { to: '/admin', label: 'Admin', icon: Settings }
+
+// Maps a path in one mode to the equivalent section's path in the other mode, so switching
+// modes from e.g. the Stats page lands on Stats rather than resetting to the home page.
+const tournamentToSeasonPath = {
+  '/': '/season',
+  '/bracket': '/season/bracket',
+  '/draft': '/season/draft',
+  '/roster': '/season/roster',
+  '/betting': '/season/bets',
+  '/stats': '/season/stats',
+}
+
+const seasonToTournamentPath = {
+  '/season': '/',
+  '/season/schedule': '/',
+  '/season/bracket': '/bracket',
+  '/season/draft': '/draft',
+  '/season/roster': '/roster',
+  '/season/bets': '/betting',
+  '/season/stats': '/stats',
+}
+
+function resolveModeSwitchPath(pathname, nextMode) {
+  const map = nextMode === 'season' ? tournamentToSeasonPath : seasonToTournamentPath
+  const currentModeItems = nextMode === 'season' ? tournamentNavItems : seasonNavItems
+  const matchedItem = currentModeItems.find((item) => isExactNavMatch(pathname, item.to))
+  const currentPath = matchedItem ? matchedItem.to : pathname
+  return map[currentPath] || (nextMode === 'season' ? '/season' : '/')
+}
 
 function groupByCluster(items) {
   const groups = []
@@ -52,12 +85,16 @@ function isExactNavMatch(pathname, target) {
 export default function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
+  const realtimeEnabled = useRealtimeEnabled()
   const { player, logout } = useAuth()
-  const { currentSeason, allSeasons, viewedSeason, setViewedSeason } = useSeason()
+  const confirmLeave = useConfirmLeave()
+  const { currentSeason, allSeasons, viewedSeason, setViewedSeason, seasonTeams } = useSeason()
   const { allTournaments, viewedTournament, setViewedTournament } = useTournament()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [mode, setMode] = useState(() => getModeStorageValue())
   const [pendingTradeCount, setPendingTradeCount] = useState(0)
+  const [playersById, setPlayersById] = useState({})
+  const lastPendingTradesLoadRef = useRef({ key: '', time: 0 })
 
   const activeTournaments = allTournaments.filter(t => !t.archived)
   const archivedTournaments = allTournaments.filter(t => t.archived)
@@ -65,9 +102,35 @@ export default function Navbar() {
   const baseNavItems = mode === 'season' ? seasonNavItems : tournamentNavItems
   const navItems = isCommissioner ? [...baseNavItems, adminNavItem] : baseNavItems
   const navClusters = groupByCluster(baseNavItems)
+  const activeSeasonRecord = viewedSeason || currentSeason
   const tournamentLabel = mode === 'season'
     ? (viewedSeason ? viewedSeason.name : currentSeason?.name || 'No Season')
     : (viewedTournament ? `Tournament ${viewedTournament.tournament_number}` : 'No Tournament')
+  const championRecord = mode === 'season' ? activeSeasonRecord : viewedTournament
+  const isChampionshipDecided = mode === 'season'
+    ? championRecord?.status === 'completed'
+    : championRecord?.status === 'complete'
+  const championPlayerId = isChampionshipDecided ? championRecord?.champion_player_id : null
+  const championPlayer = championPlayerId ? playersById[championPlayerId] : null
+  const championSeasonTeam = mode === 'season' && championPlayerId
+    ? seasonTeams.find((team) => String(team.player_id) === String(championPlayerId))
+    : null
+  const championIdentity = championPlayer
+    ? (mode === 'season'
+      ? (championSeasonTeam ? buildSeasonTeamIdentity(championSeasonTeam) : null)
+      : buildPlayerTeamIdentity(championPlayer))
+    : null
+
+  useEffect(() => {
+    let active = true
+    supabase
+      .from('players')
+      .select('id, name, color, team_name, team_mascot, team_abbreviation, team_primary_color, team_secondary_color, team_logo_url')
+      .then(({ data }) => {
+        if (active) setPlayersById(Object.fromEntries((data || []).map((p) => [p.id, p])))
+      })
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     setMobileMenuOpen(false)
@@ -93,6 +156,14 @@ export default function Navbar() {
   }, [mobileMenuOpen])
 
   useEffect(() => {
+    // Skipped entirely on pages that don't need live updates (see useRealtimeEnabled) — this
+    // effect both fetches on mount and opens a realtime channel below, and an open realtime
+    // WebSocket connection disqualifies a page from the browser's back/forward cache.
+    if (!realtimeEnabled) {
+      setPendingTradeCount(0)
+      return undefined
+    }
+
     let active = true
 
     async function loadPendingTrades() {
@@ -100,6 +171,14 @@ export default function Navbar() {
         if (active) setPendingTradeCount(0)
         return
       }
+      // mode/currentSeason?.id/player?.id can each settle in separate render passes on a fresh
+      // page load, re-running this effect more than once with the exact same, fully-resolved
+      // dependencies — collapse those into one fetch. Realtime-triggered calls (seconds/minutes
+      // later, well past this window) are unaffected and always run.
+      const key = `${currentSeason.id}:${player.id}`
+      const now = Date.now()
+      if (lastPendingTradesLoadRef.current.key === key && now - lastPendingTradesLoadRef.current.time < 1000) return
+      lastPendingTradesLoadRef.current = { key, time: now }
       const { data: myTeam } = await supabase
         .from('season_teams')
         .select('id')
@@ -110,14 +189,6 @@ export default function Navbar() {
         if (active) setPendingTradeCount(0)
         return
       }
-      const { data } = await supabase
-        .from('season_trades')
-        .select('id')
-        .eq('season_id', currentSeason.id)
-        .eq('receiving_team_id', myTeam.id)
-        .eq('status', 'pending')
-      const legacyCount = (data || []).length
-
       const { data: pendingDecisionRows } = await supabase
         .from('season_trade_proposal_teams')
         .select('proposal_id')
@@ -138,7 +209,7 @@ export default function Navbar() {
       }
 
       if (active) {
-        setPendingTradeCount(legacyCount + modernCount)
+        setPendingTradeCount(modernCount)
       }
     }
 
@@ -155,7 +226,6 @@ export default function Navbar() {
     const channel = supabase
       .channel(`nav-season-trades-${currentSeason.id}-${player.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams', filter: `season_id=eq.${currentSeason.id}` }, loadPendingTrades)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trades', filter: `season_id=eq.${currentSeason.id}` }, loadPendingTrades)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposals', filter: `season_id=eq.${currentSeason.id}` }, loadPendingTrades)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposal_teams', filter: `season_id=eq.${currentSeason.id}` }, loadPendingTrades)
       .subscribe()
@@ -165,7 +235,7 @@ export default function Navbar() {
       window.removeEventListener('season-trades-updated', loadPendingTrades)
       supabase.removeChannel(channel)
     }
-  }, [mode, currentSeason?.id, player?.id])
+  }, [realtimeEnabled, mode, currentSeason?.id, player?.id])
 
   const handleTournamentChange = (e) => {
     const id = e.target.value
@@ -180,16 +250,15 @@ export default function Navbar() {
   }
 
   const handleModeChange = (nextMode) => {
+    if (nextMode === mode) return
     setMode(nextMode)
     setModeStorageValue(nextMode)
-    if (nextMode === 'season') {
-      navigate('/season')
-      return
-    }
-    navigate('/')
+    navigate(resolveModeSwitchPath(location.pathname, nextMode))
   }
 
   const handleLogout = async () => {
+    const proceed = await confirmLeave()
+    if (!proceed) return
     setMobileMenuOpen(false)
     try {
       await logout()
@@ -216,17 +285,31 @@ export default function Navbar() {
           <span className="brand-kicker">Sluggers</span>
           <strong>{tournamentLabel}</strong>
         </div>
-        {player ? (
-          <NavLink to="/team" className="player-pill mobile-player-pill" style={{ borderColor: player.color, textDecoration: 'none' }}>
-            <span className="player-dot" style={{ backgroundColor: player.color }} />
-            <span>{player.name}</span>
-          </NavLink>
-        ) : (
-          <NavLink to="/login" className="player-pill mobile-player-pill" style={{ textDecoration: 'none' }}>
-            <LogIn size={14} />
-            <span>Login</span>
-          </NavLink>
-        )}
+        <div className="mobile-topbar-right">
+          {championPlayer ? (
+            <span className="champion-badge champion-badge-mobile" title={`${championIdentity?.teamName || championPlayer.name} — Champion`}>
+              <Trophy size={12} className="champion-badge-icon" />
+              <PlayerTag
+                player={championPlayer}
+                identitiesByPlayerId={championIdentity ? { [championPlayer.id]: championIdentity } : {}}
+                height={18}
+                showLogo={Boolean(championIdentity?.teamLogoUrl || championIdentity?.teamLogoKey)}
+                showPlaceholder={false}
+              />
+            </span>
+          ) : null}
+          {player ? (
+            <NavLink to="/team" className="player-pill mobile-player-pill" style={{ borderColor: player.color, textDecoration: 'none' }}>
+              <span className="player-dot" style={{ backgroundColor: player.color }} />
+              <span>{player.name}</span>
+            </NavLink>
+          ) : (
+            <NavLink to="/login" className="player-pill mobile-player-pill" style={{ textDecoration: 'none' }}>
+              <LogIn size={14} />
+              <span>Login</span>
+            </NavLink>
+          )}
+        </div>
       </header>
 
       <div
@@ -331,6 +414,19 @@ export default function Navbar() {
               <strong>{mode === 'season' ? 'Season Mode' : 'Tournament Tracker'}</strong>
             </div>
           </div>
+
+          {championPlayer ? (
+            <span className="champion-badge champion-badge-centered" title={`${championIdentity?.teamName || championPlayer.name} — Champion`}>
+              <Trophy size={14} className="champion-badge-icon" />
+              <PlayerTag
+                player={championPlayer}
+                identitiesByPlayerId={championIdentity ? { [championPlayer.id]: championIdentity } : {}}
+                height={22}
+                showLogo={Boolean(championIdentity?.teamLogoUrl || championIdentity?.teamLogoKey)}
+                showPlaceholder={false}
+              />
+            </span>
+          ) : null}
 
           <div className="nav-row-top-right">
             {allTournaments.length || allSeasons.length ? (

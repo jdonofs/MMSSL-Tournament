@@ -68,6 +68,22 @@ export function buildSeasonTeamIdentity(team) {
   }
 }
 
+// Builds the same identity shape from a `players` row (a player's tournament-mode team
+// identity — tournament team names don't have a per-tournament equivalent of season_teams,
+// so a player's own team_name/team_logo_url columns are the identity source there).
+export function buildPlayerTeamIdentity(player) {
+  if (!player) return null
+  return {
+    teamName: player.team_name || null,
+    teamMascot: player.team_mascot || null,
+    teamAbbreviation: player.team_abbreviation || null,
+    teamPrimaryColor: player.team_primary_color || null,
+    teamSecondaryColor: player.team_secondary_color || null,
+    teamLogoKey: player.team_logo_key || null,
+    teamLogoUrl: player.team_logo_url || null,
+  }
+}
+
 // Returns true if the given CSS color is (effectively) white.
 function isWhiteColor(color) {
   if (!color) return false
@@ -199,11 +215,12 @@ function resolveProfileTeamName(profile) {
 }
 
 // playerProfilesByPlayerId: { [playerId]: { team_name, team_logo_url, team_primary_color, team_secondary_color, color } }
-// logoUrlsByPlayerId: per-tournament overrides from tournament_team_logos
+// The old tournament_team_logos override table is intentionally ignored here so tournament-mode
+// identity always comes from the player's profile plus the draft-derived captain logo key.
 export function buildTournamentTeamIdentityMap(
   draftPicks = [],
   charactersById = {},
-  logoUrlsByPlayerId = {},
+  _legacyLogoUrlsByPlayerId = {},
   playerProfilesByPlayerId = {},
 ) {
   const firstPicksByPlayer = {}
@@ -231,19 +248,18 @@ export function buildTournamentTeamIdentityMap(
   const playerIds = new Set([
     ...Object.keys(firstPicksByPlayer),
     ...Object.keys(playerProfilesByPlayerId),
-    ...Object.keys(logoUrlsByPlayerId),
   ])
 
   const identitiesByPlayerId = {}
 
-  // Merge player custom profiles and per-tournament logo overrides.
-  // Captain-derived Mario team names are intentionally ignored here.
+  // Merge the draft-derived base identity with player profile overrides.
+  // Tournament mode intentionally ignores per-tournament logo overrides and
+  // uses the player's profile/team fields plus the captain-derived fallback.
   for (const playerId of playerIds) {
     const base = firstPicksByPlayer[playerId] || { playerId }
     const profile = playerProfilesByPlayerId[playerId]
-    const tournamentLogoUrl = logoUrlsByPlayerId[playerId]
     const teamName = resolveProfileTeamName(profile)
-    const teamLogoUrl = tournamentLogoUrl || profile?.team_logo_url || base.teamLogoUrl || null
+    const teamLogoUrl = profile?.team_logo_url || base.teamLogoUrl || null
     const hasIdentityData = Boolean(
       teamName
       || teamLogoUrl

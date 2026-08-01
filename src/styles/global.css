@@ -73,11 +73,27 @@ a {
 .table-card,
 .scorebook-layout,
 .ticker,
-.draft-topbar {
+.draft-topbar,
+.season-game-card {
   background: linear-gradient(180deg, rgba(36, 50, 71, 0.9), rgba(22, 30, 47, 0.95));
   border: 1px solid var(--line);
   border-radius: 20px;
   box-shadow: var(--shadow);
+}
+
+.season-game-card {
+  padding: 16px;
+  text-align: left;
+  color: var(--text);
+  display: grid;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.season-game-card:disabled,
+.season-game-card[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.8;
 }
 
 .section-head,
@@ -110,12 +126,21 @@ a {
 }
 
 .nav-row-top {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   padding: 0.55rem 1.1rem;
   border-bottom: 1px solid var(--line);
+}
+
+.champion-badge-centered {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
 }
 
 .nav-row-top-right {
@@ -137,6 +162,22 @@ a {
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.35rem 1.1rem;
+}
+
+.champion-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  background: rgba(234, 179, 8, 0.1);
+  border-radius: 999px;
+  color: var(--gold);
+  flex-shrink: 0;
+}
+
+.champion-badge-icon {
+  flex-shrink: 0;
 }
 
 .nav-row-main-right {
@@ -493,6 +534,51 @@ body.drawer-open {
   color: var(--danger);
 }
 
+.status-live {
+  background: rgba(234, 179, 8, 0.12);
+  color: var(--gold);
+}
+
+.status-scheduled {
+  background: rgba(59, 130, 246, 0.1);
+  color: #93c5fd;
+}
+
+.week-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.week-stepper .week-stepper-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  min-width: 84px;
+  text-align: center;
+}
+
+.week-stepper button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.week-stepper button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .shake {
   animation: shake 250ms linear 1;
 }
@@ -621,6 +707,50 @@ body.drawer-open {
   }
 }
 
+/* Gamelog opponent column: full team name on desktop, abbreviation on mobile. */
+.opp-abbr {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .opp-full {
+    display: none;
+  }
+
+  .opp-abbr {
+    display: inline;
+  }
+}
+
+/* Stat column tooltips: hover on desktop, tap-and-hold on mobile (see StatLabel.jsx). The bubble
+   is portaled to <body> and positioned with `fixed` coordinates so it isn't clipped by the
+   `overflow: hidden` sticky-header cells most stat tables use. */
+.stat-tip {
+  cursor: help;
+  border-bottom: 1px dotted rgba(148, 163, 184, 0.55);
+}
+
+.stat-tip-bubble {
+  position: fixed;
+  transform: translateX(-50%);
+  background: #0F172A;
+  color: #E2E8F0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+  width: max-content;
+  max-width: 220px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 9999;
+  pointer-events: none;
+}
+
 .season-table-shell {
   overflow-x: auto;
   overflow-y: hidden;
@@ -667,6 +797,17 @@ body.drawer-open {
   border-radius: 14px;
 }
 
+.stats-rail-scope-select {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.5rem 0.6rem;
+}
+
 .stats-rail-toggle {
   display: flex;
   gap: 4px;
@@ -700,6 +841,24 @@ body.drawer-open {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 0.1rem 0.5rem 0.4rem;
+}
+
+.stats-rail-label-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.stats-rail-label-btn:hover {
+  color: var(--text);
+}
+
+.stats-rail-label-btn-active {
+  color: var(--gold);
 }
 
 .stats-rail-group {
@@ -753,6 +912,10 @@ body.drawer-open {
     align-items: center;
   }
 
+  .stats-rail-scope-select {
+    width: auto;
+  }
+
   .stats-rail-toggle {
     flex: none;
   }
@@ -764,7 +927,14 @@ body.drawer-open {
   }
 
   .stats-rail-label {
-    display: none;
+    padding: 0.4rem 0.7rem;
+  }
+
+  .stats-rail-label-btn {
+    width: auto;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--line);
   }
 
   .stats-rail-item {
@@ -776,6 +946,151 @@ body.drawer-open {
 
   .stats-rail-item-active {
     border-bottom-color: var(--gold);
+  }
+
+  .stats-rail-mobile-controls {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .stats-rail-mobile-controls .stats-rail-scope-select {
+    flex: 1;
+    width: auto;
+  }
+}
+
+.entity-page-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.entity-sidebar {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  display: grid;
+  gap: 14px;
+  background: rgba(10, 14, 23, 0.85);
+  backdrop-filter: blur(6px);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  padding: 0.9rem 0.8rem;
+  min-width: 0;
+}
+
+.entity-sidebar-title {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.entity-sidebar-scopes {
+  display: grid;
+  gap: 2px;
+}
+
+.entity-sidebar-scope-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0.32rem 0.5rem;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.entity-sidebar-scope-link-active {
+  font-weight: 700;
+  color: var(--text);
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.entity-sidebar-scope-badge {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.entity-sidebar-section-list {
+  display: grid;
+  gap: 2px;
+}
+
+.entity-sidebar-section-list-divided {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.entity-sidebar-section-link {
+  background: none;
+  border: none;
+  text-align: left;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0.3rem 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.entity-sidebar-section-link:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.entity-sidebar-scope-select {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.5rem 0.6rem;
+}
+
+.entity-sidebar-sections {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.entity-sidebar-section-pill {
+  flex: none;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+}
+
+.entity-sidebar-section-pill:hover {
+  color: var(--text);
+}
+
+@media (max-width: 900px) {
+  .entity-page-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .entity-sidebar-compact {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0.7rem;
   }
 }
 
@@ -1945,6 +2260,19 @@ button, a, select, input, textarea, label, [role="button"] {
 
   .mobile-menu-toggle-open span:nth-child(3) {
     transform: rotate(-45deg);
+  }
+
+  .mobile-topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    justify-self: end;
+    min-width: 0;
+  }
+
+  .champion-badge-mobile {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.72rem;
   }
 
   .mobile-brand {

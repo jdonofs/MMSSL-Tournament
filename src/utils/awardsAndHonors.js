@@ -21,7 +21,7 @@ const PITCHING_STATS = [
 ]
 
 function eventLabel(entry) {
-  return entry.eventType === 'season' ? String(entry.eventNumber) : `Tournament ${entry.eventNumber}`
+  return entry.eventType === 'season' ? String(entry.eventNumber) : `MST ${entry.eventNumber}`
 }
 
 // battingHistoryByCharacter / pitchingHistoryByCharacter: { [characterId]: eventEntry[] }, each

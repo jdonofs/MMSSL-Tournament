@@ -118,6 +118,7 @@ export default function Home() {
         { data: paData, error: paError },
         { data: pitchingData, error: pitchingError },
         { data: fieldersData, error: fieldersError },
+        { data: pitchesData },
       ] = await Promise.all([
         supabase.from('draft_picks').select('*').eq('tournament_id', currentTournament.id).order('pick_number'),
         supabase.from('characters').select('*').order('name'),
@@ -125,6 +126,7 @@ export default function Home() {
         supabase.from('plate_appearances').select('*').order('created_at'),
         supabase.from('pitching_stints').select('*').order('created_at'),
         supabase.from('game_fielders').select('*').order('created_at'),
+        supabase.from('pitches').select('game_id,pitcher_id'),
       ])
 
       const error = draftPicksError || charactersError || gamesError || paError || pitchingError || fieldersError
@@ -138,9 +140,16 @@ export default function Home() {
 
       const currentGameIds = new Set((gamesData || []).filter((game) => String(game.tournament_id) === String(currentTournament.id)).map((game) => String(game.id)))
       const currentPlateAppearances = (paData || []).filter((pa) => currentGameIds.has(String(pa.game_id)))
-      const currentPitchingStints = (pitchingData || []).filter((stint) => currentGameIds.has(String(stint.game_id)))
-      const currentFielders = (fieldersData || []).filter((fielder) => currentGameIds.has(String(fielder.game_id)))
       const charactersById = Object.fromEntries((charactersData || []).map((character) => [character.id, character]))
+      // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
+      // mound-assignment bookkeeping), before they've necessarily thrown a pitch — drop stints
+      // with no matching row in `pitches` (by game_id + pitcher name) before ranking teams on them.
+      // Historical/imported stints have no pitch-log rows at all, so also keep any stint with a
+      // recorded innings_pitched > 0 — that's real evidence of an outing.
+      const thrownKeys = new Set((pitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const stintsWithPitches = (pitchingData || []).filter((stint) => thrownKeys.has(`${stint.game_id}:${charactersById[stint.character_id]?.name}`) || Number(stint.innings_pitched) > 0)
+      const currentPitchingStints = stintsWithPitches.filter((stint) => currentGameIds.has(String(stint.game_id)))
+      const currentFielders = (fieldersData || []).filter((fielder) => currentGameIds.has(String(fielder.game_id)))
 
       setRankingData({
         roster: (draftPicksData || [])
@@ -156,7 +165,7 @@ export default function Home() {
         pitchingStints: currentPitchingStints,
         gameFielders: currentFielders,
         historicalPlateAppearances: (paData || []).filter((pa) => !currentGameIds.has(String(pa.game_id))),
-        historicalPitchingStints: (pitchingData || []).filter((stint) => !currentGameIds.has(String(stint.game_id))),
+        historicalPitchingStints: stintsWithPitches.filter((stint) => !currentGameIds.has(String(stint.game_id))),
         historicalGameFielders: (fieldersData || []).filter((fielder) => !currentGameIds.has(String(fielder.game_id))),
       })
       setRankingsLoading(false)
@@ -293,6 +302,7 @@ export default function Home() {
           rankingsError={rankingsError}
           identitiesByPlayerId={identitiesByPlayerId}
           playersById={playersById}
+          teamLinkBuilder={(playerId) => `/teams/${playerId}/tournament/${currentTournament.id}`}
         />
       )}
     </div>

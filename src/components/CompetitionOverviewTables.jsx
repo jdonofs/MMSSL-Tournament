@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import TeamLogo from './TeamLogo'
+import StatLabel from './StatLabel'
 import { getTeamAbbreviation, getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
 
 const COLUMN_CONFIG = [
@@ -10,15 +12,14 @@ const COLUMN_CONFIG = [
   { key: 'speedRating', label: 'SPD', color: '#38BDF8', title: 'Speed rating' },
 ]
 
-function TeamIdentityCell({ playerId, identitiesByPlayerId, playersById, height = 40 }) {
+function TeamIdentityCell({ playerId, identitiesByPlayerId, playersById, height = 40, onClick }) {
   const player = playersById[playerId] || null
   const identity = identitiesByPlayerId[playerId] || null
   const teamLabel = getTeamShortName(identity) || player?.name || 'TBD'
   const mobileLabel = getTeamAbbreviation(identity) || teamLabel
   const color = getTeamPrimaryColor(identity, player?.color)
-
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+  const content = (
+    <>
       <TeamLogo
         height={height}
         logoKey={identity?.teamLogoKey}
@@ -30,7 +31,34 @@ function TeamIdentityCell({ playerId, identitiesByPlayerId, playersById, height 
         <span className="season-team-label season-team-label-full" style={{ fontWeight: 800, fontSize: 13, color: color || 'inherit' }}>{teamLabel}</span>
         <span className="season-team-label season-team-label-mobile" style={{ fontWeight: 800, fontSize: 13, color: color || 'inherit' }}>{mobileLabel}</span>
       </span>
-    </span>
+    </>
+  )
+
+  if (!onClick) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        {content}
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        minWidth: 0,
+        border: 'none',
+        background: 'none',
+        padding: 0,
+        cursor: 'pointer',
+      }}
+    >
+      {content}
+    </button>
   )
 }
 
@@ -39,7 +67,6 @@ function SortableHeader({ label, color, active, direction, onClick, title }) {
     <button
       type="button"
       onClick={onClick}
-      title={title}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -53,7 +80,7 @@ function SortableHeader({ label, color, active, direction, onClick, title }) {
         cursor: 'pointer',
       }}
     >
-      <span>{label}</span>
+      <StatLabel label={label} description={title} />
       <span style={{ color: active ? color : '#64748B', fontSize: 12 }}>{active ? (direction === 'asc' ? '↑' : '↓') : ''}</span>
     </button>
   )
@@ -176,7 +203,9 @@ export default function CompetitionOverviewTables({
   identitiesByPlayerId = {},
   playersById = {},
   viewerPlayerId = null,
+  teamLinkBuilder = null,
 }) {
+  const navigate = useNavigate()
   const [activeView, setActiveView] = useState('standings')
   const [sortState, setSortState] = useState({ key: 'overallRating', direction: 'desc' })
   const [selectedBreakdown, setSelectedBreakdown] = useState(null)
@@ -200,6 +229,15 @@ export default function CompetitionOverviewTables({
 
   const openBreakdown = (row, column) => {
     setSelectedBreakdown({ row, column })
+  }
+
+  const goToTeam = (playerId) => {
+    if (!teamLinkBuilder || !playerId) return
+    navigate(teamLinkBuilder(playerId), {
+      state: {
+        backTo: window.location.pathname + window.location.search,
+      },
+    })
   }
 
   return (
@@ -232,7 +270,14 @@ export default function CompetitionOverviewTables({
               <tbody>
                 {standings.map((row) => (
                   <tr key={row.id} style={row.player_id === viewerPlayerId ? { background: 'rgba(234,179,8,0.12)' } : undefined}>
-                    <td><TeamIdentityCell playerId={row.player_id} identitiesByPlayerId={identitiesByPlayerId} playersById={playersById} /></td>
+                    <td>
+                      <TeamIdentityCell
+                        playerId={row.player_id}
+                        identitiesByPlayerId={identitiesByPlayerId}
+                        playersById={playersById}
+                        onClick={teamLinkBuilder ? () => goToTeam(row.player_id) : undefined}
+                      />
+                    </td>
                     <td>{row.wins}</td>
                     <td>{row.losses}</td>
                     <td>{row.gamesBack}</td>
@@ -281,7 +326,12 @@ export default function CompetitionOverviewTables({
                 {sortedPowerRankings.map((row) => (
                   <tr key={row.id} style={row.playerId === viewerPlayerId ? { background: 'rgba(234,179,8,0.12)' } : undefined}>
                     <td>
-                      <TeamIdentityCell playerId={row.playerId} identitiesByPlayerId={identitiesByPlayerId} playersById={playersById} />
+                      <TeamIdentityCell
+                        playerId={row.playerId}
+                        identitiesByPlayerId={identitiesByPlayerId}
+                        playersById={playersById}
+                        onClick={teamLinkBuilder ? () => goToTeam(row.playerId) : undefined}
+                      />
                     </td>
                     {COLUMN_CONFIG.map((column) => (
                       <td

@@ -1,31 +1,43 @@
-import { useCallback, useRef } from 'react'
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { lazy, Suspense, useCallback, useRef } from 'react'
+import { Navigate, Outlet, RouterProvider, createBrowserRouter } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import ProtectedRoute from './components/ProtectedRoute'
-import ScorebookRoute from './components/ScorebookRoute'
-import { useAuth } from './context/AuthContext'
-import Login from './pages/Login'
-import Home from './pages/Home'
-import Draft from './pages/Draft'
-import { SeasonDraftPresentation, TournamentDraftPresentation } from './pages/DraftPresentation'
-import Roster from './pages/Roster'
-import Betting from './pages/Betting'
-import Stats from './pages/Stats'
-import Bracket from './pages/Bracket'
-import TournamentCreate from './pages/TournamentCreate'
-import SeasonHome from './pages/SeasonHome'
-import SeasonCreate from './pages/SeasonCreate'
-import SeasonDraft from './pages/SeasonDraft'
-import SeasonSchedule from './pages/SeasonSchedule'
-import SeasonRoster from './pages/SeasonRoster'
-import SeasonBetting from './pages/SeasonBetting'
-import SeasonBracket from './pages/SeasonBracket'
-import SeasonStats from './pages/SeasonStats'
-import Admin from './pages/Admin'
-import TeamProfile from './pages/TeamProfile'
-import CharacterPage from './pages/CharacterPage'
+import { AuthProvider, useAuth } from './context/AuthContext'
+
+// Lazy-loaded so each tab only downloads/parses the JS for the page it's actually
+// showing, instead of every route's code being bundled into one always-loaded chunk.
+const ScorebookRoute = lazy(() => import('./components/ScorebookRoute'))
+const Login = lazy(() => import('./pages/Login'))
+const Home = lazy(() => import('./pages/Home'))
+const Draft = lazy(() => import('./pages/Draft'))
+const TournamentDraftPresentation = lazy(() =>
+  import('./pages/DraftPresentation').then((m) => ({ default: m.TournamentDraftPresentation })),
+)
+const SeasonDraftPresentation = lazy(() =>
+  import('./pages/DraftPresentation').then((m) => ({ default: m.SeasonDraftPresentation })),
+)
+const Roster = lazy(() => import('./pages/Roster'))
+const Betting = lazy(() => import('./pages/Betting'))
+const Stats = lazy(() => import('./pages/Stats'))
+const Bracket = lazy(() => import('./pages/Bracket'))
+const TournamentCreate = lazy(() => import('./pages/TournamentCreate'))
+const SeasonHome = lazy(() => import('./pages/SeasonHome'))
+const SeasonCreate = lazy(() => import('./pages/SeasonCreate'))
+const SeasonDraft = lazy(() => import('./pages/SeasonDraft'))
+const SeasonSchedule = lazy(() => import('./pages/SeasonSchedule'))
+const SeasonRoster = lazy(() => import('./pages/SeasonRoster'))
+const SeasonBetting = lazy(() => import('./pages/SeasonBetting'))
+const SeasonBracket = lazy(() => import('./pages/SeasonBracket'))
+const SeasonStats = lazy(() => import('./pages/SeasonStats'))
+const Admin = lazy(() => import('./pages/Admin'))
+const TeamProfile = lazy(() => import('./pages/TeamProfile'))
+const TeamPage = lazy(() => import('./pages/TeamPage'))
+const CharacterPage = lazy(() => import('./pages/CharacterPage'))
+const AtBatPage = lazy(() => import('./pages/AtBatPage'))
+const VideoTimestamps = lazy(() => import('./pages/VideoTimestamps'))
 import { SeasonProvider, useSeason } from './context/SeasonContext'
 import { TournamentProvider, useTournament } from './context/TournamentContext'
+import { UnsavedChangesProvider } from './context/UnsavedChangesContext'
 import { SEASON_SCOREBOOK_PATH, TOURNAMENT_SCOREBOOK_PATH } from './utils/scorebookRouting'
 import { getModeStorageValue } from './utils/season'
 
@@ -53,20 +65,24 @@ function AppLayout() {
   }
 
   return (
-    <div className="app-shell">
-      <Navbar />
-      <main className="page-shell">
-        <Outlet />
-      </main>
-    </div>
+    <UnsavedChangesProvider>
+      <div className="app-shell">
+        <Navbar />
+        <main className="page-shell">
+          <Suspense fallback={<p className="muted" style={{ margin: 0 }}>Loading…</p>}>
+            <Outlet />
+          </Suspense>
+        </main>
+      </div>
+    </UnsavedChangesProvider>
   )
 }
 
-function AppWithProviders() {
+function RootProviders() {
   return (
     <TournamentProvider>
       <SeasonProvider>
-        <AppRoutes />
+        <Outlet />
       </SeasonProvider>
     </TournamentProvider>
   )
@@ -76,39 +92,58 @@ function RootRoute() {
   return getModeStorageValue() === 'season' ? <Navigate to="/season" replace /> : <Home />
 }
 
-function AppRoutes() {
-  return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/draft/presentation" element={<TournamentDraftPresentation />} />
-      <Route path="/season/draft/presentation" element={<SeasonDraftPresentation />} />
-      <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-        <Route path="/" element={<RootRoute />} />
-        <Route path="/draft" element={<Draft />} />
-        <Route path="/roster" element={<Roster />} />
-        <Route path={TOURNAMENT_SCOREBOOK_PATH} element={<ScorebookRoute />} />
-        <Route path="/betting" element={<Betting />} />
-        <Route path="/stats" element={<Stats />} />
-        <Route path="/bracket" element={<Bracket />} />
-        <Route path="/tournament/create" element={<TournamentCreate />} />
-        <Route path="/season" element={<SeasonHome />} />
-        <Route path="/season/create" element={<SeasonCreate />} />
-        <Route path="/season/draft" element={<SeasonDraft />} />
-        <Route path="/season/roster" element={<SeasonRoster />} />
-        <Route path="/season/schedule" element={<SeasonSchedule />} />
-        <Route path={SEASON_SCOREBOOK_PATH} element={<ScorebookRoute />} />
-        <Route path="/season/trades" element={<Navigate to="/season/roster" replace />} />
-        <Route path="/season/bets" element={<SeasonBetting />} />
-        <Route path="/season/stats" element={<SeasonStats />} />
-        <Route path="/season/bracket" element={<SeasonBracket />} />
-        <Route path="/team" element={<TeamProfile />} />
-        <Route path="/character/:id" element={<CharacterPage />} />
-        <Route path="/admin" element={<Admin />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  )
-}
+// A data router (rather than plain <BrowserRouter>/<Routes>) is required so
+// pages can use useBlocker() to intercept in-app navigation and prompt for
+// unsaved lineup/fielding changes before leaving. See useUnsavedChangesGuard.
+const router = createBrowserRouter([
+  {
+    // AuthProvider lives here (inside the router) rather than in main.jsx so its always-on
+    // realtime channel can use useLocation() to pause itself on pages that don't need live
+    // updates — see useRealtimeEnabled.
+    element: <AuthProvider><RootProviders /></AuthProvider>,
+    children: [
+      { path: '/login', element: <Suspense fallback={<AppLoadingScreen />}><Login /></Suspense> },
+      { path: '/draft/presentation', element: <Suspense fallback={<AppLoadingScreen />}><TournamentDraftPresentation /></Suspense> },
+      { path: '/season/draft/presentation', element: <Suspense fallback={<AppLoadingScreen />}><SeasonDraftPresentation /></Suspense> },
+      {
+        element: <ProtectedRoute><AppLayout /></ProtectedRoute>,
+        children: [
+          { path: '/', element: <RootRoute /> },
+          { path: '/draft', element: <Draft /> },
+          { path: '/roster', element: <Roster /> },
+          { path: TOURNAMENT_SCOREBOOK_PATH, element: <ScorebookRoute /> },
+          { path: '/betting', element: <Betting /> },
+          { path: '/stats', element: <Stats /> },
+          { path: '/bracket', element: <Bracket /> },
+          { path: '/tournament/create', element: <TournamentCreate /> },
+          { path: '/season', element: <SeasonHome /> },
+          { path: '/season/create', element: <SeasonCreate /> },
+          { path: '/season/draft', element: <SeasonDraft /> },
+          { path: '/season/roster', element: <SeasonRoster /> },
+          { path: '/season/schedule', element: <SeasonSchedule /> },
+          { path: SEASON_SCOREBOOK_PATH, element: <ScorebookRoute /> },
+          { path: '/season/trades', element: <Navigate to="/season/roster" replace /> },
+          { path: '/season/bets', element: <SeasonBetting /> },
+          { path: '/season/stats', element: <SeasonStats /> },
+          { path: '/season/bracket', element: <SeasonBracket /> },
+          { path: '/team', element: <TeamProfile /> },
+          { path: '/teams/:playerId', element: <Navigate to="career" replace /> },
+          { path: '/teams/:playerId/career', element: <TeamPage /> },
+          { path: '/teams/:playerId/season/:seasonId', element: <TeamPage /> },
+          { path: '/teams/:playerId/tournament/:tournamentId', element: <TeamPage /> },
+          { path: '/character/:id', element: <Navigate to="career" replace /> },
+          { path: '/character/:id/career', element: <CharacterPage /> },
+          { path: '/character/:id/season/:seasonId', element: <CharacterPage /> },
+          { path: '/character/:id/tournament/:tournamentId', element: <CharacterPage /> },
+          { path: '/admin', element: <Admin /> },
+          { path: '/admin/video-timestamps', element: <VideoTimestamps /> },
+          { path: '/at-bat/:source/:id', element: <AtBatPage /> },
+        ],
+      },
+      { path: '*', element: <Navigate to="/" replace /> },
+    ],
+  },
+])
 
 export default function App() {
   const pendingTouchClicksRef = useRef(new WeakMap())
@@ -163,7 +198,7 @@ export default function App() {
 
   return (
     <div onPointerUpCapture={handlePointerUpCapture} onClickCapture={handleClickCapture} style={{ minHeight: '100%' }}>
-      <AppWithProviders />
+      <RouterProvider router={router} />
     </div>
   )
 }

@@ -128,16 +128,39 @@ export function resolveBracketRef(ref, seeding, gamesByStage) {
   return null
 }
 
+function isLosersRoundStage(stage) {
+  return /^Losers R\d+-/.test(normalizeStage(stage))
+}
+
+// Winners Final only needs the two Winners R2 results to resolve, but that lets
+// it fill in (and show on the bracket) before the Losers bracket has caught up
+// a round. Hold it at TBD until every other Losers-bracket round is complete,
+// so the bracket fills in one round at a time.
+function areLosersRoundsComplete(template, gamesByStage) {
+  return template
+    .filter((spec) => isLosersRoundStage(spec.stage))
+    .every((spec) => Boolean(gamesByStage.get(normalizeStage(spec.stage))?.winner_player_id))
+}
+
 export function resolveTemplateStages(template, seeding, games) {
   const gamesByStage = new Map(
     games.map((game) => [normalizeStage(game.stage), game]),
   )
+  const losersRoundsComplete = areLosersRoundsComplete(template, gamesByStage)
 
-  return template.map((spec) => ({
-    stage: spec.stage,
-    teamA: resolveBracketRef(spec.teamARef, seeding, gamesByStage),
-    teamB: resolveBracketRef(spec.teamBRef, seeding, gamesByStage),
-  }))
+  return template.map((spec) => {
+    const isWinnersFinal = normalizeStage(spec.stage) === 'Winners Final'
+    const existing = gamesByStage.get(normalizeStage(spec.stage))
+    const existingComplete = existing?.status === 'completed' || existing?.status === 'complete'
+    if (isWinnersFinal && !losersRoundsComplete && !existingComplete) {
+      return { stage: spec.stage, teamA: null, teamB: null }
+    }
+    return {
+      stage: spec.stage,
+      teamA: resolveBracketRef(spec.teamARef, seeding, gamesByStage),
+      teamB: resolveBracketRef(spec.teamBRef, seeding, gamesByStage),
+    }
+  })
 }
 
 export function buildDoubleElimBracket(seeding) {

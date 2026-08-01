@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, MapPin, Moon, Sun } from 'lucide-react'
+import { ChevronLeft, ChevronRight, MapPin, Moon, Sun } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -16,9 +16,9 @@ import { sortSeasonPlayoffGames } from '../utils/seasonPlayoffs'
 import { buildSeasonTeamIdentity, getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
 
 function getStatusTone(status) {
-  if (status === 'completed') return { bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.35)', color: '#86EFAC' }
-  if (status === 'in_progress') return { bg: 'rgba(234,179,8,0.12)', border: 'rgba(234,179,8,0.35)', color: '#FDE68A' }
-  return { bg: 'rgba(59,130,246,0.10)', border: 'rgba(59,130,246,0.30)', color: '#93C5FD' }
+  if (status === 'completed') return { bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.35)', color: '#86EFAC', pillClass: 'status-complete' }
+  if (status === 'in_progress') return { bg: 'rgba(234,179,8,0.12)', border: 'rgba(234,179,8,0.35)', color: '#FDE68A', pillClass: 'status-live' }
+  return { bg: 'rgba(59,130,246,0.10)', border: 'rgba(59,130,246,0.30)', color: '#93C5FD', pillClass: 'status-scheduled' }
 }
 
 function deriveLiveInningState(outsRecorded = 0) {
@@ -54,39 +54,30 @@ function getWinningTeamId(game) {
   return homeScore > awayScore ? game.home_team_id : game.away_team_id
 }
 
-function TeamValue({ value, highlighted = false }) {
+function TeamValue({ record, score, outcome = null }) {
+  if (record != null) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'baseline', justifyContent: 'flex-end', gap: 4, minWidth: 60 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: '#64748B' }}>W-L</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>{record}</span>
+      </span>
+    )
+  }
+
+  const isWinner = outcome === 'win'
+  const isLoser = outcome === 'lose'
   return (
     <span
       style={{
         display: 'inline-flex',
         justifyContent: 'flex-end',
         minWidth: 60,
+        fontWeight: 800,
+        fontSize: 18,
+        color: isWinner ? 'var(--success)' : isLoser ? 'var(--muted)' : '#F8FAFC',
       }}
     >
-      {highlighted ? (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 4,
-            minWidth: 44,
-            padding: '4px 8px',
-            borderRadius: 999,
-            border: '1px solid rgba(34,197,94,0.35)',
-            background: 'rgba(34,197,94,0.14)',
-            color: '#86EFAC',
-            fontWeight: 800,
-            fontSize: 18,
-            lineHeight: 1,
-          }}
-        >
-          <ArrowRight size={12} strokeWidth={2.5} />
-          <span>{value}</span>
-        </span>
-      ) : (
-        <span style={{ color: '#F8FAFC', fontWeight: 800, fontSize: 18, textAlign: 'right' }}>{value}</span>
-      )}
+      {score}
     </span>
   )
 }
@@ -344,7 +335,7 @@ export default function SeasonSchedule() {
       for (const pa of data || []) {
         const gameId = String(pa.game_id || '')
         if (!gameId) continue
-        next[gameId] = (next[gameId] || 0) + calculateOutsForPa(pa.result)
+        next[gameId] = (next[gameId] || 0) + calculateOutsForPa(pa.result, pa.outs_on_play)
       }
       setLiveOutsByGameId(next)
     }
@@ -405,6 +396,10 @@ export default function SeasonSchedule() {
     () => buildWeekGroups(regularSeasonGames, gamesPerWeek, Number(currentSeason?.games_per_matchup || 0)),
     [regularSeasonGames, gamesPerWeek, currentSeason?.games_per_matchup],
   )
+  const currentWeekIndex = useMemo(
+    () => weekGroups.findIndex((entry) => entry.week === selectedWeek),
+    [weekGroups, selectedWeek],
+  )
   const selectedWeekGames = useMemo(
     () => (weekGroups.find((entry) => entry.week === selectedWeek)?.games || weekGroups[0]?.games || [])
       .map((game) => applyGameOverride(game, scheduleOverrides)),
@@ -425,7 +420,11 @@ export default function SeasonSchedule() {
   const hasPlayoffTab = currentSeason?.status === 'playoffs'
     || currentSeason?.status === 'completed'
     || visiblePlayoffGames.length > 0
-  const selectedView = hasPlayoffTab && searchParams.get('view') === 'playoffs' ? 'playoffs' : 'regular'
+  const viewParam = searchParams.get('view')
+  const defaultView = hasPlayoffTab && currentSeason?.status === 'playoffs' ? 'playoffs' : 'regular'
+  const selectedView = hasPlayoffTab && (viewParam ? viewParam === 'playoffs' : defaultView === 'playoffs')
+    ? 'playoffs'
+    : 'regular'
   const visibleGames = useMemo(
     () => (selectedView === 'playoffs' ? visiblePlayoffGames : selectedWeekGames),
     [selectedView, visiblePlayoffGames, selectedWeekGames],
@@ -466,8 +465,7 @@ export default function SeasonSchedule() {
 
   const setSelectedView = useCallback((view) => {
     const next = new URLSearchParams(searchParams)
-    if (view === 'playoffs') next.set('view', 'playoffs')
-    else next.delete('view')
+    next.set('view', view === 'playoffs' ? 'playoffs' : 'regular')
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
@@ -490,14 +488,6 @@ export default function SeasonSchedule() {
       .update(patch)
       .eq('id', game.id)
     if (error) throw error
-
-    // A stadium is never actually changed mid/post-game — fixing it means correcting a
-    // setup mistake, so the denormalized historical log row must be corrected too.
-    const { error: logError } = await supabase
-      .from('season_stadium_game_log')
-      .update(patch)
-      .eq('game_id', game.id)
-    if (logError) throw logError
 
     setScheduleOverrides((prev) => ({ ...prev, [String(game.id)]: patch }))
     setGameModal((current) => (
@@ -607,19 +597,28 @@ export default function SeasonSchedule() {
       </div>
 
       <section className="panel" style={{ padding: 16 }}>
-        {selectedView === 'regular' ? (
+        {selectedView === 'regular' && weekGroups.length ? (
           <div className="section-head" style={{ justifyContent: 'flex-end' }}>
-            <div className="tab-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {weekGroups.map((group) => (
-                <button
-                  key={group.week}
-                  className={`tab-button ${selectedWeek === group.week ? 'tab-button-active' : ''}`}
-                  onClick={() => setSelectedWeek(group.week)}
-                  type="button"
-                >
-                  Week {group.week}
-                </button>
-              ))}
+            <div className="week-stepper">
+              <button
+                type="button"
+                disabled={currentWeekIndex <= 0}
+                onClick={() => setSelectedWeek(weekGroups[currentWeekIndex - 1].week)}
+                aria-label="Previous week"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="week-stepper-label">
+                Week {weekGroups[currentWeekIndex]?.week ?? selectedWeek} of {weekGroups.length}
+              </span>
+              <button
+                type="button"
+                disabled={currentWeekIndex < 0 || currentWeekIndex >= weekGroups.length - 1}
+                onClick={() => setSelectedWeek(weekGroups[currentWeekIndex + 1].week)}
+                aria-label="Next week"
+              >
+                <ChevronRight size={16} />
+              </button>
             </div>
           </div>
         ) : null}
@@ -645,11 +644,15 @@ export default function SeasonSchedule() {
             const isOpeningGame = String(openingGameId) === String(game.id)
             const tone = getStatusTone(game.status)
             const showScore = shouldShowLiveScore(game)
-            const homeValue = showScore ? Number(game.home_score || 0) : (homeStanding ? `${homeStanding.wins}-${homeStanding.losses}` : '--')
-            const awayValue = showScore ? Number(game.away_score || 0) : (awayStanding ? `${awayStanding.wins}-${awayStanding.losses}` : '--')
             const winningTeamId = getWinningTeamId(game)
             const updateText = getGameUpdateText(game, liveOutsByGameId, game.innings ?? currentSeason?.innings)
             const playoffMeta = game.stage ? playoffMetaByGameId[String(game.id)] : null
+            const isCompleted = game.status === 'completed'
+            const isLocked = Boolean(game.stage && playoffMeta && !playoffMeta.canStartGame)
+            const canEditStadium = canEditStadiumForGame(game)
+            const showSetStadiumPill = !isCompleted && !isLocked && !game.stadium && canEditStadium
+            const showStartPill = !isCompleted && !isLocked && Boolean(game.stadium)
+            const startLabel = game.status === 'in_progress' ? 'Resume Game' : 'Start Game'
             return (
               <button
                 key={game.id}
@@ -658,19 +661,9 @@ export default function SeasonSchedule() {
                   openGameCard(game)
                 }}
                 type="button"
-                style={{
-                  background: 'linear-gradient(180deg, rgba(30,41,59,0.98), rgba(15,23,42,0.98))',
-                  border: `1px solid ${tone.border}`,
-                  borderRadius: 18,
-                  padding: 16,
-                  textAlign: 'left',
-                  color: '#E2E8F0',
-                  cursor: isOpeningGame ? 'progress' : 'pointer',
-                  display: 'grid',
-                  gap: 12,
-                  boxShadow: '0 14px 28px rgba(2,6,23,0.28)',
-                  opacity: isOpeningGame ? 0.8 : 1,
-                }}
+                className="season-game-card"
+                aria-busy={isOpeningGame}
+                style={{ borderColor: tone.border }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', minHeight: 28 }}>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -692,33 +685,9 @@ export default function SeasonSchedule() {
                     ) : null}
                   </div>
                   {isOpeningGame ? (
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 700,
-                        padding: '4px 8px',
-                        borderRadius: 999,
-                        border: '1px solid rgba(234,179,8,0.35)',
-                        background: 'rgba(234,179,8,0.12)',
-                        color: '#FDE68A',
-                      }}
-                    >
-                      Opening…
-                    </span>
+                    <span className="status-pill status-live">Opening…</span>
                   ) : updateText ? (
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 700,
-                        padding: '4px 8px',
-                        borderRadius: 999,
-                        border: `1px solid ${tone.border}`,
-                        background: tone.bg,
-                        color: tone.color,
-                      }}
-                    >
-                      {updateText}
-                    </span>
+                    <span className={`status-pill ${tone.pillClass}`}>{updateText}</span>
                   ) : null}
                 </div>
                 <div style={{ display: 'grid', gap: 10 }}>
@@ -731,9 +700,13 @@ export default function SeasonSchedule() {
                         teamName={identitiesByPlayerId[awayTeam?.player_id]?.teamName}
                         placeholder
                       />
-                      <span style={{ color: '#F8FAFC', fontWeight: 700, fontSize: 14 }}>{getTeamShortName(identitiesByPlayerId[awayTeam?.player_id]) || awayTeam?.team_name || 'Away TBD'}</span>
+                      <span style={{ color: showScore && winningTeamId === game.away_team_id ? 'var(--success)' : '#F8FAFC', fontWeight: 700, fontSize: 14 }}>{getTeamShortName(identitiesByPlayerId[awayTeam?.player_id]) || awayTeam?.team_name || 'Away TBD'}</span>
                     </div>
-                    <TeamValue value={awayValue} highlighted={showScore && winningTeamId === game.away_team_id} />
+                    {showScore ? (
+                      <TeamValue score={Number(game.away_score || 0)} outcome={winningTeamId ? (winningTeamId === game.away_team_id ? 'win' : 'lose') : null} />
+                    ) : (
+                      <TeamValue record={awayStanding ? `${awayStanding.wins}-${awayStanding.losses}` : '--'} />
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -744,48 +717,59 @@ export default function SeasonSchedule() {
                         teamName={identitiesByPlayerId[homeTeam?.player_id]?.teamName}
                         placeholder
                       />
-                      <span style={{ color: '#F8FAFC', fontWeight: 700, fontSize: 14 }}>{getTeamShortName(identitiesByPlayerId[homeTeam?.player_id]) || homeTeam?.team_name || 'Home TBD'}</span>
+                      <span style={{ color: showScore && winningTeamId === game.home_team_id ? 'var(--success)' : '#F8FAFC', fontWeight: 700, fontSize: 14 }}>{getTeamShortName(identitiesByPlayerId[homeTeam?.player_id]) || homeTeam?.team_name || 'Home TBD'}</span>
                     </div>
-                    <TeamValue value={homeValue} highlighted={showScore && winningTeamId === game.home_team_id} />
+                    {showScore ? (
+                      <TeamValue score={Number(game.home_score || 0)} outcome={winningTeamId ? (winningTeamId === game.home_team_id ? 'win' : 'lose') : null} />
+                    ) : (
+                      <TeamValue record={homeStanding ? `${homeStanding.wins}-${homeStanding.losses}` : '--'} />
+                    )}
                   </div>
                 </div>
-                <div style={{ display: 'grid', gap: 8, color: '#94A3B8', fontSize: 13 }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    {canEditStadiumForGame(game) ? (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setGameModal({
-                            game,
-                            editStadium: true,
-                            canStartGame: playoffMeta?.canStartGame ?? true,
-                            lockReason: playoffMeta?.lockReason || '',
-                          })
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
+                <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'grid', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 12 }}>
+                      {canEditStadium ? (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
                             e.stopPropagation()
-                            e.preventDefault()
                             setGameModal({
                               game,
                               editStadium: true,
                               canStartGame: playoffMeta?.canStartGame ?? true,
                               lockReason: playoffMeta?.lockReason || '',
                             })
-                          }
-                        }}
-                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', display: 'inline-flex', alignItems: 'center' }}
-                        title="Edit stadium"
-                      >
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.stopPropagation()
+                              e.preventDefault()
+                              setGameModal({
+                                game,
+                                editStadium: true,
+                                canStartGame: playoffMeta?.canStartGame ?? true,
+                                lockReason: playoffMeta?.lockReason || '',
+                              })
+                            }
+                          }}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', display: 'inline-flex', alignItems: 'center' }}
+                          title="Edit stadium"
+                        >
+                          <MapPin size={14} />
+                        </span>
+                      ) : (
                         <MapPin size={14} />
-                      </span>
-                    ) : (
-                      <MapPin size={14} />
-                    )}
-                    {game.stadium || 'Stadium TBD'}
-                  </span>
+                      )}
+                      {game.stadium || 'Stadium TBD'}
+                    </span>
+                    {showSetStadiumPill ? (
+                      <span className="status-pill" style={{ border: '1px solid var(--line)', color: 'var(--muted)', background: 'transparent' }}>Set Stadium</span>
+                    ) : showStartPill ? (
+                      <span className="status-pill" style={{ background: 'var(--gold-soft)', color: 'var(--gold)', fontWeight: 700 }}>{startLabel}</span>
+                    ) : null}
+                  </div>
                   {playoffMeta?.lockReason ? (
                     <span style={{ color: '#FDE68A', fontSize: 12, fontWeight: 600 }}>
                       {playoffMeta.lockReason}

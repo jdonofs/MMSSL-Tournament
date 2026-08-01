@@ -18,6 +18,10 @@ import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import { getTeamShortName } from '../utils/teamIdentity'
 import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS } from '../utils/teamLineups'
 import { recommendFielding, recommendLineup } from '../utils/autoTeamSetup'
+import { useUnsavedChangesGuard, useConfirmedAction } from '../hooks/useUnsavedChangesGuard'
+import { useRegisterUnsavedChanges } from '../context/UnsavedChangesContext'
+import SaveLineupBar from '../components/SaveLineupBar'
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt'
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 function formatSignedDelta(delta) {
@@ -513,7 +517,7 @@ export default function Roster() {
   const navigate = useNavigate()
   const { player, isCommissioner, isScorekeeper } = useAuth()
   const { pushToast } = useToast()
-  const { currentTournament, allTournaments, selectedTournamentId: ctxTournamentId } = useTournament()
+  const { currentTournament, allTournaments, selectedTournamentId: ctxTournamentId, setViewedTournament } = useTournament()
   const { allSeasons } = useSeason()
   const { identitiesByPlayerId } = useTournamentTeamIdentity(currentTournament?.id)
   const [players, setPlayers] = useState([])
@@ -529,9 +533,7 @@ export default function Roster() {
   const [allSeasonTeams, setAllSeasonTeams] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedTeamId, setSelectedTeamId] = useState(null)
-  // ctxTournamentId comes from localStorage-backed TournamentContext — available on first render
-  // (currentTournament?.id is always null until Supabase responds, so we can't use that)
-  const [selectedTournamentId, setSelectedTournamentId] = useState(() => ctxTournamentId || null)
+  const selectedTournamentId = ctxTournamentId || String(currentTournament?.id || '') || null
   const [fieldingPositions, setFieldingPositions] = useState({})
   const [lineupOrder, setLineupOrder] = useState([])
   const [activeTab, setActiveTab] = useState('Rosters')
@@ -544,15 +546,19 @@ export default function Roster() {
   const [tradeBuilderStep, setTradeBuilderStep] = useState('teams')
   const [tradeDraft, setTradeDraft] = useState({ participantPlayerIds: [], assets: [] })
 
+  const loadRosterSeqRef = useRef(0)
+
   useEffect(() => {
     const load = async () => {
       setLoading(true)
+      const requestSeq = ++loadRosterSeqRef.current
       const [
         { data: pData }, { data: cData }, { data: dData }, { data: paData }, { data: gData },
         { data: pitchData },
         { data: tpData }, { data: tppData }, { data: tpmData },
         { data: seasonPaData }, { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData },
         { data: seasonTeamsData },
+        { data: gamePitchesData }, { data: seasonGamePitchesData },
       ] = await Promise.all([
         supabase.from('players').select('*').order('created_at'),
         supabase.from('characters').select('*').order('name'),
@@ -568,18 +574,36 @@ export default function Roster() {
         supabase.from('game_fielders').select('*'),
         supabase.from('season_game_fielders').select('*'),
         supabase.from('season_teams').select('id,player_id'),
+        supabase.from('pitches').select('game_id,pitcher_id'),
+        supabase.from('season_pitches').select('game_id,pitcher_id'),
       ])
+      // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
+      // mound-assignment bookkeeping), before they've necessarily thrown a pitch — if pulled again
+      // without facing a batter, that stint sits at 0 IP forever but would still count as a "game"
+      // pitched. Drop stints with no matching row in `pitches`/`season_pitches` (by game_id +
+      // pitcher name, since pitches.pitcher_id is a name string, not character_id).
+      const nameByCharId = Object.fromEntries((cData || []).map((c) => [String(c.id), c.name]))
+      const thrownKeys = new Set((gamePitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const seasonThrownKeys = new Set((seasonGamePitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const stintsWithPitches = (pitchData || []).filter((s) => thrownKeys.has(`${s.game_id}:${nameByCharId[String(s.character_id)]}`))
+      const seasonStintsWithPitches = (seasonPitchData || []).filter((s) => seasonThrownKeys.has(`${s.game_id}:${nameByCharId[String(s.character_id)]}`))
+
+      // Several realtime table subscriptions can each re-trigger load() within
+      // milliseconds of one another; overlapping fetches aren't guaranteed to
+      // resolve in call order, so drop any response that isn't the latest.
+      if (requestSeq !== loadRosterSeqRef.current) return
+
       setPlayers(pData || [])
       setCharacters(cData || [])
       setAllDraftPicks(dData || [])
       setPlateAppearances(paData || [])
       setGames(gData || [])
-      setPitchingStints(pitchData || [])
+      setPitchingStints(stintsWithPitches)
       setTradeProposals(tpData || [])
       setTradeProposalPlayers(tppData || [])
       setTradeProposalMoves(tpmData || [])
       setSeasonPlateAppearances(seasonPaData || [])
-      setSeasonPitchingStints(seasonPitchData || [])
+      setSeasonPitchingStints(seasonStintsWithPitches)
       setGameFielders(fieldersData || [])
       setSeasonGameFielders(seasonFieldersData || [])
       setAllSeasonTeams(seasonTeamsData || [])
@@ -595,6 +619,9 @@ export default function Roster() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitches' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitches' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_trade_proposals' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_trade_proposal_players' }, load)
@@ -614,13 +641,6 @@ export default function Roster() {
       ?? players.find(p => p.name === player?.name)
     if (mine) setSelectedTeamId(String(mine.id))
   }, [players, player?.id, player?.name, selectedTeamId])
-
-  // Fallback: set tournament if it wasn't available from localStorage on first render
-  useEffect(() => {
-    if (ctxTournamentId && selectedTournamentId === null) {
-      setSelectedTournamentId(ctxTournamentId)
-    }
-  }, [ctxTournamentId, selectedTournamentId])
 
   const charactersById = useMemo(() => Object.fromEntries(characters.map(c => [c.id, c])), [characters])
   const charactersByName = useMemo(() => Object.fromEntries(characters.map(c => [c.name, c])), [characters])
@@ -671,6 +691,54 @@ export default function Roster() {
   const lastSyncedLineupRef = useRef(null)
   const lineupLoadKeyRef = useRef(null)
 
+  // Keeps the latest roster available to the realtime/poll sync callbacks below,
+  // which subscribe once per viewed team and must not act on a stale roster
+  // snapshot captured back when the effect first ran.
+  const teamRosterRef = useRef([])
+  useEffect(() => {
+    teamRosterRef.current = teamRoster
+  }, [teamRoster])
+
+  const LINEUP_POSITIONS = ['pitcher', 'catcher', 'firstBase', 'secondBase', 'thirdBase', 'shortStop', 'leftField', 'centerField', 'rightField']
+
+  // Reconciles a saved { lineupOrder, fieldingPositions } payload (from the DB or
+  // realtime) against the roster that's actually active right now: drops any
+  // character who's no longer on the roster (dropped/traded away) and slots
+  // anyone new into the resulting gaps. Without this, a stale saved payload —
+  // one written before a roster change — would reintroduce dropped players and
+  // silently swallow new ones.
+  const reconcileSavedLineup = useCallback((saved, roster) => {
+    const defaultFielding = {}
+    for (let i = 0; i < Math.min(9, roster.length); i++) {
+      defaultFielding[LINEUP_POSITIONS[i]] = roster[i].id
+    }
+    const defaultLineup = roster.map(c => c.id)
+    const rosterIds = new Set(defaultLineup)
+
+    let fieldingPositionsResult = defaultFielding
+    if (saved && saved.fieldingPositions && Object.keys(saved.fieldingPositions).length) {
+      const savedPositions = Object.fromEntries(
+        Object.entries(saved.fieldingPositions).filter(([, value]) => rosterIds.has(value)),
+      )
+      const placedIds = new Set(Object.values(savedPositions))
+      const unplaced = defaultLineup.filter((id) => !placedIds.has(id))
+      const emptyPositions = LINEUP_POSITIONS.filter((position) => !savedPositions[position])
+      unplaced.forEach((id, index) => {
+        if (emptyPositions[index]) savedPositions[emptyPositions[index]] = id
+      })
+      fieldingPositionsResult = savedPositions
+    }
+
+    let lineupOrderResult = defaultLineup
+    if (saved && Array.isArray(saved.lineupOrder) && saved.lineupOrder.length) {
+      const ordered = saved.lineupOrder.filter(id => rosterIds.has(id))
+      const remaining = defaultLineup.filter(id => !ordered.includes(id))
+      lineupOrderResult = [...ordered, ...remaining]
+    }
+
+    return { lineupOrder: lineupOrderResult, fieldingPositions: fieldingPositionsResult }
+  }, [])
+
   // Load saved lineup order + fielding positions from the database when the
   // team roster changes, falling back to draft-pick order / first-9 fielding.
   useEffect(() => {
@@ -682,40 +750,13 @@ export default function Roster() {
       return
     }
 
-    const defaultFielding = {}
-    const positions = ['pitcher', 'catcher', 'firstBase', 'secondBase', 'thirdBase', 'shortStop', 'leftField', 'centerField', 'rightField']
-    for (let i = 0; i < Math.min(9, teamRoster.length); i++) {
-      defaultFielding[positions[i]] = teamRoster[i].id
-    }
-    const defaultLineup = teamRoster.map(c => c.id)
     const loadKey = `${selectedTournamentId}-${selectedTeamId}`
 
     let cancelled = false
     fetchTeamLineup({ ...TOURNAMENT_TEAM_LINEUPS, sourceId: selectedTournamentId, playerId: selectedTeamId }).then((saved) => {
       if (cancelled) return
 
-      let fieldingPositionsResult = defaultFielding
-      if (saved && saved.fieldingPositions && Object.keys(saved.fieldingPositions).length) {
-        const rosterIds = new Set(teamRoster.map((character) => character.id))
-        const savedPositions = Object.fromEntries(
-          Object.entries(saved.fieldingPositions).filter(([, value]) => rosterIds.has(value)),
-        )
-        const placedIds = new Set(Object.values(savedPositions))
-        const unplaced = teamRoster.map((character) => character.id).filter((id) => !placedIds.has(id))
-        const emptyPositions = positions.filter((position) => !savedPositions[position])
-        unplaced.forEach((id, index) => {
-          if (emptyPositions[index]) savedPositions[emptyPositions[index]] = id
-        })
-        fieldingPositionsResult = savedPositions
-      }
-
-      let lineupOrderResult = defaultLineup
-      if (saved && Array.isArray(saved.lineupOrder) && saved.lineupOrder.length) {
-        const rosterIds = new Set(teamRoster.map(c => c.id))
-        const ordered = saved.lineupOrder.filter(id => rosterIds.has(id))
-        const remaining = teamRoster.map(c => c.id).filter(id => !ordered.includes(id))
-        lineupOrderResult = [...ordered, ...remaining]
-      }
+      const { lineupOrder: lineupOrderResult, fieldingPositions: fieldingPositionsResult } = reconcileSavedLineup(saved, teamRoster)
 
       lastSyncedLineupRef.current = JSON.stringify({ lineupOrder: lineupOrderResult, fieldingPositions: fieldingPositionsResult })
       lineupLoadKeyRef.current = loadKey
@@ -724,32 +765,64 @@ export default function Roster() {
     })
 
     return () => { cancelled = true }
-  }, [teamRoster, selectedTournamentId, selectedTeamId])
+  }, [teamRoster, selectedTournamentId, selectedTeamId, reconcileSavedLineup])
 
-  // Autosave lineup order + fielding positions to the database (debounced),
-  // so every viewer of this team's roster sees edits in real time.
-  useEffect(() => {
+  // Lineup order + fielding positions are saved explicitly via the Save
+  // button (handleSaveLineup) rather than autosaved, to avoid races with
+  // realtime/poll updates from other viewers clobbering in-flight edits.
+  const [lineupSaveStatus, setLineupSaveStatus] = useState('idle')
+  const isLineupDirty = Boolean(
+    canEditRoster
+    && selectedTournamentId && selectedTeamId
+    && lineupLoadKeyRef.current === `${selectedTournamentId}-${selectedTeamId}`
+    && (lineupOrder.length || Object.keys(fieldingPositions).length)
+    && JSON.stringify({ lineupOrder, fieldingPositions }) !== lastSyncedLineupRef.current,
+  )
+
+  const handleSaveLineup = useCallback(async () => {
     if (!selectedTournamentId || !selectedTeamId) return
-    if (!canEditRoster) return
-    if (lineupLoadKeyRef.current !== `${selectedTournamentId}-${selectedTeamId}`) return
-    if (!lineupOrder.length && !Object.keys(fieldingPositions).length) return
-
     const payload = JSON.stringify({ lineupOrder, fieldingPositions })
-    if (payload === lastSyncedLineupRef.current) return
-
-    const timeout = setTimeout(() => {
-      lastSyncedLineupRef.current = payload
-      upsertTeamLineup({
+    setLineupSaveStatus('saving')
+    try {
+      await upsertTeamLineup({
         ...TOURNAMENT_TEAM_LINEUPS,
         sourceId: selectedTournamentId,
         playerId: selectedTeamId,
         lineupOrder,
         fieldingPositions,
       })
-    }, 500)
+      lastSyncedLineupRef.current = payload
+      setLineupSaveStatus('saved')
+    } catch (err) {
+      setLineupSaveStatus('error')
+      throw err
+    }
+  }, [selectedTournamentId, selectedTeamId, lineupOrder, fieldingPositions])
 
-    return () => clearTimeout(timeout)
-  }, [selectedTournamentId, selectedTeamId, lineupOrder, fieldingPositions, canEditRoster])
+  const lineupBlocker = useUnsavedChangesGuard(isLineupDirty)
+  useRegisterUnsavedChanges(isLineupDirty, handleSaveLineup)
+
+  // Switching the viewed team/tournament resets the lineup editor state
+  // (see the load effect above) without a route change, so it isn't caught
+  // by lineupBlocker — guard it separately with the same confirmation UI.
+  const { run: runIfLineupSaved, blocker: switchBlocker } = useConfirmedAction(isLineupDirty)
+  const handleSelectTeam = useCallback((teamId) => {
+    runIfLineupSaved(() => setSelectedTeamId(teamId))
+  }, [runIfLineupSaved])
+  const handleSelectTournament = useCallback((tournamentId) => {
+    runIfLineupSaved(() => {
+      const tournament = [currentTournament, ...(allTournaments || [])]
+        .filter(Boolean)
+        .find((entry) => String(entry.id) === String(tournamentId))
+      if (tournament) setViewedTournament(tournament)
+    })
+  }, [allTournaments, currentTournament, runIfLineupSaved, setViewedTournament])
+
+  // Realtime/poll sync below reads this ref (rather than the isLineupDirty
+  // value directly) so it can skip applying incoming updates while the user
+  // has unsaved local edits, without resubscribing the channel on every edit.
+  const isLineupDirtyRef = useRef(false)
+  useEffect(() => { isLineupDirtyRef.current = isLineupDirty }, [isLineupDirty])
 
   // Realtime: pick up lineup/fielding edits made by anyone else (or from
   // another device) for the currently viewed team.
@@ -761,10 +834,17 @@ export default function Roster() {
         event: '*', schema: 'public', table: 'team_lineups',
         filter: `tournament_id=eq.${selectedTournamentId}`,
       }, (payload) => {
+        if (isLineupDirtyRef.current) return
         const row = payload.new
         if (!row || String(row.player_id) !== String(selectedTeamId)) return
-        const lineupOrder = Array.isArray(row.lineup_order) ? row.lineup_order : []
-        const fieldingPositions = row.fielding_positions && typeof row.fielding_positions === 'object' ? row.fielding_positions : {}
+        const saved = {
+          lineupOrder: Array.isArray(row.lineup_order) ? row.lineup_order : [],
+          fieldingPositions: row.fielding_positions && typeof row.fielding_positions === 'object' ? row.fielding_positions : {},
+        }
+        // Reconcile against the roster as it stands right now — this row can be
+        // stale relative to a roster change (free-agent pickup, trade, drop)
+        // that never got explicitly re-saved to team_lineups.
+        const { lineupOrder, fieldingPositions } = reconcileSavedLineup(saved, teamRosterRef.current)
         lastSyncedLineupRef.current = JSON.stringify({ lineupOrder, fieldingPositions })
         setLineupOrder(lineupOrder)
         setFieldingPositions(fieldingPositions)
@@ -776,10 +856,17 @@ export default function Roster() {
     // tabs), so poll for the saved lineup as a fallback to guarantee it stays
     // in sync even if the live channel above never fires.
     const syncFromDb = () => {
+      // Skip the fallback poll's actual work while backgrounded — a background tab has no
+      // realtime channel throttling to work around yet, and polling every 5s regardless of
+      // visibility keeps the tab constantly "active" (network + re-renders), which is exactly
+      // what makes browsers pick a tab first when reclaiming memory from inactive tabs. The
+      // visibilitychange handler below already re-syncs immediately the moment the tab is shown.
+      if (document.hidden) return
+      if (isLineupDirtyRef.current) return
       fetchTeamLineup({ ...TOURNAMENT_TEAM_LINEUPS, sourceId: selectedTournamentId, playerId: selectedTeamId }).then((saved) => {
         if (!saved) return
-        const lineupOrder = Array.isArray(saved.lineupOrder) ? saved.lineupOrder : []
-        const fieldingPositions = saved.fieldingPositions && typeof saved.fieldingPositions === 'object' ? saved.fieldingPositions : {}
+        if (isLineupDirtyRef.current) return
+        const { lineupOrder, fieldingPositions } = reconcileSavedLineup(saved, teamRosterRef.current)
         const payload = JSON.stringify({ lineupOrder, fieldingPositions })
         if (payload === lastSyncedLineupRef.current) return
         lastSyncedLineupRef.current = payload
@@ -798,7 +885,7 @@ export default function Roster() {
       document.removeEventListener('visibilitychange', handleVisibility)
       clearInterval(pollInterval)
     }
-  }, [selectedTournamentId, selectedTeamId])
+  }, [selectedTournamentId, selectedTeamId, reconcileSavedLineup])
 
   const rosterNames = useMemo(() => teamRoster.map(c => c.chemistryName || c.name), [teamRoster])
   const rosterCharacterMetaById = useMemo(() => Object.fromEntries(teamRoster.map(c => [c.id, c])), [teamRoster])
@@ -824,6 +911,10 @@ export default function Roster() {
   const leagueConstants = useMemo(
     () => computeLeagueConstants([...plateAppearances, ...seasonPlateAppearances], [...pitchingStints, ...seasonPitchingStints]),
     [plateAppearances, seasonPlateAppearances, pitchingStints, seasonPitchingStints],
+  )
+  const playerNameById = useMemo(
+    () => Object.fromEntries((players || []).map((player) => [player.id, player.name])),
+    [players],
   )
 
   const tournHistories = useMemo(
@@ -852,8 +943,8 @@ export default function Roster() {
   }, [pitchingStints, historicalGames])
 
   const pitchingTournHistories = useMemo(
-    () => buildCharacterPitchingGameHistory(historicalPitchingStints, historicalGames, allTournaments || [], seasonPitchingStints, allSeasons || [], leagueConstants),
-    [historicalPitchingStints, historicalGames, allTournaments, seasonPitchingStints, allSeasons, leagueConstants]
+    () => buildCharacterPitchingGameHistory(historicalPitchingStints, historicalGames, allTournaments || [], seasonPitchingStints, allSeasons || [], leagueConstants, playerNameById),
+    [historicalPitchingStints, historicalGames, allTournaments, seasonPitchingStints, allSeasons, leagueConstants, playerNameById]
   )
 
   const fieldingTournHistories = useMemo(
@@ -869,8 +960,9 @@ export default function Roster() {
     if (!character) return
     const pick = draftPicks.find(p => String(p.character_id) === String(charId) && p.player_id)
     const currentOwner = pick ? { player_id: pick.player_id } : null
-    navigate(`/character/${charId}`, {
+    navigate(`/character/${charId}/career`, {
       state: {
+        backTo: window.location.pathname + window.location.search,
         character,
         allCharactersById: charactersByName,
         playersById: players.reduce((acc, p) => ({ ...acc, [p.id]: p }), {}),
@@ -1085,34 +1177,17 @@ export default function Roster() {
       pushToast({ title: 'Trade deadline passed', message: 'Trades are closed for this tournament.', type: 'error' })
       return
     }
-    const { data: proposal, error: proposalError } = await supabase
-      .from('tournament_trade_proposals')
-      .insert({ tournament_id: String(selectedTournamentId), created_by_player_id: String(myPlayer.id), status: 'pending' })
-      .select().single()
-    if (proposalError) {
-      pushToast({ title: 'Trade failed', message: proposalError.message, type: 'error' })
-      return
-    }
-    const [{ error: participantError }, { error: moveError }] = await Promise.all([
-      supabase.from('tournament_trade_proposal_players').insert(
-        tradeDraft.participantPlayerIds.map(pid => ({
-          proposal_id: proposal.id,
-          player_id: String(pid),
-          decision_status: String(pid) === String(myPlayer.id) ? 'accepted' : 'pending',
-        }))
-      ),
-      supabase.from('tournament_trade_proposal_moves').insert(
-        tradeDraft.assets.map(asset => ({
-          proposal_id: proposal.id,
-          character_id: asset.character_id,
-          character_name: asset.character_name,
-          from_player_id: String(asset.from_player_id),
-          to_player_id: String(asset.to_player_id),
-        }))
-      ),
-    ])
-    if (participantError || moveError) {
-      pushToast({ title: 'Trade detail failed', message: participantError?.message || moveError?.message, type: 'error' })
+    const { error: rpcError } = await supabase.rpc('create_tournament_trade_proposal', {
+      p_tournament_id: Number(selectedTournamentId),
+      p_participant_player_ids: tradeDraft.participantPlayerIds.map(String),
+      p_moves: tradeDraft.assets.map(asset => ({
+        character_id: asset.character_id,
+        from_player_id: String(asset.from_player_id),
+        to_player_id: String(asset.to_player_id),
+      })),
+    })
+    if (rpcError) {
+      pushToast({ title: 'Trade failed', message: rpcError.message, type: 'error' })
       return
     }
     pushToast({ title: 'Trade proposed', message: 'The other players can now review the proposal.', type: 'success' })
@@ -1121,40 +1196,24 @@ export default function Roster() {
 
   const respondToTrade = async (proposalId, response) => {
     if (!myPlayer?.id) return
-    await supabase
-      .from('tournament_trade_proposal_players')
-      .update({ decision_status: response })
-      .eq('proposal_id', proposalId)
-      .eq('player_id', String(myPlayer.id))
-    if (response === 'rejected') {
-      await supabase.from('tournament_trade_proposals')
-        .update({ status: 'rejected', resolved_at: new Date().toISOString() })
-        .eq('id', proposalId)
-      pushToast({ title: 'Trade rejected', message: 'Trade has been declined.', type: 'info' })
+    const { data: outcome, error } = await supabase.rpc('respond_to_tournament_trade_proposal', {
+      p_proposal_id: proposalId,
+      p_status: response,
+    })
+    if (error) {
+      pushToast({ title: 'Trade update failed', message: error.message, type: 'error' })
       return
     }
-    const { data: allParticipants } = await supabase
-      .from('tournament_trade_proposal_players').select('*').eq('proposal_id', proposalId)
-    const updatedDecisions = (allParticipants || []).map(p =>
-      String(p.player_id) === String(myPlayer.id) ? { ...p, decision_status: 'accepted' } : p
-    )
-    const allAccepted = updatedDecisions.every(p => p.decision_status === 'accepted')
-    if (allAccepted) {
-      const { data: moves } = await supabase
-        .from('tournament_trade_proposal_moves').select('*').eq('proposal_id', proposalId)
-      for (const move of (moves || [])) {
-        await supabase.from('draft_picks')
-          .update({ player_id: move.to_player_id })
-          .eq('tournament_id', String(selectedTournamentId))
-          .eq('player_id', move.from_player_id)
-          .eq('character_id', move.character_id)
-      }
-      await supabase.from('tournament_trade_proposals')
-        .update({ status: 'accepted', resolved_at: new Date().toISOString() })
-        .eq('id', proposalId)
-      pushToast({ title: 'Trade accepted!', message: 'All parties agreed — rosters updated.', type: 'success' })
-    } else {
+    if (outcome === 'rejected') {
+      pushToast({ title: 'Trade rejected', message: 'Trade has been declined.', type: 'info' })
+    } else if (outcome === 'pending') {
       pushToast({ title: 'Trade accepted', message: 'Waiting for other players to respond.', type: 'success' })
+    } else if (outcome === 'failed:roster_changed') {
+      pushToast({ title: 'Trade failed', message: 'One of the traded characters is no longer held by the expected player. The trade has been marked failed.', type: 'error' })
+    } else if (outcome === 'failed:deadline_passed') {
+      pushToast({ title: 'Trade failed', message: 'The trade deadline passed before this trade could finish.', type: 'error' })
+    } else {
+      pushToast({ title: 'Trade accepted!', message: 'All parties agreed — rosters updated.', type: 'success' })
     }
   }
 
@@ -1194,6 +1253,8 @@ export default function Roster() {
 
   return (
     <div className="page-stack">
+      <UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveLineup} />
+      <UnsavedChangesPrompt blocker={switchBlocker} onSave={handleSaveLineup} />
       <div className="page-head">
         <div>
           <span className="brand-kicker">Tournament Roster</span>
@@ -1218,7 +1279,7 @@ export default function Roster() {
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <select
                   value={String(selectedTeamId || '')}
-                  onChange={(e) => setSelectedTeamId(e.target.value)}
+                  onChange={(e) => handleSelectTeam(e.target.value)}
                   style={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 999, color: '#E2E8F0', fontWeight: 600, padding: '8px 14px', fontSize: 14, cursor: 'pointer', minWidth: 180 }}
                 >
                   {players.map((p) => (
@@ -1230,7 +1291,7 @@ export default function Roster() {
               </div>
               <select
                 value={String(selectedTournamentId || '')}
-                onChange={(e) => setSelectedTournamentId(e.target.value)}
+                onChange={(e) => handleSelectTournament(e.target.value)}
                 style={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 999, color: '#E2E8F0', fontWeight: 600, padding: '8px 14px', fontSize: 14, cursor: 'pointer', minWidth: 160 }}
               >
                 {[currentTournament, ...((allTournaments || []).filter((t) => t.id !== currentTournament?.id))].filter(Boolean).map((t) => (
@@ -1322,6 +1383,9 @@ export default function Roster() {
               />
             </div>
           </div>
+          {canEditRoster ? (
+            <SaveLineupBar isDirty={isLineupDirty} status={lineupSaveStatus} onSave={handleSaveLineup} />
+          ) : null}
         </div>
       ) : null}
 

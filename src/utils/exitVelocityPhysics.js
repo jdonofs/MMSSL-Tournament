@@ -133,72 +133,13 @@ export function solveExitVelocityWithDrag(distanceFt, hangTimeSec, {
   return toResult(v0Mps, angleRad, false)
 }
 
-// Launch angle for a ground ball, estimated (like exit velocity below) from
-// the two real recorded inputs — distance and hang time — rather than a
-// fixed value or a rebucketed lookup off a single derived number.
-//
-// The 1D roll model below treats the whole recorded interval as constant
-// deceleration: v0 = distance/T + a*T/2. The two terms split that speed
-// into "how fast it covered ground on average" (distance/T) and "how much
-// speed the deceleration term is contributing" (a*T/2) — a ball whose
-// speed estimate leans heavily on the deceleration term spent a lot of its
-// tracked time bleeding off speed rather than covering ground, which is
-// the signature of a heavily-topped chopper; a ball where the average-speed
-// term dominates is closer to a flat, sustained-speed "seed." That ratio
-// — decelShare below — varies continuously with both real inputs, so two
-// grounders with the same exit velocity but different distance/time
-// splits get different angles, instead of every hit at a given speed
-// collapsing to the same number.
-//
-// decelShare is scaled against 0.6 (empirically the neighborhood of a
-// clearly chopped ball under this model at typical infield distances/times
-// — see the numbers this produces below) and clamped to MLB's real
-// reference points: -14.4° (Statcast's reported average angle for balls it
-// classifies "Topped," i.e. non-threatening grounders) at the heavily-
-// decelerated end, and 9°, just under MLB's own <10° ground-ball ceiling,
-// at the sustained-speed end.
-const GROUND_BALL_DECEL_SHARE_AT_SOFT_END = 0.6
-const GROUND_BALL_ANGLE_SOFT_DEG = -14.4
-const GROUND_BALL_ANGLE_HARD_DEG = 9
-
-function estimateGroundBallLaunchAngle(v0FtS, hangTime, decelerationFtS2) {
-  const decelShare = (decelerationFtS2 * hangTime) / (2 * v0FtS)
-  const t = Math.max(0, Math.min(1, decelShare / GROUND_BALL_DECEL_SHARE_AT_SOFT_END))
-  return Math.round((GROUND_BALL_ANGLE_HARD_DEG - t * (GROUND_BALL_ANGLE_HARD_DEG - GROUND_BALL_ANGLE_SOFT_DEG)) * 10) / 10
-}
-
-// Combined bounce + roll deceleration for a ball traveling along the
-// infield after its first hop, in ft/s^2. Real grounders lose most of
-// their energy in the first couple of bounces, then decelerate more slowly
-// once rolling — this blends both into one effective constant, weighted
-// toward the bouncing phase dominating early loss (rolling friction alone
-// would be under 2 ft/s^2).
-const GROUND_ROLL_DECELERATION_FTS2 = 12
-
-// Ground balls are (almost) never airborne for their full recorded
-// distance — they touch down within the first foot or two, then cover the
-// rest of the distance bouncing/rolling while decelerating. Modeling that
-// distance as a projectile's flight path (like solveExitVelocityWithDrag
-// does for line drives/fly balls) forces the math to invent a vertical arc
-// that didn't happen, which inflates the implied speed. Instead this treats
-// the whole recorded distance/time as 1D motion under constant
-// deceleration: distance = v0*T - 0.5*a*T^2, solved directly for v0.
-//
-// A short hang time entered for a real distance still implies a fast
-// average speed — that's just arithmetic. If a "weak" roller is coming out
-// at 90+mph here, the hang time entered is probably timing only the initial
-// exit (bat-to-first-bounce) rather than the full contact-to-fielded
-// interval a slow roller actually takes (often a couple of seconds) —
-// worth double-checking what's being timed for grounders.
-export function solveGroundBallExitVelocity(distanceFt, hangTimeSec) {
-  const distance = Number(distanceFt)
-  const hangTime = Number(hangTimeSec)
-  if (!distance || !hangTime || distance <= 0 || hangTime <= 0) return null
-
-  const v0FtS = distance / hangTime + (GROUND_ROLL_DECELERATION_FTS2 * hangTime) / 2
-  return {
-    exitVelocityMph: Math.round(v0FtS * 0.681818 * 10) / 10,
-    launchAngleDeg: estimateGroundBallLaunchAngle(v0FtS, hangTime, GROUND_ROLL_DECELERATION_FTS2),
-    converged: true,
-  }
-}
+// Grounders used to get a separate 1D-roll deceleration model here instead
+// of the drag-based projectile solver above, on the theory that they're
+// airborne for only the first foot or two and treating the whole recorded
+// distance/time as a flight path would invent a vertical arc that didn't
+// happen. That's true of the *whole* contact-to-fielded interval — but once
+// the ground-touch moment itself can be marked precisely (the game renders
+// its own on-screen marker for it), contact-to-landed is a real, short,
+// genuinely airborne phase, and the drag-based solver above is the correct
+// (and more accurate) model for that phase too. See
+// AtBatDataEntryPanel.jsx's computeShotShapeEstimate.

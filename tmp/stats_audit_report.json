@@ -1,0 +1,623 @@
+{
+  "generatedAt": "2026-07-23T23:57:32.724Z",
+  "counts": {
+    "players": 6,
+    "season_teams": 12,
+    "games": 12,
+    "season_schedule": 70,
+    "plate_appearances": 266,
+    "season_plate_appearances": 840,
+    "pitching_stints": 37,
+    "season_pitching_stints": 195,
+    "runs_scored": 0,
+    "season_runs_scored": 194,
+    "game_fielders": 0,
+    "season_game_fielders": 909
+  },
+  "tournament": {
+    "pa": {
+      "scope": "tournament",
+      "totalPas": 266,
+      "issues": {
+        "invalidResult": {
+          "count": 0,
+          "samples": []
+        },
+        "invalidOfficialAb": {
+          "count": 0,
+          "samples": []
+        },
+        "normalizedRbiMismatch": {
+          "count": 0,
+          "samples": []
+        },
+        "runEventRbiMismatch": {
+          "count": 0,
+          "samples": []
+        },
+        "batterRunFlagMismatch": {
+          "count": 0,
+          "samples": []
+        },
+        "hrRunFlagMissing": {
+          "count": 0,
+          "samples": []
+        },
+        "missingPitcherId": {
+          "count": 0,
+          "samples": []
+        },
+        "missingPitcherPlayerId": {
+          "count": 0,
+          "samples": []
+        },
+        "missingDefensiveTeamId": {
+          "count": 0,
+          "samples": []
+        },
+        "invalidStrikeoutType": {
+          "count": 0,
+          "samples": []
+        },
+        "paNumberSequenceMismatch": {
+          "count": 0,
+          "samples": []
+        }
+      }
+    },
+    "pitching": {
+      "scope": "tournament",
+      "totalStints": 37,
+      "issues": {
+        "innings_pitched": {
+          "count": 0,
+          "samples": []
+        },
+        "hits_allowed": {
+          "count": 0,
+          "samples": []
+        },
+        "runs_allowed": {
+          "count": 0,
+          "samples": []
+        },
+        "earned_runs": {
+          "count": 0,
+          "samples": []
+        },
+        "walks": {
+          "count": 0,
+          "samples": []
+        },
+        "strikeouts": {
+          "count": 0,
+          "samples": []
+        },
+        "hr_allowed": {
+          "count": 0,
+          "samples": []
+        },
+        "win_loss_shape": {
+          "count": 0,
+          "samples": []
+        },
+        "save_shape": {
+          "count": 0,
+          "samples": []
+        }
+      }
+    },
+    "fielding": {
+      "scope": "tournament",
+      "totalPas": 266,
+      "totalFielders": 0,
+      "issues": {
+        "missingErrorPosition": {
+          "count": 0,
+          "samples": []
+        },
+        "missingErrorCharacter": {
+          "count": 0,
+          "samples": []
+        },
+        "missingFielderForCredit": {
+          "count": 50,
+          "samples": [
+            {
+              "pa_id": 3491,
+              "game_id": 247,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3499,
+              "game_id": 247,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3507,
+              "game_id": 247,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3508,
+              "game_id": 247,
+              "result": "K",
+              "inning": 2,
+              "defensive_team_id": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3509,
+              "game_id": 247,
+              "result": "K",
+              "inning": 2,
+              "defensive_team_id": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3512,
+              "game_id": 247,
+              "result": "K",
+              "inning": 3,
+              "defensive_team_id": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3516,
+              "game_id": 248,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "a4d98664-1778-492c-8962-a27be4c30012",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3529,
+              "game_id": 248,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3530,
+              "game_id": 248,
+              "result": "K",
+              "inning": 3,
+              "defensive_team_id": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3531,
+              "game_id": 248,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3534,
+              "game_id": 248,
+              "result": "K",
+              "inning": 3,
+              "defensive_team_id": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3538,
+              "game_id": 248,
+              "result": "K",
+              "inning": 2,
+              "defensive_team_id": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3559,
+              "game_id": 249,
+              "result": "K",
+              "inning": 4,
+              "defensive_team_id": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3568,
+              "game_id": 249,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3572,
+              "game_id": 249,
+              "result": "K",
+              "inning": 2,
+              "defensive_team_id": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3581,
+              "game_id": 250,
+              "result": "K",
+              "inning": 2,
+              "defensive_team_id": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3585,
+              "game_id": 250,
+              "result": "K",
+              "inning": 3,
+              "defensive_team_id": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3586,
+              "game_id": 250,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3595,
+              "game_id": 250,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            },
+            {
+              "pa_id": 3597,
+              "game_id": 250,
+              "result": "K",
+              "inning": 1,
+              "defensive_team_id": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+              "position": 2,
+              "notation": null,
+              "credit": "catcher_putout"
+            }
+          ]
+        },
+        "missingBuddyJumpFielder": {
+          "count": 0,
+          "samples": []
+        },
+        "hitLocationOnlyNoOutContactRows": {
+          "count": 0,
+          "samples": []
+        }
+      }
+    }
+  },
+  "season": {
+    "pa": {
+      "scope": "season",
+      "totalPas": 840,
+      "issues": {
+        "invalidResult": {
+          "count": 0,
+          "samples": []
+        },
+        "invalidOfficialAb": {
+          "count": 0,
+          "samples": []
+        },
+        "normalizedRbiMismatch": {
+          "count": 0,
+          "samples": []
+        },
+        "runEventRbiMismatch": {
+          "count": 0,
+          "samples": []
+        },
+        "batterRunFlagMismatch": {
+          "count": 0,
+          "samples": []
+        },
+        "hrRunFlagMissing": {
+          "count": 0,
+          "samples": []
+        },
+        "missingPitcherId": {
+          "count": 0,
+          "samples": []
+        },
+        "missingPitcherPlayerId": {
+          "count": 0,
+          "samples": []
+        },
+        "missingDefensiveTeamId": {
+          "count": 0,
+          "samples": []
+        },
+        "invalidStrikeoutType": {
+          "count": 0,
+          "samples": []
+        },
+        "paNumberSequenceMismatch": {
+          "count": 0,
+          "samples": []
+        }
+      }
+    },
+    "pitching": {
+      "scope": "season",
+      "totalStints": 195,
+      "issues": {
+        "innings_pitched": {
+          "count": 0,
+          "samples": []
+        },
+        "hits_allowed": {
+          "count": 0,
+          "samples": []
+        },
+        "runs_allowed": {
+          "count": 0,
+          "samples": []
+        },
+        "earned_runs": {
+          "count": 0,
+          "samples": []
+        },
+        "walks": {
+          "count": 0,
+          "samples": []
+        },
+        "strikeouts": {
+          "count": 0,
+          "samples": []
+        },
+        "hr_allowed": {
+          "count": 0,
+          "samples": []
+        },
+        "win_loss_shape": {
+          "count": 0,
+          "samples": []
+        },
+        "save_shape": {
+          "count": 0,
+          "samples": []
+        }
+      }
+    },
+    "fielding": {
+      "scope": "season",
+      "totalPas": 840,
+      "totalFielders": 909,
+      "issues": {
+        "missingErrorPosition": {
+          "count": 0,
+          "samples": []
+        },
+        "missingErrorCharacter": {
+          "count": 0,
+          "samples": []
+        },
+        "missingFielderForCredit": {
+          "count": 0,
+          "samples": []
+        },
+        "missingBuddyJumpFielder": {
+          "count": 0,
+          "samples": []
+        },
+        "hitLocationOnlyNoOutContactRows": {
+          "count": 221,
+          "samples": [
+            {
+              "pa_id": 823,
+              "game_id": 1449,
+              "result": "HR",
+              "hit_location": "8",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 828,
+              "game_id": 1449,
+              "result": "HR",
+              "hit_location": "7",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 871,
+              "game_id": 1451,
+              "result": "HR",
+              "hit_location": "9",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 880,
+              "game_id": 1451,
+              "result": "HR",
+              "hit_location": "9",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 914,
+              "game_id": 1444,
+              "result": "HR",
+              "hit_location": "8",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 952,
+              "game_id": 1441,
+              "result": "HR",
+              "hit_location": "7",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 955,
+              "game_id": 1441,
+              "result": "HR",
+              "hit_location": "8",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 967,
+              "game_id": 1446,
+              "result": "HR",
+              "hit_location": "7",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 977,
+              "game_id": 1446,
+              "result": "HR",
+              "hit_location": "9",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 998,
+              "game_id": 1446,
+              "result": "HR",
+              "hit_location": "7",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1000,
+              "game_id": 1446,
+              "result": "HR",
+              "hit_location": "7",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1004,
+              "game_id": 1450,
+              "result": "HR",
+              "hit_location": "9",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1024,
+              "game_id": 1450,
+              "result": "HR",
+              "hit_location": "9",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1025,
+              "game_id": 1450,
+              "result": "HR",
+              "hit_location": "9",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1044,
+              "game_id": 1448,
+              "result": "HR",
+              "hit_location": "9",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1052,
+              "game_id": 1448,
+              "result": "HR",
+              "hit_location": "7",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1069,
+              "game_id": 1442,
+              "result": "HR",
+              "hit_location": "7",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1073,
+              "game_id": 1442,
+              "result": "HR",
+              "hit_location": "9",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1085,
+              "game_id": 1442,
+              "result": "HR",
+              "hit_location": "9",
+              "hit_notation": null
+            },
+            {
+              "pa_id": 1096,
+              "game_id": 1443,
+              "result": "HR",
+              "hit_location": "7",
+              "hit_notation": null
+            }
+          ]
+        }
+      }
+    }
+  },
+  "summary": {
+    "loaded": {
+      "players": 6,
+      "season_teams": 12,
+      "games": 12,
+      "season_schedule": 70,
+      "plate_appearances": 266,
+      "season_plate_appearances": 840,
+      "pitching_stints": 37,
+      "season_pitching_stints": 195,
+      "runs_scored": 0,
+      "season_runs_scored": 194,
+      "game_fielders": 0,
+      "season_game_fielders": 909
+    },
+    "tournament_pa_issues": 0,
+    "season_pa_issues": 0,
+    "tournament_pitching_issues": 0,
+    "season_pitching_issues": 0,
+    "tournament_fielding_issues": 50,
+    "season_fielding_issues": 221
+  }
+}

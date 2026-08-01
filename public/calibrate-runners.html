@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Baserunner Field Calibrator</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    #log, #container { width: min(96vw, 900px); margin: 0 auto; }
+    #container { position: relative; display: inline-block; cursor: crosshair; }
+    #container img { display: block; width: 100%; height: auto; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+    .dot { position: absolute; width: 12px; height: 12px; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; border: 2px solid white; }
+    .dot-label { position: absolute; font-size: 11px; transform: translate(-50%, 8px); pointer-events: none; white-space: nowrap; font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.75); }
+    #log { padding-bottom: 16px; font-size: 13px; }
+    h2 { color: #eab308; margin: 0 0 8px; }
+    #coords, #image-meta { color: #94a3b8; margin: 0 0 8px; }
+    #output { background: #1e293b; padding: 12px; border-radius: 8px; white-space: pre-wrap; color: #86efac; font-size: 12px; margin-top: 12px; border: 1px solid rgba(148,163,184,0.2); }
+    button, select { border-radius: 6px; font: inherit; }
+    button { background: #eab308; color: #000; border: none; padding: 8px 16px; cursor: pointer; font-weight: bold; margin-right: 8px; margin-bottom: 8px; }
+    button.secondary { background: #334155; color: #fff; }
+    select { background: #0f172a; color: #f8fafc; border: 1px solid #475569; padding: 7px 10px; min-width: 240px; }
+    .toolbar-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .label { color: #cbd5e1; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div id="log">
+    <h2>Baserunner Field Calibrator</h2>
+    <div class="toolbar-row">
+      <span class="label">Stadium</span>
+      <select id="preset"></select>
+    </div>
+    <p id="coords">Click where each base sits, in order: 2B -&gt; 1B -&gt; 3B -&gt; Home</p>
+    <p id="image-meta">Loading image...</p>
+    <button type="button" onclick="undo()">Undo Last</button>
+    <button type="button" class="secondary" onclick="reset()">Reset All</button>
+    <button type="button" class="secondary" onclick="copyOutput()">Copy Output</button>
+    <div id="output"></div>
+  </div>
+  <div id="container">
+    <img id="field" src="" alt="Field to calibrate" />
+  </div>
+  <script>
+    const BASES = [
+      { key: 'second', label: '2B' },
+      { key: 'first', label: '1B' },
+      { key: 'third', label: '3B' },
+      { key: 'home', label: 'Home' },
+    ]
+    const PRESETS = {
+      mario_stadium: { label: 'Mario Stadium', image: '/stadiums/mario-stadium-runners.png' },
+      yoshi_park: { label: 'Yoshi Park', image: '/stadiums/yoshi-park-runners.png' },
+      wario_city: { label: 'Wario City', image: '/stadiums/wario-stadium-runners.png' },
+      dk_jungle: { label: 'DK Jungle', image: '/stadiums/dk-jungle-runners.png' },
+      bowser_castle: { label: 'Bowser Castle', image: '/stadiums/bowser-castle-runners.png' },
+      bowser_jr_playroom: { label: 'Bowser Jr. Playroom', image: '/stadiums/bowser-jr-playroom-runners.png' },
+      daisy_cruiser: { label: 'Daisy Cruiser', image: '/stadiums/daisy-cruiser-runners.png' },
+      peach_ice_garden: { label: 'Peach Ice Garden', image: '/stadiums/peach-ice-garden-runners.png' },
+      luigis_mansion: { label: "Luigi's Mansion", image: "/stadiums/luigi's-mansion-runners.png" },
+    }
+
+    let activePresetKey = 'mario_stadium'
+    let placed = []
+
+    const container = document.getElementById('container')
+    const img = document.getElementById('field')
+    const presetSelect = document.getElementById('preset')
+    const outputEl = document.getElementById('output')
+    const imageMetaEl = document.getElementById('image-meta')
+
+    function activePreset() { return PRESETS[activePresetKey] }
+
+    function buildPresetOptions() {
+      Object.entries(PRESETS).forEach(([key, preset]) => {
+        const option = document.createElement('option')
+        option.value = key
+        option.textContent = preset.label
+        presetSelect.appendChild(option)
+      })
+    }
+
+    function syncMeta() {
+      imageMetaEl.textContent = `Image: ${activePreset().image} | ${img.naturalWidth}x${img.naturalHeight}`
+    }
+
+    function syncQueryString() {
+      const url = new URL(window.location.href)
+      url.searchParams.set('stadium', activePresetKey)
+      window.history.replaceState({}, '', url)
+    }
+
+    function setPreset(key) {
+      activePresetKey = PRESETS[key] ? key : 'mario_stadium'
+      presetSelect.value = activePresetKey
+      img.src = activePreset().image
+      syncQueryString()
+      reset()
+    }
+
+    function updateOutput() {
+      const lines = [`${activePresetKey}: {`, `  image: '${activePreset().image}',`, '  bases: {']
+      placed.forEach((p) => {
+        lines.push(`    ${p.key}: { left: '${p.x}%', top: '${p.y}%' },`)
+      })
+      lines.push('  },')
+      lines.push('},')
+      outputEl.textContent = lines.join('\n')
+    }
+
+    function placeDot(x, y, label, id) {
+      const dot = document.createElement('div')
+      dot.className = 'dot'
+      dot.id = `dot-${id}`
+      dot.style.left = `${x}%`
+      dot.style.top = `${y}%`
+      dot.style.background = '#f87171'
+      container.appendChild(dot)
+      const text = document.createElement('div')
+      text.className = 'dot-label'
+      text.id = `lbl-${id}`
+      text.style.left = `${x}%`
+      text.style.top = `${y}%`
+      text.style.color = '#f87171'
+      text.textContent = label
+      container.appendChild(text)
+    }
+
+    function updateInstruction() {
+      const coordsEl = document.getElementById('coords')
+      const next = BASES[placed.length]
+      coordsEl.textContent = next ? `Next: click ${next.label}` : 'Done. Copy the output below.'
+    }
+
+    function undo() {
+      if (!placed.length) return
+      const index = placed.length
+      placed.pop()
+      document.getElementById(`dot-${index}`)?.remove()
+      document.getElementById(`lbl-${index}`)?.remove()
+      updateInstruction()
+      updateOutput()
+    }
+
+    function reset() {
+      placed = []
+      container.querySelectorAll('.dot, .dot-label').forEach((el) => el.remove())
+      updateInstruction()
+      updateOutput()
+    }
+
+    async function copyOutput() {
+      try { await navigator.clipboard.writeText(outputEl.textContent) } catch (error) { console.error(error) }
+    }
+
+    container.addEventListener('click', (event) => {
+      if (placed.length >= BASES.length) return
+      const rect = img.getBoundingClientRect()
+      const x = Number((((event.clientX - rect.left) / rect.width) * 100).toFixed(1))
+      const y = Number((((event.clientY - rect.top) / rect.height) * 100).toFixed(1))
+      const base = BASES[placed.length]
+      placed.push({ ...base, x, y })
+      placeDot(x, y, base.label, placed.length)
+      updateInstruction()
+      updateOutput()
+    })
+
+    presetSelect.addEventListener('change', (event) => setPreset(event.target.value))
+    img.addEventListener('load', () => { syncMeta(); updateOutput() })
+
+    buildPresetOptions()
+    const initialPreset = new URLSearchParams(window.location.search).get('stadium')
+    setPreset(initialPreset || 'mario_stadium')
+  </script>
+</body>
+</html>

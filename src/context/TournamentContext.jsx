@@ -1,14 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import useRealtimeEnabled from '../hooks/useRealtimeEnabled'
 import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
+import { readLocalStorageItem, removeLocalStorageItem, writeLocalStorageItem } from '../utils/localStorage'
 
 const TournamentContext = createContext(null)
 const STORAGE_KEY = 'sluggers-selected-tournament'
 
 export function TournamentProvider({ children }) {
+  const realtimeEnabled = useRealtimeEnabled()
   const [tournaments, setTournaments] = useState([])
   const [selectedTournamentId, setSelectedTournamentId] = useState(
-    () => localStorage.getItem(STORAGE_KEY) || '',
+    () => readLocalStorageItem(STORAGE_KEY),
   )
   const [loading, setLoading] = useState(true)
   const selectedTournamentIdRef = useRef(selectedTournamentId)
@@ -50,6 +53,11 @@ export function TournamentProvider({ children }) {
   }, [selectedTournamentId])
 
   useEffect(() => {
+    // Skipped on pages that don't need live updates (see useRealtimeEnabled) — an open realtime
+    // WebSocket connection disqualifies a page from the browser's back/forward cache, so a page
+    // with no use for this channel shouldn't pay that cost.
+    if (!realtimeEnabled) return undefined
+
     const channelName = `tournaments-context-${Math.random().toString(36).slice(2)}`
     const channel = supabase
       .channel(channelName)
@@ -59,13 +67,13 @@ export function TournamentProvider({ children }) {
       .subscribe()
 
     return () => supabase.removeChannel(channel)
-  }, [])
+  }, [realtimeEnabled])
 
   useEffect(() => {
     if (selectedTournamentId) {
-      localStorage.setItem(STORAGE_KEY, selectedTournamentId)
+      writeLocalStorageItem(STORAGE_KEY, selectedTournamentId)
     } else {
-      localStorage.removeItem(STORAGE_KEY)
+      removeLocalStorageItem(STORAGE_KEY)
     }
   }, [selectedTournamentId])
 

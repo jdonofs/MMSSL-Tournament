@@ -7,26 +7,14 @@ import { useSeason } from '../context/SeasonContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
 import PlayerTag from '../components/PlayerTag'
-import { buildCharacterGameHistory, buildCharacterPitchingGameHistory, buildCharacterFieldingGameHistory, aggregateGameHistoryByEvent, MIN_PA_PER_GAME, summarizeBatting, summarizePitching } from '../utils/statsCalculator'
+import { buildCharacterGameHistory, buildCharacterPitchingGameHistory, buildCharacterFieldingGameHistory, MIN_PA_PER_GAME, summarizePitching } from '../utils/statsCalculator'
 import { analyzeCharacterTalent, getTalentTierMeta } from '../utils/characterAnalysis'
 import CharacterPortrait from '../components/CharacterPortrait'
 import StatIcon from '../components/StatIcon'
-import { chemBreakdown, chemScore, getChemistry, isChemistryNameOnRoster, CHARACTER_VARIANTS } from '../data/chemistry'
+import { chemBreakdown, chemScore } from '../data/chemistry'
 import { formatCharacterDisplayName, getCharacterChemistryName, isMiiCharacter, MII_COLOR_OPTIONS } from '../utils/mii'
 import { buildTournamentTeamIdentityMap, getCaptainIdentityFromName, getTeamShortName, isCaptainCharacterName } from '../utils/teamIdentity'
 import { getCurrentDraftState, normalizeSeasonDraftPicks, snakeOrder } from '../utils/draftOrder'
-
-function formatSignedDelta(delta) {
-  if (delta === null || delta === undefined || !Number.isFinite(delta)) return '—'
-  const sign = delta > 0 ? '+' : ''
-  return `${sign}${delta.toFixed(1)}`
-}
-
-function formatSignedInt(value) {
-  if (!Number.isFinite(value)) return '—'
-  const sign = value > 0 ? '+' : ''
-  return `${sign}${value}`
-}
 
 function trendSymbol(history) {
   const valid = (history || []).filter(t => t.perfScore !== null)
@@ -43,34 +31,6 @@ function Portrait({ name, size = 36, style = {} }) {
   return <CharacterPortrait name={name} size={size} style={style} />
 }
 
-function StatBar({ label, value, color = '#EAB308' }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ width: 14, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
-        <StatIcon stat={label} size={14} />
-      </span>
-      <div style={{ flex: 1, height: 6, background: '#0F172A', borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${value * 10}%`, background: color, borderRadius: 3 }} />
-      </div>
-      <span style={{ width: 18, textAlign: 'right', fontSize: 13, fontWeight: 600 }}>{value}</span>
-    </div>
-  )
-}
-
-function ChemChip({ name, rosterNames, draftedNames, onClick }) {
-  const onRoster = isChemistryNameOnRoster(name, rosterNames)
-  const drafted = !onRoster && draftedNames.includes(name)
-  const ring = onRoster ? '#22C55E' : drafted ? '#475569' : '#334155'
-  const portraitName = CHARACTER_VARIANTS[name] || name
-  return (
-    <button onClick={onClick} type="button" title={name} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '0 2px' }}>
-      <div style={{ padding: 2, borderRadius: '50%', border: `2px solid ${ring}` }}>
-        <CharacterPortrait name={portraitName} size={32} style={{ filter: drafted ? 'grayscale(1) opacity(.45)' : 'none' }} />
-      </div>
-      <span style={{ fontSize: 9, color: '#64748B', width: 42, textAlign: 'center', lineHeight: 1.2 }}>{portraitName}</span>
-    </button>
-  )
-}
 
 function getCompactDraftBoardName(name, miiColor) {
   const displayName = formatCharacterDisplayName(name, miiColor)
@@ -105,256 +65,6 @@ function getCompactDraftBoardName(name, miiColor) {
   return `${words[0].slice(0, 5)} ${lastWord[0] || ''}`.trim()
 }
 
-// ─── Player card panel ────────────────────────────────────────────────────────
-function PlayerCard({ stack, charactersById, tournHistories, pitchingTournHistories, fieldingTournHistories, rosterNames, draftedNames, picksByCharacter, playersById, teamIdentitiesByPlayerId, isYourTurn, isDrafting, onDraft, onClose, onNavigate }) {
-  const charId = stack[stack.length - 1]
-  const c = charactersById[charId]
-  if (!c) return null
-
-  const pick = picksByCharacter[c.id]
-  const isDrafted = Boolean(pick)
-  const history = tournHistories[c.id] || []
-  const validHistory = history.filter(t => t.perfScore !== null)
-  const eventHistory = useMemo(() => aggregateGameHistoryByEvent(history), [history])
-  const analysis = analyzeCharacterTalent(c, history, pitchingTournHistories?.[c.id], fieldingTournHistories?.[c.id])
-  const tierMeta = getTalentTierMeta(analysis?.tier)
-  const battingTierMeta = getTalentTierMeta(analysis?.battingTier)
-  const pitchingTierMeta = getTalentTierMeta(analysis?.pitchingTier)
-  const fieldingTierMeta = getTalentTierMeta(analysis?.fieldingTier)
-  const speedTierMeta = getTalentTierMeta(analysis?.speedTier)
-  const displayName = formatCharacterDisplayName(c.name, pick?.mii_color)
-  const chemistryName = getCharacterChemistryName(c.name, pick?.mii_color)
-  const chem = getChemistry(chemistryName)
-  const net = chemScore(chemistryName, rosterNames)
-  const breadcrumb = stack.map(id => charactersById[id]).filter(Boolean)
-
-  const handleChipClick = (name) => {
-    const target = Object.values(charactersById).find(ch => ch.name === name)
-    if (target) onNavigate(target.id)
-  }
-  const trendColor = trend === '↑' ? '#22C55E' : trend === '↓' ? '#F87171' : '#94A3B8'
-
-  return (
-    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: Math.min(400, window.innerWidth), background: '#0F172A', borderLeft: '1px solid #1E293B', zIndex: 50, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-      {/* Sticky header */}
-      <div style={{ position: 'sticky', top: 0, background: '#0F172A', borderBottom: '1px solid #1E293B', padding: '10px 14px', zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {stack.length > 1 && (
-            <button onClick={() => onNavigate(null, true)} type="button" style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 4, flexShrink: 0 }}>
-              <ChevronLeft size={18} />
-            </button>
-          )}
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 3, overflow: 'hidden', fontSize: 12 }}>
-            {(breadcrumb.length > 4 ? [null, ...breadcrumb.slice(-3)] : breadcrumb).map((bc, i, arr) => (
-              <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
-                {i > 0 && <span style={{ color: '#334155' }}>›</span>}
-                {bc === null
-                  ? <span style={{ color: '#475569' }}>…</span>
-                  : <button
-                      onClick={() => {
-                        const idx = stack.findIndex(id => id === bc.id)
-                        onNavigate(bc.id, false, idx)
-                      }}
-                      type="button"
-                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: i === arr.length - 1 ? '#E2E8F0' : '#64748B', fontWeight: i === arr.length - 1 ? 700 : 400, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 80 }}
-                    >{bc.name}</button>}
-              </span>
-            ))}
-          </div>
-          <button onClick={onClose} type="button" style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', padding: 4, flexShrink: 0 }}>
-            <X size={18} />
-          </button>
-        </div>
-      </div>
-
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* Portrait + name */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Portrait name={c.name} size={72} style={{ border: `3px solid ${isDrafted ? '#334155' : '#EAB308'}`, filter: isDrafted ? 'grayscale(.8) opacity(.6)' : 'none' }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 20 }}>{displayName}</div>
-            <div style={{ fontSize: 12, marginTop: 3 }}>
-              {isDrafted
-                ? <span style={{ color: '#64748B', display: 'inline-flex', alignItems: 'center', gap: 6 }}>Drafted · <PlayerTag height={24} identitiesByPlayerId={teamIdentitiesByPlayerId} playerId={pick.player_id} playersById={playersById} /></span>
-                : <span style={{ color: '#22C55E', fontWeight: 600 }}>Available</span>}
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 4, fontSize: 12 }}>
-              {net !== null && <span style={{ color: net > 0 ? '#22C55E' : net < 0 ? '#F87171' : '#64748B', fontWeight: 700 }}>Chem {net > 0 ? `+${net}` : net}</span>}
-              {trend && <span style={{ color: trendColor, fontWeight: 700 }}>{trend} {validHistory.length}T</span>}
-            </div>
-          </div>
-        </div>
-
-        {/* Stat bars */}
-        <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <StatBar label="pitching" value={c.pitching} color="#EF4444" />
-          <StatBar label="batting" value={c.batting} color="#22C55E" />
-          <StatBar label="fielding" value={c.fielding} color="#EAB308" />
-          <StatBar label="speed" value={c.speed} color="#3B82F6" />
-        </div>
-
-        {/* Total OVR */}
-        <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase' }}>Overall OVR</div>
-            <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>{analysis?.archetype || 'Balanced contributor'}</div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#EAB308' }}>{analysis?.displayRatings?.overall ?? '—'}</div>
-            <div style={{ fontSize: 12, color: tierMeta.color, fontWeight: 700 }}>{tierMeta.label}</div>
-          </div>
-        </div>
-
-        {/* Role OVR breakdown */}
-        <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Role OVR</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-            {[
-              { label: 'Bat OVR', value: analysis?.displayRatings?.batting, tierMeta: battingTierMeta, impact: analysis?.skillImpact?.batting },
-              { label: 'Pitch OVR', value: analysis?.displayRatings?.pitching, tierMeta: pitchingTierMeta, impact: analysis?.skillImpact?.pitching },
-              { label: 'Field OVR', value: analysis?.displayRatings?.fielding, tierMeta: fieldingTierMeta, impact: analysis?.skillImpact?.fielding },
-              { label: 'Speed OVR', value: analysis?.displayRatings?.speed, tierMeta: speedTierMeta, impact: analysis?.skillImpact?.speed },
-            ].map(({ label, value, tierMeta: skillTierMeta, impact }) => {
-              const hasImpact = impact && impact.impact !== 0
-              const impactColor = hasImpact ? (impact.impact > 0 ? '#22C55E' : '#F87171') : '#64748B'
-              return (
-                <div key={label} style={{ background: '#0F172A', borderRadius: 8, padding: '8px 10px' }}>
-                  <div style={{ fontSize: 10, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>{label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: '#F8FAFC', lineHeight: 1.1 }}>{value ?? '—'}</div>
-                  <div style={{ fontSize: 11, color: skillTierMeta.color, fontWeight: 700 }}>{skillTierMeta.label}</div>
-                  {hasImpact ? (
-                    <div style={{ fontSize: 10, color: '#64748B', marginTop: 2 }}>
-                      Talent {impact.base}
-                      <span style={{ color: impactColor, fontWeight: 700 }}> {formatSignedInt(impact.impact)}</span>
-                    </div>
-                  ) : null}
-                </div>
-              )
-            })}
-          </div>
-          <div style={{ fontSize: 11, color: '#64748B', marginBottom: 10 }}>{analysis?.archetype || 'Balanced contributor'}</div>
-          <div style={{ display: 'grid', gap: 8 }}>
-            {[
-              { label: 'Offense', rawScore: analysis?.categoryScores.offense || 0, display: analysis?.displayRatings?.offense ?? 0, color: '#22C55E' },
-              { label: 'Pitching', rawScore: analysis?.categoryScores.pitching || 0, display: analysis?.displayRatings?.pitchingCat ?? 0, color: '#EF4444' },
-              { label: 'Defense', rawScore: analysis?.categoryScores.defense || 0, display: analysis?.displayRatings?.defense ?? 0, color: '#38BDF8' },
-              { label: 'Speed', rawScore: analysis?.categoryScores.speed || 0, display: analysis?.displayRatings?.speedCat ?? 0, color: '#A78BFA' },
-            ].map(({ label, rawScore, display, color }) => (
-              <div key={label} style={{ display: 'grid', gap: 4 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                  <span style={{ color: '#94A3B8', fontWeight: 700 }}>{label}</span>
-                  <span style={{ color, fontWeight: 800 }}>{display}</span>
-                </div>
-                <div style={{ height: 7, borderRadius: 999, background: '#0F172A', overflow: 'hidden' }}>
-                  <div style={{ width: `${rawScore}%`, height: '100%', background: color, borderRadius: 999 }} />
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 12 }}>
-            {[
-              { label: 'Talent', value: analysis?.displayRatings?.overall ?? '—' },
-              { label: 'History', value: formatSignedDelta(analysis?.historyDelta) },
-              { label: 'Blend', value: analysis?.historyWeight ? `${Math.round(analysis.historyWeight * 100)}%` : '0%' },
-            ].map(({ label, value }) => (
-              <div key={label} style={{ border: '1px solid #334155', borderRadius: 10, padding: '8px 10px', background: '#0F172A' }}>
-                <div style={{ fontSize: 10, color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
-                <div style={{ marginTop: 4, fontSize: 17, fontWeight: 800, color: '#F8FAFC' }}>{value}</div>
-              </div>
-            ))}
-          </div>
-          {analysis?.summary ? (
-            <div style={{ marginTop: 12, fontSize: 13, lineHeight: 1.5, color: '#CBD5E1' }}>
-              {analysis.summary}
-            </div>
-          ) : null}
-          {analysis?.profile ? (
-            <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-              {[
-                { label: 'Contact Window', value: analysis.componentScores.contactWindow },
-                { label: 'Plate Coverage', value: analysis.componentScores.plateCoverage },
-                { label: 'Catch Radius', value: analysis.componentScores.catchCoverage },
-                { label: 'Changeup Gap', value: analysis.componentScores.changeupSeparation },
-              ].map(({ label, value }) => (
-                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94A3B8' }}>
-                  <span>{label}</span>
-                  <span style={{ color: '#F8FAFC', fontWeight: 700 }}>{value.toFixed(0)}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {analysis?.historyDelta !== null ? (
-            <div style={{ marginTop: 10, fontSize: 12, color: '#64748B' }}>
-              Game results are contributing {Math.round((analysis.historyWeight || 0) * 100)}% of this grade across {analysis.historyGames} game{analysis.historyGames === 1 ? '' : 's'} ({analysis.historyTotalPA} PA).
-            </div>
-          ) : null}
-        </div>
-
-        {/* Performance history */}
-        {eventHistory.length > 0 && (
-          <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Performance History</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ color: '#64748B', borderBottom: '1px solid #334155' }}>
-                  {['Event', 'G', 'PA', 'AVG', 'OPS', 'HR', 'RBI', 'Δ'].map(h => (
-                    <th key={h} style={{ textAlign: h === 'Event' ? 'left' : 'center', padding: '3px 4px', fontWeight: 700 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {eventHistory.map((e) => (
-                  <tr key={e.eventKey} style={{ borderBottom: '1px solid #0F172A', color: '#CBD5E1' }}>
-                    <td style={{ padding: '4px 4px', fontWeight: 700 }}>{e.eventType === 'tournament' ? `T${e.eventNumber}` : e.eventNumber}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.games}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.pa}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.avg.toFixed(3)}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.ops.toFixed(3)}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.hr}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px' }}>{e.rbi}</td>
-                    <td style={{ textAlign: 'center', padding: '4px 4px', fontWeight: 700, color: e.avgDelta === null ? '#334155' : e.avgDelta >= 0 ? '#22C55E' : '#F87171' }}>
-                      {formatSignedDelta(e.avgDelta)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Chemistry */}
-        {(chem.good.length > 0 || chem.bad.length > 0) && (
-          <div style={{ background: '#1E293B', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase' }}>Chemistry</span>
-            {chem.good.length > 0 && (
-              <div>
-                <div style={{ fontSize: 11, color: '#22C55E', fontWeight: 600, marginBottom: 6 }}>Good</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {chem.good.map(name => <ChemChip key={name} name={name} rosterNames={rosterNames} draftedNames={draftedNames} onClick={() => handleChipClick(name)} />)}
-                </div>
-              </div>
-            )}
-            {chem.bad.length > 0 && (
-              <div>
-                <div style={{ fontSize: 11, color: '#F87171', fontWeight: 600, marginBottom: 6 }}>Bad</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {chem.bad.map(name => <ChemChip key={name} name={name} rosterNames={rosterNames} draftedNames={draftedNames} onClick={() => handleChipClick(name)} />)}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Draft button */}
-        {!isDrafted && (
-          <button className="solid-button" disabled={!isYourTurn || !isDrafting} onClick={() => onDraft(c)} type="button">
-            {isYourTurn && isDrafting ? `Draft ${displayName}` : !isDrafting ? 'Draft locked' : 'Not your pick'}
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
 
 const SORT_KEY_TIER = {
   value:      { tierKey: 'battingTier',  icon: 'batting' },
@@ -415,6 +125,7 @@ export function DraftExperience({ mode = 'tournament' }) {
       const [
         { data: pData }, { data: cData }, { data: dData }, { data: paData }, { data: gData }, { data: pitchData }, { data: seasonPaData },
         { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData }, { data: seasonTeamsData },
+        { data: gamePitchesData }, { data: seasonGamePitchesData },
       ] = await Promise.all([
         supabase.from('players').select('*').order('created_at'),
         supabase.from('characters').select('*').order('name'),
@@ -429,7 +140,19 @@ export function DraftExperience({ mode = 'tournament' }) {
         supabase.from('game_fielders').select('*'),
         supabase.from('season_game_fielders').select('*'),
         supabase.from('season_teams').select('id,player_id'),
+        supabase.from('pitches').select('game_id,pitcher_id'),
+        supabase.from('season_pitches').select('game_id,pitcher_id'),
       ])
+      // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
+      // mound-assignment bookkeeping), before they've necessarily thrown a pitch — if pulled again
+      // without facing a batter, that stint sits at 0 IP forever but would still count as a "game"
+      // pitched. Drop stints with no matching row in `pitches`/`season_pitches` (by game_id +
+      // pitcher name, since pitches.pitcher_id is a name string, not character_id).
+      const nameByCharId = Object.fromEntries((cData || []).map((c) => [String(c.id), c.name]))
+      const thrownKeys = new Set((gamePitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const seasonThrownKeys = new Set((seasonGamePitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const stintsWithPitches = (pitchData || []).filter((s) => thrownKeys.has(`${s.game_id}:${nameByCharId[String(s.character_id)]}`))
+      const seasonStintsWithPitches = (seasonPitchData || []).filter((s) => seasonThrownKeys.has(`${s.game_id}:${nameByCharId[String(s.character_id)]}`))
       const orderedPlayers = isSeasonMode
         ? [...(seasonTeams || [])]
             .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
@@ -451,9 +174,9 @@ export function DraftExperience({ mode = 'tournament' }) {
       setAllDraftPicks(normalizedSeasonPicks)
       setPlateAppearances(paData || [])
       setGames(gData || [])
-      setPitchingStints(pitchData || [])
+      setPitchingStints(stintsWithPitches)
       setSeasonPlateAppearances(seasonPaData || [])
-      setSeasonPitchingStints(seasonPitchData || [])
+      setSeasonPitchingStints(seasonStintsWithPitches)
       setGameFielders(fieldersData || [])
       setSeasonGameFielders(seasonFieldersData || [])
       setAllSeasonTeams(seasonTeamsData || [])
@@ -627,6 +350,10 @@ export function DraftExperience({ mode = 'tournament' }) {
     () => Object.fromEntries(characters.map((entry) => [entry.name, entry])),
     [characters],
   )
+  const playerNameById = useMemo(
+    () => Object.fromEntries((players || []).map((player) => [player.id, player.name])),
+    [players],
+  )
   // Built from every season's teams (not just the one being drafted) since the fielding history
   // below pools chances across all past seasons and tournaments — resolving a historical team_id
   // only against the active draft's roster would silently drop or misattribute every other
@@ -646,8 +373,8 @@ export function DraftExperience({ mode = 'tournament' }) {
   }, [seasonPitchingStints, isSeasonMode, activeDraftContext?.id])
 
   const pitchingTournHistories = useMemo(
-    () => buildCharacterPitchingGameHistory(historicalPitchingStints, historicalGames, allTournaments || [], historicalSeasonPitchingStints, allSeasons || []),
-    [historicalPitchingStints, historicalGames, allTournaments, historicalSeasonPitchingStints, allSeasons]
+    () => buildCharacterPitchingGameHistory(historicalPitchingStints, historicalGames, allTournaments || [], historicalSeasonPitchingStints, allSeasons || [], null, playerNameById),
+    [historicalPitchingStints, historicalGames, allTournaments, historicalSeasonPitchingStints, allSeasons, playerNameById]
   )
 
   const fieldingTournHistories = useMemo(
@@ -870,8 +597,9 @@ export function DraftExperience({ mode = 'tournament' }) {
     if (!character) return
     const pick = picksByCharacter[id]
     const currentOwner = pick ? { player_id: pick.player_id } : null
-    navigate(`/character/${id}`, {
+    navigate(`/character/${id}/career`, {
       state: {
+        backTo: window.location.pathname + window.location.search,
         character,
         allCharactersById: Object.fromEntries(characters.map((entry) => [entry.name, entry])),
         playersById,
@@ -922,6 +650,9 @@ export function DraftExperience({ mode = 'tournament' }) {
         character_name: character?.name,
         acquired_via: activeDraftContext?.league_type === 'keeper' ? 'draft' : 'draft',
         is_active: true,
+        round,
+        pick_number: currentPickNumber,
+        pick_in_round: pickInRound + 1,
       }
       const { error } = await supabase.from('season_roster').insert(seasonPayload)
       if (!error && firstPickForPlayer && captainIdentity) {
@@ -1124,6 +855,9 @@ export function DraftExperience({ mode = 'tournament' }) {
         character_name: best.name,
         acquired_via: activeDraftContext?.league_type === 'keeper' ? 'draft' : 'draft',
         is_active: true,
+        round: rnd,
+        pick_number: pickNumber,
+        pick_in_round: pickIdx + 1,
       } : {
         tournament_id: activeDraftContext.id,
         pick_number: pickNumber,
@@ -1200,6 +934,9 @@ export function DraftExperience({ mode = 'tournament' }) {
         character_name: best.name,
         acquired_via: activeDraftContext?.league_type === 'keeper' ? 'draft' : 'draft',
         is_active: true,
+        round: 1,
+        pick_number: draftPicks.length + inserts.length + 1,
+        pick_in_round: inserts.length + 1,
       } : {
         tournament_id: activeDraftContext.id,
         pick_number: draftPicks.length + inserts.length + 1,
@@ -1276,8 +1013,7 @@ export function DraftExperience({ mode = 'tournament' }) {
               <button className="ghost-button" onClick={retreatPresentationSlide} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#94A3B8', borderColor: '#94A3B8' }}><ChevronLeft size={14} /> Back Slide</button>
               <button className="ghost-button" onClick={advancePresentationSlide} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#EAB308', borderColor: '#EAB308' }}><ChevronRight size={14} /> Advance Slide</button>
               <button className="ghost-button" disabled={!draftStatusOpen || !draftPicks.length} onClick={undoLastPick} type="button" style={{ fontSize: 12, padding: '6px 10px' }}><RotateCcw size={14} /> Undo</button>
-              <button className="ghost-button" disabled={!canDraft || isAutoDrafting || !isCaptainRoundLocked} onClick={autoDraftCaptains} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#7DD3FC', borderColor: '#7DD3FC' }}><Zap size={14} /> {isAutoDrafting && isCaptainRoundLocked ? 'Drafting…' : 'Auto Draft Captains'}</button>
-              <button className="ghost-button" disabled={!canDraft || isAutoDrafting || picksRemaining === 0 || isCaptainRoundLocked} title={isCaptainRoundLocked ? 'Finish the captain round first (Auto Draft Captains).' : undefined} onClick={autoDraftAll} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#A78BFA', borderColor: '#A78BFA' }}><Zap size={14} /> {isAutoDrafting ? 'Drafting…' : 'Auto Draft'}</button>
+              <button className="ghost-button" disabled={!canDraft || isAutoDrafting || (!isCaptainRoundLocked && picksRemaining === 0)} onClick={isCaptainRoundLocked ? autoDraftCaptains : autoDraftAll} type="button" style={{ fontSize: 12, padding: '6px 10px', color: '#A78BFA', borderColor: '#A78BFA' }}><Zap size={14} /> {isAutoDrafting ? 'Drafting…' : (isCaptainRoundLocked ? 'Auto Draft Captains' : 'Auto Draft')}</button>
               <label title="When on, picks are made instantly without waiting for commissioner confirmation. Use if you're not running the presentation." style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: skipReveal ? '#EAB308' : '#94A3B8', border: `1px solid ${skipReveal ? '#EAB308' : '#334155'}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>
                 <input type="checkbox" checked={skipReveal} onChange={(e) => setSkipReveal(e.target.checked)} style={{ margin: 0 }} />
                 Skip Pick Reveal

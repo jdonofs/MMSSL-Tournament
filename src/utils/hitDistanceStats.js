@@ -1,8 +1,21 @@
-import { STADIUM_CONFIGS } from '../components/FieldPlayBuilder'
+import { STADIUM_CONFIGS, estimateWallDistanceAtAngle } from '../components/FieldPlayBuilder'
 import { MIN_PA_THRESHOLD } from './statsCalculator'
-import { solveExitVelocityWithDrag, solveGroundBallExitVelocity } from './exitVelocityPhysics'
+import { solveExitVelocityWithDrag } from './exitVelocityPhysics'
 
 export const HARD_HIT_THRESHOLD_FT = 275
+
+// A caught fly/liner counts as a robbed home run when the catch spot is
+// within this many feet of (or beyond) the wall at that angle. For exit
+// velocity/launch angle specifically, the tapped/marked catch spot
+// understates true distance — the ball was still carrying past the fence
+// when caught, not landing where the glove met it — so the assumed "true"
+// distance is the wall distance plus this much further carry, instead of
+// the truncated catch-point distance. Shared by every place that computes
+// exit velocity for a robbed HR (Scorebook's live Buddy Jump flow,
+// AtBatDataEntryPanel/AtBatPage's video-reviewed ones) so the assumption
+// can't drift between them.
+export const ROBBED_HR_WALL_MARGIN_FT = 15
+export const ROBBED_HR_CARRY_FT = 15
 
 // Statcast-standard exit-velocity threshold, distinct from HARD_HIT_THRESHOLD_FT
 // (the distance-based version above, kept for backward compatibility with rows
@@ -93,20 +106,30 @@ export function summarizeHitDistance(plateAppearances = []) {
   }
 }
 
-// Derives exit velocity + launch angle from a recorded distance (range) and
-// a user-entered hang time. Two knowns (distance, time) fully determine the
-// two unknowns (launch speed, launch angle) for airborne trajectories, so
-// no separate angle input is needed there. Ground balls use a different
-// model (see exitVelocityPhysics.js) since they aren't airborne for their
-// full recorded distance — pass the PA's `trajectory` ('G'/'L'/'F') so the
-// right one gets used; trajectory-less/legacy rows fall back to the
-// airborne model.
-export function estimateExitVelocity(distanceFt, hangTimeSec, trajectory = null) {
-  const result = trajectory === 'G'
-    ? solveGroundBallExitVelocity(distanceFt, hangTimeSec)
-    : solveExitVelocityWithDrag(distanceFt, hangTimeSec)
+// Derives exit velocity + launch angle from a landed-spot distance and the
+// contact-to-landed hang time. Two knowns (distance, time) fully determine
+// the two unknowns (launch speed, launch angle) via projectile physics —
+// same model for every trajectory, grounders included, since contact to
+// when it first touches the ground is a real (if brief) airborne phase for
+// a grounder too (see exitVelocityPhysics.js).
+export function estimateExitVelocity(distanceFt, hangTimeSec) {
+  const result = solveExitVelocityWithDrag(distanceFt, hangTimeSec)
   if (!result) return null
   return { exitVelocityMph: result.exitVelocityMph, launchAngleDeg: result.launchAngleDeg }
+}
+
+// The distance to feed estimateExitVelocity for a PA that might be a robbed
+// home run — see ROBBED_HR_CARRY_FT above for why the raw hit_distance_ft
+// (the actual catch spot) isn't the right input once is_robbed_hr is set.
+// Callers keep hit_distance_ft itself unchanged (it's real, useful data —
+// where the catch actually happened), and only substitute this corrected
+// number into the exit-velocity/launch-angle calculation.
+export function exitVelocityDistanceFt({ isRobbedHr, hitDistanceFt, hitAngleDeg }, config) {
+  if (isRobbedHr && config && hitAngleDeg != null) {
+    const wallDistanceFt = estimateWallDistanceAtAngle(hitAngleDeg, config)
+    if (wallDistanceFt != null) return wallDistanceFt + ROBBED_HR_CARRY_FT
+  }
+  return hitDistanceFt
 }
 
 function withExitVelocity(pas = []) {
@@ -181,27 +204,6 @@ export function calculateParkAdjustedDistance(playerPas = [], allPas = []) {
   return Math.round((adjusted.reduce((sum, d) => sum + d, 0) / adjusted.length) * 10) / 10
 }
 
-function wallDistanceAtAngle(angleDeg, config) {
-  if (!config?.wallRefs || angleDeg == null) return null
-  const home = config.homePlate
-  const refs = config.wallRefs.map((ref) => {
-    const rdx = ref.x - home.x
-    const rdy = ref.y - home.y
-    const angle = (Math.atan2(rdx, -rdy) * 180) / Math.PI
-    return { angle, dist: ref.dist }
-  }).sort((a, b) => a.angle - b.angle)
-
-  if (angleDeg <= refs[0].angle) return refs[0].dist
-  if (angleDeg >= refs[refs.length - 1].angle) return refs[refs.length - 1].dist
-  for (let i = 0; i < refs.length - 1; i++) {
-    if (angleDeg >= refs[i].angle && angleDeg <= refs[i + 1].angle) {
-      const t = (angleDeg - refs[i].angle) / (refs[i + 1].angle - refs[i].angle)
-      return refs[i].dist * (1 - t) + refs[i + 1].dist * t
-    }
-  }
-  return null
-}
-
 // For a single PA with hit_distance_ft/hit_angle_deg, counts how many of the
 // known stadiums the ball would have cleared the wall in at that angle.
 export function wouldBeHrElsewhere(pa) {
@@ -211,7 +213,7 @@ export function wouldBeHrElsewhere(pa) {
   const stadiumKeys = Object.keys(STADIUM_CONFIGS)
   let clearedCount = 0
   stadiumKeys.forEach((key) => {
-    const wallDistance = wallDistanceAtAngle(angle, STADIUM_CONFIGS[key])
+    const wallDistance = estimateWallDistanceAtAngle(angle, STADIUM_CONFIGS[key])
     if (wallDistance != null && distance >= wallDistance) clearedCount += 1
   })
   return { clearedCount, totalStadiums: stadiumKeys.length }

@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom'
 import PlayerTag from './PlayerTag'
 
 function normalizeStageLabel(stage = '') {
@@ -29,7 +30,8 @@ function getRoundBucket(stage = '') {
 const WINNERS_COLS = ['Winners R1', 'Winners R2', 'Winners Final']
 const LOSERS_COLS = ['Losers R1', 'Losers R2', 'Losers R3', 'Losers Final']
 
-export default function BracketView({ games, playersById, identitiesByPlayerId = {}, onSelectGame, compact = false, bracketFormat = 'double_elimination' }) {
+export default function BracketView({ games, playersById, identitiesByPlayerId = {}, onSelectGame, compact = false, bracketFormat = 'double_elimination', teamLinkBuilder }) {
+  const navigate = useNavigate()
   const isRoundBracket = bracketFormat === 'single' || bracketFormat === 'single_elimination' || bracketFormat === 'round_robin'
   const groupedGames = games.reduce((acc, game) => {
     const bucket = isRoundBracket
@@ -52,6 +54,12 @@ export default function BracketView({ games, playersById, identitiesByPlayerId =
         ? game.winner_player_id === game.team_b_player_id ? '#4ade80' : '#fb7185'
         : undefined
 
+    const goToTeam = (playerId) => (event) => {
+      if (!teamLinkBuilder || !playerId) return
+      event.stopPropagation()
+      navigate(teamLinkBuilder(playerId))
+    }
+
     const content = (
       <>
         <div className="bracket-game-head">
@@ -60,11 +68,20 @@ export default function BracketView({ games, playersById, identitiesByPlayerId =
         </div>
         <strong>{normalizeStageLabel(game.stage)}</strong>
         <div className="bracket-team-line">
-          <span style={{ color: teamAColor }}><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} responsiveAbbreviation /></span>
+          <span
+            onClick={goToTeam(game.team_a_player_id)}
+            style={{ color: teamAColor, cursor: teamLinkBuilder && game.team_a_player_id ? 'pointer' : undefined }}
+          >
+            <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_a_player_id} playersById={playersById} responsiveAbbreviation />
+          </span>
           <span>{game.team_a_runs}</span>
         </div>
         <div className="bracket-team-line">
-          <span style={{ color: teamBColor }}><PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} responsiveAbbreviation /></span>
+          <span
+            onClick={goToTeam(game.team_b_player_id)}
+            style={{ color: teamBColor, cursor: teamLinkBuilder && game.team_b_player_id ? 'pointer' : undefined }}
+          >
+            <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={game.team_b_player_id} playersById={playersById} responsiveAbbreviation /></span>
           <span>{game.team_b_runs}</span>
         </div>
       </>

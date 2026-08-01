@@ -1,32 +1,54 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import {
   buildCharacterIntrinsics,
+  filterRunEventsForCharacter,
   hasPitchingStatLine,
+  summarizeAdvancedBatting,
+  summarizeAdvancedPitching,
   summarizeBatting,
   summarizeBattedBallProfile,
-  summarizePitchMix,
+  summarizeBattedBallTypeProfile,
+  summarizeBattingSplits,
   summarizePitching,
+  summarizePitchingSplits,
   summarizePlateDiscipline,
+  summarizeSprayContactProfile,
   summarizeSprayProfile,
   summarizeStarHits,
   summarizeStarPitching,
+  summarizeValueBatting,
+  POSITION_CODES,
+  POSITION_LABELS,
 } from '../utils/statsCalculator'
 import { analyzeCharacterTalent, getTalentTierMeta } from '../utils/characterAnalysis'
-import { calculateHitPowerIndex, summarizeHitDistance, wouldBeHrElsewhere } from '../utils/hitDistanceStats'
+import {
+  calculateHitPowerIndex,
+  calculateParkAdjustedDistance,
+  summarizeContactQuality,
+  summarizeExitVelocity,
+  summarizeHitDistance,
+  wouldBeHrElsewhere,
+} from '../utils/hitDistanceStats'
 import { summarizeExpectedBatting } from '../utils/expectedStats'
 import useCharacterProfileData from '../hooks/useCharacterProfileData'
 import useCharacterExtras from '../hooks/useCharacterExtras'
-import { SNAPSHOT_METRICS, buildTalentPercentiles, buildPerformancePercentiles } from '../utils/percentileSnapshot'
+import useLoggedInRosterNames from '../hooks/useLoggedInRosterNames'
 import CharacterPortrait from '../components/CharacterPortrait'
 import StatIcon from '../components/StatIcon'
 import PlayerTag from '../components/PlayerTag'
+import TeamLogo from '../components/TeamLogo'
 import SprayChart from '../components/SprayChart'
 import RollingStatChart from '../components/RollingStatChart'
+import EntityPageSidebar from '../components/EntityPageSidebar'
+import StatTable from '../components/StatTable'
+import StatLabel from '../components/StatLabel'
+import AdvancedStatsPanel from '../components/AdvancedStatsPanel'
 import { chemBreakdown, getChemistry, isChemistryNameOnRoster } from '../data/chemistry'
-import { getTeamShortName } from '../utils/teamIdentity'
+import { getTeamShortName, getTeamAbbreviation, buildSeasonTeamIdentity, buildPlayerTeamIdentity } from '../utils/teamIdentity'
+import { buildScorebookPath } from '../utils/scorebookRouting'
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
 
@@ -35,6 +57,26 @@ function formatDecimal(value, digits = 3, fallback = '-') {
 }
 function formatInteger(value) {
   return Number.isFinite(value) ? String(value) : '-'
+}
+function formatPercent(value, digits = 0, fallback = '-') {
+  return Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : fallback
+}
+
+function selectPitchesForPas(pitches = [], plateAppearances = []) {
+  const seasonPaKeys = new Set()
+  const tournamentPaKeys = new Set()
+  plateAppearances.forEach((pa) => {
+    if (pa?.id == null) return
+    const key = `${String(pa.game_id)}:${String(pa.id)}`
+    if (pa.season_id != null) seasonPaKeys.add(key)
+    else tournamentPaKeys.add(key)
+  })
+  if (!seasonPaKeys.size && !tournamentPaKeys.size) return []
+  return pitches.filter((pitch) => {
+    if (pitch?.pa_id == null) return false
+    const key = `${String(pitch.game_id)}:${String(pitch.pa_id)}`
+    return pitch.season_id != null ? seasonPaKeys.has(key) : tournamentPaKeys.has(key)
+  })
 }
 function formatSignedInt(value) {
   if (!Number.isFinite(value)) return '—'
@@ -65,32 +107,14 @@ function getCharacterClassAccent(characterClass) {
   }
 }
 
-function hexToRgb(hex) {
-  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)]
-}
-function lerpColor(c1, c2, t) {
-  const [r1, g1, b1] = hexToRgb(c1)
-  const [r2, g2, b2] = hexToRgb(c2)
-  return `rgb(${Math.round(r1 + (r2 - r1) * t)},${Math.round(g1 + (g2 - g1) * t)},${Math.round(b1 + (b2 - b1) * t)})`
-}
-function getBarColor(pct) {
-  const stops = ['#EF4444', '#EAB308', '#22C55E']
-  const scaled = Math.max(0, Math.min(1, pct)) * (stops.length - 1)
-  const lo = Math.floor(scaled)
-  const hi = Math.min(stops.length - 1, lo + 1)
-  return lerpColor(stops[lo], stops[hi], scaled - lo)
-}
 function isPitchingAllZero(p) {
   return !hasPitchingStatLine(p)
 }
-function getHistoryEntryId(entry = {}) {
-  return String(entry.sourceId ?? entry.eventKey ?? entry.tournamentId ?? '')
-}
 function getHistoryEntryLabel(entry = {}) {
   if (entry.sourceLabel) return entry.sourceLabel
-  if (entry.eventType === 'tournament') return `Tournament ${entry.eventNumber}`
+  if (entry.eventType === 'tournament') return `MST ${entry.eventNumber}`
   if (entry.eventType === 'season') return String(entry.eventNumber)
-  return entry.tournamentNumber ? `Tournament ${entry.tournamentNumber}` : 'Unknown'
+  return entry.tournamentNumber ? `MST ${entry.tournamentNumber}` : 'Unknown'
 }
 function sortHistoryEntries(a, b) {
   if ((a.sortGroup || 0) !== (b.sortGroup || 0)) return (a.sortGroup || 0) - (b.sortGroup || 0)
@@ -98,6 +122,16 @@ function sortHistoryEntries(a, b) {
 }
 function allZeroPct(...rates) {
   return rates.every((r) => !r || r === 0)
+}
+
+// A season/tournament-scoped entry (battingHistory/pitchingHistory row) "belongs" to the current
+// route scope when its type+id match — battingHistory rows carry eventType/eventId, pitchingHistory
+// rows carry sourceType/tournamentId|seasonId, so both shapes are checked.
+function matchesScope(entry, scope) {
+  if (!scope || scope.type === 'career') return true
+  const entryType = entry.eventType || entry.sourceType
+  const entryId = entry.eventId ?? entry.tournamentId ?? entry.seasonId
+  return entryType === scope.type && String(entryId) === String(scope.id)
 }
 
 // The population max/min (computed once, roster/game-wide) and a character's own displayed value
@@ -191,102 +225,160 @@ function SkillSectionCard({ title, score, scoreMin = 0, scoreMedian, scoreMax = 
   )
 }
 
-function SmallChip({ label, value, accent = '#F8FAFC' }) {
+function StarIcon({ size = 12 }) {
+  return <img src="/Star.png" alt="Star" style={{ height: size, width: size, verticalAlign: 'middle', display: 'inline-block' }} />
+}
+
+// One team-ownership chip: logo + team name + the event it was for, linking to that team's
+// page for that specific season/tournament (not just whichever team currently owns them).
+function TeamHistoryChip({ row }) {
+  const name = getTeamShortName(row.identity) || row.playerName || 'Unknown'
   return (
-    <div style={{ border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '0.38rem 0.6rem', background: 'rgba(255,255,255,0.03)' }}>
-      <div style={{ color: '#64748B', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
-      <div style={{ color: accent, fontSize: 15, fontWeight: 700, marginTop: 2 }}>{value}</div>
+    <Link
+      to={`/teams/${row.playerId}/${row.eventType}/${row.eventId}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600,
+        color: '#93C5FD', textDecoration: 'none', padding: '0.15rem 0.55rem 0.15rem 0.3rem', borderRadius: 999,
+        background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)',
+      }}
+    >
+      <TeamLogo height={18} logoKey={row.identity?.teamLogoKey} logoUrl={row.identity?.teamLogoUrl} teamName={name} placeholder={false} />
+      {name}
+      <span style={{ color: '#64748B', fontWeight: 500 }}>({row.eventLabel})</span>
+    </Link>
+  )
+}
+
+// Shared switch for any section that would otherwise show multiple views stacked. Defaults to
+// Batting/Pitching but accepts an arbitrary `options` list (e.g. Stars Against also has Fielding).
+const DEFAULT_TOGGLE_OPTIONS = [{ key: 'batting', label: 'Batting' }, { key: 'pitching', label: 'Pitching' }]
+function StatTypeToggle({ value, onChange, options = DEFAULT_TOGGLE_OPTIONS }) {
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      {options.map(({ key, label }) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onChange(key)}
+          style={{
+            padding: '0.3rem 0.8rem', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: value === key ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.03)',
+            color: value === key ? '#93C5FD' : '#94A3B8',
+          }}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   )
 }
 
-function BattedBallBar({ ldRate, gbRate, fbRate }) {
-  const ld = (ldRate || 0) * 100
-  const gb = (gbRate || 0) * 100
-  const fb = (fbRate || 0) * 100
-  const sum = ld + gb + fb || 100
-  const segments = [
-    { pct: (ld / sum) * 100, color: '#22C55E', label: `LD ${ld.toFixed(0)}%` },
-    { pct: (gb / sum) * 100, color: '#3B82F6', label: `GB ${gb.toFixed(0)}%` },
-    { pct: (fb / sum) * 100, color: '#EAB308', label: `FB ${fb.toFixed(0)}%` },
-  ]
-  return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden' }}>
-        {segments.map(({ pct, color }, i) => <div key={i} style={{ width: `${pct}%`, background: color }} />)}
-      </div>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        {segments.map(({ color, label }) => (
-          <span key={label} style={{ fontSize: 11, color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
-            {label}
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function PercentileChip({ label, value, percentile, digits = 0, suffix = '' }) {
-  const pct = Number.isFinite(percentile) ? percentile : null
-  const color = pct == null ? '#475569' : getBarColor(pct / 100)
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 74 }}>
-      <div style={{
-        width: 44, height: 44, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        border: `3px solid ${color}`, color: '#F8FAFC', fontWeight: 800, fontSize: 14,
-      }}>
-        {pct == null ? '-' : pct}
-      </div>
-      <span style={{ fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', textAlign: 'center' }}>{label}</span>
-      <span style={{ fontSize: 11, color: '#64748B' }}>{Number.isFinite(value) ? `${Number(value).toFixed(digits)}${suffix}` : '-'}</span>
-    </div>
-  )
-}
-
-function YearByYearTable({ columns, rows, careerRow }) {
+// Pos/G/GS/TC/PO/A/E/FLD%/BJ table — shared by the "Standard Stats > Fielding" view and the
+// standalone "Fielding" section so both render the same fieldingByPosition data identically.
+function FieldingPositionTable({ appearances, allTimeFielding }) {
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table className="data-table" style={{ minWidth: 560 }}>
-        <thead>
-          <tr>{columns.map((col) => <th key={col.key}>{col.label}</th>)}</tr>
-        </thead>
+      <table className="data-table" style={{ minWidth: 480 }}>
+        <thead><tr><th>Pos</th><th>G</th><th>GS</th><th>TC</th><th>PO</th><th>A</th><th>E</th><th><StatLabel label="FLD%" /></th><th><StatLabel label="BJ" /></th><th><StatLabel label="NP" /></th><th><StatLabel label="NP%" /></th></tr></thead>
         <tbody>
-          {rows.map((row, i) => (
-            <tr key={row.eventKey || i} style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'transparent' }}>
-              {columns.map((col) => <td key={col.key}>{col.render ? col.render(row) : row[col.key]}</td>)}
+          {appearances.positions.map((row) => (
+            <tr key={row.position}>
+              <td>{row.position}</td>
+              <td>{row.games}</td>
+              <td>{row.gamesStarted}</td>
+              <td>{row.chances}</td>
+              <td>{row.putouts}</td>
+              <td>{row.assists}</td>
+              <td>{row.errors}</td>
+              <td>{formatDecimal(row.fieldingPct)}</td>
+              <td>{row.buddyJumps}</td>
+              <td>{row.nicePlays}</td>
+              <td>{formatPercent(row.chances ? row.nicePlays / row.chances : null, 1)}</td>
             </tr>
           ))}
-          {careerRow && (
-            <tr style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontWeight: 700 }}>
-              {columns.map((col, i) => (
-                <td key={col.key} style={i === 0 ? { color: '#94A3B8', fontWeight: 700 } : undefined}>
-                  {i === 0 ? 'Career' : (col.render ? col.render(careerRow) : careerRow[col.key])}
-                </td>
-              ))}
-            </tr>
-          )}
+          <tr style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontWeight: 700 }}>
+            <td style={{ color: '#94A3B8', fontWeight: 700 }}>Total</td>
+            <td>{appearances.totalGames}</td>
+            <td>{appearances.positions.reduce((sum, r) => sum + r.gamesStarted, 0)}</td>
+            <td>{appearances.positions.reduce((sum, r) => sum + r.chances, 0)}</td>
+            <td>{appearances.positions.reduce((sum, r) => sum + r.putouts, 0)}</td>
+            <td>{appearances.positions.reduce((sum, r) => sum + r.assists, 0)}</td>
+            <td>{appearances.positions.reduce((sum, r) => sum + r.errors, 0)}</td>
+            <td>{formatDecimal(allTimeFielding?.fieldingPct)}</td>
+            <td>{allTimeFielding?.buddyJumps ?? appearances.positions.reduce((sum, r) => sum + r.buddyJumps, 0)}</td>
+            <td>{allTimeFielding?.nicePlays ?? appearances.positions.reduce((sum, r) => sum + r.nicePlays, 0)}</td>
+            <td>{(() => {
+              const totalChances = appearances.positions.reduce((sum, r) => sum + r.chances, 0)
+              const totalNicePlays = allTimeFielding?.nicePlays ?? appearances.positions.reduce((sum, r) => sum + r.nicePlays, 0)
+              return formatPercent(totalChances ? totalNicePlays / totalChances : null, 1)
+            })()}</td>
+          </tr>
         </tbody>
       </table>
     </div>
   )
 }
 
-function Section({ id, title, children }) {
+// Range Runs table — how many more/fewer outs a fielder converted than expected given how hard
+// each chance was to reach, vs. the league's out rate for plays of similar difficulty at that
+// position (see fieldingRange.js). Difficulty itself is graded per-chance into a confidence tier
+// (timed > measured > distance-only, see computeDifficultySignal) depending on what data that
+// particular play has — Confidence is the chances-weighted blend of those tiers, so a low
+// Confidence% just means most of that position's sample is still distance-only estimates, not
+// that the Range Runs number is wrong. Only positions with enough rangeable chances (this
+// character as the FIRST fielder to touch the ball, with at least one difficulty signal
+// available) show a number — everything else reads "—" for small sample size.
+function FieldingRangeTable({ fieldingRangeByPosition }) {
+  const qualifying = fieldingRangeByPosition.positions.filter((row) => row.qualifies)
+  if (!qualifying.length) return null
   return (
-    <section id={id} className="panel" style={{ padding: '1.25rem 1.4rem', scrollMarginTop: 72 }}>
+    <div style={{ overflowX: 'auto' }}>
+      <table className="data-table" style={{ minWidth: 480 }}>
+        <thead><tr><th>Pos</th><th><StatLabel label="Chances" /></th><th><StatLabel label="Actual Outs" /></th><th><StatLabel label="Expected Outs" /></th><th><StatLabel label="Range Runs" /></th><th><StatLabel label="Range+" /></th><th><StatLabel label="Confidence" /></th></tr></thead>
+        <tbody>
+          {fieldingRangeByPosition.positions.map((row) => (
+            <tr key={row.position}>
+              <td>{POSITION_LABELS[Number(row.position)] || row.position}</td>
+              <td>{row.chances}</td>
+              <td>{row.qualifies ? row.actualConversions : '—'}</td>
+              <td>{row.qualifies ? row.expectedConversions : '—'}</td>
+              <td>{row.qualifies && row.rangeRuns != null ? (row.rangeRuns > 0 ? `+${row.rangeRuns}` : row.rangeRuns) : '—'}</td>
+              <td>{row.qualifies && row.rangeFactorPlus != null ? row.rangeFactorPlus : '—'}</td>
+              <td>{row.qualifies && row.confidence != null ? `${row.confidence}%` : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function Section({ id, title, subtitle, children }) {
+  return (
+    <section id={id} className="panel" style={{ padding: '1.25rem 1.4rem', scrollMarginTop: 16 }}>
       <SectionHeader>{title}</SectionHeader>
+      {subtitle && <p style={{ color: '#64748B', fontSize: 12, margin: '-6px 0 14px' }}>{subtitle}</p>}
       {children}
     </section>
   )
 }
 
-const NAV_ITEMS = [
+const SECTION_LINKS = [
   { id: 'overview', label: 'Overview' },
-  { id: 'stats', label: 'Stats' },
-  { id: 'advanced', label: 'Advanced' },
+  { id: 'stats', label: 'Standard Stats' },
+  { id: 'value', label: 'Value Batting' },
+  { id: 'advanced-stats', label: 'Advanced Stats' },
+  { id: 'stars-used', label: 'Stars Used' },
+  { id: 'stars-against', label: 'Stars Against' },
+  { id: 'batted-ball', label: 'Batted Ball' },
+  { id: 'batted-ball-allowed', label: 'Batted Ball Allowed' },
+  { id: 'power', label: 'Contact Authority' },
   { id: 'xstats', label: 'Expected Stats' },
+  { id: 'postseason', label: 'Postseason' },
   { id: 'fielding', label: 'Fielding' },
+  { id: 'splits', label: 'Splits' },
+  { id: 'park-factors', label: 'Park Factors' },
   { id: 'chart', label: 'Trends' },
   { id: 'awards', label: 'Awards' },
   { id: 'transactions', label: 'Transactions' },
@@ -326,17 +418,9 @@ function useCharacterMetaFallback(characterId, hasPreset) {
       const picksForCharacter = (draftPicksData || []).filter((p) => String(p.character_id) === String(characterId) && p.player_id)
       const pick = picksForCharacter[picksForCharacter.length - 1] || null
       const currentOwner = pick ? { player_id: pick.player_id } : null
-      const charactersById = Object.fromEntries(characters.map((c) => [c.id, c]))
-      const rosterNames = pick
-        ? (draftPicksData || [])
-          .filter((p) => p.player_id === pick.player_id
-            && (pick.tournament_id ? p.tournament_id === pick.tournament_id : p.season_id === pick.season_id))
-          .map((p) => charactersById[p.character_id]?.name)
-          .filter(Boolean)
-        : []
 
       if (!cancelled) {
-        setMeta({ character, allCharactersById, playersById, identitiesByPlayerId: {}, currentOwner, rosterNames, currentContext: null })
+        setMeta({ character, allCharactersById, playersById, identitiesByPlayerId: {}, currentOwner })
       }
     }
 
@@ -347,12 +431,31 @@ function useCharacterMetaFallback(characterId, hasPreset) {
   return meta
 }
 
+const BACK_TO_STORAGE_PREFIX = 'sluggers-character-back:'
+
 export default function CharacterPage() {
-  const { id } = useParams()
+  const { id, seasonId, tournamentId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
   const presetState = location.state || null
   const hasPreset = Boolean(presetState?.character)
+
+  // The "true" originating page (Stats, Roster, Scorebook, etc.) is only present in router state
+  // on the initial navigation into this character — clicking a sidebar Career/Season/Tournament
+  // link re-navigates within this same character with no state, so it's persisted to
+  // sessionStorage (keyed by character id) the first time it's seen, and Back always targets it
+  // instead of `navigate(-1)`, which would otherwise just step back through those in-page clicks.
+  useEffect(() => {
+    if (presetState?.backTo && id) {
+      sessionStorage.setItem(`${BACK_TO_STORAGE_PREFIX}${id}`, presetState.backTo)
+    }
+  }, [id, presetState?.backTo])
+
+  const handleBack = () => {
+    const storedBackTo = id ? sessionStorage.getItem(`${BACK_TO_STORAGE_PREFIX}${id}`) : null
+    if (storedBackTo) navigate(storedBackTo)
+    else navigate(-1)
+  }
 
   const fallbackMeta = useCharacterMetaFallback(id, hasPreset)
   const meta = hasPreset ? presetState : fallbackMeta
@@ -362,47 +465,67 @@ export default function CharacterPage() {
   const playersById = meta?.playersById || {}
   const identitiesByPlayerId = meta?.identitiesByPlayerId || {}
   const currentOwner = meta?.currentOwner || null
-  const currentContext = meta?.currentContext || null
   const totalDrafts = meta?.totalDrafts || 0
   const tournamentsDrafted = meta?.tournamentsDrafted || 0
   const championshipsWon = meta?.championshipsWon || 0
   const characterIntrinsics = meta?.characterIntrinsics || null
-  const rosterNames = meta?.rosterNames || []
 
-  const profileData = useCharacterProfileData(character, currentContext, presetState?.profileData || {})
-  const extras = useCharacterExtras(character)
+  // The route itself is the scope selector — career (no id) shows all-time totals, a season or
+  // tournament id shows just that one event. Replaces the old dropdown + ambiguous location.state
+  // "currentContext" combo, so scope survives a page refresh / direct link.
+  const scope = useMemo(() => {
+    if (seasonId) return { type: 'season', id: seasonId }
+    if (tournamentId) return { type: 'tournament', id: tournamentId }
+    return { type: 'career' }
+  }, [seasonId, tournamentId])
+  const isCareer = scope.type === 'career'
+
+  // Chemistry highlighting is scoped to the *logged-in* player's own roster, not this
+  // character's — see useLoggedInRosterNames for why. Empty when logged out.
+  const rosterNames = useLoggedInRosterNames(scope)
+
+  const profileData = useCharacterProfileData(character, isCareer ? null : scope, presetState?.profileData || {})
+  const extras = useCharacterExtras(character, isCareer ? null : scope)
   const {
-    leaguePerformanceByCharacterId, fieldingHistory, allTimeFielding, transactions, awardRows,
-    statMedians, statMaxes, statMins,
+    fieldingHistory, allTimeFielding, fieldingByPosition,
+    starHitFieldingByPosition, fieldingRangeByPosition, parkFactorRows, teamHistory, transactions, awardRows, statMedians, statMaxes, statMins,
   } = extras
 
-  const [selectedSourceId, setSelectedSourceId] = useState('current')
   const [gamelogStatType, setGamelogStatType] = useState('batting')
-  const [statsStatType, setStatsStatType] = useState('batting')
-  const [advancedSection, setAdvancedSection] = useState('starHit')
+  const [standardStatsView, setStandardStatsView] = useState('batting')
+  const [postseasonView, setPostseasonView] = useState('batting')
+  const [splitsView, setSplitsView] = useState('batting')
+  const [starsUsedView, setStarsUsedView] = useState('batting')
+  const [starsAgainstView, setStarsAgainstView] = useState('batting')
 
   const {
     currentTournamentBatting, currentTournamentPitching, allTimeBatting, allTimePitching,
     allPitches, battingHistory, pitchingHistory, gameHistory, pitchingGameHistory,
-    fieldingGameHistory, expectedOutcomeModel,
+    fieldingGameHistory, expectedOutcomeModel, leagueConstants, leagueBattingPas = [], runEvents = [],
+    tournamentIdByGameId = {},
+    playersById: gamelogPlayersById = {}, seasonTeamsById = {},
   } = profileData
-
-  const talentPercentiles = useMemo(
-    () => (character ? buildTalentPercentiles(character, extras.analysesByCharacterId) : {}),
-    [character, extras.analysesByCharacterId],
-  )
-  const performancePercentiles = useMemo(
-    () => (character ? buildPerformancePercentiles(character, leaguePerformanceByCharacterId) : {}),
-    [character, leaguePerformanceByCharacterId],
-  )
-  const snapshotPercentiles = { ...talentPercentiles, ...performancePercentiles }
+  const leagueBattingPasByEventKey = useMemo(() => {
+    const byEvent = new Map()
+    leagueBattingPas.forEach((pa) => {
+      const eventKey = pa.season_id != null
+        ? `season:${pa.season_id}`
+        : tournamentIdByGameId[String(pa.game_id)] != null
+          ? `tournament:${tournamentIdByGameId[String(pa.game_id)]}`
+          : null
+      if (!eventKey) return
+      if (!byEvent.has(eventKey)) byEvent.set(eventKey, [])
+      byEvent.get(eventKey).push(pa)
+    })
+    return byEvent
+  }, [leagueBattingPas, tournamentIdByGameId])
 
   if (!id) return null
 
   if (!character) {
     return (
       <div style={{ display: 'grid', gap: 16 }}>
-        <button type="button" onClick={() => navigate(-1)} style={BACK_BUTTON_STYLE}>
+        <button type="button" onClick={handleBack} style={BACK_BUTTON_STYLE}>
           <ArrowLeft size={16} /> Back
         </button>
         <section className="panel" style={{ padding: 18 }}>
@@ -413,57 +536,21 @@ export default function CharacterPage() {
   }
 
   const chemistry = getChemistry(character.name)
-  const batterPitches = allPitches.filter((p) => p.batter_id === character.name)
-  const pitcherPitches = allPitches.filter((p) => p.pitcher_id === character.name)
-  const countGames = (entries = []) => new Set(entries.map((entry) => String(entry.game_id ?? ''))).size
 
-  const sourceMap = {}
-  battingHistory.filter((e) => e.rawPas?.length > 0).forEach((e) => {
-    const entryId = getHistoryEntryId(e)
-    const games = countGames(e.rawPas)
-    sourceMap[entryId] = { label: getHistoryEntryLabel(e), games: Math.max(sourceMap[entryId]?.games || 0, games), sortGroup: e.sortGroup || 0, sortValue: e.sortValue || 0 }
-  })
-  pitchingHistory.filter((e) => (e.innings || 0) > 0).forEach((e) => {
-    const entryId = getHistoryEntryId(e)
-    const games = Number(e.games || 0)
-    sourceMap[entryId] = { label: getHistoryEntryLabel(e), games: Math.max(sourceMap[entryId]?.games || 0, games), sortGroup: e.sortGroup || 0, sortValue: e.sortValue || 0 }
-  })
-  const sourceOptions = Object.entries(sourceMap)
-    .map(([entryId, meta2]) => ({ id: entryId, ...meta2 }))
-    .sort(sortHistoryEntries)
-    .map(({ id: entryId, label, games }) => ({ id: entryId, label: `${label} (${games} G)` }))
-
-  let showBatting = currentTournamentBatting
-  let showPitching = currentTournamentPitching
-  if (selectedSourceId === 'alltime') {
-    showBatting = allTimeBatting
-    showPitching = allTimePitching
-  } else if (selectedSourceId !== 'current' && selectedSourceId) {
-    const battingEntry = battingHistory.find((e) => getHistoryEntryId(e) === selectedSourceId)
-    if (battingEntry?.rawPas) {
-      const computed = summarizeBatting(battingEntry.rawPas)
-      computed.ops = computed.obp + computed.slg
-      showBatting = { ...computed, rawPas: battingEntry.rawPas }
-    } else {
-      showBatting = { rawPas: [] }
-    }
-    const pitchingEntry = pitchingHistory.find((e) => getHistoryEntryId(e) === selectedSourceId)
-    showPitching = pitchingEntry || { rawPas: [], rawStints: [] }
-  }
+  const showBatting = isCareer ? allTimeBatting : currentTournamentBatting
+  const showPitching = isCareer ? allTimePitching : currentTournamentPitching
+  const showBattingPitches = selectPitchesForPas(allPitches, showBatting.rawPas || [])
+  const showPitchingPitches = selectPitchesForPas(allPitches, showPitching.rawPas || [])
 
   const starHitStats = summarizeStarHits(showBatting.rawPas || [])
   const battingBattedBall = summarizeBattedBallProfile(showBatting.rawPas || [])
   const battingSpray = summarizeSprayProfile(showBatting.rawPas || [])
-  const battingDiscipline = summarizePlateDiscipline(showBatting.rawPas || [], batterPitches)
-  const pitchingStar = summarizeStarPitching(showPitching.rawPas || [], pitcherPitches)
-  const pitchingMix = summarizePitchMix(showPitching.rawPas || [], pitcherPitches)
-  const pitchingBattedBall = summarizeBattedBallProfile(showPitching.rawPas || [])
-  const pitchingSpray = summarizeSprayProfile(showPitching.rawPas || [])
+  const battingDiscipline = summarizePlateDiscipline(showBatting.rawPas || [], showBattingPitches)
+  const pitchingStar = summarizeStarPitching(showPitching.rawPas || [], showPitchingPitches)
   const battingDistance = summarizeHitDistance(showBatting.rawPas || [])
-  const hitPowerIndex = calculateHitPowerIndex(battingDistance)
-  const expectedBatting = summarizeExpectedBatting(showBatting.rawPas || [], expectedOutcomeModel)
+  const battingExitVelo = summarizeExitVelocity(showBatting.rawPas || [])
+  const battingContactQuality = summarizeContactQuality(showBatting.rawPas || [])
 
-  const characterErrors = 0
   // Prefer the all-time analysis useCharacterExtras already computed for every character (same
   // source the population max/median/percentiles below are drawn from) — using a different,
   // sometimes context-scoped analysis here would let a character be "100th percentile" per the
@@ -482,31 +569,68 @@ export default function CharacterPage() {
   const fieldingRating = character.fieldingRating ?? character.fielding ?? '-'
   const speedRating = character.speedRating ?? character.speed ?? '-'
 
-  const renderSourceSelector = () => (
-    <select value={selectedSourceId} onChange={(e) => setSelectedSourceId(e.target.value)} style={dropStyle}>
-      <option value="current">Current</option>
-      {sourceOptions.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
-      <option value="alltime">All-Time</option>
-    </select>
-  )
-
   const teamLabel = (playerId) => getTeamShortName(identitiesByPlayerId[playerId]) || playersById[playerId]?.name || 'Unknown'
 
+  // ─── Sidebar: Career + one link per season/tournament this character has data in ──────────
+  const scopeOptionsMap = new Map()
+  battingHistory.forEach((entry) => {
+    const type = entry.eventType
+    const eid = entry.eventId
+    if (!type || eid == null) return
+    const key = `${type}:${eid}`
+    if (!scopeOptionsMap.has(key)) scopeOptionsMap.set(key, { type, id: eid, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue })
+  })
+  pitchingHistory.filter((entry) => (entry.innings || 0) > 0).forEach((entry) => {
+    const type = entry.sourceType
+    const eid = entry.tournamentId ?? entry.seasonId
+    if (!type || eid == null) return
+    const key = `${type}:${eid}`
+    if (!scopeOptionsMap.has(key)) scopeOptionsMap.set(key, { type, id: eid, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue })
+  })
+  // A character who only fielded (no batting PAs, no pitching innings) in an event would
+  // otherwise be missing that event's sidebar link entirely — fieldingHistory covers that case.
+  fieldingHistory.forEach((entry) => {
+    const type = entry.eventType
+    const eid = entry.eventId
+    if (!type || eid == null) return
+    const key = `${type}:${eid}`
+    if (!scopeOptionsMap.has(key)) scopeOptionsMap.set(key, { type, id: eid, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue })
+  })
+  const scopeOptions = [...scopeOptionsMap.values()].sort(sortHistoryEntries)
+  const scopeLinks = [
+    { to: `/character/${id}/career`, label: 'Career' },
+    ...scopeOptions.map((opt) => ({ to: `/character/${id}/${opt.type}/${opt.id}`, label: opt.label })),
+  ]
+
   // ─── Year-by-year Standard Batting/Pitching tables ─────────────────────────
-  const battingTableRows = battingHistory
+  const allBattingTableRows = battingHistory
     .map((entry) => {
-      const computed = summarizeBatting(entry.rawPas || [])
+      const rawPas = entry.rawPas || []
+      const computed = summarizeBatting(rawPas, filterRunEventsForCharacter(runEvents, character.id, rawPas))
       computed.ops = computed.obp + computed.slg
-      return { eventKey: entry.eventKey, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue, ...computed }
+      return { eventKey: entry.eventKey, eventId: entry.eventId, eventType: entry.eventType, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue, ...computed }
     })
     .sort(sortHistoryEntries)
-  const battingCareerRow = { label: 'Career', ...allTimeBatting }
+  const battingTableRows = isCareer ? allBattingTableRows : allBattingTableRows.filter((row) => matchesScope(row, scope))
+  const battingCareerRow = isCareer ? { label: 'Career', ...allTimeBatting } : null
 
-  const pitchingTableRows = pitchingHistory
+  const allPitchingTableRows = pitchingHistory
     .filter((entry) => (entry.innings || 0) > 0)
-    .map((entry) => ({ ...entry, label: getHistoryEntryLabel(entry) }))
+    .map((entry) => ({ ...entry, eventType: entry.sourceType, label: getHistoryEntryLabel(entry) }))
     .sort(sortHistoryEntries)
-  const pitchingCareerRow = { label: 'Career', ...allTimePitching }
+  const pitchingTableRows = isCareer ? allPitchingTableRows : allPitchingTableRows.filter((row) => matchesScope(row, scope))
+  const pitchingCareerRow = isCareer ? { label: 'Career', ...allTimePitching } : null
+
+  // Baseball-Reference-style bold: this character led the whole season/tournament in that stat
+  // that year. awardRows already carries per-event rank/led for the same 8 stats (HR/RBI/AVG/OPS,
+  // W/SV/K/ERA) via rankStatWithinEvent (awardsAndHonors.js) — reused here rather than re-ranking.
+  const awardsByEventAndStat = new Map(awardRows.map((row) => [`${row.eventKey}:${row.stat}`, row]))
+  const ledStat = (statLabel) => (row) => Boolean(awardsByEventAndStat.get(`${row.eventKey}:${statLabel}`)?.led)
+  const awardBadgeForRow = (row) => {
+    const matches = awardRows.filter((r) => r.eventKey === row.eventKey)
+    if (!matches.length) return null
+    return matches.map((r) => (r.led ? r.stat : `${r.stat}-${r.rank}`)).join(',')
+  }
 
   const battingColumns = [
     { key: 'label', label: 'Season' },
@@ -516,43 +640,399 @@ export default function CharacterPage() {
     { key: 'hits', label: 'H' },
     { key: 'doubles', label: '2B' },
     { key: 'triples', label: '3B' },
-    { key: 'homeRuns', label: 'HR' },
-    { key: 'rbi', label: 'RBI' },
+    { key: 'homeRuns', label: 'HR', bold: ledStat('HR'), award: awardBadgeForRow },
+    { key: 'rbi', label: 'RBI', bold: ledStat('RBI') },
     { key: 'walks', label: 'BB' },
     { key: 'strikeouts', label: 'SO' },
-    { key: 'avg', label: 'AVG', render: (r) => formatDecimal(r.avg) },
+    { key: 'avg', label: 'AVG', render: (r) => formatDecimal(r.avg), bold: ledStat('AVG') },
     { key: 'obp', label: 'OBP', render: (r) => formatDecimal(r.obp) },
     { key: 'slg', label: 'SLG', render: (r) => formatDecimal(r.slg) },
-    { key: 'ops', label: 'OPS', render: (r) => formatDecimal(r.ops) },
+    { key: 'ops', label: 'OPS', render: (r) => formatDecimal(r.ops), bold: ledStat('OPS') },
   ]
   const pitchingColumns = [
     { key: 'label', label: 'Season' },
     { key: 'games', label: 'G' },
     { key: 'innings', label: 'IP', render: (r) => formatDecimal(r.innings, 1) },
-    { key: 'wins', label: 'W' },
+    { key: 'wins', label: 'W', bold: ledStat('W'), award: awardBadgeForRow },
     { key: 'losses', label: 'L' },
-    { key: 'saves', label: 'SV' },
-    { key: 'strikeouts', label: 'K' },
+    { key: 'saves', label: 'SV', bold: ledStat('SV') },
+    { key: 'strikeouts', label: 'K', bold: ledStat('K') },
     { key: 'hitsAllowed', label: 'H' },
     { key: 'runsAllowed', label: 'R' },
     { key: 'earnedRuns', label: 'ER' },
     { key: 'walks', label: 'BB' },
     { key: 'homeRunsAllowed', label: 'HR' },
-    { key: 'era', label: 'ERA/3', render: (r) => formatDecimal(r.era, 2) },
-    { key: 'whip', label: 'WHIP', render: (r) => formatDecimal(r.whip, 2) },
+    { key: 'era', label: 'ERA/3', render: (r) => r.innings > 0 ? formatDecimal(r.era, 2) : '-', bold: ledStat('ERA') },
+    { key: 'whip', label: 'WHIP', render: (r) => r.innings > 0 ? formatDecimal(r.whip, 2) : '-' },
   ]
 
-  // ─── Fielding table ─────────────────────────────────────────────────────────
-  const fieldingTableRows = fieldingHistory.map((entry) => ({ ...entry, label: getHistoryEntryLabel(entry) })).sort(sortHistoryEntries)
-  const fieldingCareerRow = allTimeFielding ? { label: 'Career', games: fieldingTableRows.reduce((sum, r) => sum + (r.games || 0), 0), ...allTimeFielding } : null
-  const fieldingColumns = [
+
+  // ─── Value Batting (simplified WAR) ────────────────────────────────────────
+  const fieldingByEventKey = new Map(fieldingHistory.map((entry) => [entry.eventKey, entry]))
+  const appearances = fieldingByPosition
+  const primaryPositionCode = appearances.positions[0] ? POSITION_CODES[appearances.positions[0].position] : null
+  const battingHistoryForScope = isCareer ? battingHistory : battingHistory.filter((row) => matchesScope(row, scope))
+  const valueBattingRows = battingHistoryForScope
+    .map((entry) => {
+      const fieldingForEvent = fieldingByEventKey.get(entry.eventKey)
+      const vb = summarizeValueBatting(entry.rawPas || [], leagueConstants, {
+        chances: fieldingForEvent?.chances || 0,
+        errors: fieldingForEvent?.errors || 0,
+        position: primaryPositionCode,
+      })
+      return { eventKey: entry.eventKey, eventId: entry.eventId, eventType: entry.eventType, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue, ...vb }
+    })
+    .sort(sortHistoryEntries)
+  // fieldingRangeByPosition is a career-scoped total (see useCharacterExtras.js), so its Range
+  // Runs number can only stand in for Rfield on the career row below — the season/tournament rows
+  // above have no per-event Range Runs breakdown yet and keep the error-rate-only fallback.
+  const valueBattingCareerRow = isCareer ? {
+    label: 'Career',
+    ...summarizeValueBatting(allTimeBatting.rawPas || [], leagueConstants, {
+      chances: allTimeFielding?.chances || 0,
+      errors: allTimeFielding?.errors || 0,
+      position: primaryPositionCode,
+      rangeRuns: fieldingRangeByPosition?.qualifies ? fieldingRangeByPosition.totalRangeRuns : null,
+    }),
+  } : null
+  const valueBattingColumns = [
     { key: 'label', label: 'Season' },
-    { key: 'games', label: 'G' },
-    { key: 'chances', label: 'TC' },
-    { key: 'putouts', label: 'PO' },
-    { key: 'assists', label: 'A' },
-    { key: 'errors', label: 'E' },
-    { key: 'fieldingPct', label: 'FLD%', render: (r) => formatDecimal(r.fieldingPct) },
+    { key: 'rbat', label: 'Rbat' },
+    { key: 'rbaser', label: 'Rbaser' },
+    { key: 'rfield', label: 'Rfield' },
+    { key: 'rpos', label: 'Rpos' },
+    { key: 'raa', label: 'RAA' },
+    { key: 'waa', label: 'WAA' },
+    { key: 'rar', label: 'RAR' },
+    { key: 'war', label: 'WAR' },
+  ]
+
+  // ─── Per-event breakdowns shared by Advanced Stats / Star Hit / Batted Ball / Power / Star Pitch
+  // Every one of these follows the same Season-row + Career-row convention as Standard Stats —
+  // built from the same battingHistory/pitchingHistory entries (which already carry rawPas/
+  // rawStints per event) rather than only reflecting whatever scope the page happens to be on.
+  function battingRowMeta(entry) {
+    return { eventKey: entry.eventKey, eventId: entry.eventId, eventType: entry.eventType, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue }
+  }
+  function pitchingRowMeta(entry) {
+    const eventId = entry.tournamentId ?? entry.seasonId
+    return { eventKey: entry.eventKey ?? `${entry.sourceType}:${eventId}`, eventId, eventType: entry.sourceType, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue }
+  }
+
+  // Advanced Stats
+  const advancedBattingRows = battingHistoryForScope
+    .map((entry) => ({ ...battingRowMeta(entry), ...summarizeAdvancedBatting(entry.rawPas || [], leagueConstants) }))
+    .sort(sortHistoryEntries)
+  const advancedBattingCareerRow = isCareer ? { label: 'Career', ...summarizeAdvancedBatting(allTimeBatting.rawPas || [], leagueConstants) } : null
+  const advancedPitchingRows = pitchingTableRows
+    .map((entry) => ({ ...pitchingRowMeta(entry), hasInningsPitched: (entry.innings || 0) > 0, ...summarizeAdvancedPitching(entry.rawStints || [], leagueConstants, { plateAppearances: entry.rawPas || [] }) }))
+    .sort(sortHistoryEntries)
+  const advancedPitchingCareerRow = isCareer ? { label: 'Career', hasInningsPitched: (allTimePitching.innings || 0) > 0, ...summarizeAdvancedPitching(allTimePitching.rawStints || [], leagueConstants, { plateAppearances: allTimePitching.rawPas || [] }) } : null
+
+  // Star Hit (batting) — resultBreakdown/slashLine come along nested on each row from summarizeStarHits
+  const starHitRows = battingHistoryForScope
+    .map((entry) => ({ ...battingRowMeta(entry), ...summarizeStarHits(entry.rawPas || []) }))
+    .filter((row) => (row.used || 0) > 0)
+    .sort(sortHistoryEntries)
+  const starHitCareerRow = isCareer ? { label: 'Career', ...summarizeStarHits(allTimeBatting.rawPas || []) } : null
+
+  // Batted Ball (trajectory + spray + plate discipline) — nested per-group to avoid key collisions
+  // between summarizeBattedBallProfile/summarizeSprayProfile (both return a `total` field).
+  function battedBallRowFor(pas, pitches) {
+    return {
+      battedBall: summarizeBattedBallProfile(pas),
+      spray: summarizeSprayProfile(pas),
+      discipline: summarizePlateDiscipline(pas, pitches),
+      byType: summarizeBattedBallTypeProfile(pas),
+    }
+  }
+  const battedBallRows = battingHistoryForScope
+    .map((entry) => ({ ...battingRowMeta(entry), ...battedBallRowFor(entry.rawPas || [], selectPitchesForPas(allPitches, entry.rawPas || [])) }))
+    .sort(sortHistoryEntries)
+  const battedBallCareerRow = isCareer ? { label: 'Career', ...battedBallRowFor(allTimeBatting.rawPas || [], selectPitchesForPas(allPitches, allTimeBatting.rawPas || [])) } : null
+
+  // Contact Authority
+  // Plain computation, not useMemo — this runs after the `if (!character) return` above, so a
+  // hook here would be called on some renders (once character data loads) but not others (the
+  // initial loading render), violating the Rules of Hooks and crashing the whole page.
+  const scopedBattingPas = battingHistoryForScope.flatMap((entry) => entry.rawPas || [])
+  function powerRowFor(pas, comparisonPas = scopedBattingPas) {
+    const distance = summarizeHitDistance(pas)
+    const exitVelo = summarizeExitVelocity(pas)
+    const contactQuality = summarizeContactQuality(pas)
+    const spray = summarizeSprayProfile(pas)
+    const sprayContact = summarizeSprayContactProfile(pas)
+    const comparisonPool = comparisonPas.length ? comparisonPas : leagueBattingPas
+    return {
+      distance,
+      exitVelo,
+      contactQuality,
+      spray,
+      sprayContact,
+      powerIndex: calculateHitPowerIndex(distance),
+      parkAdjustedDistance: calculateParkAdjustedDistance(pas, comparisonPool),
+    }
+  }
+  const powerRows = battingHistoryForScope
+    .map((entry) => ({
+      ...battingRowMeta(entry),
+      ...powerRowFor(entry.rawPas || [], leagueBattingPasByEventKey.get(`${entry.eventType}:${entry.eventId}`) || []),
+    }))
+    .sort(sortHistoryEntries)
+  const powerCareerRow = isCareer ? { label: 'Career', ...powerRowFor(allTimeBatting.rawPas || [], leagueBattingPas) } : null
+
+  // Star Pitch (pitching) — pitchingHistory entries (pitchingTableRows) already carry rawPas (the
+  // PAs this character faced pitching), which star-pitch/pitch-mix/batted-ball-allowed all key off.
+  function starPitchRowFor(pas, pitches) {
+    return { star: summarizeStarPitching(pas, pitches) }
+  }
+  const starPitchRows = pitchingTableRows
+    .map((entry) => ({ ...pitchingRowMeta(entry), ...starPitchRowFor(entry.rawPas || [], selectPitchesForPas(allPitches, entry.rawPas || [])) }))
+    .filter((row) => (row.star.used || 0) > 0)
+    .sort(sortHistoryEntries)
+  const starPitchCareerRow = isCareer ? { label: 'Career', ...starPitchRowFor(allTimePitching.rawPas || [], selectPitchesForPas(allPitches, allTimePitching.rawPas || [])) } : null
+
+  // Batted Ball Allowed — same batted-ball/spray/exit-velocity/contact-quality primitives used for
+  // this character's own batting authority (Batted Ball / Contact Authority sections above), run
+  // over the pitcher's full allowed-PA line instead of just the star-pitch subset Star Pitch covers.
+  function battedBallAllowedRowFor(pas) {
+    return {
+      battedBall: summarizeBattedBallProfile(pas),
+      spray: summarizeSprayProfile(pas),
+      exitVelo: summarizeExitVelocity(pas),
+      contactQuality: summarizeContactQuality(pas),
+    }
+  }
+  const battedBallAllowedRows = pitchingTableRows
+    .map((entry) => ({ ...pitchingRowMeta(entry), ...battedBallAllowedRowFor(entry.rawPas || []) }))
+    .sort(sortHistoryEntries)
+  const battedBallAllowedCareerRow = isCareer ? { label: 'Career', ...battedBallAllowedRowFor(allTimePitching.rawPas || []) } : null
+  const battedBallAllowedColumns = [
+    { key: 'label', label: 'Season' },
+    { key: 'ldRate', label: 'LD%', render: (r) => `${(r.battedBall.ldRate * 100).toFixed(0)}%` },
+    { key: 'gbRate', label: 'GB%', render: (r) => `${(r.battedBall.gbRate * 100).toFixed(0)}%` },
+    { key: 'fbRate', label: 'FB%', render: (r) => `${(r.battedBall.fbRate * 100).toFixed(0)}%` },
+    { key: 'pullRate', label: 'Pull%', render: (r) => `${(r.spray.pullRate * 100).toFixed(0)}%` },
+    { key: 'centerRate', label: 'Center%', render: (r) => `${(r.spray.centerRate * 100).toFixed(0)}%` },
+    { key: 'oppoRate', label: 'Oppo%', render: (r) => `${(r.spray.oppoRate * 100).toFixed(0)}%` },
+    { key: 'avgEvAllowed', label: 'Avg EV Allowed', render: (r) => (r.exitVelo.avgExitVelocity != null ? `${r.exitVelo.avgExitVelocity} mph` : '-') },
+    { key: 'barrelRateAllowed', label: 'Barrel% Allowed', render: (r) => formatPercent(r.contactQuality.barrelRate) },
+    { key: 'hardHitRateAllowed', label: 'Hard-Hit% Allowed', render: (r) => formatPercent(r.contactQuality.hardHitRate) },
+  ]
+
+  // "Stars Against" — the opponent's star ability used against this character. Reuses the exact
+  // same primitives as "Stars Used", just fed the other side's PA/pitch set: an opposing batter's
+  // Star Hit shows up as summarizeStarHits() over the PAs this character *pitched*, and an
+  // opposing pitcher's Star Pitch shows up as summarizeStarPitching() over the PAs this character
+  // *batted* (using the pitches from those exact PAs, not the character's whole career pitch log).
+  const starHitAgainstRows = pitchingTableRows
+    .map((entry) => ({ ...pitchingRowMeta(entry), ...summarizeStarHits(entry.rawPas || []) }))
+    .filter((row) => (row.used || 0) > 0)
+    .sort(sortHistoryEntries)
+  const starHitAgainstCareerRow = isCareer ? { label: 'Career', ...summarizeStarHits(allTimePitching.rawPas || []) } : null
+  const starPitchAgainstRows = battingHistoryForScope
+    .map((entry) => ({ ...battingRowMeta(entry), ...starPitchRowFor(entry.rawPas || [], selectPitchesForPas(allPitches, entry.rawPas || [])) }))
+    .filter((row) => (row.star.used || 0) > 0)
+    .sort(sortHistoryEntries)
+  const starPitchAgainstCareerRow = isCareer ? { label: 'Career', ...starPitchRowFor(allTimeBatting.rawPas || [], selectPitchesForPas(allPitches, allTimeBatting.rawPas || [])) } : null
+
+  // Expected Stats
+  function expectedRowFor(pas) {
+    const b = summarizeBatting(pas)
+    return { avg: b.avg, slg: b.slg, ...summarizeExpectedBatting(pas, expectedOutcomeModel) }
+  }
+  const expectedRows = battingHistoryForScope
+    .map((entry) => ({ ...battingRowMeta(entry), ...expectedRowFor(entry.rawPas || []) }))
+    .sort(sortHistoryEntries)
+  const expectedCareerRow = isCareer ? { label: 'Career', ...expectedRowFor(allTimeBatting.rawPas || []) } : null
+  const expectedEmpty = expectedRows.every((r) => !r.sampleSize)
+
+  const starHitColumns = [
+    { key: 'label', label: 'Season' },
+    { key: 'used', label: 'Used' },
+    { key: 'contactRate', label: 'Contact %', render: (r) => `${(r.contactRate * 100).toFixed(0)}%` },
+    { key: 'avgRbiPerUse', label: 'RBI/Use', render: (r) => formatDecimal(r.avgRbiPerUse, 2) },
+    { key: 'avg', label: 'AVG', render: (r) => formatDecimal(r.slashLine?.avg) },
+    { key: 'obp', label: 'OBP', render: (r) => formatDecimal(r.slashLine?.obp) },
+    { key: 'slg', label: 'SLG', render: (r) => formatDecimal(r.slashLine?.slg) },
+    { key: 'ops', label: 'OPS', render: (r) => formatDecimal(r.slashLine?.ops) },
+    { key: 'avgExitVelo', label: 'Avg EV', render: (r) => (r.avgExitVelo != null ? `${r.avgExitVelo} mph` : '-') },
+    { key: 'maxExitVelo', label: 'Max EV', render: (r) => (r.maxExitVelo != null ? `${r.maxExitVelo} mph` : '-') },
+    { key: 'avgLaunchAngle', label: 'Avg LA', render: (r) => (r.avgLaunchAngle != null ? `${r.avgLaunchAngle}°` : '-') },
+    { key: 'dist', label: 'Avg/Max Dist', render: (r) => (r.avgDistance != null ? `${r.avgDistance}/${r.maxDistance} ft` : '-') },
+    { key: 'resultSingles', label: '1B', render: (r) => r.resultBreakdown?.['1B'] || 0 },
+    { key: 'resultDoubles', label: '2B', render: (r) => r.resultBreakdown?.['2B'] || 0 },
+    { key: 'resultTriples', label: '3B', render: (r) => r.resultBreakdown?.['3B'] || 0 },
+    { key: 'resultHR', label: 'HR', render: (r) => r.resultBreakdown?.HR || 0 },
+    { key: 'resultK', label: 'K', render: (r) => r.resultBreakdown?.K || 0 },
+    { key: 'resultBB', label: 'BB', render: (r) => r.resultBreakdown?.BB || 0 },
+    { key: 'resultOut', label: 'Out', render: (r) => r.resultBreakdown?.Out || 0 },
+    { key: 'resultError', label: 'Error', render: (r) => r.resultBreakdown?.Error || 0 },
+  ]
+  // Only stats scoped to actual star-pitch usage belong here — general pitch-mix/batted-ball-
+  // allowed stats (strike%, whiff%, allowed LD%/pull%) aren't star-specific and live in Advanced
+  // Stats / Batted Ball instead.
+  const starPitchColumns = [
+    { key: 'label', label: 'Season' },
+    { key: 'used', label: <><StarIcon /> Used</>, render: (r) => formatInteger(r.star.used) },
+    { key: 'paUsed', label: <><StarIcon /> PA</>, render: (r) => formatInteger(r.star.paUsed) },
+    { key: 'pitchBalls', label: 'Ball', render: (r) => formatInteger(r.star.pitchBalls) },
+    { key: 'pitchStrikes', label: 'Strike', render: (r) => formatInteger(r.star.pitchStrikes) },
+    { key: 'oppAvg', label: 'AVG', render: (r) => (r.star.paUsed > 0 ? formatDecimal(r.star.oppSlashLine.avg) : '-') },
+    { key: 'oppObp', label: 'OBP', render: (r) => (r.star.paUsed > 0 ? formatDecimal(r.star.oppSlashLine.obp) : '-') },
+    { key: 'oppSlg', label: 'SLG', render: (r) => (r.star.paUsed > 0 ? formatDecimal(r.star.oppSlashLine.slg) : '-') },
+    { key: 'oppOps', label: 'OPS', render: (r) => (r.star.paUsed > 0 ? formatDecimal(r.star.oppSlashLine.ops) : '-') },
+    { key: 'evAllowed', label: 'Avg EV', render: (r) => (r.star.avgExitVeloAllowed != null ? `${r.star.avgExitVeloAllowed} mph` : '-') },
+    { key: 'laAllowed', label: 'Avg LA', render: (r) => (r.star.avgLaunchAngleAllowed != null ? `${r.star.avgLaunchAngleAllowed}°` : '-') },
+    { key: 'distAllowed', label: 'Avg Dist', render: (r) => (r.star.avgDistanceAllowed != null ? `${r.star.avgDistanceAllowed} ft` : '-') },
+    { key: 'resultSingles', label: '1B', render: (r) => r.star.resultBreakdown?.['1B'] || 0 },
+    { key: 'resultDoubles', label: '2B', render: (r) => r.star.resultBreakdown?.['2B'] || 0 },
+    { key: 'resultTriples', label: '3B', render: (r) => r.star.resultBreakdown?.['3B'] || 0 },
+    { key: 'resultHR', label: 'HR', render: (r) => r.star.resultBreakdown?.HR || 0 },
+    { key: 'resultK', label: 'K', render: (r) => r.star.resultBreakdown?.K || 0 },
+    { key: 'resultBB', label: 'BB', render: (r) => r.star.resultBreakdown?.BB || 0 },
+    { key: 'resultOut', label: 'Out', render: (r) => r.star.resultBreakdown?.Out || 0 },
+  ]
+  const battedBallColumns = [
+    { key: 'label', label: 'Season' },
+    { key: 'ldRate', label: 'LD%', render: (r) => `${(r.battedBall.ldRate * 100).toFixed(0)}%` },
+    { key: 'gbRate', label: 'GB%', render: (r) => `${(r.battedBall.gbRate * 100).toFixed(0)}%` },
+    { key: 'fbRate', label: 'FB%', render: (r) => `${(r.battedBall.fbRate * 100).toFixed(0)}%` },
+    { key: 'pullRate', label: 'Pull%', render: (r) => `${(r.spray.pullRate * 100).toFixed(0)}%` },
+    { key: 'centerRate', label: 'Center%', render: (r) => `${(r.spray.centerRate * 100).toFixed(0)}%` },
+    { key: 'oppoRate', label: 'Oppo%', render: (r) => `${(r.spray.oppoRate * 100).toFixed(0)}%` },
+    { key: 'pitchesPerPa', label: 'P/PA', render: (r) => formatDecimal(r.discipline.pitchesPerPa, 2) },
+    { key: 'whiffRate', label: 'Whiff%', render: (r) => `${(r.discipline.whiffRate * 100).toFixed(0)}%` },
+    { key: 'foulRate', label: 'Foul%', render: (r) => `${(r.discipline.foulRate * 100).toFixed(0)}%` },
+    { key: 'ksRate', label: 'KS%', render: (r) => `${(r.discipline.ksRate * 100).toFixed(0)}%` },
+    { key: 'klRate', label: 'KL%', render: (r) => `${(r.discipline.klRate * 100).toFixed(0)}%` },
+    { key: 'gbBabip', label: 'GB BABIP', render: (r) => formatDecimal(r.byType.groundBall.babip) },
+    { key: 'ldBabip', label: 'LD BABIP', render: (r) => formatDecimal(r.byType.lineDrive.babip) },
+    { key: 'fbBabip', label: 'FB BABIP', render: (r) => formatDecimal(r.byType.flyBall.babip) },
+    { key: 'ldWoba', label: 'LD wOBA', render: (r) => formatDecimal(r.byType.lineDrive.wobaOnContact) },
+    { key: 'fbWoba', label: 'FB wOBA', render: (r) => formatDecimal(r.byType.flyBall.wobaOnContact) },
+  ]
+  const powerColumns = [
+    { key: 'label', label: 'Season' },
+    { key: 'bip', label: 'BIP', render: (r) => formatInteger(r.distance.sampleSize || r.exitVelo.sampleSize || r.contactQuality.sampleSize) },
+    { key: 'avgExitVelo', label: 'Avg EV', render: (r) => (r.exitVelo.avgExitVelocity != null ? `${r.exitVelo.avgExitVelocity} mph` : '-') },
+    { key: 'maxExitVelo', label: 'Max EV', render: (r) => (r.exitVelo.maxExitVelocity != null ? `${r.exitVelo.maxExitVelocity} mph` : '-') },
+    { key: 'avgLaunchAngle', label: 'Avg LA', render: (r) => (r.exitVelo.avgLaunchAngle != null ? `${r.exitVelo.avgLaunchAngle}°` : '-') },
+    { key: 'avgDistance', label: 'Avg Dist', render: (r) => (r.distance.avgDistance != null ? `${r.distance.avgDistance} ft` : '-') },
+    { key: 'maxDistance', label: 'Longest', render: (r) => (r.distance.maxDistance != null ? `${r.distance.maxDistance} ft` : '-') },
+    { key: 'hardHitRateDist', label: 'Hard-Hit% (Dist)', render: (r) => formatPercent(r.distance.hardHitRate) },
+    { key: 'parkAdjustedDistance', label: 'Park-Adj Dist', render: (r) => (r.parkAdjustedDistance != null ? `${r.parkAdjustedDistance} ft` : '-') },
+    { key: 'powerIndex', label: 'Power Index', render: (r) => formatInteger(r.powerIndex) },
+    { key: 'avgSprayAngle', label: 'Spray Angle', render: (r) => (r.spray.avgSprayAngle != null ? `${r.spray.avgSprayAngle}°` : '-') },
+    { key: 'barrelRate', label: 'Barrel%', render: (r) => formatPercent(r.contactQuality.barrelRate) },
+    { key: 'hardHitRateEv', label: 'Hard-Hit% (EV)', render: (r) => formatPercent(r.contactQuality.hardHitRate) },
+    { key: 'sweetSpotRate', label: 'Sweet-Spot%', render: (r) => formatPercent(r.contactQuality.sweetSpotRate) },
+    { key: 'pullEv', label: 'Pull EV', render: (r) => (r.sprayContact.pull.avgExitVelocity != null ? `${r.sprayContact.pull.avgExitVelocity} mph` : '-') },
+    { key: 'oppoEv', label: 'Oppo EV', render: (r) => (r.sprayContact.oppo.avgExitVelocity != null ? `${r.sprayContact.oppo.avgExitVelocity} mph` : '-') },
+    { key: 'pullSlg', label: 'Pull SLG', render: (r) => formatDecimal(r.sprayContact.pull.slgOnContact) },
+    { key: 'oppoSlg', label: 'Oppo SLG', render: (r) => formatDecimal(r.sprayContact.oppo.slgOnContact) },
+  ]
+  const expectedColumns = [
+    { key: 'label', label: 'Season' },
+    { key: 'avg', label: 'AVG', render: (r) => formatDecimal(r.avg) },
+    { key: 'xBA', label: 'xBA', render: (r) => formatDecimal(r.xBA) },
+    { key: 'slg', label: 'SLG', render: (r) => formatDecimal(r.slg) },
+    { key: 'xSLG', label: 'xSLG', render: (r) => formatDecimal(r.xSLG) },
+    { key: 'xwOBA', label: 'xwOBA', render: (r) => formatDecimal(r.xwOBA) },
+  ]
+
+  // ─── Postseason Batting/Pitching ────────────────────────────────────────────
+  function postseasonRowFromEntry(entry) {
+    const psPas = (entry.rawPas || []).filter((pa) => pa.isPostseason)
+    if (!psPas.length) return null
+    const computed = summarizeBatting(psPas, filterRunEventsForCharacter(runEvents, character.id, psPas))
+    computed.ops = computed.obp + computed.slg
+    return { eventKey: entry.eventKey, eventId: entry.eventId, eventType: entry.eventType, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue, ...computed }
+  }
+  const allPostseasonBattingRows = battingHistory.map(postseasonRowFromEntry).filter(Boolean).sort(sortHistoryEntries)
+  const postseasonBattingRows = isCareer ? allPostseasonBattingRows : allPostseasonBattingRows.filter((row) => matchesScope(row, scope))
+  const postseasonBattingAllPas = battingHistory.flatMap((entry) => (entry.rawPas || []).filter((pa) => pa.isPostseason))
+  const postseasonBattingCareerRow = (isCareer && postseasonBattingAllPas.length) ? (() => {
+    const b = summarizeBatting(postseasonBattingAllPas, filterRunEventsForCharacter(runEvents, character.id, postseasonBattingAllPas))
+    b.ops = b.obp + b.slg
+    return { label: 'Career', ...b }
+  })() : null
+
+  function postseasonPitchingRowFromEntry(entry) {
+    const psStints = (entry.rawStints || []).filter((s) => s.isPostseason)
+    if (!psStints.length) return null
+    const computed = summarizePitching(psStints)
+    const eventId = entry.tournamentId ?? entry.seasonId
+    return { eventKey: entry.eventKey ?? `${entry.sourceType}:${eventId}`, eventId, eventType: entry.sourceType, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue, ...computed }
+  }
+  const allPostseasonPitchingRows = pitchingHistory.map(postseasonPitchingRowFromEntry).filter(Boolean).sort(sortHistoryEntries)
+  const postseasonPitchingRows = isCareer ? allPostseasonPitchingRows : allPostseasonPitchingRows.filter((row) => matchesScope(row, scope))
+  const postseasonPitchingAllStints = pitchingHistory.flatMap((entry) => (entry.rawStints || []).filter((s) => s.isPostseason))
+  const postseasonPitchingCareerRow = (isCareer && postseasonPitchingAllStints.length)
+    ? { label: 'Career', ...summarizePitching(postseasonPitchingAllStints) }
+    : null
+  const hasPostseasonData = postseasonBattingRows.length > 0 || postseasonPitchingRows.length > 0
+  const hasPostseasonBatting = postseasonBattingRows.length > 0
+  const hasPostseasonPitching = postseasonPitchingRows.length > 0
+
+  // ─── Splits (home/away, regular season vs postseason, vs L/R) ──────────────────────────────
+  const battingSplits = summarizeBattingSplits(showBatting.rawPas || [], leagueConstants)
+  const pitchingSplits = summarizePitchingSplits(showPitching.rawPas || [], leagueConstants)
+  const splitsColumns = [
+    { key: 'label', label: 'Split' },
+    { key: 'plateAppearances', label: 'PA' },
+    { key: 'avg', label: 'AVG', render: (r) => formatDecimal(r.avg) },
+    { key: 'obp', label: 'OBP', render: (r) => formatDecimal(r.obp) },
+    { key: 'slg', label: 'SLG', render: (r) => formatDecimal(r.slg) },
+    { key: 'ops', label: 'OPS', render: (r) => formatDecimal(r.ops) },
+    { key: 'woba', label: 'wOBA', render: (r) => formatDecimal(r.woba) },
+  ]
+  const battingSplitRows = [
+    { label: 'Home', eventType: null, ...battingSplits.home },
+    { label: 'Away', eventType: null, ...battingSplits.away },
+    { label: 'Regular Season', eventType: null, ...battingSplits.regularSeason },
+    { label: 'Postseason', eventType: null, ...battingSplits.postseason },
+    { label: 'RISP', eventType: null, ...battingSplits.risp },
+    { label: 'vs RHP', eventType: null, ...battingSplits.vsRHP },
+    { label: 'vs LHP', eventType: null, ...battingSplits.vsLHP },
+  ]
+
+  // xwOBA by handedness — same vs-RHP/vs-LHP buckets as battingSplits above, but run through the
+  // expected-outcome model instead of actual results, so contact-quality luck (wOBA vs xwOBA) can
+  // be compared platoon-split by platoon-split, not just league-wide.
+  const battingPasForXwoba = showBatting.rawPas || []
+  const xwobaSplitColumns = [
+    { key: 'label', label: 'Split' },
+    { key: 'sampleSize', label: 'BIP' },
+    { key: 'woba', label: 'wOBA', render: (r) => formatDecimal(r.woba) },
+    { key: 'xwOBA', label: 'xwOBA', render: (r) => formatDecimal(r.xwOBA) },
+  ]
+  const xwobaSplitRows = [
+    { label: 'vs RHP', woba: battingSplits.vsRHP.woba, ...summarizeExpectedBatting(battingPasForXwoba.filter((pa) => pa.pitcherHandedness === 'R'), expectedOutcomeModel) },
+    { label: 'vs LHP', woba: battingSplits.vsLHP.woba, ...summarizeExpectedBatting(battingPasForXwoba.filter((pa) => pa.pitcherHandedness === 'L'), expectedOutcomeModel) },
+  ]
+
+  // Park factors describe a STADIUM's own league-wide effect on an outcome (1.00 = neutral), not
+  // anything about this character specifically — this table is just filtered to the parks this
+  // character has actually played at, same numbers anyone would see for that stadium.
+  const parkFactorColumns = [
+    { key: 'stadiumName', label: 'Stadium' },
+    { key: 'hr', label: 'HR', render: (r) => formatDecimal(r.hr, 2) },
+    { key: 'r', label: 'Runs', render: (r) => formatDecimal(r.r, 2) },
+    { key: 'h', label: 'Hits', render: (r) => formatDecimal(r.h, 2) },
+    { key: 'walk', label: 'BB', render: (r) => formatDecimal(r.walk, 2) },
+    { key: 'strikeout', label: 'K', render: (r) => formatDecimal(r.strikeout, 2) },
+    { key: 'hardHit', label: 'Hard-Hit', render: (r) => formatDecimal(r.hardHit, 2) },
+    { key: 'barrel', label: 'Barrel', render: (r) => formatDecimal(r.barrel, 2) },
+  ]
+  const pitchingSplitRows = [
+    { label: 'Home', eventType: null, ...pitchingSplits.home },
+    { label: 'Away', eventType: null, ...pitchingSplits.away },
+    { label: 'Regular Season', eventType: null, ...pitchingSplits.regularSeason },
+    { label: 'Postseason', eventType: null, ...pitchingSplits.postseason },
+    { label: 'RISP', eventType: null, ...pitchingSplits.risp },
+    { label: 'vs RHB', eventType: null, ...pitchingSplits.vsRHB },
+    { label: 'vs LHB', eventType: null, ...pitchingSplits.vsLHB },
   ]
 
   const battingSkillItems = talentAnalysis ? [
@@ -579,28 +1059,41 @@ export default function CharacterPage() {
   ] : []
 
   const pitchingEmpty = isPitchingAllZero(showPitching)
+  const hasStandardBattingRows = battingTableRows.length > 0
+  const hasStandardPitchingRows = !(pitchingEmpty && pitchingTableRows.length === 0)
 
   const starHitEmpty = (starHitStats.used || 0) === 0
   const battedBallEmpty = allZeroPct(battingBattedBall.ldRate, battingBattedBall.gbRate, battingBattedBall.fbRate, battingBattedBall.bloopRate)
-  const sprayEmpty = allZeroPct(battingSpray.pullRate, battingSpray.centerRate, battingSpray.oppoRate) && (battingDiscipline.pitchesPerPa || 0) === 0
-  const pitchFieldEmpty = allZeroPct(pitchingStar.successRate, pitchingMix.strikeRate, pitchingMix.firstPitchStrikeRate, pitchingMix.swingingMissRate)
-  const powerEmpty = (battingDistance.sampleSize || 0) === 0
-  const advancedSections = [
-    { key: 'starHit', label: 'Star Hit', empty: starHitEmpty },
-    { key: 'battedBall', label: 'Batted Ball', empty: battedBallEmpty },
-    { key: 'sprayDiscipline', label: 'Spray & Discipline', empty: sprayEmpty },
-    { key: 'pitchingFielding', label: 'Pitching & Fielding', empty: pitchFieldEmpty },
-    { key: 'power', label: 'Power / Distance', empty: powerEmpty },
-  ]
+    && allZeroPct(battingSpray.pullRate, battingSpray.centerRate, battingSpray.oppoRate)
+    && (battingDiscipline.pitchesPerPa || 0) === 0
+  const starPitchEmpty = (pitchingStar.used || 0) === 0 && (pitchingStar.paUsed || 0) === 0
+  const powerEmpty = !(
+    battingDistance.sampleSize ||
+    battingExitVelo.sampleSize ||
+    battingContactQuality.sampleSize
+  )
+
+  // "Stars Against": the opponent's star ability used against this character — an opposing
+  // pitcher's star pitch while this character batted, or an opposing batter's star hit while
+  // this character pitched. Same summarizeStarHits/summarizeStarPitching primitives, just fed
+  // the other side's PA/pitch set (see starHitAgainstRows/starPitchAgainstRows below).
+  const starHitAgainstCurrent = summarizeStarHits(showPitching.rawPas || [])
+  const starHitAgainstEmpty = (starHitAgainstCurrent.used || 0) === 0
+  const starPitchAgainstCurrent = summarizeStarPitching(showBatting.rawPas || [], showBattingPitches)
+  const starPitchAgainstEmpty = (starPitchAgainstCurrent.used || 0) === 0 && (starPitchAgainstCurrent.paUsed || 0) === 0
+  const starHitFieldingEmpty = starHitFieldingByPosition.positions.length === 0
   const noData = <p style={{ color: '#475569', fontSize: 12, fontStyle: 'italic', margin: 0 }}>No data recorded yet</p>
 
   const rawPasBatting = showBatting.rawPas || []
+  const rawPasPitching = showPitching.rawPas || []
   const rawStintsPitching = showPitching.rawStints || []
+  const pitchingPaByGameId = {}
+  for (const pa of rawPasPitching) {
+    const gid = String(pa.game_id ?? 'unknown')
+    if (!pitchingPaByGameId[gid]) pitchingPaByGameId[gid] = pa
+  }
   const hasBatting = rawPasBatting.length > 0
   const hasPitching = rawStintsPitching.length > 0
-  const effectiveGamelogStatType = (gamelogStatType === 'pitching' && !hasPitching) ? 'batting'
-    : (gamelogStatType === 'batting' && !hasBatting) ? 'pitching'
-    : gamelogStatType
 
   // ─── Rolling stat chart (Trends) ────────────────────────────────────────────
   const ROLLING_WINDOW = 15
@@ -616,6 +1109,56 @@ export default function CharacterPage() {
     return points
   })()
 
+  // Resolves who a game-log row's game was against. `pa.batting_team_id`/`defensive_team_id`
+  // and `pa.isHome` (tagged onto every PA in useCharacterProfileData via tagPasWithGameContext)
+  // are always from the batting side's perspective, regardless of whether this character batted
+  // or pitched in that PA — so when the character pitched, their own side is the defensive one
+  // and isHome has to be flipped.
+  function opponentInfo(pa, isPitcherPerspective) {
+    if (!pa) return null
+    const ownTeamId = isPitcherPerspective ? pa.defensive_team_id : pa.batting_team_id
+    const oppTeamId = isPitcherPerspective ? pa.batting_team_id : pa.defensive_team_id
+    if (oppTeamId == null || pa.isHome == null) return null
+    const ownIsHome = isPitcherPerspective ? !pa.isHome : pa.isHome
+    const isSeason = pa.season_id != null
+    const identity = isSeason
+      ? (seasonTeamsById[oppTeamId] ? buildSeasonTeamIdentity(seasonTeamsById[oppTeamId]) : null)
+      : (gamelogPlayersById[oppTeamId] ? buildPlayerTeamIdentity(gamelogPlayersById[oppTeamId]) : null)
+    const fullName = identity?.teamName
+    if (!fullName) return null
+    const abbr = getTeamAbbreviation(identity) || fullName
+    const prefix = ownIsHome ? 'vs' : 'at'
+    return { prefix, fullName, abbr }
+  }
+
+  function OpponentCell({ pa, isPitcherPerspective, gameId, source }) {
+    const info = opponentInfo(pa, isPitcherPerspective)
+    if (!info) return <td style={{ color: '#475569' }}>-</td>
+    const label = (
+      <>
+        <span className="opp-full">{info.prefix} {info.fullName}</span>
+        <span className="opp-abbr">{info.prefix} {info.abbr}</span>
+      </>
+    )
+    if (!gameId || gameId === 'unknown') return <td style={{ color: '#CBD5E1' }}>{label}</td>
+    const href = buildScorebookPath({ gameId, source, view: 'game' })
+    return (
+      <td>
+        <a
+          href={href}
+          onClick={(e) => {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+            e.preventDefault()
+            navigate(href, { state: { backTo: window.location.pathname + window.location.search } })
+          }}
+          style={{ color: '#CBD5E1', fontWeight: 600, textDecoration: 'underline' }}
+        >
+          {label}
+        </a>
+      </td>
+    )
+  }
+
   function renderBattingLog() {
     if (!hasBatting) return <p style={{ color: '#475569', fontSize: 13, fontStyle: 'italic', margin: 0 }}>No hitting data for this source.</p>
     const gameOrder = []
@@ -626,22 +1169,25 @@ export default function CharacterPage() {
       gameMap[gid].push(pa)
     }
     const gameRows = gameOrder.map((gid, i) => {
-      const s = summarizeBatting(gameMap[gid])
+      const pas = gameMap[gid]
+      const s = summarizeBatting(pas, filterRunEventsForCharacter(runEvents, character.id, pas))
       s.ops = s.obp + s.slg
-      return { gameNum: i + 1, gid, ...s }
+      const source = pas[0]?.season_id != null ? 'season' : 'tournament'
+      return { gameNum: i + 1, gid, source, ...s }
     })
-    const totals = summarizeBatting(rawPasBatting)
+    const totals = summarizeBatting(rawPasBatting, filterRunEventsForCharacter(runEvents, character.id, rawPasBatting))
     totals.ops = totals.obp + totals.slg
     return (
       <div style={{ overflowX: 'auto' }}>
-        <table className="data-table" style={{ minWidth: 440 }}>
-          <thead><tr><th>Game</th><th>PA</th><th>AB</th><th>H</th><th>HR</th><th>RBI</th><th>R</th><th>BB</th><th>K</th><th>AVG</th><th>OPS</th></tr></thead>
+        <table className="data-table" style={{ minWidth: 600 }}>
+          <thead><tr><th>Opp</th><th>PA</th><th>AB</th><th>H</th><th>1B</th><th>2B</th><th>3B</th><th>HR</th><th>RBI</th><th>R</th><th>BB</th><th>K</th><th><StatLabel label="AVG" /></th><th><StatLabel label="OPS" /></th></tr></thead>
           <tbody>
             {gameRows.map((g, i) => (
               <tr key={g.gid} style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'transparent' }}>
-                <td style={{ color: '#94A3B8' }}>G{g.gameNum}</td>
+                <OpponentCell pa={gameMap[g.gid]?.[0]} isPitcherPerspective={false} gameId={g.gid} source={g.source} />
                 <td>{g.plateAppearances}</td><td>{g.atBats}</td><td>{g.hits}</td>
-                <td>{g.homeRuns}</td><td>{g.rbi}</td><td>{g.runs}</td>
+                <td>{g.singles}</td><td>{g.doubles}</td><td>{g.triples}</td><td>{g.homeRuns}</td>
+                <td>{g.rbi}</td><td>{g.runs}</td>
                 <td>{g.walks}</td><td>{g.strikeouts}</td>
                 <td>{formatDecimal(g.avg)}</td><td>{formatDecimal(g.ops)}</td>
               </tr>
@@ -649,7 +1195,8 @@ export default function CharacterPage() {
             <tr style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontWeight: 700 }}>
               <td style={{ color: '#94A3B8', fontWeight: 700 }}>TOT</td>
               <td>{totals.plateAppearances}</td><td>{totals.atBats}</td><td>{totals.hits}</td>
-              <td>{totals.homeRuns}</td><td>{totals.rbi}</td><td>{totals.runs}</td>
+              <td>{totals.singles}</td><td>{totals.doubles}</td><td>{totals.triples}</td><td>{totals.homeRuns}</td>
+              <td>{totals.rbi}</td><td>{totals.runs}</td>
               <td>{totals.walks}</td><td>{totals.strikeouts}</td>
               <td>{formatDecimal(totals.avg)}</td><td>{formatDecimal(totals.ops)}</td>
             </tr>
@@ -668,22 +1215,25 @@ export default function CharacterPage() {
       if (!byGame[gid]) { byGame[gid] = []; gameOrder.push(gid) }
       byGame[gid].push(stint)
     })
-    const gameRows = gameOrder.map((gid, index) => ({ gid, gameNum: index + 1, ...summarizePitching(byGame[gid]) }))
+    const gameRows = gameOrder.map((gid, index) => {
+      const source = byGame[gid][0]?.season_id != null ? 'season' : 'tournament'
+      return { gid, gameNum: index + 1, source, ...summarizePitching(byGame[gid]) }
+    })
     const totals = summarizePitching(rawStintsPitching)
     return (
       <div style={{ overflowX: 'auto' }}>
-        <table className="data-table" style={{ minWidth: 560 }}>
-          <thead><tr><th>Game</th><th>IP</th><th>W</th><th>L</th><th>SV</th><th>K</th><th>H</th><th>R</th><th>ER</th><th>BB</th><th>HR</th><th>ERA/3</th><th>WHIP</th></tr></thead>
+        <table className="data-table" style={{ minWidth: 600 }}>
+          <thead><tr><th>Opp</th><th>IP</th><th>W</th><th>L</th><th>SV</th><th>K</th><th>H</th><th>R</th><th>ER</th><th>BB</th><th>HR</th><th><StatLabel label="ERA/3" /></th><th><StatLabel label="WHIP" /></th></tr></thead>
           <tbody>
             {gameRows.map((game, i) => (
               <tr key={game.gid} style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'transparent' }}>
-                <td style={{ color: '#94A3B8' }}>G{game.gameNum}</td>
+                <OpponentCell pa={pitchingPaByGameId[game.gid]} isPitcherPerspective gameId={game.gid} source={game.source} />
                 <td>{formatDecimal(game.innings, 1)}</td>
                 <td>{formatInteger(game.wins)}</td><td>{formatInteger(game.losses)}</td>
                 <td>{formatInteger(game.saves)}</td><td>{formatInteger(game.strikeouts)}</td>
                 <td>{formatInteger(game.hitsAllowed)}</td><td>{formatInteger(game.runsAllowed)}</td>
                 <td>{formatInteger(game.earnedRuns)}</td><td>{formatInteger(game.walks)}</td>
-                <td>{formatInteger(game.homeRunsAllowed)}</td><td>{formatDecimal(game.era, 2)}</td><td>{formatDecimal(game.whip, 2)}</td>
+                <td>{formatInteger(game.homeRunsAllowed)}</td><td>{game.innings > 0 ? formatDecimal(game.era, 2) : '-'}</td><td>{game.innings > 0 ? formatDecimal(game.whip, 2) : '-'}</td>
               </tr>
             ))}
             <tr style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontWeight: 700 }}>
@@ -693,7 +1243,7 @@ export default function CharacterPage() {
               <td>{formatInteger(totals.saves)}</td><td>{formatInteger(totals.strikeouts)}</td>
               <td>{formatInteger(totals.hitsAllowed)}</td><td>{formatInteger(totals.runsAllowed)}</td>
               <td>{formatInteger(totals.earnedRuns)}</td><td>{formatInteger(totals.walks)}</td>
-              <td>{formatInteger(totals.homeRunsAllowed)}</td><td>{formatDecimal(totals.era, 2)}</td><td>{formatDecimal(totals.whip, 2)}</td>
+              <td>{formatInteger(totals.homeRunsAllowed)}</td><td>{totals.innings > 0 ? formatDecimal(totals.era, 2) : '-'}</td><td>{totals.innings > 0 ? formatDecimal(totals.whip, 2) : '-'}</td>
             </tr>
           </tbody>
         </table>
@@ -701,10 +1251,13 @@ export default function CharacterPage() {
     )
   }
 
-  function ChemChip({ name }) {
+  function ChemChip({ name, kind }) {
     const onRoster = isChemistryNameOnRoster(name, rosterNames)
+    const accent = kind === 'good' ? '#22C55E' : '#EF4444'
+    const border = onRoster ? accent : 'rgba(148,163,184,0.2)'
+    const background = onRoster ? `${accent}22` : 'transparent'
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.28rem 0.55rem', border: `1px solid ${onRoster ? 'rgba(148,163,184,0.6)' : 'rgba(148,163,184,0.2)'}`, borderRadius: 999, background: onRoster ? 'rgba(148,163,184,0.12)' : 'transparent' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.28rem 0.55rem', border: `1px solid ${border}`, borderRadius: 999, background }}>
         <CharacterPortrait name={name} size={20} />
         <span style={{ fontSize: 12, fontWeight: 600, color: '#F8FAFC' }}>{allCharactersById[name]?.name || name}</span>
       </div>
@@ -714,9 +1267,15 @@ export default function CharacterPage() {
   const nonHrPas = rawPasBatting.filter((pa) => pa.result !== 'HR' && pa.result !== 'IPHR' && pa.hit_distance_ft != null && pa.hit_angle_deg != null)
   const wouldBeHrCount = nonHrPas.filter((pa) => (wouldBeHrElsewhere(pa)?.clearedCount || 0) > 0).length
 
+  // ─── Scope filtering for awards/transactions (season/tournament pages only) ────────────────
+  const scopeMatchedEntry = isCareer ? null : (scopeOptions.find((opt) => opt.type === scope.type && String(opt.id) === String(scope.id)) || null)
+  const currentScopeTeamRow = isCareer ? null : (teamHistory.find((row) => row.eventType === scope.type && String(row.eventId) === String(scope.id)) || null)
+  const displayedAwardRows = isCareer ? awardRows : awardRows.filter((row) => row.eventKey === `${scope.type}:${scope.id}`)
+  const displayedTransactions = isCareer ? transactions : transactions.filter((tx) => scopeMatchedEntry && tx.eventLabel === scopeMatchedEntry.label)
+
   return (
     <div style={{ display: 'grid', gap: 16, paddingBottom: 40 }}>
-      <button type="button" onClick={() => navigate(-1)} style={BACK_BUTTON_STYLE}>
+      <button type="button" onClick={handleBack} style={BACK_BUTTON_STYLE}>
         <ArrowLeft size={16} /> Back
       </button>
 
@@ -729,7 +1288,19 @@ export default function CharacterPage() {
           <div style={{ minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>{character.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-              {currentOwner ? (
+              {isCareer ? (
+                teamHistory.length > 0 ? (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {teamHistory.map((row) => (
+                      <TeamHistoryChip key={`${row.eventType}:${row.eventId}`} row={row} />
+                    ))}
+                  </div>
+                ) : (
+                  <span style={{ color: '#64748B', fontSize: 12 }}>Undrafted</span>
+                )
+              ) : currentScopeTeamRow ? (
+                <TeamHistoryChip row={currentScopeTeamRow} />
+              ) : currentOwner ? (
                 <PlayerTag height={22} identitiesByPlayerId={identitiesByPlayerId} playerId={currentOwner.player_id} playersById={playersById} />
               ) : (
                 <span style={{ color: '#64748B', fontSize: 12 }}>Undrafted</span>
@@ -743,6 +1314,9 @@ export default function CharacterPage() {
                 <span style={{ color: '#64748B', fontSize: 12 }}>
                   {totalDrafts} drafts · {tournamentsDrafted} events · {championshipsWon} titles
                 </span>
+              )}
+              {!isCareer && scopeMatchedEntry && (
+                <span style={{ color: '#64748B', fontSize: 12, fontWeight: 700 }}>Viewing: {scopeMatchedEntry.label}</span>
               )}
             </div>
           </div>
@@ -762,304 +1336,376 @@ export default function CharacterPage() {
         </div>
       </section>
 
-      {/* Percentile snapshot */}
-      <section className="panel" style={{ padding: '0.9rem 1.1rem', display: 'flex', gap: 14, flexWrap: 'wrap', justifyContent: 'space-evenly' }}>
-        {SNAPSHOT_METRICS.map((metric) => {
-          const entry = snapshotPercentiles[metric.key]
-          return (
-            <PercentileChip
-              key={metric.key}
-              label={metric.label}
-              value={entry?.value}
-              percentile={entry?.percentile}
-              digits={metric.digits}
-              suffix={metric.suffix}
-            />
-          )
-        })}
-      </section>
+      <div className="entity-page-shell">
+        <EntityPageSidebar title={character.name} scopeLinks={scopeLinks} sectionLinks={SECTION_LINKS} />
 
-      {/* Sticky section nav */}
-      <nav style={{ position: 'sticky', top: 0, zIndex: 5, display: 'flex', gap: 4, overflowX: 'auto', background: 'rgba(10,14,23,0.85)', backdropFilter: 'blur(6px)', borderRadius: 10, padding: '0.4rem 0.5rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-            style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: 12, fontWeight: 600, padding: '0.35rem 0.6rem', borderRadius: 8, whiteSpace: 'nowrap', cursor: 'pointer' }}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-
-      {/* Overview */}
-      {talentAnalysis && (
-        <Section id="overview" title="Overview">
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div style={{ background: '#1E2E44', borderRadius: 10, padding: '0.55rem 0.65rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 6 }}>
-                {[
-                  { label: 'Bat OVR', displayValue: talentAnalysis.displayRatings.batting, tier: talentAnalysis.battingTier, impact: talentAnalysis.skillImpact?.batting },
-                  { label: 'Pitch OVR', displayValue: talentAnalysis.displayRatings.pitching, tier: talentAnalysis.pitchingTier, impact: talentAnalysis.skillImpact?.pitching },
-                  { label: 'Field OVR', displayValue: talentAnalysis.displayRatings.fielding, tier: talentAnalysis.fieldingTier, impact: talentAnalysis.skillImpact?.fielding },
-                  { label: 'Speed OVR', displayValue: talentAnalysis.displayRatings.speed, tier: talentAnalysis.speedTier, impact: talentAnalysis.skillImpact?.speed },
-                ].map(({ label, displayValue, tier, impact }) => {
-                  const ts = getTierBadgeStyle(tier)
-                  const hasPerformance = impact && impact.performance !== 0
-                  const performanceColor = hasPerformance ? (impact.performance > 0 ? '#22C55E' : '#F87171') : '#64748B'
-                  return (
-                    <div key={label} style={{ borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', padding: '0.4rem 0.55rem' }}>
-                      <div style={{ color: '#94A3B8', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 2 }}>{label}</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: '#F8FAFC', lineHeight: 1 }}>{displayValue}</div>
-                      <div style={{ marginTop: 2 }}><span style={{ fontSize: 10, fontWeight: 800, color: ts.color }}>{getTalentTierMeta(tier).label}</span></div>
-                      {hasPerformance ? (
-                        <div style={{ marginTop: 2 }}>
-                          <span style={{ color: '#64748B', fontSize: 9 }}>
-                            {impact.base}
-                            <span style={{ color: performanceColor, fontWeight: 700 }}> {formatSignedInt(impact.performance)}</span>
-                          </span>
+        <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+          {/* Overview */}
+          {talentAnalysis && (
+            <Section id="overview" title="Overview">
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ background: '#1E2E44', borderRadius: 10, padding: '0.55rem 0.65rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 6 }}>
+                    {[
+                      { label: 'Bat OVR', displayValue: talentAnalysis.displayRatings.batting, tier: talentAnalysis.battingTier, impact: talentAnalysis.skillImpact?.batting },
+                      { label: 'Pitch OVR', displayValue: talentAnalysis.displayRatings.pitching, tier: talentAnalysis.pitchingTier, impact: talentAnalysis.skillImpact?.pitching },
+                      { label: 'Field OVR', displayValue: talentAnalysis.displayRatings.fielding, tier: talentAnalysis.fieldingTier, impact: talentAnalysis.skillImpact?.fielding },
+                      { label: 'Speed OVR', displayValue: talentAnalysis.displayRatings.speed, tier: talentAnalysis.speedTier, impact: talentAnalysis.skillImpact?.speed },
+                    ].map(({ label, displayValue, tier, impact }) => {
+                      const ts = getTierBadgeStyle(tier)
+                      const hasPerformance = impact && impact.performance !== 0
+                      const performanceColor = hasPerformance ? (impact.performance > 0 ? '#22C55E' : '#F87171') : '#64748B'
+                      return (
+                        <div key={label} style={{ borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', padding: '0.4rem 0.55rem' }}>
+                          <div style={{ color: '#94A3B8', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 2 }}>{label}</div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: '#F8FAFC', lineHeight: 1 }}>{displayValue}</div>
+                          <div style={{ marginTop: 2 }}><span style={{ fontSize: 10, fontWeight: 800, color: ts.color }}>{getTalentTierMeta(tier).label}</span></div>
+                          {hasPerformance ? (
+                            <div style={{ marginTop: 2 }}>
+                              <span style={{ color: '#64748B', fontSize: 9 }}>
+                                {impact.base}
+                                <span style={{ color: performanceColor, fontWeight: 700 }}> {formatSignedInt(impact.performance)}</span>
+                              </span>
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
+                      )
+                    })}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+                  <SkillSectionCard title="Batting" score={talentAnalysis.displayRatings.batting} scoreMin={statMins?.offense ?? 0} scoreMedian={statMedians?.offense ?? 50} scoreMax={Math.max(statMaxes?.offense ?? 100, talentAnalysis.displayRatings.batting)} items={battingSkillItems} />
+                  <SkillSectionCard title="Pitching" score={talentAnalysis.displayRatings.pitching} scoreMin={statMins?.pitching ?? 0} scoreMedian={statMedians?.pitching ?? 50} scoreMax={Math.max(statMaxes?.pitching ?? 100, talentAnalysis.displayRatings.pitching)} items={pitchingSkillItems} />
+                  <SkillSectionCard title="Fielding" score={talentAnalysis.displayRatings.fielding} scoreMin={statMins?.defense ?? 0} scoreMedian={statMedians?.defense ?? 50} scoreMax={Math.max(statMaxes?.defense ?? 100, talentAnalysis.displayRatings.fielding)} items={fieldingSkillItems} />
+                  <SkillSectionCard title="Speed" score={talentAnalysis.displayRatings.speed} scoreMin={statMins?.speed ?? 0} scoreMedian={statMedians?.speed ?? 50} scoreMax={Math.max(statMaxes?.speed ?? 100, talentAnalysis.displayRatings.speed)} items={[]} />
+                </div>
+              </div>
+            </Section>
+          )}
+
+          {/* Standard Stats */}
+          <Section id="stats" title="Standard Stats">
+            <div style={{ display: 'grid', gap: 12 }}>
+              <StatTypeToggle
+                value={standardStatsView}
+                onChange={setStandardStatsView}
+                options={[
+                  { key: 'batting', label: 'Batting' },
+                  { key: 'pitching', label: 'Pitching' },
+                  { key: 'fielding', label: 'Fielding' },
+                ]}
+              />
+              {standardStatsView === 'batting' ? (
+                hasStandardBattingRows ? <StatTable columns={battingColumns} rows={battingTableRows} careerRow={battingCareerRow} /> : noData
+              ) : standardStatsView === 'pitching' ? (
+                hasStandardPitchingRows ? <StatTable columns={pitchingColumns} rows={pitchingTableRows} careerRow={pitchingCareerRow} /> : noData
+              ) : (
+                appearances.positions.length === 0 ? noData : <FieldingPositionTable appearances={appearances} allTimeFielding={allTimeFielding} />
+              )}
+            </div>
+          </Section>
+
+          {/* Value Batting (simplified WAR) */}
+          <Section id="value" title="Value Batting">
+            {valueBattingRows.length === 0 ? noData : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <StatTable columns={valueBattingColumns} rows={valueBattingRows} careerRow={valueBattingCareerRow} />
+                <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
+                  In-house approximation of Baseball-Reference's value stats — linear-weights Rbat, a
+                  fielding-pct-based Rfield, a flat positional adjustment (primary position: {appearances.positions[0]?.position || '—'}),
+                  and a flat replacement baseline. Rbaser is always 0 (no baserunning event data is tracked). Not directly
+                  comparable to MLB WAR.
+                </p>
+              </div>
+            )}
+          </Section>
+
+          {/* Advanced sabermetrics */}
+          <Section id="advanced-stats" title="Advanced Stats">
+            <AdvancedStatsPanel
+              battingRows={advancedBattingRows}
+              battingCareerRow={advancedBattingCareerRow}
+              pitchingRows={advancedPitchingRows}
+              pitchingCareerRow={advancedPitchingCareerRow}
+              hasBatting={hasBatting}
+              hasPitching={!pitchingEmpty}
+            />
+          </Section>
+
+          {/* Stars (star hit batting + star pitch pitching, toggled) */}
+          <Section id="stars-used" title="Stars Used" subtitle="This character's own Star Hit and Star Pitch usage — Star Hit shows their batting use, Star Pitch shows their pitching use.">
+            <div style={{ display: 'grid', gap: 14 }}>
+              <StatTypeToggle
+                value={starsUsedView}
+                onChange={setStarsUsedView}
+                options={[
+                  { key: 'batting', label: 'Star Hit (Batting)' },
+                  { key: 'pitching', label: 'Star Pitch (Pitching)' },
+                ]}
+              />
+              {starsUsedView === 'batting' ? (
+                starHitEmpty ? noData : <StatTable columns={starHitColumns} rows={starHitRows} careerRow={starHitCareerRow} />
+              ) : (
+                starPitchEmpty ? noData : <StatTable columns={starPitchColumns} rows={starPitchRows} careerRow={starPitchCareerRow} />
+              )}
+            </div>
+          </Section>
+
+          {/* Opponent's star ability used against this character */}
+          <Section id="stars-against" title="Stars Against" subtitle="Opponents' Star Hit and Star Pitch usage against this character — 'vs Star Pitch' shows how this character fared batting against an opposing pitcher's Star Pitch, 'vs Star Hit' shows how they fared pitching against an opposing batter's Star Hit.">
+            <div style={{ display: 'grid', gap: 14 }}>
+              <StatTypeToggle
+                value={starsAgainstView}
+                onChange={setStarsAgainstView}
+                options={[
+                  { key: 'batting', label: 'vs Star Pitch (Batting)' },
+                  { key: 'pitching', label: 'vs Star Hit (Pitching)' },
+                  { key: 'fielding', label: 'vs Star Hit (Fielding)' },
+                ]}
+              />
+              {starsAgainstView === 'batting' ? (
+                starPitchAgainstEmpty ? noData : <StatTable columns={starPitchColumns} rows={starPitchAgainstRows} careerRow={starPitchAgainstCareerRow} />
+              ) : starsAgainstView === 'pitching' ? (
+                starHitAgainstEmpty ? noData : <StatTable columns={starHitColumns} rows={starHitAgainstRows} careerRow={starHitAgainstCareerRow} />
+              ) : (
+                starHitFieldingEmpty ? noData : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="data-table" style={{ minWidth: 320 }}>
+                      <thead><tr><th>Pos</th><th>TC</th><th>E</th><th><StatLabel label="FLD%" /></th></tr></thead>
+                      <tbody>
+                        {starHitFieldingByPosition.positions.map((row) => (
+                          <tr key={row.position}>
+                            <td>{row.position}</td>
+                            <td>{row.chances}</td>
+                            <td>{row.errors}</td>
+                            <td>{formatDecimal(row.fieldingPct)}</td>
+                          </tr>
+                        ))}
+                        <tr style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontWeight: 700 }}>
+                          <td style={{ color: '#94A3B8', fontWeight: 700 }}>Total</td>
+                          <td>{starHitFieldingByPosition.totalChances}</td>
+                          <td>{starHitFieldingByPosition.totalErrors}</td>
+                          <td>{formatDecimal(starHitFieldingByPosition.fieldingPct)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </div>
+          </Section>
+
+          {/* Batted Ball (trajectory, spray, plate discipline) */}
+          <Section id="batted-ball" title="Batted Ball">
+            {battedBallEmpty ? noData : (
+              <StatTable columns={battedBallColumns} rows={battedBallRows} careerRow={battedBallCareerRow} />
+            )}
+          </Section>
+
+          {/* Batted Ball Allowed */}
+          <Section id="batted-ball-allowed" title="Batted Ball Allowed">
+            {pitchingEmpty ? noData : (
+              <StatTable columns={battedBallAllowedColumns} rows={battedBallAllowedRows} careerRow={battedBallAllowedCareerRow} />
+            )}
+          </Section>
+
+          {/* Contact Authority */}
+          <Section id="power" title="Contact Authority">
+            {powerEmpty ? noData : (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <StatTable columns={powerColumns} rows={powerRows} careerRow={powerCareerRow} />
+                {wouldBeHrCount > 0 ? (
+                  <p style={{ color: '#94A3B8', fontSize: 12, margin: 0 }}>
+                    {wouldBeHrCount} of {character.name}'s non-homers would have left the yard in at least one other stadium.
+                  </p>
+                ) : null}
+                <SprayChart plateAppearances={rawPasBatting} height={320} />
+              </div>
+            )}
+          </Section>
+
+          {/* Expected stats */}
+          <Section id="xstats" title="Expected Stats">
+            {expectedEmpty ? noData : (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <StatTable columns={expectedColumns} rows={expectedRows} careerRow={expectedCareerRow} />
+                <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
+                  xBA/xSLG/xwOBA are modeled from tracked exit velocity/launch angle, compared against similar contact league-wide.
+                </p>
+              </div>
+            )}
+          </Section>
+
+          {/* Postseason */}
+          {hasPostseasonData && (
+            <Section id="postseason" title="Postseason">
+              <div style={{ display: 'grid', gap: 12 }}>
+                <StatTypeToggle value={postseasonView} onChange={setPostseasonView} />
+                {postseasonView === 'batting' ? (
+                  hasPostseasonBatting ? <StatTable columns={battingColumns} rows={postseasonBattingRows} careerRow={postseasonBattingCareerRow} /> : noData
+                ) : (
+                  hasPostseasonPitching ? <StatTable columns={pitchingColumns} rows={postseasonPitchingRows} careerRow={postseasonPitchingCareerRow} /> : noData
+                )}
+              </div>
+            </Section>
+          )}
+
+          {/* Fielding — games/games-started and fielding performance broken out by position */}
+          <Section id="fielding" title="Fielding">
+            {appearances.positions.length === 0 ? (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {noData}
+                <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
+                  Only total chances, errors, and fielding % are tracked — putouts/assists come from the fielder chain recorded during scoring.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <FieldingPositionTable appearances={appearances} allTimeFielding={allTimeFielding} />
+                <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
+                  PO/A are derived from the recorded fielder chain on each play (last fielder touched = putout, earlier fielders = assists). BJ counts Buddy Jump assists/putouts.
+                </p>
+                {fieldingRangeByPosition && fieldingRangeByPosition.positions.length > 0 && (
+                  <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                    <div style={{ color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>Range Runs</div>
+                    <FieldingRangeTable fieldingRangeByPosition={fieldingRangeByPosition} />
+                    <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
+                      Difficulty-adjusted range: outs actually converted vs. expected, given how hard each chance was to get to, compared to the league's out rate on plays of similar difficulty at that position. Only counts the first fielder to touch a batted ball (not relay throws), and only shows once a position has enough rangeable plays. Confidence reflects how much of that sample has real hang-time/actual-fielded-location data vs. an estimate from where the ball landed — it rises automatically as more games get that detail filled in, no need to re-check back.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+
+          {/* Splits */}
+          <Section id="splits" title="Splits">
+            <div style={{ display: 'grid', gap: 12 }}>
+              <StatTypeToggle value={splitsView} onChange={setSplitsView} />
+              {splitsView === 'batting' ? (
+                !hasBatting ? noData : (
+                  <>
+                    <StatTable columns={splitsColumns} rows={battingSplitRows} />
+                    {xwobaSplitRows.some((r) => r.sampleSize > 0) && (
+                      <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                        <div style={{ color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>Expected wOBA by Handedness</div>
+                        <StatTable columns={xwobaSplitColumns} rows={xwobaSplitRows} />
+                      </div>
+                    )}
+                  </>
+                )
+              ) : (
+                pitchingEmpty ? noData : <StatTable columns={splitsColumns} rows={pitchingSplitRows} />
+              )}
+            </div>
+          </Section>
+
+          {/* Park Factors */}
+          <Section id="park-factors" title="Park Factors" subtitle="How each stadium this character has played at affects outcomes relative to the league average (1.00 = neutral, >1.00 favors that outcome). These numbers describe the stadium, not this character specifically.">
+            {parkFactorRows.length === 0
+              ? noData
+              : <StatTable columns={parkFactorColumns} rows={parkFactorRows} />}
+          </Section>
+
+          {/* Trends */}
+          <Section id="chart" title="Trends">
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ color: '#475569', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                Rolling OPS (trailing {ROLLING_WINDOW} PA)
+              </div>
+              <RollingStatChart points={rollingChartPoints} color="#EAB308" />
+            </div>
+          </Section>
+
+          {/* Awards */}
+          <Section id="awards" title="Awards">
+            {displayedAwardRows.length === 0 ? noData : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {displayedAwardRows.map((row, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.5rem 0.7rem', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: 999, textTransform: 'uppercase',
+                      background: row.led ? 'rgba(234,179,8,0.15)' : 'rgba(59,130,246,0.15)',
+                      border: `1px solid ${row.led ? 'rgba(234,179,8,0.4)' : 'rgba(59,130,246,0.4)'}`,
+                      color: row.led ? '#EAB308' : '#60A5FA',
+                    }}>
+                      {row.led ? 'Led League' : `Top ${row.rank}`}
+                    </span>
+                    <span style={{ fontSize: 13, color: '#F8FAFC' }}>{row.stat} — {row.eventLabel}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          {/* Transactions */}
+          <Section id="transactions" title="Transactions">
+            {displayedTransactions.length === 0 ? noData : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {displayedTransactions.map((tx, i) => {
+                  const dateLabel = tx.date ? new Date(tx.date).toLocaleDateString() : ''
+                  let description = ''
+                  if (tx.type === 'draft') description = `Drafted${tx.round ? ` (Round ${tx.round}, Pick ${tx.pickNumber})` : ''} by ${teamLabel(tx.playerId)}${tx.eventLabel ? ` — ${tx.eventLabel}` : ''}`
+                  else if (tx.type === 'season_draft') description = `Drafted${tx.round ? ` (Round ${tx.round}, Pick ${tx.pickNumber})` : ''} by ${teamLabel(tx.teamId)}${tx.eventLabel ? ` — ${tx.eventLabel}` : ''}`
+                  else if (tx.type === 'trade') description = `Traded: ${teamLabel(tx.fromPlayerId)} → ${teamLabel(tx.toPlayerId)}`
+                  else if (tx.type === 'waiver') description = `Won off waivers by ${teamLabel(tx.teamId)}`
+                  else if (tx.type === 'free_agent_add') description = `Signed as a free agent by ${teamLabel(tx.teamId)}${tx.eventLabel ? ` — ${tx.eventLabel}` : ''}`
+                  else if (tx.type === 'free_agent_drop') description = `Dropped by ${teamLabel(tx.teamId)}`
+                  return (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '0.5rem 0.7rem', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                      <span style={{ fontSize: 13, color: '#F8FAFC' }}>{description}</span>
+                      <span style={{ fontSize: 11, color: '#64748B', flexShrink: 0 }}>{dateLabel}</span>
                     </div>
                   )
                 })}
               </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-              <SkillSectionCard title="Batting" score={talentAnalysis.displayRatings.batting} scoreMin={statMins?.offense ?? 0} scoreMedian={statMedians?.offense ?? 50} scoreMax={Math.max(statMaxes?.offense ?? 100, talentAnalysis.displayRatings.batting)} items={battingSkillItems} />
-              <SkillSectionCard title="Pitching" score={talentAnalysis.displayRatings.pitching} scoreMin={statMins?.pitching ?? 0} scoreMedian={statMedians?.pitching ?? 50} scoreMax={Math.max(statMaxes?.pitching ?? 100, talentAnalysis.displayRatings.pitching)} items={pitchingSkillItems} />
-              <SkillSectionCard title="Fielding" score={talentAnalysis.displayRatings.fielding} scoreMin={statMins?.defense ?? 0} scoreMedian={statMedians?.defense ?? 50} scoreMax={Math.max(statMaxes?.defense ?? 100, talentAnalysis.displayRatings.fielding)} items={fieldingSkillItems} />
-              <SkillSectionCard title="Speed" score={talentAnalysis.displayRatings.speed} scoreMin={statMins?.speed ?? 0} scoreMedian={statMedians?.speed ?? 50} scoreMax={Math.max(statMaxes?.speed ?? 100, talentAnalysis.displayRatings.speed)} items={[]} />
-            </div>
-          </div>
-        </Section>
-      )}
+            )}
+          </Section>
 
-      {/* Stats */}
-      <Section id="stats" title="Stats">
-        <div style={{ display: 'grid', gap: 20 }}>
-          <select value={statsStatType} onChange={(e) => setStatsStatType(e.target.value)} style={{ ...dropStyle, alignSelf: 'start' }}>
-            <option value="batting">Hitting</option>
-            <option value="pitching">Pitching</option>
-          </select>
-          {statsStatType === 'batting' && (
-            battingTableRows.length === 0 ? noData : (
-              <YearByYearTable columns={battingColumns} rows={battingTableRows} careerRow={battingCareerRow} />
-            )
-          )}
-          {statsStatType === 'pitching' && (
-            pitchingEmpty && pitchingTableRows.length === 0 ? noData : (
-              <YearByYearTable columns={pitchingColumns} rows={pitchingTableRows} careerRow={pitchingCareerRow} />
-            )
-          )}
-        </div>
-      </Section>
-
-      {/* Advanced */}
-      <Section id="advanced" title="Advanced">
-        <div style={{ display: 'grid', gap: 14 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <select value={advancedSection} onChange={(e) => setAdvancedSection(e.target.value)} style={dropStyle}>
-              {advancedSections.map((s) => <option key={s.key} value={s.key}>{s.label}{s.empty ? ' (no data)' : ''}</option>)}
-            </select>
-            {renderSourceSelector()}
-          </div>
-          {advancedSection === 'starHit' && (starHitEmpty ? noData : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-              <SmallChip label="Used" value={formatInteger(starHitStats.used)} accent="#EAB308" />
-              <SmallChip label="Contact %" value={`${(starHitStats.contactRate * 100).toFixed(0)}%`} accent="#22C55E" />
-              <SmallChip label="Success %" value={`${(starHitStats.successRate * 100).toFixed(0)}%`} accent="#3B82F6" />
-              <SmallChip label="RBI/Use" value={formatDecimal(starHitStats.avgRbiPerUse, 2)} />
-            </div>
-          ))}
-          {advancedSection === 'battedBall' && (battedBallEmpty ? noData : (
-            <BattedBallBar ldRate={battingBattedBall.ldRate} gbRate={battingBattedBall.gbRate} fbRate={battingBattedBall.fbRate} />
-          ))}
-          {advancedSection === 'sprayDiscipline' && (sprayEmpty ? noData : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-              <SmallChip label="Pull%" value={`${(battingSpray.pullRate * 100).toFixed(0)}%`} accent="#22C55E" />
-              <SmallChip label="Center%" value={`${(battingSpray.centerRate * 100).toFixed(0)}%`} accent="#3B82F6" />
-              <SmallChip label="Oppo%" value={`${(battingSpray.oppoRate * 100).toFixed(0)}%`} accent="#EAB308" />
-              <SmallChip label="P/PA" value={formatDecimal(battingDiscipline.pitchesPerPa, 2)} />
-              <SmallChip label="Whiff%" value={`${(battingDiscipline.whiffRate * 100).toFixed(0)}%`} accent="#EF4444" />
-              <SmallChip label="Foul%" value={`${(battingDiscipline.foulRate * 100).toFixed(0)}%`} />
-              <SmallChip label="KS%" value={`${(battingDiscipline.ksRate * 100).toFixed(0)}%`} accent="#EF4444" />
-              <SmallChip label="KL%" value={`${(battingDiscipline.klRate * 100).toFixed(0)}%`} />
-            </div>
-          ))}
-          {advancedSection === 'pitchingFielding' && (pitchFieldEmpty ? noData : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-              <SmallChip label="Star Pitch %" value={`${(pitchingStar.successRate * 100).toFixed(0)}%`} accent="#EAB308" />
-              <SmallChip label="Strike %" value={`${(pitchingMix.strikeRate * 100).toFixed(0)}%`} accent="#22C55E" />
-              <SmallChip label="1st Str %" value={`${(pitchingMix.firstPitchStrikeRate * 100).toFixed(0)}%`} accent="#3B82F6" />
-              <SmallChip label="Whiff %" value={`${(pitchingMix.swingingMissRate * 100).toFixed(0)}%`} accent="#EF4444" />
-              <SmallChip label="Allowed LD%" value={`${(pitchingBattedBall.ldRate * 100).toFixed(0)}%`} />
-              <SmallChip label="Allowed Pull%" value={`${(pitchingSpray.pullRate * 100).toFixed(0)}%`} />
-              <SmallChip label="Star Used" value={formatInteger(pitchingStar.used)} accent="#EAB308" />
-            </div>
-          ))}
-          {advancedSection === 'power' && (powerEmpty ? noData : (
-            <div style={{ display: 'grid', gap: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                <SmallChip label="Avg Dist" value={`${battingDistance.avgDistance} ft`} accent="#3B82F6" />
-                <SmallChip label="Longest" value={`${battingDistance.maxDistance} ft`} accent="#EAB308" />
-                <SmallChip label="Hard-Hit %" value={`${(battingDistance.hardHitRate * 100).toFixed(0)}%`} accent="#22C55E" />
-                <SmallChip label="Power Index" value={formatInteger(hitPowerIndex)} accent="#F97316" />
-              </div>
-              {wouldBeHrCount > 0 ? (
-                <p style={{ color: '#94A3B8', fontSize: 12, margin: 0 }}>
-                  {wouldBeHrCount} of {character.name}'s non-homers would have left the yard in at least one other stadium.
-                </p>
-              ) : null}
-              <SprayChart plateAppearances={rawPasBatting} height={320} />
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      {/* Expected stats */}
-      <Section id="xstats" title="Expected Stats">
-        {expectedBatting.sampleSize === 0 ? noData : (
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-              <SmallChip label="AVG vs xBA" value={`${formatDecimal(showBatting.avg)} / ${formatDecimal(expectedBatting.xBA)}`} accent="#3B82F6" />
-              <SmallChip label="SLG vs xSLG" value={`${formatDecimal(showBatting.slg)} / ${formatDecimal(expectedBatting.xSLG)}`} accent="#EAB308" />
-              <SmallChip label="wOBA-scale vs xwOBA" value={formatDecimal(expectedBatting.xwOBA)} accent="#22C55E" />
-            </div>
-            <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
-              Based on {expectedBatting.sampleSize} batted balls with tracked exit velocity/launch angle, compared against similar contact league-wide.
-            </p>
-          </div>
-        )}
-      </Section>
-
-      {/* Fielding */}
-      <Section id="fielding" title="Fielding">
-        {fieldingTableRows.length === 0 ? (
-          <div style={{ display: 'grid', gap: 6 }}>
-            {noData}
-            <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
-              Only total chances, errors, and fielding % are tracked — putouts/assists come from the fielder chain recorded during scoring.
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 8 }}>
-            <YearByYearTable columns={fieldingColumns} rows={fieldingTableRows} careerRow={fieldingCareerRow} />
-            <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
-              PO/A are derived from the recorded fielder chain on each play (last fielder touched = putout, earlier fielders = assists).
-            </p>
-          </div>
-        )}
-      </Section>
-
-      {/* Trends */}
-      <Section id="chart" title="Trends">
-        <div style={{ display: 'grid', gap: 8 }}>
-          <div style={{ color: '#475569', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>
-            Rolling OPS (trailing {ROLLING_WINDOW} PA)
-          </div>
-          <RollingStatChart points={rollingChartPoints} color="#EAB308" />
-        </div>
-      </Section>
-
-      {/* Awards */}
-      <Section id="awards" title="Awards">
-        {awardRows.length === 0 ? noData : (
-          <div style={{ display: 'grid', gap: 8 }}>
-            {awardRows.map((row, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.5rem 0.7rem', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                <span style={{
-                  fontSize: 10, fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: 999, textTransform: 'uppercase',
-                  background: row.led ? 'rgba(234,179,8,0.15)' : 'rgba(59,130,246,0.15)',
-                  border: `1px solid ${row.led ? 'rgba(234,179,8,0.4)' : 'rgba(59,130,246,0.4)'}`,
-                  color: row.led ? '#EAB308' : '#60A5FA',
-                }}>
-                  {row.led ? 'Led League' : `Top ${row.rank}`}
-                </span>
-                <span style={{ fontSize: 13, color: '#F8FAFC' }}>{row.stat} — {row.eventLabel}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-
-      {/* Transactions */}
-      <Section id="transactions" title="Transactions">
-        {transactions.length === 0 ? noData : (
-          <div style={{ display: 'grid', gap: 8 }}>
-            {transactions.map((tx, i) => {
-              const dateLabel = tx.date ? new Date(tx.date).toLocaleDateString() : ''
-              let description = ''
-              if (tx.type === 'draft') description = `Drafted${tx.round ? ` (Round ${tx.round}, Pick ${tx.pickNumber})` : ''} by ${teamLabel(tx.playerId)}${tx.eventLabel ? ` — ${tx.eventLabel}` : ''}`
-              else if (tx.type === 'season_draft') description = `Drafted${tx.round ? ` (Round ${tx.round}, Pick ${tx.pickNumber})` : ''} by ${teamLabel(tx.teamId)}${tx.eventLabel ? ` — ${tx.eventLabel}` : ''}`
-              else if (tx.type === 'trade') description = `Traded: ${teamLabel(tx.fromPlayerId)} → ${teamLabel(tx.toPlayerId)}`
-              else if (tx.type === 'waiver') description = `Won off waivers by ${teamLabel(tx.teamId)}`
-              else if (tx.type === 'free_agent_add') description = `Signed as a free agent by ${teamLabel(tx.teamId)}${tx.eventLabel ? ` — ${tx.eventLabel}` : ''}`
-              else if (tx.type === 'free_agent_drop') description = `Dropped by ${teamLabel(tx.teamId)}`
-              return (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '0.5rem 0.7rem', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                  <span style={{ fontSize: 13, color: '#F8FAFC' }}>{description}</span>
-                  <span style={{ fontSize: 11, color: '#64748B', flexShrink: 0 }}>{dateLabel}</span>
+          {/* Chemistry */}
+          <Section id="chemistry" title="Chemistry">
+            <div style={{ display: 'grid', gap: 16 }}>
+              {chemistrySummary && (
+                <div style={{ display: 'flex', gap: '0.5rem 1.5rem', flexWrap: 'wrap' }}>
+                  {[
+                    { label: 'Positive', value: chemistrySummary.positive, color: '#22C55E' },
+                    { label: 'Negative', value: chemistrySummary.negative, color: '#EF4444' },
+                    { label: 'Net', value: chemistrySummary.net, color: chemistrySummary.net >= 0 ? '#4ADE80' : '#FCA5A5' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <span style={{ color: '#64748B', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
+                      <span style={{ color, fontSize: 14, fontWeight: 700, marginTop: 1 }}>{value}</span>
+                    </div>
+                  ))}
                 </div>
-              )
-            })}
-          </div>
-        )}
-      </Section>
-
-      {/* Chemistry */}
-      <Section id="chemistry" title="Chemistry">
-        <div style={{ display: 'grid', gap: 16 }}>
-          {chemistrySummary && (
-            <div style={{ display: 'flex', gap: '0.5rem 1.5rem', flexWrap: 'wrap' }}>
-              {[
-                { label: 'Positive', value: chemistrySummary.positive, color: '#22C55E' },
-                { label: 'Negative', value: chemistrySummary.negative, color: '#EF4444' },
-                { label: 'Net', value: chemistrySummary.net, color: chemistrySummary.net >= 0 ? '#4ADE80' : '#FCA5A5' },
-              ].map(({ label, value, color }) => (
-                <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <span style={{ color: '#64748B', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
-                  <span style={{ color, fontSize: 14, fontWeight: 700, marginTop: 1 }}>{value}</span>
-                </div>
-              ))}
+              )}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#22C55E', marginBottom: 7 }}>Good</div>
+                {chemistry.good.length ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{chemistry.good.map((name) => <ChemChip key={name} name={name} kind="good" />)}</div>
+                ) : <span style={{ color: '#475569', fontSize: 12, fontStyle: 'italic' }}>No good chemistry</span>}
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#EF4444', marginBottom: 7 }}>Bad</div>
+                {chemistry.bad.length ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{chemistry.bad.map((name) => <ChemChip key={name} name={name} kind="bad" />)}</div>
+                ) : <span style={{ color: '#475569', fontSize: 12, fontStyle: 'italic' }}>No bad chemistry</span>}
+              </div>
             </div>
-          )}
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#22C55E', marginBottom: 7 }}>Good</div>
-            {chemistry.good.length ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{chemistry.good.map((name) => <ChemChip key={name} name={name} />)}</div>
-            ) : <span style={{ color: '#475569', fontSize: 12, fontStyle: 'italic' }}>No good chemistry</span>}
-          </div>
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#EF4444', marginBottom: 7 }}>Bad</div>
-            {chemistry.bad.length ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{chemistry.bad.map((name) => <ChemChip key={name} name={name} />)}</div>
-            ) : <span style={{ color: '#475569', fontSize: 12, fontStyle: 'italic' }}>No bad chemistry</span>}
-          </div>
-        </div>
-      </Section>
+          </Section>
 
-      {/* Gamelog */}
-      <Section id="gamelog" title="Gamelog">
-        {(!hasBatting && !hasPitching) ? (
-          <div style={{ display: 'grid', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{renderSourceSelector()}</div>
-            <p style={{ color: '#475569', fontSize: 13, fontStyle: 'italic', margin: 0 }}>No game data available for this source.</p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <select value={effectiveGamelogStatType} onChange={(e) => setGamelogStatType(e.target.value)} style={dropStyle}>
-                {hasBatting && <option value="batting">Hitting</option>}
-                {hasPitching && <option value="pitching">Pitching</option>}
+          {/* Gamelog */}
+          <Section id="gamelog" title="Gamelog">
+            <div style={{ display: 'grid', gap: 14 }}>
+              <select value={gamelogStatType} onChange={(e) => setGamelogStatType(e.target.value)} style={dropStyle}>
+                <option value="batting">Hitting</option>
+                <option value="pitching">Pitching</option>
               </select>
-              {renderSourceSelector()}
+              {gamelogStatType === 'batting' ? renderBattingLog() : renderPitchingLog()}
             </div>
-            {effectiveGamelogStatType === 'batting' ? renderBattingLog() : renderPitchingLog()}
-          </div>
-        )}
-      </Section>
+          </Section>
+        </div>
+      </div>
     </div>
   )
 }

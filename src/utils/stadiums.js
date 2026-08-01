@@ -10,6 +10,18 @@ export const STADIUM_ORDER = [
   'Bowser Castle',
 ]
 
+export const STADIUM_NAME_TO_KEY = {
+  'Mario Stadium': 'mario_stadium',
+  "Luigi's Mansion": 'luigis_mansion',
+  'Peach Ice Garden': 'peach_ice_garden',
+  'Daisy Cruiser': 'daisy_cruiser',
+  'Wario City': 'wario_city',
+  'Yoshi Park': 'yoshi_park',
+  'DK Jungle': 'dk_jungle',
+  'Bowser Jr. Playroom': 'bowser_jr_playroom',
+  'Bowser Castle': 'bowser_castle',
+}
+
 const STADIUM_LOGO_PATHS = {
   'Mario Stadium': '/stadiums/mario_stadium_en.png',
   "Luigi's Mansion": '/stadiums/luigis_mansion_en.png',
@@ -26,6 +38,56 @@ const STADIUM_LOGO_PATHS = {
 export function getOrderedStadiums(stadiums = []) {
   const order = new Map(STADIUM_ORDER.map((name, index) => [name, index]))
   return [...stadiums].sort((a, b) => (order.get(a.name) ?? 999) - (order.get(b.name) ?? 999))
+}
+
+export function getStadiumKeyByName(name) {
+  if (!name) return null
+  return STADIUM_NAME_TO_KEY[name] ?? null
+}
+
+export const STADIUM_KEY_TO_NAME = Object.fromEntries(
+  Object.entries(STADIUM_NAME_TO_KEY).map(([name, key]) => [key, name]),
+)
+
+export function getStadiumNameByKey(key) {
+  if (!key) return null
+  return STADIUM_KEY_TO_NAME[key] ?? null
+}
+
+// stadium_game_log (tournaments) and season_stadium_game_log (seasons) are historical-only
+// append tables, and they store the stadium reference differently (stadium_id vs. stadium
+// name text). These are the only valid select() columns for each table. Import these rather
+// than hand-writing the select string, since a hardcoded mismatch 400s the query silently in
+// a Promise.all and can wipe an entire page's stats (see useCharacterProfileData.js).
+export const STADIUM_GAME_LOG_SELECT = 'game_id,stadium_id'
+export const SEASON_STADIUM_GAME_LOG_SELECT = 'game_id,stadium'
+
+export function buildStadiumKeyByGameId(games = [], stadiums = [], stadiumLog = []) {
+  const stadiumNameById = Object.fromEntries(
+    stadiums.map((stadium) => [String(stadium.id), stadium.name]),
+  )
+  const result = {}
+
+  games.forEach((game) => {
+    const gameId = String(game.id)
+    const stadiumName = game.stadium
+      || stadiumNameById[String(game.stadium_id)]
+      || null
+    const stadiumKey = getStadiumKeyByName(stadiumName)
+    if (stadiumKey) result[gameId] = stadiumKey
+  })
+
+  stadiumLog.forEach((entry) => {
+    const gameId = String(entry.game_id)
+    if (result[gameId]) return
+    const stadiumName = entry.stadium
+      || stadiumNameById[String(entry.stadium_id)]
+      || null
+    const stadiumKey = getStadiumKeyByName(stadiumName)
+    if (stadiumKey) result[gameId] = stadiumKey
+  })
+
+  return result
 }
 
 export function normalizeIsNightForStadium(stadium, isNight) {

@@ -79,11 +79,7 @@ export function summarizeExpectedBatting(rawPlateAppearances = [], model) {
     return { sampleSize: 0, xBA: null, xSLG: null, xwOBA: null, xwobaDiff: null }
   }
 
-  // Star hits force their outcome (guaranteed contact/error) independent of
-  // how well the ball was actually struck, so they'd both mislabel the
-  // batter's own expected line and, if left in the league pool upstream,
-  // poison the EV/LA-to-outcome model for everyone else's normal swings.
-  const plateAppearances = rawPlateAppearances.filter((pa) => !pa.star_hit_used)
+  const plateAppearances = rawPlateAppearances
 
   const abs = plateAppearances.filter((pa) => isOfficialAtBat(pa)).length
   const walks = plateAppearances.filter((pa) => pa.result === 'BB').length
@@ -100,7 +96,11 @@ export function summarizeExpectedBatting(rawPlateAppearances = [], model) {
     if (!isOfficialAtBat(pa)) return
     if (pa.result === 'K') return // automatic out, no batted-ball estimate applies
 
-    const hasEvLa = pa.exit_velocity_mph != null && pa.launch_angle_deg != null &&
+    // Star hits force their outcome (guaranteed contact/error) independent of
+    // how well the ball was actually struck, so their EV/LA says nothing about
+    // contact quality — skip the model estimate and count them by actual result,
+    // same as AVG does, so they stay in both stats' denominators.
+    const hasEvLa = !pa.star_hit_used && pa.exit_velocity_mph != null && pa.launch_angle_deg != null &&
       Number.isFinite(Number(pa.exit_velocity_mph)) && Number.isFinite(Number(pa.launch_angle_deg))
 
     if (hasEvLa) {
@@ -114,7 +114,7 @@ export function summarizeExpectedBatting(rawPlateAppearances = [], model) {
       }
     }
 
-    // No usable EV/LA (legacy row, or a walk/HBP/SF already excluded above) —
+    // No usable EV/LA (legacy row, star hit, or a walk/HBP/SF already excluded above) —
     // fall back to the actual result so it isn't silently dropped from the total.
     const isHit = hitResults.has(pa.result) ? 1 : 0
     xHitTotal += isHit

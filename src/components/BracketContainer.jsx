@@ -9,6 +9,7 @@ export default function BracketContainer({
   onSelectGame,
   onChampionDeclared,
   compact = false,
+  teamLinkBuilder,
 }) {
   const isSingleElim = bracketFormat === 'single' || bracketFormat === 'single_elimination'
   const isRoundRobin = bracketFormat === 'round_robin'
@@ -49,6 +50,7 @@ export default function BracketContainer({
           identitiesByPlayerId={identitiesByPlayerId}
           onSelectGame={onSelectGame}
           playersById={playersById}
+          teamLinkBuilder={teamLinkBuilder}
         />
         {championId && onChampionDeclared ? (
           <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>

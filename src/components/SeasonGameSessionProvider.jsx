@@ -84,18 +84,18 @@ export default function SeasonGameSessionProvider({ children }) {
       }
 
       const [
-        { data: seasonGamesData },
-        { data: playersData },
-        { data: lineupsData },
-        { data: charsData },
-        { data: rosterData },
-        { data: pasData },
-        { data: pitchingData },
-        { data: pitchRowsData },
-        { data: fieldersData },
-        { data: runsData },
-        { data: inningScoresData },
-        { data: teamsData },
+        { data: seasonGamesData, error: seasonGamesError },
+        { data: playersData, error: playersError },
+        { data: lineupsData, error: lineupsError },
+        { data: charsData, error: charsError },
+        { data: rosterData, error: rosterError },
+        { data: pasData, error: pasError },
+        { data: pitchingData, error: pitchingError },
+        pitchRowsResult,
+        { data: fieldersData, error: fieldersError },
+        { data: runsData, error: runsError },
+        { data: inningScoresData, error: inningScoresError },
+        { data: teamsData, error: teamsError },
         { data: stadiumsData },
         { data: stadiumLogData },
       ] = await Promise.all([
@@ -106,7 +106,11 @@ export default function SeasonGameSessionProvider({ children }) {
         supabase.from(SEASON_TABLES.draftPicks).select('*').eq('season_id', currentSeason.id).order('created_at'),
         supabase.from(SEASON_TABLES.plateAppearances).select('*').eq('season_id', currentSeason.id).order('created_at'),
         supabase.from(SEASON_TABLES.pitchingStints).select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from(SEASON_TABLES.pitches).select('*').eq('season_id', currentSeason.id).order('created_at'),
+        // Scorebook only consumes pitch rows for the selected game. Loading the
+        // entire season silently hits Supabase's default 1,000-row response cap
+        // in longer seasons, which can omit the active game's pitches and reset
+        // the live pitch counter back to zero after a data refresh.
+        supabase.from(SEASON_TABLES.pitches).select('*').eq('game_id', gameId).order('created_at'),
         supabase.from(SEASON_TABLES.gameFielders).select('*').eq('season_id', currentSeason.id).order('created_at'),
         supabase.from(SEASON_TABLES.runsScored).select('*').eq('season_id', currentSeason.id).order('created_at'),
         supabase.from(SEASON_TABLES.inningScores).select('*').eq('season_id', currentSeason.id).order('inning'),
@@ -155,7 +159,21 @@ export default function SeasonGameSessionProvider({ children }) {
         draftPicks: normalizedRoster,
         plateAppearances: pasData || [],
         pitchingStints: pitchingData || [],
-        pitches: pitchRowsData || [],
+        pitches: pitchRowsResult.error ? null : (pitchRowsResult.data || []),
+        pitchLoadError: pitchRowsResult.error || null,
+        loadError: seasonGamesError
+          || playersError
+          || lineupsError
+          || charsError
+          || rosterError
+          || pasError
+          || pitchingError
+          || pitchRowsResult.error
+          || fieldersError
+          || runsError
+          || inningScoresError
+          || teamsError
+          || null,
         gameFielders: normalizedFielders,
         runsScored: runsData || [],
         inningScores: (inningScoresData || []).map((entry) => ({

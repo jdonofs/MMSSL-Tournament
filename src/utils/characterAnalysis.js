@@ -257,11 +257,13 @@ const HISTORY_DELTA_CLAMP = 2       // clamp the weighted avg delta to ±2 perfS
 const HISTORY_DELTA_SCALE = 9       // maps a ±2 delta to roughly the old ±18-point OVR ceiling
 const GAME_DELTA_CLAMP = 3          // clamp each game's blended delta before averaging (mirrors statsCalculator.js)
 const TALENT_RELATIVE_WEIGHT = 0.65 // share of the blend driven by vs-own-talent rather than vs-teammates
+const PLAYER_SKILL_SIGNAL_FLOOR = 0.4 // low-skill owners still count, but their results are trusted less in both directions
 
 // Outs/chances accumulate far slower than plate appearances, so pitching and fielding need their
 // own (smaller) volume needed to reach full confidence — tunable judgment calls, not derived.
 const PITCHING_OUTS_SCALE = 60      // ~20 innings pitched to reach full weight
 const FIELDING_CHANCES_SCALE = 40   // ~40 fielding chances to reach full weight
+const PITCHING_HISTORY_EVENT_SHARE = 0.5 // split pitching trust between per-game form and event-wide sample
 
 // Below this fraction of weightScale, a sample is too thin to trust at all — a couple of clean
 // games or a lucky at-bat run shouldn't be able to move a character's OVR. Below the floor the
@@ -279,12 +281,19 @@ function buildHistoryAdjustment(history = [], { scoreField = 'perfScore', weight
     return { adjustedDelta: null, weight: 0, games: 0, totalWeight: 0 }
   }
 
+  const signalConfidence = (entry) => {
+    if (!Number.isFinite(entry?.playerSkillScore)) return 1
+    const clampedSkill = clamp(entry.playerSkillScore, 0, 1)
+    return PLAYER_SKILL_SIGNAL_FLOOR + ((1 - PLAYER_SKILL_SIGNAL_FLOOR) * clampedSkill)
+  }
+
   const blendedDelta = (entry) => {
     const teamRelative = Number.isFinite(entry.gameDelta) ? entry.gameDelta : 0
-    if (expectedPerf === null) return teamRelative
+    if (expectedPerf === null) return teamRelative * signalConfidence(entry)
     const talentRelative = entry[scoreField] - expectedPerf
-    return Math.max(-GAME_DELTA_CLAMP, Math.min(GAME_DELTA_CLAMP,
+    const rawBlend = Math.max(-GAME_DELTA_CLAMP, Math.min(GAME_DELTA_CLAMP,
       (talentRelative * TALENT_RELATIVE_WEIGHT) + (teamRelative * (1 - TALENT_RELATIVE_WEIGHT))))
+    return rawBlend * signalConfidence(entry)
   }
 
   const totalWeight = valid.reduce((sum, entry) => sum + (entry[weightField] || 0), 0)
@@ -306,6 +315,63 @@ function historyAdjustmentToContribution(historyAdjustment) {
   return historyAdjustment.adjustedDelta === null
     ? 0
     : Math.max(-18, Math.min(18, historyAdjustment.adjustedDelta * HISTORY_DELTA_SCALE)) * (historyAdjustment.weight / HISTORY_WEIGHT_CAP)
+}
+
+// Pitching needs both views at once:
+//  1. Per-game samples preserve the shape of a pitcher's actual run of outings, so one disaster
+//     inside an otherwise strong season doesn't flatten the whole event to "bad."
+//  2. Event-sized samples smooth FIP's short-outing volatility, so one HR in 2 innings doesn't
+//     single-handedly crater an elite pitcher's rating.
+// buildCharacterPitchingGameHistory attaches event-level perf fields onto each game row; here we
+// blend half the weight through the detailed game log and half through one synthesized event row.
+function buildPitchingAdjustmentHistory(history = []) {
+  const validGameEntries = history.filter((entry) => Number.isFinite(entry?.pitchPerfScore) && Number.isFinite(entry?.outs))
+  const eventGroups = {}
+  history.forEach((entry, index) => {
+    const key = entry?.eventKey || `game:${entry?.gameId ?? index}`
+    if (!eventGroups[key]) eventGroups[key] = []
+    eventGroups[key].push(entry)
+  })
+
+  const eventEntries = Object.values(eventGroups).map((group) => {
+    const first = group[0] || {}
+    const fallbackScoreEntries = group.filter((entry) => Number.isFinite(entry?.pitchPerfScore) && Number.isFinite(entry?.outs))
+    const fallbackDeltaEntries = group.filter((entry) => Number.isFinite(entry?.gameDelta) && Number.isFinite(entry?.outs))
+    const fallbackOuts = group.reduce((sum, entry) => sum + Number(entry?.outs || 0), 0)
+    const fallbackPitchPerfScore = fallbackScoreEntries.length
+      ? fallbackScoreEntries.reduce((sum, entry) => sum + (entry.pitchPerfScore * entry.outs), 0) /
+        fallbackScoreEntries.reduce((sum, entry) => sum + entry.outs, 0)
+      : null
+    const fallbackGameDelta = fallbackDeltaEntries.length
+      ? fallbackDeltaEntries.reduce((sum, entry) => sum + (entry.gameDelta * entry.outs), 0) /
+        fallbackDeltaEntries.reduce((sum, entry) => sum + entry.outs, 0)
+      : null
+
+    return {
+      ...first,
+      outs: Number.isFinite(first.eventOuts) ? first.eventOuts : fallbackOuts,
+      pitchPerfScore: Number.isFinite(first.eventPitchPerfScore) ? first.eventPitchPerfScore : fallbackPitchPerfScore,
+      // Preserve the event-level performance score, but let the context term come from the
+      // weighted average of per-game player-relative deltas. Recomputing one event-wide delta can
+      // collapse the same owner-skill signal we're trying to preserve (e.g. Daisy on the Schlongs).
+      gameDelta: Number.isFinite(fallbackGameDelta) ? fallbackGameDelta : first.eventGameDelta,
+    }
+  })
+
+  if (!validGameEntries.length) return eventEntries
+  if (!eventEntries.length) return validGameEntries
+
+  const gameShare = 1 - PITCHING_HISTORY_EVENT_SHARE
+  return [
+    ...validGameEntries.map((entry) => ({
+      ...entry,
+      outs: Number(entry.outs || 0) * gameShare,
+    })),
+    ...eventEntries.map((entry) => ({
+      ...entry,
+      outs: Number(entry.outs || 0) * PITCHING_HISTORY_EVENT_SHARE,
+    })),
+  ]
 }
 
 function describeStrength(label, score) {
@@ -701,7 +767,8 @@ function computeTalentAnalysis(character, history = [], pitchingHistory = [], fi
   // Falls back to a half-weighted slice of the batting delta only when there's no pitching
   // history at all, so a character with zero recorded innings doesn't sit at pure talent while
   // teammates with batting-only history get an (unrelated) bump.
-  const pitchingHistoryAdjustment = buildHistoryAdjustment(pitchingHistory, {
+  const pitchingAdjustmentHistory = buildPitchingAdjustmentHistory(pitchingHistory)
+  const pitchingHistoryAdjustment = buildHistoryAdjustment(pitchingAdjustmentHistory, {
     scoreField: 'pitchPerfScore', weightField: 'outs', weightScale: PITCHING_OUTS_SCALE, expectedPerf: pitchingBase / 10,
   })
   const pitchingHistoryContribution = pitchingHistoryAdjustment.adjustedDelta !== null

@@ -23,13 +23,16 @@ export default function usePitchCount({ pitcherKey, initialPitchNumber = 0 }) {
   const [pitchNumber, setPitchNumber] = useState(initialPitchNumber)
 
   useEffect(() => {
-    ballsRef.current = 0
-    strikesRef.current = 0
+    // A pitching change resets only that pitcher's game total. Balls and
+    // strikes belong to the plate appearance and must survive a mid-PA change;
+    // Scorebook's active-PA hydration owns their reset/restore lifecycle.
     pitchNumberRef.current = initialPitchNumber
-    setBalls(0)
-    setStrikes(0)
     setPitchNumber(initialPitchNumber)
-  }, [pitcherKey, initialPitchNumber])
+    // `initialPitchNumber` is deliberately sampled only when the pitcher key
+    // changes. Committed-row refreshes are reconciled by Scorebook, which can
+    // distinguish a normal save from an intentional undo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pitcherKey])
 
   const resetPa = useCallback(() => {
     ballsRef.current = 0

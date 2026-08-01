@@ -19,10 +19,13 @@ import { buildSeasonTeamIdentity, getTeamShortName } from '../utils/teamIdentity
 import { buildCharacterGameHistory, buildCharacterPitchingGameHistory, buildCharacterFieldingGameHistory, computeLeagueConstants } from '../utils/statsCalculator'
 import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
 import { recommendFielding, recommendLineup } from '../utils/autoTeamSetup'
+import { useUnsavedChangesGuard, useConfirmedAction } from '../hooks/useUnsavedChangesGuard'
+import { useRegisterUnsavedChanges } from '../context/UnsavedChangesContext'
+import SaveLineupBar from '../components/SaveLineupBar'
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt'
 
 const TABS = ['Rosters', 'Trade Center', 'Free Agents', 'Transactions']
 const WAIVER_DURATION_MS = 7 * 24 * 60 * 60 * 1000
-const SUPPORTS_WAIVER_CLAIMS_SCHEMA = false
 
 function sortNewestFirst(rows = []) {
   return [...rows].sort((a, b) => new Date(b.created_at || b.proposed_at || 0) - new Date(a.created_at || a.proposed_at || 0))
@@ -67,34 +70,6 @@ function getWaiverClockTeamId(waiver, reverseStandings = []) {
   return reverseStandings
     .map((entry) => String(entry.id))
     .find((teamId) => teamId !== String(waiver?.source_team_id || '') && !deniedTeamIds.has(teamId)) || ''
-}
-
-function buildLegacyTradeSummary(trades, tradePlayers) {
-  return (trades || []).map((trade) => ({
-    id: `legacy-${trade.id}`,
-    source: 'legacy',
-    status: trade.status,
-    created_at: trade.created_at,
-    resolved_at: trade.resolved_at,
-    created_by_team_id: trade.proposing_team_id,
-    trade_id: trade.id,
-    participants: [
-      { team_id: trade.proposing_team_id, decision_status: 'accepted' },
-      {
-        team_id: trade.receiving_team_id,
-        decision_status: trade.status === 'pending' ? 'pending' : trade.status === 'accepted' ? 'accepted' : trade.status,
-      },
-    ],
-    moves: (tradePlayers || [])
-      .filter((entry) => entry.trade_id === trade.id)
-      .map((entry) => ({
-        id: `legacy-move-${entry.id}`,
-        roster_id: null,
-        character_name: entry.character_name,
-        from_team_id: entry.from_team_id,
-        to_team_id: entry.to_team_id,
-      })),
-  }))
 }
 
 function buildModernTradeSummary(proposals, proposalTeams, proposalMoves) {
@@ -648,11 +623,10 @@ export default function SeasonRoster() {
   const [roster, setRoster] = useState([])
   const [waivers, setWaivers] = useState([])
   const [waiverClaims, setWaiverClaims] = useState([])
-  const [legacyTrades, setLegacyTrades] = useState([])
-  const [legacyTradePlayers, setLegacyTradePlayers] = useState([])
   const [tradeProposals, setTradeProposals] = useState([])
   const [tradeProposalTeams, setTradeProposalTeams] = useState([])
   const [tradeProposalMoves, setTradeProposalMoves] = useState([])
+  const [supportsWaiverClaimsSchema, setSupportsWaiverClaimsSchema] = useState(true)
   const [supportsModernTradeSchema, setSupportsModernTradeSchema] = useState(true)
   const [activeTab, setActiveTab] = useState(TABS[0])
   const [viewedTeamId, setViewedTeamId] = useState('')
@@ -670,15 +644,17 @@ export default function SeasonRoster() {
   const lastSyncedLineupRef = useRef(null)
   const lineupLoadKeyRef = useRef(null)
 
+  const loadRosterDataSeqRef = useRef(0)
+
   const loadRosterData = useCallback(async () => {
     if (!currentSeason?.id) return
+    const requestSeq = ++loadRosterDataSeqRef.current
     const [
       playersResponse,
       charactersResponse,
       rosterResponse,
       waiversResponse,
-      legacyTradesResponse,
-      legacyTradePlayersResponse,
+      waiverClaimsResponse,
       modernTradesResponse,
       modernTradeTeamsResponse,
       modernTradeMovesResponse,
@@ -687,12 +663,19 @@ export default function SeasonRoster() {
       supabase.from('characters').select('*').order('name'),
       supabase.from('season_roster').select('*').eq('season_id', currentSeason.id).order('created_at'),
       supabase.from('season_waivers').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
-      supabase.from('season_trades').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
-      supabase.from('season_trade_players').select('*').order('id'),
+      supabase.from('season_waiver_claims').select('*').eq('season_id', currentSeason.id).order('created_at'),
       supabase.from('season_trade_proposals').select('*').eq('season_id', currentSeason.id).order('created_at', { ascending: false }),
       supabase.from('season_trade_proposal_teams').select('*').eq('season_id', currentSeason.id).order('created_at'),
       supabase.from('season_trade_proposal_moves').select('*').eq('season_id', currentSeason.id).order('created_at'),
     ])
+
+    // Multiple realtime table subscriptions can each trigger a reload within
+    // milliseconds of each other (e.g. a free-agent pickup writes season_roster
+    // twice then season_waivers once). Those overlapping fetches aren't
+    // guaranteed to resolve in the order they were issued, so a slower,
+    // earlier-issued call can land after a newer one and stomp fresh state
+    // with a stale snapshot. Drop any response that isn't the most recent call.
+    if (requestSeq !== loadRosterDataSeqRef.current) return
 
     const modernTradeSchemaMissing = [
       modernTradesResponse.error,
@@ -703,15 +686,15 @@ export default function SeasonRoster() {
       'season_trade_proposal_teams',
       'season_trade_proposal_moves',
     ]))
+    const waiverClaimsSchemaMissing = isMissingSupabaseTable(waiverClaimsResponse.error, 'season_waiver_claims')
 
     setSupportsModernTradeSchema(!modernTradeSchemaMissing)
+    setSupportsWaiverClaimsSchema(!waiverClaimsSchemaMissing)
     setPlayers(playersResponse.data || [])
     setCharacters(charactersResponse.data || [])
     setRoster(rosterResponse.data || [])
     setWaivers(waiversResponse.data || [])
-    setWaiverClaims([])
-    setLegacyTrades(legacyTradesResponse.data || [])
-    setLegacyTradePlayers(legacyTradePlayersResponse.data || [])
+    setWaiverClaims(waiverClaimsSchemaMissing ? [] : (waiverClaimsResponse.data || []))
     setTradeProposals(modernTradeSchemaMissing ? [] : (modernTradesResponse.data || []))
     setTradeProposalTeams(modernTradeSchemaMissing ? [] : (modernTradeTeamsResponse.data || []))
     setTradeProposalMoves(modernTradeSchemaMissing ? [] : (modernTradeMovesResponse.data || []))
@@ -728,7 +711,8 @@ export default function SeasonRoster() {
       const [
         { data: paData }, { data: gData }, { data: seasonPaData },
         { data: pitchData }, { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData },
-        { data: seasonTeamsData },
+        { data: seasonTeamsData }, { data: charData },
+        { data: gamePitchesData }, { data: seasonGamePitchesData },
       ] = await Promise.all([
         supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
         supabase.from('games').select('id,tournament_id'),
@@ -738,12 +722,26 @@ export default function SeasonRoster() {
         supabase.from('game_fielders').select('*'),
         supabase.from('season_game_fielders').select('*'),
         supabase.from('season_teams').select('id,player_id'),
+        supabase.from('characters').select('id,name'),
+        supabase.from('pitches').select('game_id,pitcher_id'),
+        supabase.from('season_pitches').select('game_id,pitcher_id'),
       ])
+      // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
+      // mound-assignment bookkeeping), before they've necessarily thrown a pitch — if pulled again
+      // without facing a batter, that stint sits at 0 IP forever but would still count as a "game"
+      // pitched. Drop stints with no matching row in `pitches`/`season_pitches` (by game_id +
+      // pitcher name, since pitches.pitcher_id is a name string, not character_id).
+      const nameByCharId = Object.fromEntries((charData || []).map((c) => [String(c.id), c.name]))
+      const thrownKeys = new Set((gamePitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const seasonThrownKeys = new Set((seasonGamePitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const stintsWithPitches = (pitchData || []).filter((s) => thrownKeys.has(`${s.game_id}:${nameByCharId[String(s.character_id)]}`))
+      const seasonStintsWithPitches = (seasonPitchData || []).filter((s) => seasonThrownKeys.has(`${s.game_id}:${nameByCharId[String(s.character_id)]}`))
+
       setAllPlateAppearances(paData || [])
       setAllGames(gData || [])
       setAllSeasonPlateAppearances(seasonPaData || [])
-      setAllPitchingStints(pitchData || [])
-      setAllSeasonPitchingStints(seasonPitchData || [])
+      setAllPitchingStints(stintsWithPitches)
+      setAllSeasonPitchingStints(seasonStintsWithPitches)
       setAllGameFielders(fieldersData || [])
       setAllSeasonGameFielders(seasonFieldersData || [])
       setAllSeasonTeams(seasonTeamsData || [])
@@ -756,6 +754,8 @@ export default function SeasonRoster() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitches' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitches' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams' }, load)
@@ -782,8 +782,10 @@ export default function SeasonRoster() {
       .channel(`season-roster-${currentSeason.id}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_waivers', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trades', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_players' }, loadRosterData)
+    if (supportsWaiverClaimsSchema) {
+      channel = channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'season_waiver_claims', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
+    }
     if (supportsModernTradeSchema) {
       channel = channel
         .on('postgres_changes', { event: '*', schema: 'public', table: 'season_trade_proposals', filter: `season_id=eq.${currentSeason.id}` }, loadRosterData)
@@ -792,9 +794,10 @@ export default function SeasonRoster() {
     }
     channel = channel.subscribe()
     return () => supabase.removeChannel(channel)
-  }, [currentSeason?.id, loadRosterData, supportsModernTradeSchema])
+  }, [currentSeason?.id, loadRosterData, supportsModernTradeSchema, supportsWaiverClaimsSchema])
 
   const playersById = useMemo(() => Object.fromEntries(players.map((entry) => [entry.id, entry])), [players])
+  const playerNameById = useMemo(() => Object.fromEntries(players.map((entry) => [entry.id, entry.name])), [players])
   const charactersById = useMemo(() => Object.fromEntries(characters.map((entry) => [entry.id, entry])), [characters])
   const charactersByName = useMemo(() => Object.fromEntries(characters.map((entry) => [entry.name, entry])), [characters])
   const teamsById = useMemo(() => Object.fromEntries(seasonTeams.map((entry) => [String(entry.id), entry])), [seasonTeams])
@@ -807,8 +810,8 @@ export default function SeasonRoster() {
     [allSeasonTeams],
   )
   const pitchingGameHistoryByCharacter = useMemo(
-    () => buildCharacterPitchingGameHistory(allPitchingStints, allGames, allTournaments || [], allSeasonPitchingStints, allSeasons || [], leagueConstants),
-    [allPitchingStints, allGames, allTournaments, allSeasonPitchingStints, allSeasons, leagueConstants],
+    () => buildCharacterPitchingGameHistory(allPitchingStints, allGames, allTournaments || [], allSeasonPitchingStints, allSeasons || [], leagueConstants, playerNameById),
+    [allPitchingStints, allGames, allTournaments, allSeasonPitchingStints, allSeasons, leagueConstants, playerNameById],
   )
   const fieldingGameHistoryByCharacter = useMemo(
     () => buildCharacterFieldingGameHistory(
@@ -1033,11 +1036,8 @@ export default function SeasonRoster() {
     })
   }, [availablePlayerRows, freeAgentSort])
   const combinedTrades = useMemo(
-    () => sortNewestFirst([
-      ...buildModernTradeSummary(tradeProposals, tradeProposalTeams, tradeProposalMoves),
-      ...buildLegacyTradeSummary(legacyTrades, legacyTradePlayers),
-    ]),
-    [legacyTradePlayers, legacyTrades, tradeProposalMoves, tradeProposalTeams, tradeProposals],
+    () => sortNewestFirst(buildModernTradeSummary(tradeProposals, tradeProposalTeams, tradeProposalMoves)),
+    [tradeProposalMoves, tradeProposalTeams, tradeProposals],
   )
 
   useEffect(() => {
@@ -1055,6 +1055,48 @@ export default function SeasonRoster() {
     }
   }, [myTeam?.id, seasonTeams, viewedTeamId])
 
+  // Keeps the latest roster available to the realtime/poll sync callbacks below,
+  // which subscribe once per viewed team and must not act on a stale roster
+  // snapshot captured back when the effect first ran.
+  const viewedRosterCharactersRef = useRef([])
+  useEffect(() => {
+    viewedRosterCharactersRef.current = viewedRosterCharacters
+  }, [viewedRosterCharacters])
+
+  // Reconciles a saved { lineupOrder, fieldingPositions } payload (from the DB or
+  // realtime) against the roster that's actually active right now: drops any
+  // character who's no longer on the roster (dropped/traded away) and slots
+  // anyone new (e.g. a just-signed free agent) into the resulting gaps. Without
+  // this, a stale saved payload — one written before a roster change — would
+  // reintroduce dropped players and silently swallow new ones.
+  const reconcileSavedLineup = useCallback((saved, rosterCharacters) => {
+    const defaultLineup = rosterCharacters.map((entry) => entry.id)
+    const allowedIds = new Set(defaultLineup)
+
+    let lineupOrderResult = defaultLineup
+    if (saved && Array.isArray(saved.lineupOrder) && saved.lineupOrder.length) {
+      const ordered = saved.lineupOrder.filter((id) => allowedIds.has(id))
+      const remaining = defaultLineup.filter((id) => !ordered.includes(id))
+      lineupOrderResult = [...ordered, ...remaining]
+    }
+
+    // Load saved positions, strip out removed characters, then auto-fill any new ones
+    let savedPositions = {}
+    if (saved && saved.fieldingPositions && Object.keys(saved.fieldingPositions).length) {
+      savedPositions = Object.fromEntries(
+        Object.entries(saved.fieldingPositions).filter(([, value]) => allowedIds.has(value)),
+      )
+    }
+    const placedIds = new Set(Object.values(savedPositions))
+    const unplaced = defaultLineup.filter((id) => !placedIds.has(id))
+    const emptyPositions = FIELD_POSITIONS.filter((pos) => !savedPositions[pos.id])
+    unplaced.forEach((id, i) => {
+      if (emptyPositions[i]) savedPositions[emptyPositions[i].id] = id
+    })
+
+    return { lineupOrder: lineupOrderResult, fieldingPositions: savedPositions }
+  }, [])
+
   // Load saved lineup order + fielding positions from the database when the
   // viewed team's roster changes, falling back to roster order / first-9 fielding.
   useEffect(() => {
@@ -1068,34 +1110,13 @@ export default function SeasonRoster() {
       return
     }
 
-    const defaultLineup = viewedRosterCharacters.map((entry) => entry.id)
-    const allowedIds = new Set(defaultLineup)
     const loadKey = `${currentSeason.id}-${viewedPlayerId}`
 
     let cancelled = false
     fetchTeamLineup({ ...SEASON_TEAM_LINEUPS, sourceId: currentSeason.id, playerId: viewedPlayerId }).then((saved) => {
       if (cancelled) return
 
-      let lineupOrderResult = defaultLineup
-      if (saved && Array.isArray(saved.lineupOrder) && saved.lineupOrder.length) {
-        const ordered = saved.lineupOrder.filter((id) => allowedIds.has(id))
-        const remaining = defaultLineup.filter((id) => !ordered.includes(id))
-        lineupOrderResult = [...ordered, ...remaining]
-      }
-
-      // Load saved positions, strip out removed characters, then auto-fill any new ones
-      let savedPositions = {}
-      if (saved && saved.fieldingPositions && Object.keys(saved.fieldingPositions).length) {
-        savedPositions = Object.fromEntries(
-          Object.entries(saved.fieldingPositions).filter(([, value]) => allowedIds.has(value)),
-        )
-      }
-      const placedIds = new Set(Object.values(savedPositions))
-      const unplaced = defaultLineup.filter((id) => !placedIds.has(id))
-      const emptyPositions = FIELD_POSITIONS.filter((pos) => !savedPositions[pos.id])
-      unplaced.forEach((id, i) => {
-        if (emptyPositions[i]) savedPositions[emptyPositions[i].id] = id
-      })
+      const { lineupOrder: lineupOrderResult, fieldingPositions: savedPositions } = reconcileSavedLineup(saved, viewedRosterCharacters)
 
       lastSyncedLineupRef.current = JSON.stringify({ lineupOrder: lineupOrderResult, fieldingPositions: savedPositions })
       lineupLoadKeyRef.current = loadKey
@@ -1104,32 +1125,56 @@ export default function SeasonRoster() {
     })
 
     return () => { cancelled = true }
-  }, [currentSeason?.id, viewedPlayerId, viewedRosterCharacters])
+  }, [currentSeason?.id, viewedPlayerId, viewedRosterCharacters, reconcileSavedLineup])
 
-  // Autosave lineup order + fielding positions to the database (debounced),
-  // so every viewer of this team's roster sees edits in real time.
-  useEffect(() => {
+  // Lineup order + fielding positions are saved explicitly via the Save
+  // button (handleSaveLineup) rather than autosaved, to avoid races with
+  // realtime/poll updates from other viewers clobbering in-flight edits.
+  const [lineupSaveStatus, setLineupSaveStatus] = useState('idle')
+  const isLineupDirty = Boolean(
+    canEditRoster
+    && currentSeason?.id && viewedPlayerId
+    && lineupLoadKeyRef.current === `${currentSeason.id}-${viewedPlayerId}`
+    && (lineupOrder.length || Object.keys(fieldingPositions).length)
+    && JSON.stringify({ lineupOrder, fieldingPositions }) !== lastSyncedLineupRef.current,
+  )
+
+  const handleSaveLineup = useCallback(async () => {
     if (!currentSeason?.id || !viewedPlayerId) return
-    if (!canEditRoster) return
-    if (lineupLoadKeyRef.current !== `${currentSeason.id}-${viewedPlayerId}`) return
-    if (!lineupOrder.length && !Object.keys(fieldingPositions).length) return
-
     const payload = JSON.stringify({ lineupOrder, fieldingPositions })
-    if (payload === lastSyncedLineupRef.current) return
-
-    const timeout = setTimeout(() => {
-      lastSyncedLineupRef.current = payload
-      upsertTeamLineup({
+    setLineupSaveStatus('saving')
+    try {
+      await upsertTeamLineup({
         ...SEASON_TEAM_LINEUPS,
         sourceId: currentSeason.id,
         playerId: viewedPlayerId,
         lineupOrder,
         fieldingPositions,
       })
-    }, 500)
+      lastSyncedLineupRef.current = payload
+      setLineupSaveStatus('saved')
+    } catch (err) {
+      setLineupSaveStatus('error')
+      throw err
+    }
+  }, [currentSeason?.id, viewedPlayerId, lineupOrder, fieldingPositions])
 
-    return () => clearTimeout(timeout)
-  }, [currentSeason?.id, viewedPlayerId, lineupOrder, fieldingPositions, canEditRoster])
+  const lineupBlocker = useUnsavedChangesGuard(isLineupDirty)
+  useRegisterUnsavedChanges(isLineupDirty, handleSaveLineup)
+
+  // Switching the viewed team resets the lineup editor state (see the load
+  // effect above) without a route change, so it isn't caught by
+  // lineupBlocker — guard it separately with the same confirmation UI.
+  const { run: runIfLineupSaved, blocker: switchBlocker } = useConfirmedAction(isLineupDirty)
+  const handleSelectViewedTeam = useCallback((teamId) => {
+    runIfLineupSaved(() => setViewedTeamId(teamId))
+  }, [runIfLineupSaved])
+
+  // Realtime/poll sync below reads this ref (rather than the isLineupDirty
+  // value directly) so it can skip applying incoming updates while the user
+  // has unsaved local edits, without resubscribing the channel on every edit.
+  const isLineupDirtyRef = useRef(false)
+  useEffect(() => { isLineupDirtyRef.current = isLineupDirty }, [isLineupDirty])
 
   // Realtime: pick up lineup/fielding edits made by anyone else (or from
   // another device) for the currently viewed team.
@@ -1141,10 +1186,17 @@ export default function SeasonRoster() {
         event: '*', schema: 'public', table: 'season_team_lineups',
         filter: `season_id=eq.${currentSeason.id}`,
       }, (payload) => {
+        if (isLineupDirtyRef.current) return
         const row = payload.new
         if (!row || String(row.player_id) !== String(viewedPlayerId)) return
-        const lineupOrder = Array.isArray(row.lineup_order) ? row.lineup_order : []
-        const fieldingPositions = row.fielding_positions && typeof row.fielding_positions === 'object' ? row.fielding_positions : {}
+        const saved = {
+          lineupOrder: Array.isArray(row.lineup_order) ? row.lineup_order : [],
+          fieldingPositions: row.fielding_positions && typeof row.fielding_positions === 'object' ? row.fielding_positions : {},
+        }
+        // Reconcile against the roster as it stands right now — this row can be
+        // stale relative to a roster change (free-agent pickup, trade, drop)
+        // that never got explicitly re-saved to season_team_lineups.
+        const { lineupOrder, fieldingPositions } = reconcileSavedLineup(saved, viewedRosterCharactersRef.current)
         lastSyncedLineupRef.current = JSON.stringify({ lineupOrder, fieldingPositions })
         setLineupOrder(lineupOrder)
         setFieldingPositions(fieldingPositions)
@@ -1156,10 +1208,15 @@ export default function SeasonRoster() {
     // tabs), so poll for the saved lineup as a fallback to guarantee it stays
     // in sync even if the live channel above never fires.
     const syncFromDb = () => {
+      // Skip the fallback poll's actual work while backgrounded — see Roster.jsx's identical
+      // pattern for why (keeps the tab from looking "always active" to the browser's memory
+      // manager). The visibilitychange handler below re-syncs immediately once shown again.
+      if (document.hidden) return
+      if (isLineupDirtyRef.current) return
       fetchTeamLineup({ ...SEASON_TEAM_LINEUPS, sourceId: currentSeason.id, playerId: viewedPlayerId }).then((saved) => {
         if (!saved) return
-        const lineupOrder = Array.isArray(saved.lineupOrder) ? saved.lineupOrder : []
-        const fieldingPositions = saved.fieldingPositions && typeof saved.fieldingPositions === 'object' ? saved.fieldingPositions : {}
+        if (isLineupDirtyRef.current) return
+        const { lineupOrder, fieldingPositions } = reconcileSavedLineup(saved, viewedRosterCharactersRef.current)
         const payload = JSON.stringify({ lineupOrder, fieldingPositions })
         if (payload === lastSyncedLineupRef.current) return
         lastSyncedLineupRef.current = payload
@@ -1178,7 +1235,7 @@ export default function SeasonRoster() {
       document.removeEventListener('visibilitychange', handleVisibility)
       clearInterval(pollInterval)
     }
-  }, [currentSeason?.id, viewedPlayerId])
+  }, [currentSeason?.id, viewedPlayerId, reconcileSavedLineup])
 
   const handleDragStartRoster = (characterId) => (event) => {
     if (!canEditRoster) return
@@ -1281,87 +1338,22 @@ export default function SeasonRoster() {
     if (error) throw error
   }, [currentSeason?.id])
 
-  const processWaivers = useCallback(async (waiverRows = waivers, claimRows = waiverClaims) => {
+  // Resolution itself now runs atomically server-side (resolve_season_waiver RPC): it
+  // locks each waiver with an active->processing status flip before touching any roster
+  // rows, so two clients polling at once can no longer both apply the same award. This
+  // function just triggers resolution for every currently-active waiver and reloads if
+  // anything changed.
+  const processWaivers = useCallback(async (waiverRows = waivers) => {
     if (!currentSeason?.id || processingWaiversRef.current) return
 
     processingWaiversRef.current = true
     let mutated = false
-    const now = new Date()
-    const nowIso = now.toISOString()
 
     try {
       for (const waiver of waiverRows.filter((entry) => entry.status === 'active')) {
-        const pendingClaims = sortWaiverClaims((claimRows || []).filter((entry) => entry.waiver_id === waiver.id && entry.status === 'pending'))
-        const clockTeamId = getWaiverClockTeamId(waiver, reverseStandings)
-        const awardClaim = pendingClaims.find((entry) => String(entry.claiming_team_id) === String(clockTeamId))
-        const isExpired = waiver.expires_at ? new Date(waiver.expires_at) <= now : false
-
-        const finalizeAward = async (winningClaim, winningStatus = 'approved') => {
-          const winnerRoster = activeRosterByTeamId[String(winningClaim.claiming_team_id)] || []
-          const dropRow = winnerRoster.find((entry) => entry.character_name === winningClaim.dropping_character)
-
-          if (!dropRow) {
-            await supabase.from('season_waiver_claims').update({ status: 'denied', resolved_at: nowIso }).eq('id', winningClaim.id)
-            mutated = true
-            return
-          }
-
-          const { error: deactivateError } = await supabase.from('season_roster').update({ is_active: false }).eq('id', dropRow.id)
-          if (deactivateError) throw deactivateError
-
-          const { error: addError } = await supabase.from('season_roster').insert({
-            season_id: currentSeason.id,
-            team_id: winningClaim.claiming_team_id,
-            character_name: waiver.claiming_character,
-            acquired_via: 'waiver',
-            is_active: true,
-          })
-          if (addError) throw addError
-
-          const otherClaimIds = pendingClaims.filter((entry) => entry.id !== winningClaim.id).map((entry) => entry.id)
-          if (otherClaimIds.length) {
-            const { error: rejectError } = await supabase.from('season_waiver_claims').update({ status: 'denied', resolved_at: nowIso }).in('id', otherClaimIds)
-            if (rejectError) throw rejectError
-          }
-
-          const { error: approveError } = await supabase.from('season_waiver_claims').update({ status: winningStatus, resolved_at: nowIso }).eq('id', winningClaim.id)
-          if (approveError) throw approveError
-
-          const { error: waiverError } = await supabase.from('season_waivers').update({
-            status: 'claimed',
-            awarded_to_team_id: winningClaim.claiming_team_id,
-            resolved_at: nowIso,
-          }).eq('id', waiver.id)
-          if (waiverError) throw waiverError
-
-          try {
-            await createDroppedPlayerWaiver(winningClaim.dropping_character, winningClaim.claiming_team_id)
-          } catch (error) {
-            throw error
-          }
-
-          mutated = true
-        }
-
-        if (isExpired) {
-          if (pendingClaims.length) {
-            await finalizeAward(pendingClaims[0], 'expired_award')
-          } else {
-            const { error } = await supabase.from('season_waivers').update({ status: 'free_agent', resolved_at: nowIso }).eq('id', waiver.id)
-            if (error) throw error
-            mutated = true
-          }
-          continue
-        }
-
-        if (awardClaim) {
-          await finalizeAward(awardClaim)
-          continue
-        }
-
-        if (!clockTeamId && !pendingClaims.length) {
-          const { error } = await supabase.from('season_waivers').update({ status: 'free_agent', resolved_at: nowIso }).eq('id', waiver.id)
-          if (error) throw error
+        const { data: outcome, error } = await supabase.rpc('resolve_season_waiver', { p_waiver_id: waiver.id })
+        if (error) throw error
+        if (outcome && outcome !== 'still_active' && outcome !== 'skipped') {
           mutated = true
         }
       }
@@ -1372,59 +1364,7 @@ export default function SeasonRoster() {
     if (mutated) {
       loadRosterData().catch(() => {})
     }
-  }, [activeRosterByTeamId, createDroppedPlayerWaiver, currentSeason?.id, loadRosterData, reverseStandings, waiverClaims, waivers])
-
-  const submitLegacyTradeProposal = useCallback(async (participantTeamIds) => {
-    const normalizedParticipantTeamIds = Array.from(new Set((participantTeamIds || []).map(String).filter(Boolean)))
-
-    if (!normalizedParticipantTeamIds.includes(String(myTeam?.id || '')) || normalizedParticipantTeamIds.length !== 2) {
-      pushToast({
-        title: 'Trade schema unavailable',
-        message: normalizedParticipantTeamIds.length > 2
-          ? 'This database only supports two-team trades. Apply the multi-team trade migration to use larger deals.'
-          : 'This database only supports direct trades between two teams.',
-        type: 'error',
-      })
-      return false
-    }
-
-    const counterpartTeamId = normalizedParticipantTeamIds.find((teamId) => String(teamId) !== String(myTeam.id))
-    if (!counterpartTeamId) {
-      pushToast({ title: 'Trade needs two teams', message: 'Add one other team to the deal.', type: 'error' })
-      return false
-    }
-
-    const { data: trade, error: tradeError } = await supabase.from('season_trades').insert({
-      season_id: currentSeason.id,
-      proposing_team_id: myTeam.id,
-      receiving_team_id: Number(counterpartTeamId),
-      status: 'pending',
-    }).select().single()
-
-    if (tradeError) {
-      pushToast({ title: 'Trade failed', message: tradeError.message, type: 'error' })
-      return false
-    }
-
-    const movePayload = tradeDraft.assets.map((entry) => ({
-      trade_id: trade.id,
-      character_name: entry.character_name,
-      from_team_id: Number(entry.from_team_id),
-      to_team_id: Number(entry.to_team_id),
-    }))
-
-    const { error: moveError } = await supabase.from('season_trade_players').insert(movePayload)
-    if (moveError) {
-      await supabase.from('season_trades').delete().eq('id', trade.id)
-      pushToast({ title: 'Trade detail failed', message: moveError.message, type: 'error' })
-      return false
-    }
-
-    pushToast({ title: 'Trade proposed', message: 'The other team can now review the proposal.', type: 'success' })
-    closeTradeBuilder()
-    loadRosterData().catch(() => {})
-    return true
-  }, [closeTradeBuilder, currentSeason?.id, loadRosterData, myTeam?.id, pushToast, tradeDraft.assets])
+  }, [currentSeason?.id, loadRosterData, waivers])
 
   const submitTradeProposal = async () => {
     if (!currentSeason?.id || !myTeam?.id) {
@@ -1475,7 +1415,11 @@ export default function SeasonRoster() {
     }
 
     if (!supportsModernTradeSchema) {
-      await submitLegacyTradeProposal(participantTeamIds)
+      pushToast({
+        title: 'Trade schema unavailable',
+        message: 'Apply the season trade proposal migrations before sending season trades from this page.',
+        type: 'error',
+      })
       return
     }
 
@@ -1502,7 +1446,11 @@ export default function SeasonRoster() {
     if (!isMissingSupabaseFunction(rpcError, 'create_season_trade_proposal')) {
       if (isMissingSupabaseTable(rpcError, 'season_trade_proposals')) {
         setSupportsModernTradeSchema(false)
-        await submitLegacyTradeProposal(participantTeamIds)
+        pushToast({
+          title: 'Trade schema unavailable',
+          message: 'Apply the season trade proposal migrations before sending season trades from this page.',
+          type: 'error',
+        })
         return
       }
       pushToast({ title: 'Trade failed', message: rpcError.message, type: 'error' })
@@ -1519,7 +1467,11 @@ export default function SeasonRoster() {
     if (proposalError) {
       if (isMissingSupabaseTable(proposalError, 'season_trade_proposals')) {
         setSupportsModernTradeSchema(false)
-        await submitLegacyTradeProposal(participantTeamIds)
+        pushToast({
+          title: 'Trade schema unavailable',
+          message: 'Apply the season trade proposal migrations before sending season trades from this page.',
+          type: 'error',
+        })
         return
       }
       pushToast({ title: 'Trade failed', message: proposalError.message, type: 'error' })
@@ -1534,7 +1486,7 @@ export default function SeasonRoster() {
       decided_at: String(teamId) === String(myTeam.id) ? new Date().toISOString() : null,
     }))
 
-    const legacyMovePayload = tradeDraft.assets.map((entry) => ({
+    const proposalMovePayload = tradeDraft.assets.map((entry) => ({
       season_id: currentSeason.id,
       proposal_id: proposal.id,
       roster_id: entry.rosterId,
@@ -1545,7 +1497,7 @@ export default function SeasonRoster() {
 
     const [{ error: participantError }, { error: moveError }] = await Promise.all([
       supabase.from('season_trade_proposal_teams').insert(participantPayload),
-      supabase.from('season_trade_proposal_moves').insert(legacyMovePayload),
+      supabase.from('season_trade_proposal_moves').insert(proposalMovePayload),
     ])
 
     if (participantError || moveError) {
@@ -1555,7 +1507,11 @@ export default function SeasonRoster() {
       ) {
         setSupportsModernTradeSchema(false)
         await supabase.from('season_trade_proposals').delete().eq('id', proposal.id)
-        await submitLegacyTradeProposal(participantTeamIds)
+        pushToast({
+          title: 'Trade schema unavailable',
+          message: 'Apply the season trade proposal migrations before sending season trades from this page.',
+          type: 'error',
+        })
         return
       }
       pushToast({ title: 'Trade detail failed', message: participantError?.message || moveError?.message, type: 'error' })
@@ -1567,40 +1523,14 @@ export default function SeasonRoster() {
     loadRosterData().catch(() => {})
   }
 
-  const resolveLegacyTrade = async (trade, status) => {
-    if (!trade) return
-    if (status === 'accepted') {
-      const scopedPlayers = legacyTradePlayers.filter((entry) => entry.trade_id === trade.trade_id)
-      await Promise.all(scopedPlayers.map((entry) => (
-        supabase
-          .from('season_roster')
-          .update({ team_id: entry.to_team_id, acquired_via: 'trade' })
-          .eq('season_id', currentSeason.id)
-          .eq('team_id', entry.from_team_id)
-          .eq('character_name', entry.character_name)
-          .eq('is_active', true)
-      )))
-    }
-    const { error } = await supabase.from('season_trades').update({ status, resolved_at: new Date().toISOString() }).eq('id', trade.trade_id)
-    if (error) {
-      pushToast({ title: 'Trade update failed', message: error.message, type: 'error' })
-      return
-    }
-    pushToast({ title: `Trade ${status}`, type: 'success' })
-    window.dispatchEvent(new Event('season-trades-updated'))
-    loadRosterData().catch(() => {})
-  }
-
   const resolveModernTrade = async (trade, status) => {
     if (!trade || !myTeam?.id) return
-    const now = new Date().toISOString()
 
     if (status === 'rejected' || status === 'cancelled') {
-      const participantRows = trade.participants.filter((entry) => String(entry.team_id) === String(myTeam.id))
-      if (participantRows.length) {
-        await supabase.from('season_trade_proposal_teams').update({ decision_status: status, decided_at: now }).eq('proposal_id', trade.proposal_id).eq('team_id', myTeam.id)
-      }
-      const { error } = await supabase.from('season_trade_proposals').update({ status, resolved_at: now }).eq('id', trade.proposal_id)
+      const { error } = await supabase.rpc('resolve_season_trade_proposal', {
+        p_proposal_id: trade.proposal_id,
+        p_status: status,
+      })
       if (error) {
         pushToast({ title: 'Trade update failed', message: error.message, type: 'error' })
         return
@@ -1611,54 +1541,30 @@ export default function SeasonRoster() {
       return
     }
 
-    const { error: decisionError } = await supabase
-      .from('season_trade_proposal_teams')
-      .update({ decision_status: 'accepted', decided_at: now })
-      .eq('proposal_id', trade.proposal_id)
-      .eq('team_id', myTeam.id)
+    const { data: outcome, error } = await supabase.rpc('accept_season_trade_proposal', {
+      p_proposal_id: trade.proposal_id,
+    })
 
-    if (decisionError) {
-      pushToast({ title: 'Trade update failed', message: decisionError.message, type: 'error' })
-      return
-    }
-
-    const nextParticipants = trade.participants.map((entry) => (
-      String(entry.team_id) === String(myTeam.id)
-        ? { ...entry, decision_status: 'accepted', decided_at: now }
-        : entry
-    ))
-    const allAccepted = nextParticipants.every((entry) => entry.decision_status === 'accepted')
-
-    if (!allAccepted) {
-      pushToast({ title: 'Trade approved', message: 'Waiting on the remaining teams.', type: 'success' })
-      window.dispatchEvent(new Event('season-trades-updated'))
+    if (error) {
+      pushToast({ title: 'Trade update failed', message: error.message, type: 'error' })
       loadRosterData().catch(() => {})
       return
     }
 
-    await Promise.all(trade.moves.map((move) => (
-      supabase
-        .from('season_roster')
-        .update({ team_id: move.to_team_id, acquired_via: 'trade' })
-        .eq('id', move.roster_id)
-    )))
-
-    const { error } = await supabase.from('season_trade_proposals').update({ status: 'accepted', resolved_at: now }).eq('id', trade.proposal_id)
-    if (error) {
-      pushToast({ title: 'Trade finalize failed', message: error.message, type: 'error' })
-      return
+    if (outcome === 'pending') {
+      pushToast({ title: 'Trade approved', message: 'Waiting on the remaining teams.', type: 'success' })
+    } else if (outcome === 'failed:roster_changed') {
+      pushToast({ title: 'Trade failed', message: 'One of the traded players is no longer on the expected roster (likely dropped or traded elsewhere). The trade has been marked failed.', type: 'error' })
+    } else if (outcome === 'failed:deadline_passed') {
+      pushToast({ title: 'Trade failed', message: 'The trade deadline passed before this trade could finish. It has been marked failed.', type: 'error' })
+    } else {
+      pushToast({ title: 'Trade completed', message: 'All teams accepted and the rosters were updated.', type: 'success' })
     }
-    pushToast({ title: 'Trade completed', message: 'All teams accepted and the rosters were updated.', type: 'success' })
     window.dispatchEvent(new Event('season-trades-updated'))
     loadRosterData().catch(() => {})
   }
 
-  const resolveTrade = (trade, status) => {
-    if (trade.source === 'legacy') {
-      return resolveLegacyTrade(trade, status)
-    }
-    return resolveModernTrade(trade, status)
-  }
+  const resolveTrade = (trade, status) => resolveModernTrade(trade, status)
 
   const submitPickup = async () => {
     if (!pickupModal || !myTeam?.id || !pickupDropCharacter) {
@@ -1716,7 +1622,7 @@ export default function SeasonRoster() {
       return
     }
 
-    if (!SUPPORTS_WAIVER_CLAIMS_SCHEMA) {
+    if (!supportsWaiverClaimsSchema) {
       pushToast({
         title: 'Waiver claims unavailable',
         message: 'This database does not have the waiver claims table yet, so roster-page claims are disabled for now.',
@@ -1766,16 +1672,14 @@ export default function SeasonRoster() {
       return
     }
 
-    const deniedTeamIds = Array.from(new Set([...(waiver.denied_team_ids || []).map(Number), Number(myTeam.id)]))
-    const { error } = await supabase.from('season_waivers').update({ denied_team_ids: deniedTeamIds }).eq('id', waiver.id)
+    const { error } = await supabase.rpc('deny_season_waiver', { p_waiver_id: waiver.id })
     if (error) {
       pushToast({ title: 'Waiver update failed', message: error.message, type: 'error' })
       return
     }
 
     pushToast({ title: 'Waiver denied', message: `${waiver.claiming_character} moved to the next waiver priority.`, type: 'success' })
-    const nextWaivers = waivers.map((entry) => entry.id === waiver.id ? { ...entry, denied_team_ids: deniedTeamIds } : entry)
-    await processWaivers(nextWaivers, waiverClaims)
+    await processWaivers()
     loadRosterData().catch(() => {})
   }
 
@@ -1787,6 +1691,7 @@ export default function SeasonRoster() {
   useEffect(() => {
     if (!activeWaiverEntries.length) return undefined
     const intervalId = window.setInterval(() => {
+      if (document.hidden) return
       processWaivers().catch(() => {})
     }, 60000)
     return () => window.clearInterval(intervalId)
@@ -1821,8 +1726,9 @@ export default function SeasonRoster() {
     if (!character) return
     const ownerTeamId = characterOwnersByName[character.name]
     const currentOwner = ownerTeamId ? { player_id: teamsById[String(ownerTeamId)]?.player_id } : null
-    navigate(`/character/${charId}`, {
+    navigate(`/character/${charId}/career`, {
       state: {
+        backTo: window.location.pathname + window.location.search,
         character,
         allCharactersById: charactersByName,
         playersById,
@@ -1845,6 +1751,8 @@ export default function SeasonRoster() {
 
   return (
     <div className="page-stack">
+      <UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveLineup} />
+      <UnsavedChangesPrompt blocker={switchBlocker} onSave={handleSaveLineup} />
       <div className="tab-row">
         {TABS.filter((tab) => is_logged_in || tab !== 'Trade Center').map((tab) => (
           <button key={tab} className={`tab-button ${activeTab === tab ? 'tab-button-active' : ''}`} onClick={() => setActiveTab(tab)} type="button">
@@ -1870,7 +1778,7 @@ export default function SeasonRoster() {
                   )}
                   <select
                     value={viewedTeamId}
-                    onChange={(e) => setViewedTeamId(e.target.value)}
+                    onChange={(e) => handleSelectViewedTeam(e.target.value)}
                     style={{
                       background: '#1E293B', border: '1px solid #334155', borderRadius: 999,
                       color: '#E2E8F0', fontWeight: 600, padding: '8px 14px', fontSize: 14, cursor: 'pointer',
@@ -1974,6 +1882,9 @@ export default function SeasonRoster() {
 
               </div>
             </div>
+            {canEditRoster ? (
+              <SaveLineupBar isDirty={isLineupDirty} status={lineupSaveStatus} onSave={handleSaveLineup} />
+            ) : null}
         </div>
       ) : null}
 
@@ -2123,7 +2034,7 @@ export default function SeasonRoster() {
                         <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
                           {row.claimCount ? <span className="muted" style={{ fontSize: 12 }}>{row.claimCount} claim{row.claimCount === 1 ? '' : 's'} filed</span> : <span className="muted" style={{ fontSize: 12 }}>No claims filed yet</span>}
                           {row.myClaim ? <span className="muted" style={{ fontSize: 12 }}>Your drop: {row.myClaim.dropping_character}</span> : null}
-                          {!SUPPORTS_WAIVER_CLAIMS_SCHEMA ? <span className="muted" style={{ fontSize: 12 }}>Claim queue unavailable on this database schema.</span> : null}
+                          {!supportsWaiverClaimsSchema ? <span className="muted" style={{ fontSize: 12 }}>Claim queue unavailable on this database schema.</span> : null}
                         </div>
                       ) : (
                         <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
@@ -2137,12 +2048,12 @@ export default function SeasonRoster() {
                           <button
                             type="button"
                             onClick={() => {
-                              if (!SUPPORTS_WAIVER_CLAIMS_SCHEMA) return
+                              if (!supportsWaiverClaimsSchema) return
                               setPickupModal({ type: 'waiver', waiverId: row.waiver.id, characterName: row.character.name })
                               setPickupDropCharacter(row.myClaim?.dropping_character || '')
                             }}
-                            disabled={!SUPPORTS_WAIVER_CLAIMS_SCHEMA || !myTeam || (!row.canClaim && !row.myClaim)}
-                            style={{ minWidth: 56, minHeight: 36, borderRadius: 10, border: '1px solid rgba(234,179,8,0.45)', background: 'rgba(234,179,8,0.14)', color: '#FDE68A', fontWeight: 800, display: 'grid', placeItems: 'center', cursor: !SUPPORTS_WAIVER_CLAIMS_SCHEMA || !myTeam || (!row.canClaim && !row.myClaim) ? 'not-allowed' : 'pointer' }}
+                            disabled={!supportsWaiverClaimsSchema || !myTeam || (!row.canClaim && !row.myClaim)}
+                            style={{ minWidth: 56, minHeight: 36, borderRadius: 10, border: '1px solid rgba(234,179,8,0.45)', background: 'rgba(234,179,8,0.14)', color: '#FDE68A', fontWeight: 800, display: 'grid', placeItems: 'center', cursor: !supportsWaiverClaimsSchema || !myTeam || (!row.canClaim && !row.myClaim) ? 'not-allowed' : 'pointer' }}
                           >
                             <span style={{ fontSize: 18, lineHeight: 1 }}>W</span>
                           </button>

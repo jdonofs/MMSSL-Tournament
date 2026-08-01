@@ -1,6 +1,6 @@
-import { getPlayerSkillProfile } from './teamIdentity'
-import { buildAppliedStadiumModel } from './stadiumOdds'
-import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules'
+import { getPlayerSkillProfile } from './teamIdentity.js'
+import { buildAppliedStadiumModel } from './stadiumOdds.js'
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules.js'
 
 const MIN_PROBABILITY = 0.002
 const MAX_PROBABILITY = 0.998
@@ -1354,7 +1354,10 @@ export function generateGameOdds(
 
 export function recalculateOdds(currentOdds = [], gameState = {}, pa = {}) {
   const changedRows = []
-  const runsScored = Number(pa.rbi || 0) + (pa.run_scored ? 1 : 0)
+  // On a home run the batter's own run is already included in rbi, so adding run_scored
+  // on top would double-count the batter.
+  const isHomer = pa.result === 'HR' || pa.result === 'IPHR'
+  const runsScored = Number(pa.rbi || 0) + (pa.run_scored && !isHomer ? 1 : 0)
   const battingSide = gameState.battingSide || (gameState.isTop ? 'away' : 'home')
 
   const liveMarketState = gameState.oddsContext && gameState.liveState

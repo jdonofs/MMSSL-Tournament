@@ -274,14 +274,6 @@ export default function Bracket() {
         .eq('id', stadiumSetupGame.id)
       if (error) throw error
 
-      // A stadium is never actually changed mid/post-game — editing it here means
-      // correcting a setup mistake, so the denormalized historical log row must match.
-      const { error: logError } = await supabase
-        .from('stadium_game_log')
-        .update({ stadium_id: stadium.id, is_night: nextIsNight })
-        .eq('game_id', stadiumSetupGame.id)
-      if (logError) throw logError
-
       setGames((current) => current.map((game) => (
         game.id === stadiumSetupGame.id
           ? { ...game, stadium_id: stadium.id, is_night: nextIsNight }
@@ -435,6 +427,7 @@ export default function Bracket() {
               bracketFormat={bracketFormat === 'single' ? 'single_elimination' : 'double_elimination'}
               games={filteredGames}
               identitiesByPlayerId={identitiesByPlayerId}
+              teamLinkBuilder={(playerId) => `/teams/${playerId}/tournament/${tournament.id}`}
               onChampionDeclared={async (winnerId) => {
                 if (!tournament || !winnerId) return
                 await supabase.from('tournaments').update({ champion_player_id: winnerId, status: 'complete' }).eq('id', tournament.id)

@@ -100,7 +100,7 @@ export function DraggableRosterItem({
       <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
         <Portrait name={character.name} size={portraitSize} showChemistryNote={showChemistryNote} highlighted={highlighted} />
       </button>
-      <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer' }}>
+      <button type="button" onClick={(event) => { event.stopPropagation(); onOpenCard?.() }} style={{ flex: 1, minWidth: compact ? 64 : 90, textAlign: 'left', background: 'none', border: 'none', color: '#E2E8F0', padding: 0, cursor: 'pointer' }}>
         <div style={{ fontWeight: 700, fontSize: compact ? 13 : 15, lineHeight: 1.2, whiteSpace: 'normal', overflowWrap: 'break-word' }}>{character.displayName || character.name}</div>
       </button>
       {lineupNumber !== null ? (

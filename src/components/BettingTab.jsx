@@ -20,6 +20,7 @@ import {
   mergeOddsWithExistingRows,
   priceCountPropLine,
 } from '../utils/oddsEngine'
+import { parseDollarWager, sanitizeDollarWagerInput, summarizeSlipWagers } from '../utils/bettingSlip'
 import { buildPlacedBetLedgerEntries, resolveGameBets } from '../utils/betResolution'
 import { buildOddsGenerationContext } from '../utils/oddsContext'
 import { persistOddsRowsWithFallback } from '../utils/oddsPersistence'
@@ -27,12 +28,14 @@ import { summarizeBatting, summarizePitching } from '../utils/statsCalculator'
 import { buildAppliedStadiumModel } from '../utils/stadiumOdds'
 import { SEASON_TEAM_LINEUPS, TOURNAMENT_TEAM_LINEUPS, fetchTeamLineup } from '../utils/teamLineups'
 import {
+  buildStadiumKeyByGameId,
   getChaosStars,
   getChaosTagColors,
   getStadiumSpriteStyle,
   getStadiumTimeLabel,
 } from '../utils/stadiums'
-import { getTeamShortName } from '../utils/teamIdentity'
+import { enrichPlateAppearancesWithDerivedHitTracking } from '../utils/hitFieldDerivation'
+import { buildSeasonTeamIdentity, getTeamShortName } from '../utils/teamIdentity'
 import { computeBalance, computeSipCount, computeTotalSipsHeld, getSipPrice } from '../utils/economy'
 import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
 
@@ -89,19 +92,6 @@ function formatLineValue(value, prefix = '') {
   const normalized = Number.isInteger(num) ? `${num}` : num.toFixed(1)
   if (!prefix) return normalized
   return `${prefix} ${normalized}`
-}
-
-function parseDollarWager(value) {
-  const raw = String(value ?? '').trim()
-  if (!/^\d+(\.\d{0,2})?$/.test(raw)) return NaN
-  return Number(raw)
-}
-
-function sanitizeDollarWagerInput(value) {
-  const raw = String(value ?? '')
-  if (raw === '') return ''
-  if (!/^\d*(\.\d{0,2})?$/.test(raw)) return null
-  return raw
 }
 
 function isGameReadyForBetting(game, playersById) {
@@ -1122,6 +1112,7 @@ export default function BettingTab({ mode = 'tournament' }) {
     picks: 'season_roster',
     pas: 'season_plate_appearances',
     pitching: 'season_pitching_stints',
+    pitches: 'season_pitches',
     runsScored: 'season_runs_scored',
     odds: 'season_game_odds',
     bets: 'season_bets',
@@ -1137,6 +1128,7 @@ export default function BettingTab({ mode = 'tournament' }) {
     picks: 'draft_picks',
     pas: 'plate_appearances',
     pitching: 'pitching_stints',
+    pitches: 'pitches',
     runsScored: 'runs_scored',
     odds: 'game_odds',
     bets: 'bets',
@@ -1205,6 +1197,10 @@ export default function BettingTab({ mode = 'tournament' }) {
   // and recreate the channel on every update, dropping live events).
   const stadiumsRef = useRef(stadiums)
   useEffect(() => { stadiumsRef.current = stadiums }, [stadiums])
+  const gamesRef = useRef(games)
+  useEffect(() => { gamesRef.current = games }, [games])
+  const stadiumGameLogRef = useRef(stadiumGameLog)
+  useEffect(() => { stadiumGameLogRef.current = stadiumGameLog }, [stadiumGameLog])
   const playersRef = useRef(players)
   useEffect(() => { playersRef.current = players }, [players])
   const seasonTeamsRef = useRef(seasonTeams)
@@ -1229,6 +1225,7 @@ export default function BettingTab({ mode = 'tournament' }) {
         { data: picksData },
         { data: paData },
         { data: pitchingData },
+        { data: pitchesData },
         { data: oddsData },
         { data: betsData },
         { data: settlementsData },
@@ -1249,6 +1246,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           : supabase.from(sourceTables.picks).select('*'),
         supabase.from(sourceTables.pas).select('*').order('created_at'),
         supabase.from(sourceTables.pitching).select('*').order('created_at'),
+        supabase.from(sourceTables.pitches).select('game_id,pitcher_id'),
         supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }).range(0, 49999),
         isSeasonMode
           ? supabase.from(sourceTables.bets).select('*').eq('season_id', sourceContext?.id || -1).order('placed_at', { ascending: false })
@@ -1279,13 +1277,31 @@ export default function BettingTab({ mode = 'tournament' }) {
       const normalizedStadiumLog = isSeasonMode
         ? (stadiumLogData || []).map((entry) => ({ ...entry, stadium_id: stadiumsByName[entry.stadium]?.id || null }))
         : (stadiumLogData || [])
+      const stadiumKeyByGameId = buildStadiumKeyByGameId(
+        normalizedGames,
+        stadiumsData || [],
+        normalizedStadiumLog,
+      )
+      const enrichedPlateAppearances = enrichPlateAppearancesWithDerivedHitTracking(
+        paData || [],
+        stadiumKeyByGameId,
+      )
 
       setGames(normalizedGames)
       setPlayers(playersData || [])
       setCharacters(charactersData || [])
       setDraftPicks(normalizedPicks)
-      setPlateAppearances(paData || [])
-      setPitchingStints(pitchingData || [])
+      setPlateAppearances(enrichedPlateAppearances)
+      // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
+      // mound-assignment bookkeeping), before they've necessarily thrown a pitch — drop stints
+      // with no matching row in `pitches`/`season_pitches` (by game_id + pitcher name, since
+      // pitches.pitcher_id is a name string, not character_id) so the odds engine doesn't credit
+      // a "game pitched" that never happened. Historical/imported stints have no pitch-log rows
+      // at all, so also keep any stint with a recorded innings_pitched > 0 — that's real evidence
+      // of an outing.
+      const pitchingNameById = Object.fromEntries((charactersData || []).map((c) => [c.id, c.name]))
+      const pitchingThrownKeys = new Set((pitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      setPitchingStints((pitchingData || []).filter((stint) => pitchingThrownKeys.has(`${stint.game_id}:${pitchingNameById[stint.character_id]}`) || Number(stint.innings_pitched) > 0))
       setStadiums(stadiumsData || [])
       setStadiumGameLog(normalizedStadiumLog)
       setGameOdds(oddsData || [])
@@ -1332,8 +1348,14 @@ export default function BettingTab({ mode = 'tournament' }) {
   }, [sourceTables, isSeasonMode, sourceContext?.id])
 
   const refetchPitching = useCallback(async () => {
-    const { data } = await supabase.from(sourceTables.pitching).select('*').order('created_at')
-    setPitchingStints(data || [])
+    const [{ data }, { data: pitchesData }, { data: charsData }] = await Promise.all([
+      supabase.from(sourceTables.pitching).select('*').order('created_at'),
+      supabase.from(sourceTables.pitches).select('game_id,pitcher_id'),
+      supabase.from('characters').select('id,name'),
+    ])
+    const nameById = Object.fromEntries((charsData || []).map((c) => [c.id, c.name]))
+    const thrownKeys = new Set((pitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+    setPitchingStints((data || []).filter((stint) => thrownKeys.has(`${stint.game_id}:${nameById[stint.character_id]}`)))
   }, [sourceTables])
 
   const refetchPicks = useCallback(async () => {
@@ -1369,7 +1391,13 @@ export default function BettingTab({ mode = 'tournament' }) {
     // Realtime postgres_changes can silently fail to deliver in some
     // environments, so also poll periodically as a fallback to guarantee the
     // board (odds, pitcher props, bets) stays live without manual refresh.
-    const pollInterval = setInterval(refreshAll, 5000)
+    // Skipped while hidden — polling every 5s regardless of visibility keeps the tab constantly
+    // "active," which is exactly what makes browsers reclaim it first when freeing memory from
+    // inactive tabs; handleVisibility above already re-syncs immediately once shown again.
+    const pollInterval = setInterval(() => {
+      if (document.hidden) return
+      refreshAll()
+    }, 5000)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility)
       clearInterval(pollInterval)
@@ -1384,7 +1412,12 @@ export default function BettingTab({ mode = 'tournament' }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.games }, refetchGames)
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pas }, async () => {
         const { data } = await supabase.from(sourceTables.pas).select('*').order('created_at')
-        setPlateAppearances(data || [])
+        const stadiumKeyByGameId = buildStadiumKeyByGameId(
+          gamesRef.current,
+          stadiumsRef.current,
+          stadiumGameLogRef.current,
+        )
+        setPlateAppearances(enrichPlateAppearancesWithDerivedHitTracking(data || [], stadiumKeyByGameId))
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pitching }, refetchPitching)
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.picks }, refetchPicks)
@@ -1599,16 +1632,11 @@ export default function BettingTab({ mode = 'tournament' }) {
   const stadiumsById = useMemo(() => Object.fromEntries(stadiums.map((entry) => [entry.id, entry])), [stadiums])
   const seasonIdentitiesByPlayerId = useMemo(
     () => Object.fromEntries((seasonTeams || []).map((team) => {
-      const profile = playersById[team.player_id]
+      const identity = buildSeasonTeamIdentity(team)
       return [team.player_id, {
         playerId: team.player_id,
-        teamName: profile?.team_name || team.team_name || profile?.name || 'Season Team',
-        teamMascot: profile?.team_mascot || team.team_mascot || null,
-        teamAbbreviation: profile?.team_abbreviation || team.team_abbreviation || null,
-        teamPrimaryColor: profile?.team_primary_color || team.team_primary_color || null,
-        teamSecondaryColor: profile?.team_secondary_color || team.team_secondary_color || null,
-        teamLogoKey: team.team_logo_key || null,
-        teamLogoUrl: profile?.team_logo_url || team.logo_url || null,
+        ...identity,
+        teamName: identity.teamName || playersById[team.player_id]?.name || 'Season Team',
       }]
     })),
     [seasonTeams, playersById],
@@ -1964,9 +1992,19 @@ export default function BettingTab({ mode = 'tournament' }) {
     }
 
     runPoll()
-    const interval = setInterval(runPoll, 5000)
+    // Skipped while hidden — see the fallback-poll comment on the odds/bets poll above for why
+    // (an always-active background tab is exactly what browsers reclaim first for memory).
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') runPoll()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    const interval = setInterval(() => {
+      if (document.hidden) return
+      runPoll()
+    }, 5000)
     return () => {
       cancelled = true
+      document.removeEventListener('visibilitychange', handleVisibility)
       clearInterval(interval)
     }
   }, [boardGames, isSeasonMode, sourceContext?.id])
@@ -2358,6 +2396,7 @@ export default function BettingTab({ mode = 'tournament' }) {
         season_id: sourceContext.id,
         player_id: player.id,
         game_id: game.id,
+        game_odds_id: row.id,
         bet_type: row.bet_type,
         target_entity: row.target_entity,
         chosen_side: entry.side,
@@ -2386,7 +2425,11 @@ export default function BettingTab({ mode = 'tournament' }) {
       })
     }
 
-    const { data, error } = await supabase.from(sourceTables.bets).insert(payload).select()
+    const rpcName = isSeasonMode ? 'place_season_bets' : 'place_tournament_bets'
+    const rpcArgs = isSeasonMode
+      ? { p_season_id: sourceContext.id, p_bets: payload }
+      : { p_tournament_id: sourceContext.id, p_bets: payload }
+    const { data, error } = await supabase.rpc(rpcName, rpcArgs)
     if (error) {
       setPlacingBetId(null)
       pushToast({ title: 'Bet failed', message: error.message, type: 'error' })
@@ -2403,16 +2446,6 @@ export default function BettingTab({ mode = 'tournament' }) {
     })
 
     if (placedLedgerRows.length) {
-      const { error: ledgerError } = await supabase.from(sourceTables.ledgerTable).insert(placedLedgerRows)
-      if (ledgerError) {
-        const createdBetIds = placedBets.map((bet) => bet.id).filter(Boolean)
-        if (createdBetIds.length) {
-          await supabase.from(sourceTables.bets).delete().in('id', createdBetIds)
-        }
-        setPlacingBetId(null)
-        pushToast({ title: 'Bet failed', message: 'The wager could not be debited, so the bet was rolled back.', type: 'error' })
-        return
-      }
       setLedgerEntries((current) => [...placedLedgerRows, ...current])
     }
 
@@ -2549,14 +2582,10 @@ export default function BettingTab({ mode = 'tournament' }) {
     const wager = parseDollarWager(entry.wagerSips)
     return sum + calculatePayout(Number.isFinite(wager) ? wager : 0, entry.customOdds ?? option?.odds)
   }, 0)
-  const slipWager = betSlip.reduce((sum, entry) => {
-    const wager = parseDollarWager(entry.wagerSips)
-    return sum + (Number.isFinite(wager) && wager >= 0.01 ? wager : 0)
-  }, 0)
-  const slipHasInvalidWager = betSlip.some((entry) => {
-    const wager = parseDollarWager(entry.wagerSips)
-    return !Number.isFinite(wager) || wager < 0.01
-  })
+  const { totalWager: slipWager, hasInvalidWager: slipHasInvalidWager } = useMemo(
+    () => summarizeSlipWagers(betSlip),
+    [betSlip],
+  )
 
   useEffect(() => {
     centerActiveRailValue(runLineRailRef.current)

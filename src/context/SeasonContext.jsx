@@ -1,6 +1,8 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import useRealtimeEnabled from '../hooks/useRealtimeEnabled'
 import { buildSeasonStandings } from '../utils/competitionStandings'
+import { readLocalStorageItem, removeLocalStorageItem, writeLocalStorageItem } from '../utils/localStorage'
 import {
   DEFAULT_MERCY_RULE_DIFFERENTIAL,
   DEFAULT_REGULATION_INNINGS,
@@ -12,20 +14,30 @@ const SeasonContext = createContext(null)
 const STORAGE_KEY = 'sluggers-selected-season'
 
 export function SeasonProvider({ children }) {
+  const realtimeEnabled = useRealtimeEnabled()
   const [allSeasons, setAllSeasons] = useState([])
   const [seasonTeams, setSeasonTeams] = useState([])
   const [schedule, setSchedule] = useState([])
   const [seasonBettingLedger, setSeasonBettingLedger] = useState([])
   const [players, setPlayers] = useState([])
-  const [selectedSeasonId, setSelectedSeasonId] = useState(() => localStorage.getItem(STORAGE_KEY) || '')
+  const [selectedSeasonId, setSelectedSeasonId] = useState(() => readLocalStorageItem(STORAGE_KEY))
   const [loading, setLoading] = useState(true)
   const selectedSeasonIdRef = useRef(selectedSeasonId)
   // Tracks which season ID was last fully loaded by refreshSeasons so the
   // selectedSeasonId effect below can skip re-fetching when refreshSeasons
   // already did the load, but fire when the user switches via the navbar.
-  const lastRefreshedSeasonIdRef = useRef('')
+  // Seeded with the same initial value as selectedSeasonId (not '') — on a fresh
+  // page load with a previously-stored season in localStorage, the effect below
+  // runs on mount before refreshSeasons' own fetch resolves and sets this ref,
+  // so without seeding it here both fire the same 4 queries in parallel on every load.
+  const lastRefreshedSeasonIdRef = useRef(selectedSeasonId)
 
-  const refreshSeasons = async (preferredSeasonId, options = {}) => {
+  // Memoized so its identity stays stable across renders — it's a dependency of
+  // SeasonGameSessionProvider's `gameSession` memo, and an unstable reference
+  // there caused Scorebook's full-season reload effect to re-fire on every
+  // realtime tick (i.e. on every single pitch, since scoring writes to
+  // season_schedule), not just on genuine season changes.
+  const refreshSeasons = useCallback(async (preferredSeasonId, options = {}) => {
     const { silent = false } = options
     if (!silent) setLoading(true)
 
@@ -78,7 +90,7 @@ export function SeasonProvider({ children }) {
     setPlayers(playersData || [])
     if (!silent) setLoading(false)
     return seasons
-  }
+  }, [])
 
   useEffect(() => {
     refreshSeasons().catch(() => setLoading(false))
@@ -113,13 +125,18 @@ export function SeasonProvider({ children }) {
 
   useEffect(() => {
     if (selectedSeasonId) {
-      localStorage.setItem(STORAGE_KEY, selectedSeasonId)
+      writeLocalStorageItem(STORAGE_KEY, selectedSeasonId)
     } else {
-      localStorage.removeItem(STORAGE_KEY)
+      removeLocalStorageItem(STORAGE_KEY)
     }
   }, [selectedSeasonId])
 
   useEffect(() => {
+    // Skipped on pages that don't need live updates (see useRealtimeEnabled) — an open realtime
+    // WebSocket connection disqualifies a page from the browser's back/forward cache, so a page
+    // with no use for this channel shouldn't pay that cost.
+    if (!realtimeEnabled) return undefined
+
     const channel = supabase
       .channel(`season-context-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'seasons' }, () => {
@@ -130,10 +147,10 @@ export function SeasonProvider({ children }) {
       .subscribe()
 
     return () => supabase.removeChannel(channel)
-  }, [])
+  }, [realtimeEnabled])
 
   useEffect(() => {
-    if (!selectedSeasonId) return undefined
+    if (!realtimeEnabled || !selectedSeasonId) return undefined
 
     const channel = supabase
       .channel(`season-live-${selectedSeasonId}-${Math.random().toString(36).slice(2)}`)
@@ -152,7 +169,7 @@ export function SeasonProvider({ children }) {
       .subscribe()
 
     return () => supabase.removeChannel(channel)
-  }, [selectedSeasonId])
+  }, [realtimeEnabled, selectedSeasonId])
 
   const viewedSeason = allSeasons.find((season) => String(season.id) === String(selectedSeasonId)) || null
   const activeSeason = allSeasons.find((season) => ['active', 'playoffs'].includes(season.status)) || null

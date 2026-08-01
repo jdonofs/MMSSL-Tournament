@@ -7,6 +7,7 @@ import { useTournament } from '../context/TournamentContext'
 import { useToast } from '../context/ToastContext'
 import LogoUpload from '../components/LogoUpload'
 import EyeDropperButton from '../components/EyeDropperButton'
+import InlineField from '../components/InlineField'
 import { buildRoundRobinSchedule, formatSeasonLabel, normalizeSeasonName, SEASON_PLAYOFF_FORMATS, validateSeasonSettings } from '../utils/season'
 import {
   DEFAULT_MERCY_RULE_DIFFERENTIAL,
@@ -16,28 +17,10 @@ import {
   normalizeRegulationInnings,
 } from '../utils/gameRules'
 import { calculateOutsForPa, inningsPitchedFromOuts } from '../utils/statsCalculator'
+import { savePlayerTeamIdentity } from '../utils/playerTeamIdentity'
 
 function playerEmailFromName(name) {
   return `${name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@sluggers.local`
-}
-
-async function propagateToActiveSeasons(playerId, teamName, teamLocation, teamMascot, teamAbbreviation, primaryColor, secondaryColor, logoChanged, logoUrl) {
-  const { data: activeSeasons } = await supabase
-    .from('seasons')
-    .select('id')
-    .neq('status', 'completed')
-  if (!activeSeasons?.length) return
-  const seasonIds = activeSeasons.map((s) => s.id)
-  const updates = {
-    team_name: teamName,
-    team_location: teamLocation,
-    team_mascot: teamMascot,
-    team_abbreviation: teamAbbreviation,
-    team_primary_color: primaryColor,
-    team_secondary_color: secondaryColor,
-  }
-  if (logoChanged) updates.logo_url = logoUrl
-  await supabase.from('season_teams').update(updates).eq('player_id', playerId).in('season_id', seasonIds)
 }
 
 function Section({ title, children }) {
@@ -84,6 +67,65 @@ function ConfirmButton({ label, confirmLabel, onConfirm, danger = false, disable
       type="button"
       disabled={disabled}
       style={danger ? { borderColor: '#ef4444', color: '#ef4444' } : undefined}
+    >
+      {label}
+    </button>
+  )
+}
+
+function ConfirmDeleteButton({ label, confirmLabel, itemName, onConfirm, disabled = false }) {
+  const [confirming, setConfirming] = useState(false)
+  const [typed, setTyped] = useState('')
+  if (confirming) {
+    const matches = itemName && typed.trim() === itemName
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+        <div className="muted" style={{ fontSize: 12 }}>
+          Type <strong>{itemName}</strong> to confirm.
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder={itemName}
+            autoFocus
+            style={{ padding: '0.4rem 0.6rem', borderRadius: 8, border: '1px solid #ef4444', minWidth: 160 }}
+          />
+          <button
+            className="ghost-button"
+            onClick={() => { setConfirming(false); setTyped('') }}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => { setConfirming(false); setTyped(''); onConfirm() }}
+            type="button"
+            disabled={!matches}
+            style={{
+              background: matches ? '#ef4444' : '#f3a5a5',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              padding: '0.5rem 1.25rem',
+              cursor: matches ? 'pointer' : 'not-allowed',
+              fontWeight: 600,
+            }}
+          >
+            {confirmLabel || label}
+          </button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <button
+      className="ghost-button"
+      onClick={() => setConfirming(true)}
+      type="button"
+      disabled={disabled}
+      style={{ borderColor: '#ef4444', color: '#ef4444' }}
     >
       {label}
     </button>
@@ -411,27 +453,40 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
 
   const handleSave = async () => {
     setSaving(true)
-    const logoChanged = logoUrl !== originalLogo
-    const fullTeamName = teamName || null
-    const playerUpdate = {
-      email: playerEmail.trim().toLowerCase() || null,
-      team_name: fullTeamName,
-      team_location: teamLocation || null,
-      team_mascot: teamMascot || null,
-      team_abbreviation: teamAbbreviation || null,
-      team_primary_color: primaryColor || null,
-      team_secondary_color: secondaryColor || null,
-    }
-    if (logoChanged) playerUpdate.team_logo_url = logoUrl || null
+    const normalizedEmail = playerEmail.trim().toLowerCase() || null
 
-    const { error } = await supabase.from('players').update(playerUpdate).eq('id', p.id)
-    if (error) {
+    try {
+      if (normalizedEmail !== originalEmail) {
+        const { error: emailError } = await supabase.from('players').update({ email: normalizedEmail }).eq('id', p.id)
+        if (emailError) throw emailError
+      }
+
+      const updatedPlayer = await savePlayerTeamIdentity({
+        playerId: p.id,
+        teamLocation,
+        teamMascot,
+        teamAbbreviation,
+        primaryColor,
+        secondaryColor,
+        logoUrl,
+      })
+
+      onSave(
+        p.id,
+        normalizedEmail,
+        updatedPlayer?.team_name ?? (teamName || null),
+        updatedPlayer?.team_location ?? (teamLocation || null),
+        updatedPlayer?.team_mascot ?? (teamMascot || null),
+        updatedPlayer?.team_abbreviation ?? (teamAbbreviation || null),
+        updatedPlayer?.team_primary_color ?? (primaryColor || null),
+        updatedPlayer?.team_secondary_color ?? (secondaryColor || null),
+        updatedPlayer?.team_logo_url ?? (logoUrl || null),
+      )
+    } catch (error) {
       onError(error.message)
       setSaving(false)
       return
     }
-    await propagateToActiveSeasons(p.id, fullTeamName, teamLocation || null, teamMascot || null, teamAbbreviation || null, primaryColor || null, secondaryColor || null, logoChanged, logoUrl || null)
-    onSave(p.id, playerEmail.trim().toLowerCase() || null, fullTeamName, teamLocation || null, teamMascot || null, teamAbbreviation || null, primaryColor || null, secondaryColor || null, logoUrl)
     setSaving(false)
   }
 
@@ -446,7 +501,7 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
     }}>
       <span style={{ fontWeight: 700, color: p.color || '#E2E8F0' }}>{p.name}</span>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
         <LogoUpload
           logoUrl={logoUrl}
           teamName={teamName || p.name}
@@ -455,60 +510,65 @@ function PlayerTeamRow({ player: p, onSave, onError }) {
           onError={onError}
           height={36}
         />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="color"
+              value={primaryColor}
+              onChange={(e) => setPrimaryColor(e.target.value)}
+              style={{ width: 30, height: 24, padding: 0, border: '1px solid #334155', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
+            />
+            <EyeDropperButton onPick={setPrimaryColor} title="Pick primary color from screen" />
+            <span className="muted" style={{ fontSize: 12 }}>Primary</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="color"
+              value={secondaryColor}
+              onChange={(e) => setSecondaryColor(e.target.value)}
+              style={{ width: 30, height: 24, padding: 0, border: '1px solid #334155', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
+            />
+            <EyeDropperButton onPick={setSecondaryColor} title="Pick secondary color from screen" />
+            <span className="muted" style={{ fontSize: 12 }}>Secondary</span>
+          </div>
+        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-        <input
-          type="text"
+      <div style={{ display: 'grid', gap: 6 }}>
+        <InlineField
+          label="Email:"
           value={playerEmail}
-          onChange={(e) => setPlayerEmail(e.target.value)}
-          placeholder="Login email (e.g. jason@sluggers.local)"
-          style={inputStyle}
+          onChange={setPlayerEmail}
+          placeholder="Login email"
+          inputStyle={inputStyle}
         />
-        <input
-          type="text"
+        <InlineField
+          label="City:"
           value={teamLocation}
-          onChange={(e) => setTeamLocation(e.target.value)}
+          onChange={setTeamLocation}
+          placeholder="City"
           maxLength={40}
-          style={inputStyle}
+          inputStyle={inputStyle}
         />
-        <input
-          type="text"
+        <InlineField
+          label="Mascot:"
           value={teamMascot}
-          onChange={(e) => setTeamMascot(e.target.value)}
+          onChange={setTeamMascot}
+          placeholder="Mascot"
           maxLength={40}
-          style={inputStyle}
+          inputStyle={inputStyle}
         />
-        <input
-          type="text"
+        <InlineField
+          label="Abbrev:"
           value={teamAbbreviation}
-          onChange={(e) => setTeamAbbreviation(e.target.value.toUpperCase().slice(0, 5))}
+          onChange={setTeamAbbreviation}
+          placeholder="ABB"
           maxLength={5}
-          style={{ ...inputStyle, textTransform: 'uppercase', letterSpacing: 1 }}
+          transform={(v) => v.toUpperCase().slice(0, 5)}
+          textStyle={{ textTransform: 'uppercase', letterSpacing: 1 }}
+          inputStyle={{ ...inputStyle, textAlign: 'left', textTransform: 'uppercase', letterSpacing: 1, maxWidth: 100 }}
         />
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            type="color"
-            value={primaryColor}
-            onChange={(e) => setPrimaryColor(e.target.value)}
-            style={{ width: 36, height: 28, padding: 0, border: '1px solid #334155', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
-          />
-          <EyeDropperButton onPick={setPrimaryColor} title="Pick primary color from screen" />
-          <span className="muted" style={{ fontSize: 12 }}>Primary</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            type="color"
-            value={secondaryColor}
-            onChange={(e) => setSecondaryColor(e.target.value)}
-            style={{ width: 36, height: 28, padding: 0, border: '1px solid #334155', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
-          />
-          <EyeDropperButton onPick={setSecondaryColor} title="Pick secondary color from screen" />
-          <span className="muted" style={{ fontSize: 12 }}>Secondary</span>
-        </div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -684,53 +744,93 @@ export default function Admin() {
         { data: tournamentPAsData },
         { data: tournamentStintsData },
         { data: tournamentRunsData },
+        { data: tournamentPitchesData },
         { data: seasonTeamsData },
         { data: seasonGamesData },
         { data: seasonPAsData },
         { data: seasonStintsData },
         { data: seasonRunsData },
+        { data: seasonPitchesData },
       ] = await Promise.all([
         supabase.from('games').select('id,team_a_player_id,team_b_player_id,home_away_swapped').order('created_at'),
-        supabase.from('plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,created_at').order('created_at'),
+        supabase.from('plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,pitcher_id,pitcher_player_id,created_at').order('created_at'),
         supabase.from('pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at'),
         supabase.from('runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at'),
+        supabase.from('pitches').select('id,pa_id,result').order('created_at'),
         supabase.from('season_teams').select('id,player_id').order('created_at'),
         supabase.from('season_schedule').select('id,away_team_id,home_team_id,home_away_swapped').order('created_at'),
-        supabase.from('season_plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,created_at').order('created_at'),
+        supabase.from('season_plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,pitcher_id,pitcher_player_id,created_at').order('created_at'),
         supabase.from('season_pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at'),
         supabase.from('season_runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at'),
+        supabase.from('season_pitches').select('id,pa_id,result').order('created_at'),
       ])
 
       const playerIdByTeamId = Object.fromEntries((seasonTeamsData || []).map((t) => [String(t.id), t.player_id]))
       const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
       const isHR = (r) => r === 'HR' || r === 'IPHR'
 
-      const computeStatsForGame = (game, gamePAs, gameStints, gameRuns) => {
+      const computeStatsForGame = (game, gamePAs, gameStints, gameRuns, gamePitches) => {
         const stints = [...gameStints].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-        const pas = [...gamePAs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+        const pas = [...gamePAs].sort((a, b) => {
+          const paA = Number(a.pa_number)
+          const paB = Number(b.pa_number)
+          const hasPaA = Number.isFinite(paA) && paA > 0
+          const hasPaB = Number.isFinite(paB) && paB > 0
+          if (hasPaA && hasPaB && paA !== paB) return paA - paB
+          if (hasPaA !== hasPaB) return hasPaA ? -1 : 1
+          return new Date(a.created_at) - new Date(b.created_at) || Number(a.id || 0) - Number(b.id || 0)
+        })
         const nextStatsByStintId = Object.fromEntries(
           stints.map((stint) => [stint.id, {
             innings_pitched: 0, hits_allowed: 0, runs_allowed: 0,
-            earned_runs: 0, walks: 0, strikeouts: 0, hr_allowed: 0, _outs: 0,
+            earned_runs: 0, walks: 0, strikeouts: 0, hr_allowed: 0,
+            pitches_thrown: 0, strikes_thrown: 0, _outs: 0,
           }])
         )
         let outsBeforePa = 0
         pas.forEach((pa) => {
           const defense = deriveOffense(game, outsBeforePa)
-          const eligibleStints = stints.filter(
-            (s) => String(s.player_id) === String(defense.pitchingPlayerId) &&
-              new Date(s.created_at).getTime() <= new Date(pa.created_at).getTime()
-          )
-          const activeStint = eligibleStints[eligibleStints.length - 1]
+          // Prefer the pitcher recorded directly on the PA (authoritative, order-independent).
+          // A pitcher who re-enters after being pulled gets a second stints row with the same
+          // character_id/player_id — plain .find() always grabs the earliest one, dumping every
+          // PA from the second outing back onto the first and leaving the re-entry stint's stats
+          // stuck at 0. Disambiguate by which of the same-pitcher stints was actually open when
+          // this PA happened; only fall back to the earliest match when none qualify (bulk-
+          // imported/backfilled games, where every stint's created_at can land after every PA's).
+          let activeStint = null
+          if (pa.pitcher_id != null) {
+            const candidateStints = stints.filter(
+              (s) => String(s.character_id) === String(pa.pitcher_id) && String(s.player_id) === String(defense.pitchingPlayerId)
+            )
+            const eligibleCandidates = candidateStints.filter(
+              (s) => new Date(s.created_at).getTime() <= new Date(pa.created_at).getTime()
+            )
+            activeStint = eligibleCandidates[eligibleCandidates.length - 1] || candidateStints[0] || null
+          }
+          if (!activeStint) {
+            const eligibleStints = stints.filter(
+              (s) => String(s.player_id) === String(defense.pitchingPlayerId) &&
+                new Date(s.created_at).getTime() <= new Date(pa.created_at).getTime()
+            )
+            activeStint = eligibleStints[eligibleStints.length - 1]
+          }
           if (activeStint) {
             const next = nextStatsByStintId[activeStint.id]
-            const outs = calculateOutsForPa(pa.result)
+            const outs = calculateOutsForPa(pa.result, pa.outs_on_play)
             const paRuns = gameRuns.filter((run) => String(run.pa_id) === String(pa.id))
             next._outs += outs
             if (HIT_RESULTS.has(pa.result)) next.hits_allowed += 1
             if (isHR(pa.result)) next.hr_allowed += 1
             if (pa.result === 'BB') next.walks += 1
             if (pa.result === 'K') next.strikeouts += 1
+            // Every pitch of this PA belongs to whichever stint the PA itself was attributed to
+            // above — reuses that same re-entry-aware resolution rather than re-deriving it per
+            // pitch from the pitches table's own pitcher_id (a character name, not this id).
+            const paPitches = gamePitches.filter((pitch) => String(pitch.pa_id) === String(pa.id))
+            next.pitches_thrown += paPitches.length
+            // A "strike" for the PC-ST count is every pitch except a ball or a hit batsman —
+            // called/swinging strikes, fouls, and balls put in play all count.
+            next.strikes_thrown += paPitches.filter((pitch) => pitch.result !== 'ball' && pitch.result !== 'hbp').length
             if (paRuns.length > 0) {
               paRuns.forEach((run) => {
                 let target = next
@@ -746,14 +846,16 @@ export default function Admin() {
                 if (run.is_earned_run !== false) target.earned_runs += 1
               })
             } else {
-              const fallback = Number(pa.rbi || 0) + (pa.run_scored ? 1 : 0)
+              // On a home run the batter's own run is already included in rbi, so adding
+              // run_scored on top would double-count the batter.
+              const fallback = Number(pa.rbi || 0) + (pa.run_scored && !isHR(pa.result) ? 1 : 0)
               if (fallback > 0) {
                 next.runs_allowed += fallback
                 if (pa.is_earned_run !== false) next.earned_runs += fallback
               }
             }
           }
-          outsBeforePa += calculateOutsForPa(pa.result)
+          outsBeforePa += calculateOutsForPa(pa.result, pa.outs_on_play)
         })
         Object.values(nextStatsByStintId).forEach((entry) => {
           entry.innings_pitched = inningsPitchedFromOuts(entry._outs)
@@ -785,6 +887,7 @@ export default function Admin() {
           tournamentPAsByGame[String(game.id)] || [],
           stints,
           tournamentRunsByGame[String(game.id)] || [],
+          tournamentPitchesData || [],
         )
         for (const [stintId, stintStats] of Object.entries(stats)) {
           updates.push(supabase.from('pitching_stints').update(stintStats).eq('id', stintId))
@@ -804,6 +907,7 @@ export default function Admin() {
           seasonPAsByGame[String(game.id)] || [],
           stints,
           seasonRunsByGame[String(game.id)] || [],
+          seasonPitchesData || [],
         )
         for (const [stintId, stintStats] of Object.entries(stats)) {
           updates.push(supabase.from('season_pitching_stints').update(stintStats).eq('id', stintId))
@@ -868,41 +972,6 @@ export default function Admin() {
     }
     pushToast({ title: 'Trade deadline set', message: 'Trades are now locked for this tournament.', type: 'success' })
     await refreshTournaments()
-  }
-
-  const handleResolveWaivers = async () => {
-    if (!activeSeason) return
-    const [{ data: waivers }, { data: roster }] = await Promise.all([
-      supabase.from('season_waivers').select('*').eq('season_id', activeSeason.id).eq('status', 'pending'),
-      supabase.from('season_roster').select('*').eq('season_id', activeSeason.id).eq('is_active', true),
-    ])
-    if (!waivers?.length) { pushToast({ title: 'No pending waivers', type: 'success' }); return }
-
-    const grouped = waivers.reduce((acc, entry) => {
-      acc[entry.claiming_character] = acc[entry.claiming_character] || []
-      acc[entry.claiming_character].push(entry)
-      return acc
-    }, {})
-
-    try {
-      for (const claims of Object.values(grouped)) {
-        const sorted = [...claims].sort((a, b) => Number(a.priority_order) - Number(b.priority_order) || new Date(a.created_at) - new Date(b.created_at))
-        const winner = sorted[0]
-        const losers = sorted.slice(1)
-        const dropRow = roster?.find((r) => r.team_id === winner.claiming_team_id && r.character_name === winner.dropping_character)
-        if (dropRow) {
-          const { error: dropErr } = await supabase.from('season_roster').update({ is_active: false }).eq('id', dropRow.id)
-          if (dropErr) throw new Error(`Failed to drop ${winner.dropping_character}: ${dropErr.message}`)
-        }
-        const { error: addErr } = await supabase.from('season_roster').insert({ season_id: activeSeason.id, team_id: winner.claiming_team_id, character_name: winner.claiming_character, acquired_via: 'waiver', is_active: true })
-        if (addErr) throw new Error(`Failed to add ${winner.claiming_character}: ${addErr.message}`)
-        await supabase.from('season_waivers').update({ status: 'approved', resolved_at: new Date().toISOString() }).eq('id', winner.id)
-        if (losers.length) await supabase.from('season_waivers').update({ status: 'denied', resolved_at: new Date().toISOString() }).in('id', losers.map((e) => e.id))
-      }
-      pushToast({ title: 'Waivers resolved', type: 'success' })
-    } catch (err) {
-      pushToast({ title: 'Waiver resolution failed', message: err.message + ' — some waivers may have been partially applied. Check the roster manually.', type: 'error' })
-    }
   }
 
   const handleToggleScorebookAccess = async (target) => {
@@ -999,9 +1068,6 @@ export default function Admin() {
       <div style={{ display: 'grid', gap: 16 }}>
 
         <Section title="Team Editor">
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            Set each player's login email and team details. The login email must match the Supabase Auth account. Changes apply to all current and future seasons and tournaments — completed ones keep their recorded identity.
-          </p>
           <div style={{ display: 'grid', gap: 8 }}>
             {players.map((p) => (
               <PlayerTeamRow
@@ -1071,7 +1137,6 @@ export default function Admin() {
         </Section>
 
         <Section title="Scorebook Access">
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Grant players the ability to edit the scorebook. Commissioners always have full access.</p>
           <div style={{ display: 'grid', gap: 8 }}>
             {nonCommissioners.map((p) => (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(15,23,42,0.55)', borderRadius: 10, border: '1px solid #1E293B' }}>
@@ -1099,9 +1164,6 @@ export default function Admin() {
         </Section>
 
         <Section title="Award Balance">
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            Give players extra betting balance for the active season or tournament. Applies to a single player or everyone at once.
-          </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, alignItems: 'end' }}>
             <div style={{ display: 'grid', gap: 6 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: '#94A3B8' }}>Context</label>
@@ -1177,24 +1239,19 @@ export default function Admin() {
             action={<button className="ghost-button" onClick={() => setEditingSeason(true)} disabled={!activeSeason} type="button">Edit</button>}
           />
           <Row
-            label="Resolve Waivers"
-            action={
-              <ConfirmButton
-                label="Resolve"
-                confirmLabel="Resolve Waivers"
-                onConfirm={handleResolveWaivers}
-                disabled={!activeSeason}
-              />
-            }
+            label="Manage Waivers"
+            description="Waiver claims now resolve through the season roster transaction flow."
+            action={<button className="ghost-button" onClick={() => navigate('/season/roster')} disabled={!activeSeason} type="button">Open</button>}
           />
           <Row
             label="Delete Season"
+            description={activeSeason ? `Permanently delete ${activeSeason.name} and all its data.` : 'No active season.'}
             action={
-              <ConfirmButton
+              <ConfirmDeleteButton
                 label="Delete"
                 confirmLabel="Yes, delete season"
+                itemName={activeSeason?.name}
                 onConfirm={handleDeleteSeason}
-                danger
                 disabled={!activeSeason}
               />
             }
@@ -1229,11 +1286,11 @@ export default function Admin() {
             label="Delete Tournament"
             description={activeTournament ? `Permanently delete Tournament ${activeTournament.tournament_number} and all its data.` : 'No active tournament.'}
             action={
-              <ConfirmButton
+              <ConfirmDeleteButton
                 label="Delete"
                 confirmLabel="Yes, delete tournament"
+                itemName={activeTournament ? `Tournament ${activeTournament.tournament_number}` : ''}
                 onConfirm={handleDeleteTournament}
-                danger
                 disabled={!activeTournament}
               />
             }
@@ -1241,6 +1298,15 @@ export default function Admin() {
         </Section>
 
         <Section title="Data">
+          <Row
+            label="Video Timestamps"
+            description="Link YouTube videos to games and mark at-bat start/end times."
+            action={
+              <button type="button" className="ghost-button" onClick={() => navigate('/admin/video-timestamps')}>
+                Open
+              </button>
+            }
+          />
           <Row
             label="Download Backup"
             description="Export all stats and seasons as a JSON file."
@@ -1257,7 +1323,7 @@ export default function Admin() {
           />
           <Row
             label="Recompute Pitching Stats"
-            description="Recalculate R and ER for all pitching stints across every game. Fixes inherited-runner runs that were not attributed to any pitcher."
+            description="Recalculate IP, H, R, ER, BB, K, HR, and pitch/strike counts for all pitching stints across every game. Fixes inherited-runner runs that were not attributed to any pitcher."
             action={
               <ConfirmButton
                 label="Recompute"

@@ -322,7 +322,7 @@ export default function SeasonCreate() {
                 </select>
               </label>
               <label style={{ display: 'grid', gap: 6 }}>
-                <span className="muted">Games per matchup</span>
+                <span className="muted">Weeks</span>
                 <input min="1" max="10" type="number" value={form.games_per_matchup} onChange={(e) => setForm((current) => ({ ...current, games_per_matchup: Number(e.target.value) }))} />
               </label>
             </div>
@@ -446,7 +446,7 @@ export default function SeasonCreate() {
               <div className="feed-row"><span>League Type</span><strong>{formatSeasonLabel(form.league_type)}</strong></div>
               <div className="feed-row"><span>Players</span><strong>{selectedPlayers.map((entry) => entry.name).join(', ')}</strong></div>
               <div className="feed-row"><span>Draft Order</span><strong>{draftOrder.map((entry, index) => `${index + 1}. ${entry.name}`).join(' | ')}</strong></div>
-              <div className="feed-row"><span>Games Per Matchup</span><strong>{form.games_per_matchup}</strong></div>
+              <div className="feed-row"><span>Weeks</span><strong>{form.games_per_matchup}</strong></div>
               <div className="feed-row"><span>Regulation Innings</span><strong>{form.innings}</strong></div>
               <div className="feed-row"><span>Mercy Rule</span><strong>{form.mercy_rule ? `On at ${form.mercy_rule_differential} runs` : 'Off'}</strong></div>
               <div className="feed-row"><span>Playoff Format</span><strong>{formatSeasonLabel(form.playoff_format)}</strong></div>

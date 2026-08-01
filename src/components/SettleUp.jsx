@@ -2,51 +2,7 @@ import { useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import PlayerTag from './PlayerTag'
 import { getTeamShortName } from '../utils/teamIdentity'
-
-function roundDollar(value) {
-  return Math.round(Number(value || 0) * 100) / 100
-}
-
-function buildBalances(bets = [], settlements = [], players = []) {
-  const balances = Object.fromEntries(
-    players.map((player) => [
-      player.id,
-      {
-        playerId: player.id,
-        name: player.name,
-        netAmount: 0,
-      },
-    ]),
-  )
-
-  bets.forEach((bet) => {
-    const entry = balances[bet.player_id]
-    if (!entry) return
-
-    if (bet.status === 'won') {
-      entry.netAmount += Number(bet.potential_payout_dollars || 0)
-    }
-
-    if (bet.status === 'lost') {
-      entry.netAmount -= Number(bet.wager_dollars || 0)
-    }
-  })
-
-  settlements.forEach((settlement) => {
-    const from = balances[settlement.from_player_id]
-    const to = balances[settlement.to_player_id]
-    const amount = Number(settlement.dollars || 0)
-    if (from) from.netAmount += amount
-    if (to) to.netAmount -= amount
-  })
-
-  return Object.values(balances)
-    .map((entry) => ({
-      ...entry,
-      netAmount: roundDollar(entry.netAmount),
-    }))
-    .sort((a, b) => b.netAmount - a.netAmount)
-}
+import { buildSettleUpBalances, computeSettleUpAmount, hasSettleUpAssignments } from '../utils/settleUp'
 
 export default function SettleUp({
   game,
@@ -63,14 +19,14 @@ export default function SettleUp({
   const isSeasonMode = mode === 'season'
   const playersById = useMemo(() => Object.fromEntries(players.map((player) => [player.id, player])), [players])
   const balances = useMemo(
-    () => buildBalances(bets, settlements, players),
+    () => buildSettleUpBalances(bets, settlements, players),
     [bets, settlements, players],
   )
 
   const me = balances.find((entry) => entry.playerId === currentPlayer?.id)
   const winners = balances.filter((entry) => entry.netAmount > 0)
   const losers = balances.filter((entry) => entry.netAmount < 0)
-  const hasOutstanding = winners.length || losers.length
+  const hasOutstanding = hasSettleUpAssignments(balances)
 
   if (!game || game.status !== 'complete' || !hasOutstanding) return null
 
@@ -79,22 +35,18 @@ export default function SettleUp({
     const loser = balances.find((entry) => entry.playerId === fromLoserId)
     if (!winner || !loser) return
 
-    const amount = roundDollar(Math.min(winner.netAmount, Math.abs(loser.netAmount)))
-    if (amount <= 0) return
+    // Client-side pre-check only (avoids a pointless round-trip); the actual
+    // amount is recomputed server-side from live bets/settlements state under
+    // an advisory lock so two concurrent assignments can't both succeed for
+    // more than what's actually outstanding.
+    if (computeSettleUpAmount(winner.netAmount, loser.netAmount) <= 0) return
 
     setSubmitting(true)
-    const settlementPayload = {
-      game_id: game.id,
-      from_player_id: fromLoserId,
-      to_player_id: toWinnerId,
-      dollars: amount,
-      settled_at: new Date().toISOString(),
-    }
     const { data, error } = await supabase
-      .from(isSeasonMode ? 'season_game_settlements' : 'game_settlements')
-      .insert(settlementPayload)
-      .select()
-      .single()
+      .rpc(isSeasonMode ? 'assign_season_game_settlement' : 'assign_game_settlement', {
+        p_game_id: game.id,
+        p_from_player_id: fromLoserId,
+      })
     setSubmitting(false)
 
     if (error) {
@@ -105,7 +57,7 @@ export default function SettleUp({
     if (data) onSettlementCreated?.(data)
     pushToast?.({
       title: 'Dollars assigned',
-      message: `${getTeamShortName(identitiesByPlayerId[loser.playerId]) || loser.name} owes $${amount.toFixed(2)} to ${getTeamShortName(identitiesByPlayerId[winner.playerId]) || winner.name}.`,
+      message: `${getTeamShortName(identitiesByPlayerId[loser.playerId]) || loser.name} owes $${Number(data?.dollars || 0).toFixed(2)} to ${getTeamShortName(identitiesByPlayerId[winner.playerId]) || winner.name}.`,
       type: 'success',
     })
   }

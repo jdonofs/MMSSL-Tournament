@@ -5,6 +5,14 @@ import { useTournament } from '../context/TournamentContext'
 import { GameSessionProvider } from '../context/GameSessionContext'
 import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
 
+const TOURNAMENT_TEAM_IDENTITY_MAP = new Proxy(Object.create(null), {
+  get: (_target, key) => {
+    if (typeof key !== 'string') return undefined
+    const numeric = Number(key)
+    return Number.isFinite(numeric) ? numeric : undefined
+  },
+})
+
 const TOURNAMENT_TABLES = {
   games: 'games',
   lineups: 'lineups',
@@ -35,13 +43,16 @@ export default function TournamentGameSessionProvider({ children }) {
     sourceType: 'tournament',
     sourceId: tournament?.id || null,
     tables: TOURNAMENT_TABLES,
-    teamIdByPlayerId: {},
-    playerIdByTeamId: {},
+    // Tournament "teams" are just the owning players, so the scorebook still needs an
+    // identity mapping here. Without it, live tournament PAs save batting/defensive team
+    // ids as null, which breaks downstream fielding + pitching-context recovery.
+    teamIdByPlayerId: TOURNAMENT_TEAM_IDENTITY_MAP,
+    playerIdByTeamId: TOURNAMENT_TEAM_IDENTITY_MAP,
     async loadScorebookData() {
       const [
-        { data: gamesData }, { data: playersData }, { data: lineupsData },
-        { data: charsData }, { data: picksData }, { data: pasData }, { data: pitchData },
-        { data: pitchRowsData }, { data: fieldersData }, { data: runsData }, { data: inningScoresData },
+        { data: gamesData, error: gamesError }, { data: playersData, error: playersError }, { data: lineupsData, error: lineupsError },
+        { data: charsData, error: charsError }, { data: picksData, error: picksError }, { data: pasData, error: pasError }, { data: pitchData, error: pitchingError },
+        pitchRowsResult, { data: fieldersData, error: fieldersError }, { data: runsData, error: runsError }, { data: inningScoresData, error: inningScoresError },
         { data: stadiumsData }, { data: stadiumLogData },
       ] = await Promise.all([
         supabase.from(TOURNAMENT_TABLES.games).select('*').order('id'),
@@ -51,7 +62,10 @@ export default function TournamentGameSessionProvider({ children }) {
         supabase.from(TOURNAMENT_TABLES.draftPicks).select('*'),
         supabase.from(TOURNAMENT_TABLES.plateAppearances).select('*').order('created_at'),
         supabase.from(TOURNAMENT_TABLES.pitchingStints).select('*').order('created_at'),
-        supabase.from(TOURNAMENT_TABLES.pitches).select('*').order('created_at'),
+        // Only the selected game's pitch log is used by Scorebook. Keeping this
+        // query game-scoped avoids the same 1,000-row truncation problem that a
+        // tournament-wide pitch fetch would eventually cause.
+        supabase.from(TOURNAMENT_TABLES.pitches).select('*').eq('game_id', gameId).order('created_at'),
         supabase.from(TOURNAMENT_TABLES.gameFielders).select('*').order('created_at'),
         supabase.from(TOURNAMENT_TABLES.runsScored).select('*').order('created_at'),
         supabase.from(TOURNAMENT_TABLES.inningScores).select('*').order('inning'),
@@ -67,7 +81,20 @@ export default function TournamentGameSessionProvider({ children }) {
         draftPicks: picksData || [],
         plateAppearances: pasData || [],
         pitchingStints: pitchData || [],
-        pitches: pitchRowsData || [],
+        pitches: pitchRowsResult.error ? null : (pitchRowsResult.data || []),
+        pitchLoadError: pitchRowsResult.error || null,
+        loadError: gamesError
+          || playersError
+          || lineupsError
+          || charsError
+          || picksError
+          || pasError
+          || pitchingError
+          || pitchRowsResult.error
+          || fieldersError
+          || runsError
+          || inningScoresError
+          || null,
         gameFielders: fieldersData || [],
         runsScored: runsData || [],
         inningScores: inningScoresData || [],

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
+import { assignTournamentPitchersToPas, buildTournamentOneChronologicalPas } from '../src/utils/tournamentOneReplay.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -48,6 +49,12 @@ function toNumber(value, fallback = 0) {
 
 function gameSortKey(code) {
   return Number(String(code || '').replace(/\D/g, '')) || 0
+}
+
+function getOpponentPlayerId(game = {}, playerId) {
+  if (String(game.team_a_player_id) === String(playerId)) return game.team_b_player_id || null
+  if (String(game.team_b_player_id) === String(playerId)) return game.team_a_player_id || null
+  return null
 }
 
 function parseWorkbookDraftRows() {
@@ -298,7 +305,7 @@ async function importTournamentOneWorkbook() {
 
     const gameIds = (existingGames || []).map((game) => game.id)
     if (gameIds.length) {
-      for (const table of ['points_ledger', 'bets', 'pitching_stints', 'plate_appearances', 'lineups', 'inning_scores']) {
+      for (const table of ['stadium_game_log', 'points_ledger', 'bets', 'game_settlements', 'game_odds', 'pitching_stints', 'pitches', 'runs_scored', 'plate_appearances', 'game_fielders', 'lineups', 'inning_scores']) {
         const { error } = await supabase.from(table).delete().in('game_id', gameIds)
         if (error) throw error
       }
@@ -348,7 +355,8 @@ async function importTournamentOneWorkbook() {
   }))
   await insertInBatches('draft_picks', draftRows, 100)
 
-  const parsedGames = parseWorkbookGames()
+  const scorebookGames = extractScorebookGames()
+  const parsedGames = scorebookGames.map(({ battingRows, pitchingRows, ...game }) => game)
   const gameRows = parsedGames.map((row) => ({
     tournament_id: tournament.id,
     game_code: row.game_code,
@@ -370,7 +378,7 @@ async function importTournamentOneWorkbook() {
   if (insertedGamesError) throw insertedGamesError
 
   const gameMap = Object.fromEntries(insertedGames.map((game) => [game.game_code, game]))
-  const battingRows = parseWorkbookBattingRows()
+  const battingRows = scorebookGames.flatMap((game) => game.battingRows.map((row) => ({ ...row, game_code: game.game_code })))
 
   const lineupRows = battingRows.map((row) => ({
     game_id: gameMap[row.game_code]?.id,
@@ -379,42 +387,14 @@ async function importTournamentOneWorkbook() {
     batting_order: row.batting_order
   }))
   await insertInBatches('lineups', lineupRows, 200)
+  // The workbook only has final box-score totals per team, not a real per-inning line score,
+  // so there's no source data to build inning_scores rows from. Leave the table empty for these
+  // games — the line-score UI already falls back to deriving an inning breakdown from PA data
+  // when no inning_scores rows exist for a game.
 
-  const inningRows = parsedGames.flatMap((game) => {
-    const dbGame = gameMap[game.game_code]
-    if (!dbGame) return []
-    return [
-      { game_id: dbGame.id, player_id: dbGame.team_a_player_id, inning: 1, runs: game.team_a_runs },
-      { game_id: dbGame.id, player_id: dbGame.team_b_player_id, inning: 1, runs: game.team_b_runs }
-    ].filter((row) => row.player_id)
-  })
-  await insertInBatches('inning_scores', inningRows, 100)
-
-  const plateAppearances = []
-  const paCounters = {}
-  battingRows.forEach((row) => {
-    const dbGame = gameMap[row.game_code]
-    const playerId = playerMap[row.player_name]?.id
-    const characterId = characterMap[row.character_name]?.id
-    if (!dbGame || !playerId || !characterId) return
-
-    row.plate_appearances.forEach((appearance, index) => {
-      paCounters[row.game_code] = (paCounters[row.game_code] || 0) + 1
-      plateAppearances.push({
-        game_id: dbGame.id,
-        player_id: playerId,
-        character_id: characterId,
-        inning: Math.min(9, Math.floor(index / 3) + 1),
-        pa_number: paCounters[row.game_code],
-        result: appearance.result,
-        rbi: appearance.rbi,
-        run_scored: appearance.run_scored
-      })
-    })
-  })
-  await insertInBatches('plate_appearances', plateAppearances, 250)
-
-  const pitchingRows = parseWorkbookPitchingRows()
+  const pitchingRows = scorebookGames
+    .flatMap((game) => game.pitchingRows.map((row) => ({ ...row, game_code: game.game_code })))
+    .filter((row) => row.character_name && row.character_name !== '0')
     .map((row) => ({
       game_id: gameMap[row.game_code]?.id,
       player_id: playerMap[row.player_name]?.id,
@@ -433,6 +413,33 @@ async function importTournamentOneWorkbook() {
       complete_game: row.complete_game
     }))
     .filter((row) => row.game_id && row.player_id && row.character_id)
+
+  const pitchingRowsByGame = pitchingRows.reduce((acc, row) => {
+    const key = String(row.game_id)
+    if (!acc[key]) acc[key] = []
+    acc[key].push(row)
+    return acc
+  }, {})
+
+  const plateAppearances = scorebookGames.flatMap((workbookGame) => {
+    const dbGame = gameMap[workbookGame.game_code]
+    if (!dbGame) return []
+
+    const chronologicalPas = buildTournamentOneChronologicalPas({
+      workbookGame,
+      dbGame,
+      playerByName: playerMap,
+      characterByName: characterMap,
+    })
+
+    return assignTournamentPitchersToPas(
+      chronologicalPas,
+      pitchingRowsByGame[String(dbGame.id)] || [],
+    )
+  })
+
+  await insertInBatches('plate_appearances', plateAppearances, 250)
+
   await insertInBatches('pitching_stints', pitchingRows, 150)
   await syncFinalGameResults(parsedGames, gameMap, playerMap)
 

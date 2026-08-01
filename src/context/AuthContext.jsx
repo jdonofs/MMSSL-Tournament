@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import useRealtimeEnabled from '../hooks/useRealtimeEnabled'
 
 const AuthContext = createContext(null)
 
@@ -37,6 +38,7 @@ async function fetchLinkedPlayer(userId) {
 }
 
 export function AuthProvider({ children }) {
+  const realtimeEnabled = useRealtimeEnabled()
   const [session, setSession] = useState(null)
   const sessionRef = useRef(null)
   const [player, setPlayer] = useState(null)
@@ -125,7 +127,10 @@ export function AuthProvider({ children }) {
   }, [resolvePlayerForSession])
 
   useEffect(() => {
-    if (!player?.id) return undefined
+    // Skipped on pages that don't need live updates (see useRealtimeEnabled) — an open realtime
+    // WebSocket connection disqualifies a page from the browser's back/forward cache, so a page
+    // with no use for this channel shouldn't pay that cost.
+    if (!realtimeEnabled || !player?.id) return undefined
 
     const channel = supabase
       .channel(`auth-player-${player.id}-${Math.random().toString(36).slice(2)}`)
@@ -138,7 +143,7 @@ export function AuthProvider({ children }) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [player?.id, session?.user?.id])
+  }, [realtimeEnabled, player?.id, session?.user?.id])
 
   const signInWithPassword = useCallback(async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })

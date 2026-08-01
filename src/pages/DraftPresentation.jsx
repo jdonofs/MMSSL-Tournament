@@ -1792,6 +1792,7 @@ function DraftPresentation({ mode = 'tournament' }) {
       const [
         { data: playersData }, { data: charactersData }, { data: paData }, { data: gData }, { data: seasonPaData },
         { data: pitchData }, { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData }, { data: seasonTeamsData },
+        { data: gamePitchesData }, { data: seasonGamePitchesData },
       ] = await Promise.all([
         supabase.from('players').select('*').order('created_at'),
         supabase.from('characters').select('*').order('name'),
@@ -1803,15 +1804,28 @@ function DraftPresentation({ mode = 'tournament' }) {
         supabase.from('game_fielders').select('*'),
         supabase.from('season_game_fielders').select('*'),
         supabase.from('season_teams').select('id,player_id'),
+        supabase.from('pitches').select('game_id,pitcher_id'),
+        supabase.from('season_pitches').select('game_id,pitcher_id'),
       ])
 
       if (!active) return
 
+      // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
+      // mound-assignment bookkeeping), before they've necessarily thrown a pitch — if pulled again
+      // without facing a batter, that stint sits at 0 IP forever but would still count as a "game"
+      // pitched. Drop stints with no matching row in `pitches`/`season_pitches` (by game_id +
+      // pitcher name, since pitches.pitcher_id is a name string, not character_id).
+      const nameByCharId = Object.fromEntries((charactersData || []).map((c) => [String(c.id), c.name]))
+      const thrownKeys = new Set((gamePitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const seasonThrownKeys = new Set((seasonGamePitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const stintsWithPitches = (pitchData || []).filter((s) => thrownKeys.has(`${s.game_id}:${nameByCharId[String(s.character_id)]}`))
+      const seasonStintsWithPitches = (seasonPitchData || []).filter((s) => seasonThrownKeys.has(`${s.game_id}:${nameByCharId[String(s.character_id)]}`))
+
       setCharacters(charactersData || [])
       setPlateAppearances(paData || [])
       setGames(gData || [])
-      setPitchingStints(pitchData || [])
-      setSeasonPitchingStints(seasonPitchData || [])
+      setPitchingStints(stintsWithPitches)
+      setSeasonPitchingStints(seasonStintsWithPitches)
       setGameFielders(fieldersData || [])
       setSeasonGameFielders(seasonFieldersData || [])
       setSeasonPlateAppearances(seasonPaData || [])
@@ -1933,9 +1947,13 @@ function DraftPresentation({ mode = 'tournament' }) {
     () => buildCharacterGameHistory(plateAppearances, games, allTournaments || [], seasonPlateAppearances, allSeasons || []),
     [plateAppearances, games, allTournaments, seasonPlateAppearances, allSeasons],
   )
+  const playerNameById = useMemo(
+    () => Object.fromEntries((players || []).map((player) => [player.id, player.name])),
+    [players],
+  )
   const pitchingGameHistoryByCharacter = useMemo(
-    () => buildCharacterPitchingGameHistory(pitchingStints, games, allTournaments || [], seasonPitchingStints, allSeasons || []),
-    [pitchingStints, games, allTournaments, seasonPitchingStints, allSeasons],
+    () => buildCharacterPitchingGameHistory(pitchingStints, games, allTournaments || [], seasonPitchingStints, allSeasons || [], null, playerNameById),
+    [pitchingStints, games, allTournaments, seasonPitchingStints, allSeasons, playerNameById],
   )
   const fieldingGameHistoryByCharacter = useMemo(
     () => buildCharacterFieldingGameHistory(

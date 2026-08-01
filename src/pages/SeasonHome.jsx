@@ -8,7 +8,7 @@ import { buildSeasonTeamIdentity } from '../utils/teamIdentity'
 
 export default function SeasonHome() {
   const { player } = useAuth()
-  const { currentSeason, standings, seasonPlayersById, seasonTeams } = useSeason()
+  const { currentSeason, standings, seasonPlayersById, seasonTeams, allSeasons } = useSeason()
   const [rankingData, setRankingData] = useState({
     roster: [],
     characters: [],
@@ -63,6 +63,10 @@ export default function SeasonHome() {
         setRankingsError('')
       }
 
+      const otherSeasonIds = allSeasons
+        .map((season) => season.id)
+        .filter((id) => String(id) !== String(currentSeason.id))
+
       const [
         { data: rosterData, error: rosterError },
         { data: charactersData, error: charactersError },
@@ -72,6 +76,11 @@ export default function SeasonHome() {
         { data: historicalPaData, error: historicalPaError },
         { data: historicalPitchingData, error: historicalPitchingError },
         { data: historicalFieldersData, error: historicalFieldersError },
+        { data: pastSeasonsPaData, error: pastSeasonsPaError },
+        { data: pastSeasonsPitchingData, error: pastSeasonsPitchingError },
+        { data: pastSeasonsFieldersData, error: pastSeasonsFieldersError },
+        { data: seasonPitchesData },
+        { data: tournamentPitchesData },
       ] = await Promise.all([
         supabase.from('season_roster').select('*').eq('season_id', currentSeason.id).order('created_at'),
         supabase.from('characters').select('*').order('name'),
@@ -81,9 +90,25 @@ export default function SeasonHome() {
         supabase.from('plate_appearances').select('*').order('created_at'),
         supabase.from('pitching_stints').select('*').order('created_at'),
         supabase.from('game_fielders').select('*').order('created_at'),
+        // A GM's performance in seasons other than the one being viewed is part of their real
+        // history too — not just their pre-season-era tournament stats. Without this, "history"
+        // for a fresh season only reflects old tournament data and ignores how the GM actually
+        // performed last season. Scoped to `otherSeasonIds` (seasons that still exist) rather than
+        // just excluding the current season, so a deleted season's stats never resurface as history.
+        otherSeasonIds.length
+          ? supabase.from('season_plate_appearances').select('*').in('season_id', otherSeasonIds).order('created_at')
+          : Promise.resolve({ data: [] }),
+        otherSeasonIds.length
+          ? supabase.from('season_pitching_stints').select('*').in('season_id', otherSeasonIds).order('created_at')
+          : Promise.resolve({ data: [] }),
+        otherSeasonIds.length
+          ? supabase.from('season_game_fielders').select('*').in('season_id', otherSeasonIds).order('created_at')
+          : Promise.resolve({ data: [] }),
+        supabase.from('season_pitches').select('game_id,pitcher_id'),
+        supabase.from('pitches').select('game_id,pitcher_id'),
       ])
 
-      const error = rosterError || charactersError || paError || pitchingError || fieldersError || historicalPaError || historicalPitchingError || historicalFieldersError
+      const error = rosterError || charactersError || paError || pitchingError || fieldersError || historicalPaError || historicalPitchingError || historicalFieldersError || pastSeasonsPaError || pastSeasonsPitchingError || pastSeasonsFieldersError
       if (!isActive) return
 
       if (error) {
@@ -92,15 +117,26 @@ export default function SeasonHome() {
         return
       }
 
+      // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
+      // mound-assignment bookkeeping), before they've necessarily thrown a pitch — drop stints
+      // with no matching row in `pitches`/`season_pitches` (by game_id + pitcher name) before
+      // ranking teams on them.
+      const nameById = Object.fromEntries((charactersData || []).map((c) => [c.id, c.name]))
+      const seasonThrownKeys = new Set((seasonPitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+      const tournamentThrownKeys = new Set((tournamentPitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
+
       setRankingData({
         roster: rosterData || [],
         characters: charactersData || [],
         plateAppearances: paData || [],
-        pitchingStints: pitchingData || [],
+        pitchingStints: (pitchingData || []).filter((stint) => seasonThrownKeys.has(`${stint.game_id}:${nameById[stint.character_id]}`)),
         gameFielders: fieldersData || [],
-        historicalPlateAppearances: historicalPaData || [],
-        historicalPitchingStints: historicalPitchingData || [],
-        historicalGameFielders: historicalFieldersData || [],
+        historicalPlateAppearances: [...(historicalPaData || []), ...(pastSeasonsPaData || [])],
+        historicalPitchingStints: [
+          ...(historicalPitchingData || []).filter((stint) => tournamentThrownKeys.has(`${stint.game_id}:${nameById[stint.character_id]}`)),
+          ...(pastSeasonsPitchingData || []).filter((stint) => seasonThrownKeys.has(`${stint.game_id}:${nameById[stint.character_id]}`)),
+        ],
+        historicalGameFielders: [...(historicalFieldersData || []), ...(pastSeasonsFieldersData || [])],
       })
       setRankingsLoading(false)
     }
@@ -114,13 +150,16 @@ export default function SeasonHome() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints', filter: `season_id=eq.${currentSeason.id}` }, loadRankingsData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders', filter: `season_id=eq.${currentSeason.id}` }, loadRankingsData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams', filter: `season_id=eq.${currentSeason.id}` }, loadRankingsData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, loadRankingsData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, loadRankingsData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, loadRankingsData)
       .subscribe()
 
     return () => {
       isActive = false
       supabase.removeChannel(channel)
     }
-  }, [currentSeason?.id])
+  }, [currentSeason?.id, allSeasons.length])
 
   const powerRankings = useMemo(() => buildSeasonPowerRankings({
     seasonTeams,
@@ -154,6 +193,7 @@ export default function SeasonHome() {
       identitiesByPlayerId={identitiesByPlayerId}
       playersById={playersById}
       viewerPlayerId={player?.id || null}
+      teamLinkBuilder={(playerId) => `/teams/${playerId}/season/${currentSeason.id}`}
     />
   )
 }

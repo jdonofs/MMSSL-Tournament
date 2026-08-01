@@ -78,6 +78,7 @@ export default function SeasonBracket() {
         games={displayGames}
         identitiesByPlayerId={identitiesByPlayerId}
         playersById={playersById}
+        teamLinkBuilder={(playerId) => `/teams/${playerId}/season/${currentSeason.id}`}
       />
     </div>
   )

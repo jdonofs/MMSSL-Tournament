@@ -207,6 +207,59 @@ function buildPitchingPerformance(teamStints = [], leagueConstants = {}) {
   }
 }
 
+const CHARACTER_MATCH_WEIGHT_BOOST = 1.5
+
+// GM skill is treated as character-independent by default. When the GM has prior history with a
+// character that's actually on the current roster, that character-specific slice is blended in
+// alongside their general history and given extra weight, since it's the more relevant signal.
+function combineHistoricalBattingPerformance(historicalPas = [], rosterCharacterIds = new Set(), leagueConstants = {}) {
+  const general = buildBattingPerformance(historicalPas, leagueConstants)
+  const matchedPas = historicalPas.filter((pa) => rosterCharacterIds.has(String(pa.character_id)))
+  if (!matchedPas.length) return general
+
+  const matched = buildBattingPerformance(matchedPas, leagueConstants)
+  if (!matched.weight) return general
+
+  const generalWeight = general.weight
+  const matchedWeight = matched.weight * CHARACTER_MATCH_WEIGHT_BOOST
+  const totalWeight = generalWeight + matchedWeight
+  const delta = totalWeight
+    ? ((general.delta * generalWeight) + (matched.delta * matchedWeight)) / totalWeight
+    : general.delta
+
+  return {
+    delta,
+    weight: clamp(Math.max(general.weight, matched.weight), 0, 1),
+    summary: general.summary,
+    advanced: general.advanced,
+    characterMatch: matched,
+  }
+}
+
+function combineHistoricalPitchingPerformance(historicalStints = [], rosterCharacterIds = new Set(), leagueConstants = {}) {
+  const general = buildPitchingPerformance(historicalStints, leagueConstants)
+  const matchedStints = historicalStints.filter((stint) => rosterCharacterIds.has(String(stint.character_id)))
+  if (!matchedStints.length) return general
+
+  const matched = buildPitchingPerformance(matchedStints, leagueConstants)
+  if (!matched.weight) return general
+
+  const generalWeight = general.weight
+  const matchedWeight = matched.weight * CHARACTER_MATCH_WEIGHT_BOOST
+  const totalWeight = generalWeight + matchedWeight
+  const delta = totalWeight
+    ? ((general.delta * generalWeight) + (matched.delta * matchedWeight)) / totalWeight
+    : general.delta
+
+  return {
+    delta,
+    weight: clamp(Math.max(general.weight, matched.weight), 0, 1),
+    summary: general.summary,
+    advanced: general.advanced,
+    characterMatch: matched,
+  }
+}
+
 function buildFieldingPerformance(teamFielding = buildEmptyFieldingSummary(), leagueErrorRate = 0) {
   if (!teamFielding.chances) return { delta: 0, weight: 0, summary: teamFielding }
 
@@ -334,6 +387,8 @@ export function buildSeasonPowerRankings({
     nameById: historicalNameByPlayerId,
   })
 
+  const characterIdByName = Object.fromEntries(characters.map((character) => [character.name, String(character.id)]))
+
   const standingsByTeamId = Object.fromEntries(standings.map((team) => [String(team.id), team]))
   const currentLeagueConstants = computeLeagueConstants(plateAppearances, pitchingStints)
   const historicalLeagueConstants = computeLeagueConstants(historicalPlateAppearances, historicalPitchingStints)
@@ -344,6 +399,11 @@ export function buildSeasonPowerRankings({
     const playerKey = String(team.player_id)
     const teamRoster = rosterByTeamId[String(team.id)] || []
     const baseline = buildRosterBaseline(teamRoster, characters)
+    const rosterCharacterIds = new Set(
+      teamRoster
+        .map((entry) => characterIdByName[entry.character_name])
+        .filter(Boolean),
+    )
 
     const teamPas = plateAppearancesByTeamId[String(team.id)] || []
     const teamStints = pitchingByTeamId[String(team.id)] || []
@@ -353,12 +413,12 @@ export function buildSeasonPowerRankings({
     const historicalFielding = historicalFieldingByPlayerId[playerKey] || buildEmptyFieldingSummary()
 
     const currentBatting = buildBattingPerformance(teamPas, currentLeagueConstants)
-    const historicalBatting = buildBattingPerformance(historicalPas, historicalLeagueConstants)
+    const historicalBatting = combineHistoricalBattingPerformance(historicalPas, rosterCharacterIds, historicalLeagueConstants)
     const battingAdjustment = combinePerformance(currentBatting, historicalBatting, BATTING_SWING, BATTING_CAP)
     const battingRating = clamp(baseline.batting + battingAdjustment, 1, 99)
 
     const currentPitching = buildPitchingPerformance(teamStints, currentLeagueConstants)
-    const historicalPitching = buildPitchingPerformance(historicalStints, historicalLeagueConstants)
+    const historicalPitching = combineHistoricalPitchingPerformance(historicalStints, rosterCharacterIds, historicalLeagueConstants)
     const pitchingAdjustment = combinePerformance(currentPitching, historicalPitching, PITCHING_SWING, PITCHING_CAP)
     const pitchingRating = clamp(baseline.pitching + pitchingAdjustment, 1, 99)
 
@@ -393,6 +453,9 @@ export function buildSeasonPowerRankings({
           `Roster baseline ${roundNumber(baseline.batting, 1).toFixed(1)} = average batting OVR across ${baseline.rosterSize} active roster player(s)`,
           `Current season: wRC+ ${Math.round(currentBatting.advanced.wrcPlus || 100)} (${formatSignedNumber(currentBatting.delta, 0)} vs league avg 100) over ${currentBatting.summary.plateAppearances || 0} PA — confidence ${roundNumber(currentBatting.weight, 2).toFixed(2)}`,
           `History: wRC+ ${Math.round(historicalBatting.advanced.wrcPlus || 100)} (${formatSignedNumber(historicalBatting.delta, 0)}) over ${historicalBatting.summary.plateAppearances || 0} PA — confidence ${roundNumber(historicalBatting.weight, 2).toFixed(2)}`,
+          ...(historicalBatting.characterMatch ? [
+            `History with this GM's current roster characters: wRC+ ${Math.round(historicalBatting.characterMatch.advanced.wrcPlus || 100)} over ${historicalBatting.characterMatch.summary.plateAppearances || 0} PA — weighted ${CHARACTER_MATCH_WEIGHT_BOOST}x into the blend above`,
+          ] : []),
           `Blended performance adjustment (70% current / 30% history) = ${formatSignedNumber(battingAdjustment, 1)}`,
         ],
         scaleReference: 'Roster baseline is the average character batting OVR of the active roster.',
@@ -409,6 +472,9 @@ export function buildSeasonPowerRankings({
           `Roster baseline ${roundNumber(baseline.pitching, 1).toFixed(1)} = average pitching OVR across ${baseline.rosterSize} active roster player(s)`,
           `Current season: FIP- ${Math.round(currentPitching.advanced.fipMinus || 100)} | ERA- ${Math.round(currentPitching.advanced.eraMinus || 100)} over ${roundNumber(currentPitching.summary.innings || 0, 1).toFixed(1)} IP — confidence ${roundNumber(currentPitching.weight, 2).toFixed(2)}`,
           `History: FIP- ${Math.round(historicalPitching.advanced.fipMinus || 100)} | ERA- ${Math.round(historicalPitching.advanced.eraMinus || 100)} over ${roundNumber(historicalPitching.summary.innings || 0, 1).toFixed(1)} IP — confidence ${roundNumber(historicalPitching.weight, 2).toFixed(2)}`,
+          ...(historicalPitching.characterMatch ? [
+            `History with this GM's current roster characters: FIP- ${Math.round(historicalPitching.characterMatch.advanced.fipMinus || 100)} over ${roundNumber(historicalPitching.characterMatch.summary.innings || 0, 1).toFixed(1)} IP — weighted ${CHARACTER_MATCH_WEIGHT_BOOST}x into the blend above`,
+          ] : []),
           `Blended performance adjustment (70% current / 30% history) = ${formatSignedNumber(pitchingAdjustment, 1)}`,
         ],
         scaleReference: 'Roster baseline is the average character pitching OVR of the active roster. FIP-/ERA- are scaled to a league average of 100 — lower is better.',

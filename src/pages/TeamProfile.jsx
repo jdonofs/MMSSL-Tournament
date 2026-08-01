@@ -1,10 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
-import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import LogoUpload from '../components/LogoUpload'
-import TeamLogo from '../components/TeamLogo'
 import EyeDropperButton from '../components/EyeDropperButton'
+import InlineField from '../components/InlineField'
+import { savePlayerTeamIdentity } from '../utils/playerTeamIdentity'
+
+const inputStyle = {
+  background: '#1E293B',
+  border: '1px solid #334155',
+  borderRadius: 8,
+  padding: '8px 12px',
+  color: '#E2E8F0',
+  fontSize: 14,
+  fontWeight: 600,
+  width: '100%',
+  boxSizing: 'border-box',
+}
 
 export default function TeamProfile() {
   const { player, refreshPlayer, changePassword } = useAuth()
@@ -95,16 +107,17 @@ export default function TeamProfile() {
     if (!player?.id) return
     setSaving(true)
 
-    const { data, error } = await supabase.rpc('update_my_player_profile', {
-      team_location_in: teamLocation || null,
-      team_mascot_in: teamMascot || null,
-      team_abbreviation_in: teamAbbreviation || null,
-      primary_color_in: primaryColor || null,
-      secondary_color_in: secondaryColor || null,
-      logo_url_in: logoUrl || null,
-    })
-
-    if (error) {
+    let data = null
+    try {
+      data = await savePlayerTeamIdentity({
+        teamLocation,
+        teamMascot,
+        teamAbbreviation,
+        primaryColor,
+        secondaryColor,
+        logoUrl,
+      })
+    } catch (error) {
       pushToast({ title: 'Error', message: error.message, type: 'error' })
       setSaving(false)
       return
@@ -141,115 +154,72 @@ export default function TeamProfile() {
 
         <section className="panel" style={{ padding: 24, display: 'grid', gap: 20 }}>
 
-          <div style={{ display: 'grid', gap: 6 }}>
-            <label style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8' }}>Team Logo</label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <TeamLogo logoUrl={logoUrl} height={56} placeholder />
               <LogoUpload
                 logoUrl={logoUrl}
                 teamName={[teamLocation, teamMascot].filter(Boolean).join(' ') || player?.name}
                 storagePath={`players/${player?.id}/team-logo`}
                 onUpload={handleLogoUpload}
                 onError={(msg) => pushToast({ title: 'Upload failed', message: msg, type: 'error' })}
-                height={56}
+                height={48}
               />
             </div>
-            <p className="muted" style={{ fontSize: 12, margin: 0 }}>PNG, JPG, GIF or WebP · max 5 MB</p>
-          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div style={{ display: 'grid', gap: 6 }}>
-              <label htmlFor="team-location-input" style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8' }}>Location</label>
-              <input
-                id="team-location-input"
-                type="text"
-                value={teamLocation}
-                onChange={(e) => setTeamLocation(e.target.value)}
-                maxLength={40}
-                style={{
-                  background: '#1E293B',
-                  border: '1px solid #334155',
-                  borderRadius: 8,
-                  padding: '10px 14px',
-                  color: '#E2E8F0',
-                  fontSize: 15,
-                  fontWeight: 600,
-                  width: '100%',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: 6 }}>
-              <label htmlFor="team-mascot-input" style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8' }}>Team Name</label>
-              <input
-                id="team-mascot-input"
-                type="text"
-                value={teamMascot}
-                onChange={(e) => setTeamMascot(e.target.value)}
-                maxLength={40}
-                style={{
-                  background: '#1E293B',
-                  border: '1px solid #334155',
-                  borderRadius: 8,
-                  padding: '10px 14px',
-                  color: '#E2E8F0',
-                  fontSize: 15,
-                  fontWeight: 600,
-                  width: '100%',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-          </div>
-          <div style={{ display: 'grid', gap: 6, maxWidth: 160 }}>
-            <label htmlFor="team-abbreviation-input" style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8' }}>Abbreviation</label>
-            <input
-              id="team-abbreviation-input"
-              type="text"
-              value={teamAbbreviation}
-              onChange={(e) => setTeamAbbreviation(e.target.value.toUpperCase().slice(0, 5))}
-              maxLength={5}
-              style={{
-                background: '#1E293B',
-                border: '1px solid #334155',
-                borderRadius: 8,
-                padding: '10px 14px',
-                color: '#E2E8F0',
-                fontSize: 15,
-                fontWeight: 600,
-                width: '100%',
-                boxSizing: 'border-box',
-                textTransform: 'uppercase',
-                letterSpacing: 1,
-              }}
-            />
-          </div>
-          <div style={{ display: 'grid', gap: 6, maxWidth: 280 }}>
-            <label style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8' }}>Team Colors</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input
                   id="team-primary-color-input"
                   type="color"
                   value={primaryColor}
                   onChange={(e) => setPrimaryColor(e.target.value)}
-                  style={{ width: 40, height: 32, padding: 0, border: '1px solid #334155', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
+                  style={{ width: 30, height: 24, padding: 0, border: '1px solid #334155', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
                 />
                 <EyeDropperButton onPick={setPrimaryColor} title="Pick primary color from screen" />
                 <label htmlFor="team-primary-color-input" className="muted" style={{ fontSize: 12 }}>Primary</label>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input
                   id="team-secondary-color-input"
                   type="color"
                   value={secondaryColor}
                   onChange={(e) => setSecondaryColor(e.target.value)}
-                  style={{ width: 40, height: 32, padding: 0, border: '1px solid #334155', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
+                  style={{ width: 30, height: 24, padding: 0, border: '1px solid #334155', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
                 />
                 <EyeDropperButton onPick={setSecondaryColor} title="Pick secondary color from screen" />
                 <label htmlFor="team-secondary-color-input" className="muted" style={{ fontSize: 12 }}>Secondary</label>
               </div>
             </div>
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>PNG, JPG, GIF or WebP · max 5 MB</p>
+
+          <div style={{ display: 'grid', gap: 8 }}>
+            <InlineField
+              label="Location:"
+              value={teamLocation}
+              onChange={setTeamLocation}
+              placeholder="Location"
+              maxLength={40}
+              inputStyle={inputStyle}
+            />
+            <InlineField
+              label="Team Name:"
+              value={teamMascot}
+              onChange={setTeamMascot}
+              placeholder="Team Name"
+              maxLength={40}
+              inputStyle={inputStyle}
+            />
+            <InlineField
+              label="Abbrev:"
+              value={teamAbbreviation}
+              onChange={setTeamAbbreviation}
+              placeholder="ABB"
+              maxLength={5}
+              transform={(v) => v.toUpperCase().slice(0, 5)}
+              textStyle={{ textTransform: 'uppercase', letterSpacing: 1 }}
+              inputStyle={{ ...inputStyle, textTransform: 'uppercase', letterSpacing: 1, maxWidth: 100 }}
+            />
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
             <button
