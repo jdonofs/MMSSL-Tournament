@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { useSeason } from '../context/SeasonContext'
 import { useTournament } from '../context/TournamentContext'
 import {
@@ -304,7 +305,9 @@ function hasPitchingData(row) {
 }
 
 function hasFieldingData(row) {
-  return Number(row?.fielding?.chances || 0) > 0 || Number(row?.fielding?.errors || 0) > 0
+  return Number(row?.fielding?.chances || 0) > 0
+    || Number(row?.fielding?.errors || 0) > 0
+    || Number(row?.fielding?.buddyJumps || 0) > 0
 }
 
 function qualifiesAdvancedBatting(row) {
@@ -1451,7 +1454,6 @@ export default function Stats() {
   const [selectedSeasonId, setSelectedSeasonId] = useState(() => String(viewedSeason?.id || currentSeason?.id || ''))
   const [seasons, setSeasons] = useState([])
   const [sourceMode, setSourceMode] = useState(() => (isSeasonRoute ? 'seasons' : 'tournaments'))
-  const [leagueConstants, setLeagueConstants] = useState(() => computeLeagueConstants([], []))
 
   const defaultTournamentId = useMemo(
     () => String(viewedTournament?.id || currentTournament?.id || tournaments[0]?.id || ''),
@@ -1494,29 +1496,29 @@ export default function Stats() {
         { data: stadiumsData },
         { data: stadiumLogData },
       ] = await Promise.all([
-        supabase.from('players').select('*'),
-        supabase
+        fetchAllRows(() => supabase.from('players').select('*')),
+        fetchAllRows(() => supabase
           .from('characters')
-          .select('id, name, pitching, batting, fielding, speed, slap_contact, charge_contact, slap_power, charge_power, bunting, run_speed, throwing_speed, fielding_stat, curveball_speed, fastball_speed, curve, stamina, star_boost_pct, hitting_trajectory, character_class, is_captain'),
-        supabase.from('games').select('*'),
-        supabase.from('draft_picks').select('*'),
-        supabase.from('plate_appearances').select('*'),
-        supabase.from('runs_scored').select('*'),
-        supabase.from('pitching_stints').select('*'),
-        supabase.from('pitches').select('*'),
-        supabase.from('game_fielders').select('*'),
-        supabase.from('tournaments').select('*').order('tournament_number', { ascending: false }),
-        supabase.from('seasons').select('*').order('created_at', { ascending: false }),
-        supabase.from('season_schedule').select('*'),
-        supabase.from('season_teams').select('*'),
-        supabase.from('season_roster').select('*'),
-        supabase.from('season_plate_appearances').select('*'),
-        supabase.from('season_runs_scored').select('*'),
-        supabase.from('season_pitching_stints').select('*'),
-        supabase.from('season_pitches').select('*'),
-        supabase.from('season_game_fielders').select('*'),
-        supabase.from('stadiums').select('*'),
-        supabase.from('stadium_game_log').select('game_id, stadium_id, is_night'),
+          .select('id, name, pitching, batting, fielding, speed, slap_contact, charge_contact, slap_power, charge_power, bunting, run_speed, throwing_speed, fielding_stat, curveball_speed, fastball_speed, curve, stamina, star_boost_pct, hitting_trajectory, character_class, is_captain')),
+        fetchAllRows(() => supabase.from('games').select('*')),
+        fetchAllRows(() => supabase.from('draft_picks').select('*')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('*')),
+        fetchAllRows(() => supabase.from('runs_scored').select('*')),
+        fetchAllRows(() => supabase.from('pitching_stints').select('*')),
+        fetchAllRows(() => supabase.from('pitches').select('*')),
+        fetchAllRows(() => supabase.from('game_fielders').select('*')),
+        fetchAllRows(() => supabase.from('tournaments').select('*').order('tournament_number', { ascending: false })),
+        fetchAllRows(() => supabase.from('seasons').select('*').order('created_at', { ascending: false })),
+        fetchAllRows(() => supabase.from('season_schedule').select('*')),
+        fetchAllRows(() => supabase.from('season_teams').select('*')),
+        fetchAllRows(() => supabase.from('season_roster').select('*')),
+        fetchAllRows(() => supabase.from('season_plate_appearances').select('*')),
+        fetchAllRows(() => supabase.from('season_runs_scored').select('*')),
+        fetchAllRows(() => supabase.from('season_pitching_stints').select('*')),
+        fetchAllRows(() => supabase.from('season_pitches').select('*')),
+        fetchAllRows(() => supabase.from('season_game_fielders').select('*')),
+        fetchAllRows(() => supabase.from('stadiums').select('*')),
+        fetchAllRows(() => supabase.from('stadium_game_log').select('game_id, stadium_id, is_night'), { orderColumn: 'game_id' }),
       ])
 
       const allPAs = paData || []
@@ -1608,10 +1610,6 @@ export default function Stats() {
       setSeasonFielders(normalizedSeasonFielders)
       setStadiums(stadiumsData || [])
       setStadiumGameLog(stadiumLogData || [])
-      setLeagueConstants(computeLeagueConstants(
-        [...normalizedTournamentPas, ...enrichedSeasonPas],
-        [...resolvedPitchingStints, ...resolvedSeasonPitchingStints],
-      ))
     }
 
     loadStats()
@@ -1750,6 +1748,13 @@ export default function Stats() {
     if (!Object.keys(overrides).length) return raw
     return raw.map((stint) => overrides[stint.id] ? { ...stint, ...overrides[stint.id] } : { ...stint, win: false, loss: false })
   }, [isCombinedView, sourceMode, pitchingStints, seasonPitchingStints, selectedTournamentValue, selectedSeasonValue, gameById])
+  // Scoped to the currently selected season/tournament/combined view (same pool as filteredPas/
+  // filteredPitching) so "100" always represents the average of the cohort being displayed,
+  // rather than an all-time average pulled in from every season and tournament ever played.
+  const leagueConstants = useMemo(
+    () => computeLeagueConstants(filteredPas, filteredPitching),
+    [filteredPas, filteredPitching],
+  )
   // Runs a batter scores by reaching base on an earlier PA and later scoring on a
   // teammate's play are recorded only here (scoring_player_id/scoring_character_id),
   // never on the batter's own pa.run_scored — see summarizeBatting's runEvents param.
@@ -2216,6 +2221,13 @@ export default function Stats() {
     if (ballparkTimeFilter === 'night') pas = pas.filter((pa) => gameIsNightMap[String(pa.game_id)])
     return pas
   }, [filteredPas, selectedStadiumKey, gameToStadiumNameMap, ballparkTimeFilter, gameIsNightMap])
+
+  const selectedStadiumSprayChartPas = useMemo(() => {
+    const stadiumKey = selectedStadiumKey ? STADIUM_NAME_TO_KEY[selectedStadiumKey] : null
+    return selectedStadiumPas
+      .filter((pa) => !selectedStadiumKey || pa.hit_stadium_key === stadiumKey)
+      .map((pa) => ({ ...pa, character_name: charactersById[pa.character_id]?.name || null }))
+  }, [selectedStadiumKey, selectedStadiumPas, charactersById])
 
   const selectedStadiumRunEvents = useMemo(() => {
     let runs = selectedStadiumKey
@@ -3695,24 +3707,13 @@ export default function Stats() {
             </div>
           ) : null}
 
-          {selectedStadiumKey && STADIUM_NAME_TO_KEY[selectedStadiumKey] ? (
-            <section className="table-card">
-              <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, marginBottom: 8 }}>Who's Raked Here</div>
-              <SprayChart
-                key={STADIUM_NAME_TO_KEY[selectedStadiumKey]}
-                plateAppearances={filteredPasWithCharacterNames.filter((pa) => pa.hit_stadium_key === STADIUM_NAME_TO_KEY[selectedStadiumKey])}
-                initialStadiumKey={STADIUM_NAME_TO_KEY[selectedStadiumKey]}
-                showCharacterName
-              />
-            </section>
-          ) : null}
-
           <section className="table-card">
             <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button className={`tab-button ${ballparkSubView === 'batting' ? 'tab-button-active' : ''}`} onClick={() => { setBallparkSubView('batting'); setStatDiscipline('batting') }} type="button">Batting</button>
                   <button className={`tab-button ${ballparkSubView === 'pitching' ? 'tab-button-active' : ''}`} onClick={() => { setBallparkSubView('pitching'); setStatDiscipline('pitching') }} type="button">Pitching</button>
+                  <button className={`tab-button ${ballparkSubView === 'spray_charts' ? 'tab-button-active' : ''}`} onClick={() => setBallparkSubView('spray_charts')} type="button">Spray Charts</button>
                   <button className={`tab-button ${ballparkSubView === 'factors' ? 'tab-button-active' : ''}`} onClick={() => setBallparkSubView('factors')} type="button">Park Factors</button>
                 </div>
                 {(() => {
@@ -3755,6 +3756,19 @@ export default function Stats() {
                 <SortableStatsTable columns={bpPitchingPlayerCols} emptyMessage="No pitching data at this stadium." onRowClick={(row) => openTeamPage(row.playerId)} onSort={(col) => toggleSort(setBpPitchingPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedBpPitchingPlayer} sortState={bpPitchingPlayerSort} />
               ) : (
                 <SortableStatsTable columns={bpPitchingCharCols} emptyMessage="No pitching data at this stadium." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setBpPitchingCharacterSort, col)} rowKey={(row) => row.id} rows={sortedBpPitchingChar} sortState={bpPitchingCharacterSort} />
+              )
+            ) : null}
+
+            {ballparkSubView === 'spray_charts' ? (
+              selectedStadiumKey && !STADIUM_NAME_TO_KEY[selectedStadiumKey] ? (
+                <p className="muted" style={{ padding: '1rem 0' }}>Select a stadium above to see its spray chart.</p>
+              ) : (
+                <SprayChart
+                  key={selectedStadiumKey ? STADIUM_NAME_TO_KEY[selectedStadiumKey] : 'all-stadiums'}
+                  plateAppearances={selectedStadiumSprayChartPas}
+                  initialStadiumKey={selectedStadiumKey ? STADIUM_NAME_TO_KEY[selectedStadiumKey] : null}
+                  showCharacterName
+                />
               )
             ) : null}
 

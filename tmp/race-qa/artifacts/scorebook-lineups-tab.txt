@@ -1,0 +1,767 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Game View
+Scorebook
+Lineups
+At-Bat Data
+Admin
+Changes apply starting in inning 1 and update the scorebook, spectator view, and odds immediately.
+Kings
+Batting order & fielding positions
+1
+Bowser Jr.
+7
+5
+4
+7
+LF
+2
+Koopa
+6
+3
+4
+6
+CF
+3
+Green Dry Bones
+7
+3
+4
+6
+RF
+4
+Kritter
+7
+4
+7
+3
+3B
+5
+Daisy
+6
+7
+8
+5
+SS
+6
+Boomerang Bro
+7
+5
+5
+3
+P
+7
+Purple Toad
+6
+5
+2
+7
+C
+8
+Green Noki
+5
+4
+4
+7
+2B
+9
+Gray Shy Guy
+4
+4
+8
+4
+1B
+FIELDING POSITIONS
+Tap player, then tap position to swap
+P
+C
+1B
+2B
+3B
+SS
+LF
+CF
+RF
+All changes saved
+Saved
+Schlongs
+Batting order & fielding positions
+1
+Red Kritter
+8
+3
+7
+3
+3B
+2
+King Boo
+7
+7
+3
+4
+CF
+3
+Petey Piranha
+10
+4
+5
+2
+LF
+4
+Donkey Kong
+9
+6
+3
+2
+P
+5
+Mii
+6
+6
+6
+6
+1B
+6
+Blue Toad
+6
+4
+3
+7
+2B
+7
+Red Koopa
+6
+4
+3
+6
+C
+8
+Yellow Yoshi
+4
+3
+6
+7
+SS
+9
+Pink Yoshi
+3
+2
+6
+9
+RF
+FIELDING POSITIONS
+Tap player, then tap position to swap
+P
+C
+1B
+2B
+3B
+SS
+LF
+CF
+RF
+All changes saved
+Saved
+
+[
+  {
+    "tag": "button",
+    "text": "Tournament",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Season",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "select",
+    "text": "QA STATS QA PLAYOFFS SE QA PLAYOFFS DE QA TEST TEST MSL Season 1",
+    "type": null,
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "a",
+    "text": "Jason",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "button",
+    "text": "Logout",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "a",
+    "text": "Standings",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Schedule",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Bracket",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Draft",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Roster",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Bets",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Stats",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Admin",
+    "type": null,
+    "role": null,
+    "title": "Admin"
+  },
+  {
+    "tag": "button",
+    "text": "Game View",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Scorebook",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Lineups",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "At-Bat Data",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Admin",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "1",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Bowser Jr.",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "2",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Koopa",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "3",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Green Dry Bones",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "4",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Kritter",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "5",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Daisy",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "6",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Boomerang Bro",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "7",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Purple Toad",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "8",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Green Noki",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "9",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Gray Shy Guy",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Saved",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": true
+  },
+  {
+    "tag": "button",
+    "text": "1",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Red Kritter",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "2",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "King Boo",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "3",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Petey Piranha",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "4",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Donkey Kong",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "5",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Mii",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "6",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Blue Toad",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "7",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Red Koopa",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "8",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Yellow Yoshi",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "9",
+    "type": "button",
+    "role": null,
+    "title": "Tap to swap this player with another lineup slot",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Pink Yoshi",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Saved",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": true
+  }
+]

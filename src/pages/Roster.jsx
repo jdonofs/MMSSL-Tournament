@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, ArrowRightLeft, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
@@ -560,22 +561,22 @@ export default function Roster() {
         { data: seasonTeamsData },
         { data: gamePitchesData }, { data: seasonGamePitchesData },
       ] = await Promise.all([
-        supabase.from('players').select('*').order('created_at'),
-        supabase.from('characters').select('*').order('name'),
-        supabase.from('draft_picks').select('*').order('pick_number'),
-        supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
-        supabase.from('games').select('id,tournament_id'),
-        supabase.from('pitching_stints').select('*'),
-        supabase.from('tournament_trade_proposals').select('*'),
-        supabase.from('tournament_trade_proposal_players').select('*'),
-        supabase.from('tournament_trade_proposal_moves').select('*'),
-        supabase.from('season_plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,season_id,is_error,error_character,error_position,hit_location,defensive_team_id,inning'),
-        supabase.from('season_pitching_stints').select('*'),
-        supabase.from('game_fielders').select('*'),
-        supabase.from('season_game_fielders').select('*'),
-        supabase.from('season_teams').select('id,player_id'),
-        supabase.from('pitches').select('game_id,pitcher_id'),
-        supabase.from('season_pitches').select('game_id,pitcher_id'),
+        fetchAllRows(() => supabase.from('players').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('characters').select('*').order('name')),
+        fetchAllRows(() => supabase.from('draft_picks').select('*').order('pick_number')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning')),
+        fetchAllRows(() => supabase.from('games').select('id,tournament_id')),
+        fetchAllRows(() => supabase.from('pitching_stints').select('*')),
+        fetchAllRows(() => supabase.from('tournament_trade_proposals').select('*')),
+        fetchAllRows(() => supabase.from('tournament_trade_proposal_players').select('*')),
+        fetchAllRows(() => supabase.from('tournament_trade_proposal_moves').select('*')),
+        fetchAllRows(() => supabase.from('season_plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,season_id,is_error,error_character,error_position,hit_location,defensive_team_id,inning')),
+        fetchAllRows(() => supabase.from('season_pitching_stints').select('*')),
+        fetchAllRows(() => supabase.from('game_fielders').select('*')),
+        fetchAllRows(() => supabase.from('season_game_fielders').select('*')),
+        fetchAllRows(() => supabase.from('season_teams').select('id,player_id')),
+        fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id')),
+        fetchAllRows(() => supabase.from('season_pitches').select('game_id,pitcher_id')),
       ])
       // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
       // mound-assignment bookkeeping), before they've necessarily thrown a pitch — if pulled again

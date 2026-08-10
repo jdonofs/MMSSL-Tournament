@@ -1041,6 +1041,56 @@ function priceTwoSidedMarket(fairProbabilityA, playerProps, betType, targetEntit
   })
 }
 
+function firstHalfRunLineAtOrAbove(value) {
+  const numeric = Math.max(0.5, Number(value || 0.5))
+  return Math.ceil((numeric - 0.0001) * 2) / 2
+}
+
+// Moves the primary game-total line as the live scoring projection changes.
+// Keeping the original pregame line and only repricing its sides eventually
+// creates unusable boards such as +1800/-2400. Search totals in half-run steps
+// (whole-number totals can push) and choose the line whose volume-adjusted over
+// probability is closest to 50%.
+export function priceBalancedTotalLine({
+  projectedTotal,
+  totalStdDev = 2.5,
+  playerProps = {},
+  currentTotal = 0,
+  varianceMultiplier = 1,
+} = {}) {
+  const projection = Math.max(Number(currentTotal || 0), Number(projectedTotal || 0))
+  const stdDev = Math.max(0.75, Number(totalStdDev || 2.5))
+  const minimumLine = Math.max(0.5, Number(currentTotal || 0) + 0.5)
+  const searchRadius = Math.max(6, Math.ceil(stdDev * 4))
+  const firstLine = firstHalfRunLineAtOrAbove(Math.max(minimumLine, projection - searchRadius))
+  const lastLine = firstHalfRunLineAtOrAbove(Math.max(firstLine, projection + searchRadius))
+
+  let best = null
+  for (let line = firstLine; line <= lastLine; line += 0.5) {
+    const fairOverProbability = applyVarianceToProbability(
+      probabilityFromProjectionGap(projection - line, stdDev),
+      varianceMultiplier,
+    )
+    const pricing = priceTwoSidedMarket(fairOverProbability, playerProps, 'over_under', null, 'over', 'under')
+    const distanceFromEven = Math.abs(Number(pricing.probabilityA || 0.5) - 0.5)
+    const distanceFromProjection = Math.abs(line - projection)
+    if (
+      !best ||
+      distanceFromEven < best.distanceFromEven - 0.0001 ||
+      (Math.abs(distanceFromEven - best.distanceFromEven) <= 0.0001 && distanceFromProjection < best.distanceFromProjection)
+    ) {
+      best = { line, pricing, distanceFromEven, distanceFromProjection }
+    }
+  }
+
+  return best || {
+    line: firstHalfRunLineAtOrAbove(minimumLine),
+    pricing: priceTwoSidedMarket(0.5, playerProps, 'over_under', null, 'over', 'under'),
+    distanceFromEven: 0,
+    distanceFromProjection: 0,
+  }
+}
+
 // Prices an arbitrary over/under line on a Poisson-distributed REMAINING count
 // (HR/hit/K props) end-to-end: remaining lambda + already-banked count + line
 // -> Poisson over-probability -> variance -> volume-based line movement -> vig
@@ -1159,13 +1209,16 @@ export function generateGameOdds(
   })
 
   const totalRunSources = scoreProjection
-  const totalLine = roundToHook(totalRunSources.line, 0.5)
   const totalStdDev = Math.max(1, Number(totalRunSources.historicalTotals?.stdDev || 2.5))
-  const overProbability = applyVarianceToProbability(
-    probabilityFromProjectionGap(totalRunSources.line - totalLine, totalStdDev),
-    stadiumModifiers.varianceMultiplier,
-  )
-  const totalPricing = priceTwoSidedMarket(overProbability, playerProps, 'over_under', null, 'over', 'under')
+  const balancedTotal = priceBalancedTotalLine({
+    projectedTotal: totalRunSources.line,
+    totalStdDev,
+    playerProps,
+    currentTotal: Number(liveState.homeRuns || 0) + Number(liveState.awayRuns || 0),
+    varianceMultiplier: stadiumModifiers.varianceMultiplier,
+  })
+  const totalLine = balancedTotal.line
+  const totalPricing = balancedTotal.pricing
 
   rows.push({
     game_id: game.id,
@@ -1427,15 +1480,17 @@ export function recalculateOdds(currentOdds = [], gameState = {}, pa = {}) {
     }
 
     if (row.bet_type === 'over_under' && liveMarketState && row.line != null && liveMarketState.projectedTotal != null && !row.is_locked) {
-      const overProbability = clamp(
-        probabilityFromProjectionGap(liveMarketState.projectedTotal - Number(row.line), liveMarketState.totalVariance),
-        MIN_PROBABILITY,
-        MAX_PROBABILITY,
-      )
-      const pricing = priceTwoSidedMarket(overProbability, gameState.oddsContext?.playerProps, 'over_under', null, 'over', 'under')
+      const balancedTotal = priceBalancedTotalLine({
+        projectedTotal: liveMarketState.projectedTotal,
+        totalStdDev: liveMarketState.totalVariance,
+        playerProps: gameState.oddsContext?.playerProps,
+        currentTotal: Number(gameState.liveState?.homeScore || 0) + Number(gameState.liveState?.awayScore || 0),
+      })
+      const pricing = balancedTotal.pricing
 
       nextRow = {
         ...row,
+        line: balancedTotal.line,
         odds_over: pricing.oddsA,
         odds_under: pricing.oddsB,
         predicted_probability: Number(pricing.probabilityA.toFixed(4)),

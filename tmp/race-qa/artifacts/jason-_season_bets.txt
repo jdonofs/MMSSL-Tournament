@@ -1,0 +1,316 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Balance
+$100.00
+Sips to take
+0
+Board
+My Bets
+Leaderboard
+Buy Sips
+Sips History
+WEEK 1
+Bompkins @ Dumbos
+Live
+Mario Stadium
+Day
+RUN LINE
+TOTAL
+MONEYLINE
+Bompkins
+8
++0.5
+-106
+U 16.5
+-166
+-106
+Dumbos
+8
+-0.5
+-125
+O 16.5
++125
+-125
+TOP 4TH
+MORE BETS
+WEEK 1
+Mossers @ Big Ds
+Live
+Yoshi Park
+Day
+RUN LINE
+TOTAL
+MONEYLINE
+Mossers
+0
+-1.5
++111
+U 5.5
+-103
+-159
+Big Ds
+0
++1.5
+-147
+O 5.5
+-128
++120
+BOT 1ST
+MORE BETS
+WEEK 1
+Kings @ Schlongs
+Live
+Luigi's Mansion
+Night
+RUN LINE
+TOTAL
+MONEYLINE
+Kings
+0
+-1.5
+-111
+U 5.5
++100
+-197
+Schlongs
+0
++1.5
+-119
+O 5.5
+-133
++149
+1ST
+MORE BETS
+WEEK 1
+Mossers @ Bompkins
+RUN LINE
+TOTAL
+MONEYLINE
+Mossers
+-1.5
+-103
+U 5.5
+-164
+-182
+Bompkins
++1.5
+-129
+O 5.5
++124
++137
+MORE BETS
+WEEK 1
+Dumbos @ Schlongs
+RUN LINE
+TOTAL
+MONEYLINE
+Dumbos
+-1.5
+-109
+U 4.5
++125
+-194
+Schlongs
++1.5
+-121
+O 4.5
+-165
++147
+MORE BETS
+WEEK 1
+Big Ds @ Kings
+RUN LINE
+TOTAL
+MONEYLINE
+Big Ds
++1.5
+-128
+U 5.5
+-165
++138
+Kings
+-1.5
+-103
+O 5.5
++125
+-182
+MORE BETS
+WEEK 1
+Bompkins @ Schlongs
+RUN LINE
+TOTAL
+MONEYLINE
+Bompkins
+-0.5
+-150
+U 4.5
++103
+-150
+Schlongs
++0.5
++113
+O 4.5
+-136
++113
+MORE BETS
+WEEK 1
+Kings @ Mossers
+RUN LINE
+TOTAL
+MONEYLINE
+Kings
+-0.5
+-116
+U 5.5
+-131
+-116
+Mossers
++0.5
+-114
+O 5.5
+-101
+-114
+MORE BETS
+WEEK 1
+Big Ds @ Dumbos
+RUN LINE
+TOTAL
+MONEYLINE
+Big Ds
++0.5
++115
+U 4.5
++122
++115
+Dumbos
+-0.5
+-152
+O 4.5
+-161
+-152
+MORE BETS
+WEEK 1
+Kings @ Bompkins
+RUN LINE
+TOTAL
+MONEYLINE
+Kings
+-1.5
+-103
+U 5.5
+-156
+-182
+Bompkins
++1.5
+-128
+O 5.5
++118
++138
+MORE BETS
+WEEK 1
+Schlongs @ Big Ds
+RUN LINE
+TOTAL
+MONEYLINE
+Schlongs
++0.5
++113
+U 4.5
+-103
++113
+Big Ds
+-0.5
+-150
+O 4.5
+-129
+-150
+MORE BETS
+WEEK 1
+Dumbos @ Mossers
+RUN LINE
+TOTAL
+MONEYLINE
+Dumbos
++0.5
++105
+U 5.5
+-135
++105
+Mossers
+-0.5
+-139
+O 5.5
++102
+-139
+MORE BETS
+WEEK 1
+Bompkins @ Big Ds
+RUN LINE
+TOTAL
+MONEYLINE
+Bompkins
++0.5
+-115
+U 4.5
++100
+-115
+Big Ds
+-0.5
+-115
+O 4.5
+-133
+-115
+MORE BETS
+WEEK 1
+Dumbos @ Kings
+RUN LINE
+TOTAL
+MONEYLINE
+Dumbos
++0.5
++106
+U 5.5
+-129
++106
+Kings
+-0.5
+-140
+O 5.5
+-103
+-140
+MORE BETS
+WEEK 1
+Schlongs @ Mossers
+RUN LINE
+TOTAL
+MONEYLINE
+Schlongs
++1.5
+-106
+U 4.5
++123
++170
+Mossers
+-1.5
+-125
+O 4.5
+-162
+-225
+MORE BETS

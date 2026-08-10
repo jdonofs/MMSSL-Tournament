@@ -1,0 +1,26 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:5173",
+      "localStorage": [
+        {
+          "name": "draft-skip-reveal",
+          "value": "false"
+        },
+        {
+          "name": "sluggers-selected-tournament",
+          "value": "1"
+        },
+        {
+          "name": "sluggers-selected-season",
+          "value": "52"
+        },
+        {
+          "name": "sb-cfowednmssmbvspbxzyb-auth-token",
+          "value": "{\"access_token\":\"eyJhbGciOiJFUzI1NiIsImtpZCI6ImUzMjRjYmMyLTI3ZDEtNGMxOS04YWUyLTNmNWE3MTFiY2Y1ZiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2Nmb3dlZG5tc3NtYnZzcGJ4enliLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI4MzBjOTJjNS0xN2U1LTQwYWItYTZmNi05Mzg2ZmQzMjNhODIiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzg1Njg0Njk3LCJpYXQiOjE3ODU2ODEwOTcsImVtYWlsIjoiamFzb25Ac2x1Z2dlcnMubG9jYWwiLCJwaG9uZSI6IiIsImFwcF9tZXRhZGF0YSI6eyJwcm92aWRlciI6ImVtYWlsIiwicHJvdmlkZXJzIjpbImVtYWlsIl19LCJ1c2VyX21ldGFkYXRhIjp7ImF2YXRhcl91cmwiOiJodHRwczovL2Nkbi5kaXNjb3JkYXBwLmNvbS9hdmF0YXJzLzMyNDI4Nzg5ODE2NzgwMzkxNi84YWMyZWFiZTVkYmM4N2Y1ODUzOGY5YTE0ZGIwYmZiMi5wbmciLCJjdXN0b21fY2xhaW1zIjp7Imdsb2JhbF9uYW1lIjoiamRvbm9mcyJ9LCJlbWFpbCI6Impkb25vZnJpbzY3OEBnbWFpbC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZnVsbF9uYW1lIjoiamRvbm9mcyIsImlzcyI6Imh0dHBzOi8vZGlzY29yZC5jb20vYXBpIiwibmFtZSI6Impkb25vZnMjMCIsInBob25lX3ZlcmlmaWVkIjpmYWxzZSwicGljdHVyZSI6Imh0dHBzOi8vY2RuLmRpc2NvcmRhcHAuY29tL2F2YXRhcnMvMzI0Mjg3ODk4MTY3ODAzOTE2LzhhYzJlYWJlNWRiYzg3ZjU4NTM4ZjlhMTRkYjBiZmIyLnBuZyIsInByb3ZpZGVyX2lkIjoiMzI0Mjg3ODk4MTY3ODAzOTE2Iiwic3ViIjoiMzI0Mjg3ODk4MTY3ODAzOTE2In0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoicGFzc3dvcmQiLCJ0aW1lc3RhbXAiOjE3ODU2ODEwOTd9XSwic2Vzc2lvbl9pZCI6ImFmMGVhNGIwLTQ1ZjYtNDI5Yy1hOTAxLTcwNTJhOTZjMTYwZiIsImlzX2Fub255bW91cyI6ZmFsc2V9.f-jd5ccy-RsbSe7Q9JOAYdDzm1q9zl3oscJnCN4owBSj9ZiwHdKEAczeufq4TTQ2nx6obiq_YJf6sjOsUg2sbQ\",\"token_type\":\"bearer\",\"expires_in\":3600,\"expires_at\":1785684697,\"refresh_token\":\"4largujvrlxp\",\"user\":{\"id\":\"830c92c5-17e5-40ab-a6f6-9386fd323a82\",\"aud\":\"authenticated\",\"role\":\"authenticated\",\"email\":\"jason@sluggers.local\",\"email_confirmed_at\":\"2026-06-08T23:11:56.504185Z\",\"phone\":\"\",\"confirmed_at\":\"2026-06-08T23:11:56.504185Z\",\"last_sign_in_at\":\"2026-08-02T14:31:37.543446613Z\",\"app_metadata\":{\"provider\":\"email\",\"providers\":[\"email\"]},\"user_metadata\":{\"avatar_url\":\"https://cdn.discordapp.com/avatars/324287898167803916/8ac2eabe5dbc87f58538f9a14db0bfb2.png\",\"custom_claims\":{\"global_name\":\"jdonofs\"},\"email\":\"jdonofrio678@gmail.com\",\"email_verified\":true,\"full_name\":\"jdonofs\",\"iss\":\"https://discord.com/api\",\"name\":\"jdonofs#0\",\"phone_verified\":false,\"picture\":\"https://cdn.discordapp.com/avatars/324287898167803916/8ac2eabe5dbc87f58538f9a14db0bfb2.png\",\"provider_id\":\"324287898167803916\",\"sub\":\"324287898167803916\"},\"identities\":[{\"identity_id\":\"d8569f56-fc10-4412-8562-fbb67f9ea431\",\"id\":\"324287898167803916\",\"user_id\":\"830c92c5-17e5-40ab-a6f6-9386fd323a82\",\"identity_data\":{\"avatar_url\":\"https://cdn.discordapp.com/avatars/324287898167803916/8ac2eabe5dbc87f58538f9a14db0bfb2.png\",\"custom_claims\":{\"global_name\":\"jdonofs\"},\"email\":\"jdonofrio678@gmail.com\",\"email_verified\":true,\"full_name\":\"jdonofs\",\"iss\":\"https://discord.com/api\",\"name\":\"jdonofs#0\",\"phone_verified\":false,\"picture\":\"https://cdn.discordapp.com/avatars/324287898167803916/8ac2eabe5dbc87f58538f9a14db0bfb2.png\",\"provider_id\":\"324287898167803916\",\"sub\":\"324287898167803916\"},\"provider\":\"discord\",\"last_sign_in_at\":\"2026-06-08T23:11:56.496681Z\",\"created_at\":\"2026-06-08T23:11:56.496736Z\",\"updated_at\":\"2026-06-08T23:28:52.064437Z\",\"email\":\"jdonofrio678@gmail.com\"},{\"identity_id\":\"ab84c015-0da4-4afe-b974-13c81954ed00\",\"id\":\"830c92c5-17e5-40ab-a6f6-9386fd323a82\",\"user_id\":\"830c92c5-17e5-40ab-a6f6-9386fd323a82\",\"identity_data\":{\"email\":\"jason@sluggers.local\",\"sub\":\"830c92c5-17e5-40ab-a6f6-9386fd323a82\"},\"provider\":\"email\",\"last_sign_in_at\":\"2026-06-10T13:20:45.691794Z\",\"created_at\":\"2026-06-10T13:20:45.691794Z\",\"updated_at\":\"2026-06-10T13:20:45.691794Z\",\"email\":\"jason@sluggers.local\"}],\"created_at\":\"2026-06-08T23:11:56.487103Z\",\"updated_at\":\"2026-08-02T14:31:37.561682Z\",\"is_anonymous\":false},\"weak_password\":null}"
+        }
+      ]
+    }
+  ]
+}

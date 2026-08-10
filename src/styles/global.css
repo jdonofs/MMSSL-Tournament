@@ -2661,6 +2661,28 @@ button, a, select, input, textarea, label, [role="button"] {
   cursor: default;
 }
 
+.sportsbook-game-card-odds-calculating .sportsbook-odds-button,
+.sportsbook-detail-odds-calculating .sportsbook-odds-button,
+.sportsbook-detail-odds-calculating .sportsbook-alt-side-card,
+.sportsbook-detail-odds-calculating .sportsbook-number-rail,
+.sportsbook-detail-odds-calculating .alt-line-selector {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+
+.sportsbook-detail-odds-calculating .sportsbook-alt-side-card,
+.sportsbook-detail-odds-calculating .sportsbook-number-rail,
+.sportsbook-detail-odds-calculating .alt-line-selector {
+  pointer-events: none;
+}
+
+.sportsbook-slip-footer .solid-button:disabled {
+  opacity: 0.42;
+  filter: grayscale(1);
+  cursor: not-allowed;
+  transform: none;
+}
+
 .sportsbook-odds-button-selected {
   background: linear-gradient(180deg, rgba(234, 179, 8, 0.2), rgba(234, 179, 8, 0.08));
   border-color: var(--gold);

@@ -1,0 +1,303 @@
+[
+  {
+    "index": 0,
+    "tag": "button",
+    "text": "Tournament",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 1,
+    "tag": "button",
+    "text": "Season",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 2,
+    "tag": "select",
+    "text": "QA STATS QA PLAYOFFS SE QA PLAYOFFS DE QA TEST TEST MSL Season 1",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 3,
+    "tag": "a",
+    "text": "Jason",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null
+  },
+  {
+    "index": 4,
+    "tag": "button",
+    "text": "Logout",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 5,
+    "tag": "a",
+    "text": "Standings",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null
+  },
+  {
+    "index": 6,
+    "tag": "a",
+    "text": "Schedule",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null
+  },
+  {
+    "index": 7,
+    "tag": "a",
+    "text": "Bracket",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null
+  },
+  {
+    "index": 8,
+    "tag": "a",
+    "text": "Draft",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null
+  },
+  {
+    "index": 9,
+    "tag": "a",
+    "text": "Roster",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null
+  },
+  {
+    "index": 10,
+    "tag": "a",
+    "text": "Bets",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null
+  },
+  {
+    "index": 11,
+    "tag": "a",
+    "text": "Stats",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null
+  },
+  {
+    "index": 12,
+    "tag": "a",
+    "text": "Admin",
+    "type": null,
+    "name": null,
+    "title": "Admin",
+    "aria": "Admin"
+  },
+  {
+    "index": 13,
+    "tag": "button",
+    "text": "Game View",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 14,
+    "tag": "button",
+    "text": "Scorebook",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 15,
+    "tag": "button",
+    "text": "Lineups",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 16,
+    "tag": "button",
+    "text": "At-Bat Data",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 17,
+    "tag": "button",
+    "text": "Admin",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 18,
+    "tag": "button",
+    "text": "Edit stadium for this game",
+    "type": "button",
+    "name": null,
+    "title": "Edit stadium for this game",
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 19,
+    "tag": "button",
+    "text": "⇄ Swap Home/Away",
+    "type": "button",
+    "name": null,
+    "title": "Swap which team bats first (top of the inning) — updates the batting order, line score, and game view for everyone.",
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 20,
+    "tag": "button",
+    "text": "STAR PITCH",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 21,
+    "tag": "button",
+    "text": "STAR HIT",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 22,
+    "tag": "button",
+    "text": "BALL",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 23,
+    "tag": "button",
+    "text": "SWING",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 24,
+    "tag": "button",
+    "text": "LOOK",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 25,
+    "tag": "button",
+    "text": "FOUL",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 26,
+    "tag": "button",
+    "text": "HBP",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 27,
+    "tag": "button",
+    "text": "IN PLAY",
+    "type": "button",
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  },
+  {
+    "index": 28,
+    "tag": "button",
+    "text": "Undo",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": true
+  },
+  {
+    "index": 29,
+    "tag": "button",
+    "text": "Redo",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": true
+  },
+  {
+    "index": 30,
+    "tag": "button",
+    "text": "End Game",
+    "type": null,
+    "name": null,
+    "title": null,
+    "aria": null,
+    "disabled": false
+  }
+]

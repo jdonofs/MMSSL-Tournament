@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
 import CompetitionOverviewTables from '../components/CompetitionOverviewTables'
@@ -82,30 +83,30 @@ export default function SeasonHome() {
         { data: seasonPitchesData },
         { data: tournamentPitchesData },
       ] = await Promise.all([
-        supabase.from('season_roster').select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from('characters').select('*').order('name'),
-        supabase.from('season_plate_appearances').select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from('season_pitching_stints').select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from('season_game_fielders').select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from('plate_appearances').select('*').order('created_at'),
-        supabase.from('pitching_stints').select('*').order('created_at'),
-        supabase.from('game_fielders').select('*').order('created_at'),
+        fetchAllRows(() => supabase.from('season_roster').select('*').eq('season_id', currentSeason.id).order('created_at')),
+        fetchAllRows(() => supabase.from('characters').select('*').order('name')),
+        fetchAllRows(() => supabase.from('season_plate_appearances').select('*').eq('season_id', currentSeason.id).order('created_at')),
+        fetchAllRows(() => supabase.from('season_pitching_stints').select('*').eq('season_id', currentSeason.id).order('created_at')),
+        fetchAllRows(() => supabase.from('season_game_fielders').select('*').eq('season_id', currentSeason.id).order('created_at')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('pitching_stints').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('game_fielders').select('*').order('created_at')),
         // A GM's performance in seasons other than the one being viewed is part of their real
         // history too — not just their pre-season-era tournament stats. Without this, "history"
         // for a fresh season only reflects old tournament data and ignores how the GM actually
         // performed last season. Scoped to `otherSeasonIds` (seasons that still exist) rather than
         // just excluding the current season, so a deleted season's stats never resurface as history.
         otherSeasonIds.length
-          ? supabase.from('season_plate_appearances').select('*').in('season_id', otherSeasonIds).order('created_at')
+          ? fetchAllRows(() => supabase.from('season_plate_appearances').select('*').in('season_id', otherSeasonIds).order('created_at'))
           : Promise.resolve({ data: [] }),
         otherSeasonIds.length
-          ? supabase.from('season_pitching_stints').select('*').in('season_id', otherSeasonIds).order('created_at')
+          ? fetchAllRows(() => supabase.from('season_pitching_stints').select('*').in('season_id', otherSeasonIds).order('created_at'))
           : Promise.resolve({ data: [] }),
         otherSeasonIds.length
-          ? supabase.from('season_game_fielders').select('*').in('season_id', otherSeasonIds).order('created_at')
+          ? fetchAllRows(() => supabase.from('season_game_fielders').select('*').in('season_id', otherSeasonIds).order('created_at'))
           : Promise.resolve({ data: [] }),
-        supabase.from('season_pitches').select('game_id,pitcher_id'),
-        supabase.from('pitches').select('game_id,pitcher_id'),
+        fetchAllRows(() => supabase.from('season_pitches').select('game_id,pitcher_id')),
+        fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id')),
       ])
 
       const error = rosterError || charactersError || paError || pitchingError || fieldersError || historicalPaError || historicalPitchingError || historicalFieldersError || pastSeasonsPaError || pastSeasonsPitchingError || pastSeasonsFieldersError

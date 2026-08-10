@@ -33,7 +33,7 @@ const Admin = lazy(() => import('./pages/Admin'))
 const TeamProfile = lazy(() => import('./pages/TeamProfile'))
 const TeamPage = lazy(() => import('./pages/TeamPage'))
 const CharacterPage = lazy(() => import('./pages/CharacterPage'))
-const AtBatPage = lazy(() => import('./pages/AtBatPage'))
+const AtBatEditor = lazy(() => import('./pages/AtBatEditor'))
 const VideoTimestamps = lazy(() => import('./pages/VideoTimestamps'))
 import { SeasonProvider, useSeason } from './context/SeasonContext'
 import { TournamentProvider, useTournament } from './context/TournamentContext'
@@ -137,7 +137,8 @@ const router = createBrowserRouter([
           { path: '/character/:id/tournament/:tournamentId', element: <CharacterPage /> },
           { path: '/admin', element: <Admin /> },
           { path: '/admin/video-timestamps', element: <VideoTimestamps /> },
-          { path: '/at-bat/:source/:id', element: <AtBatPage /> },
+          { path: '/at-bat/:source/:id', element: <AtBatEditor /> },
+          { path: '/tracker-editor/:source/:gameId', element: <AtBatEditor /> },
         ],
       },
       { path: '*', element: <Navigate to="/" replace /> },

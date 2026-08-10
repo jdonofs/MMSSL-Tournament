@@ -1,0 +1,150 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+May
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Game View
+Scorebook
+Lineups
+At-Bat Data
+Admin
+BOT 1
+Luigi's Mansion
+Night
+CLE · AWAY
+Kings
+0
+LIS · HOME
+Schlongs
+0
+CURRENT BATTER
+Red Kritter
+AVG .000 / 0-0
+BOT 1
+B
+S
+O
+CURRENT PITCHER
+Boomerang Bro
+IP 0 / H 0 / R 0 / K 0
+Pitch Count 1
+Box Score
+Line score by inning
+Team	1	2	3	R	H	E
+
+CLE
+	0	-	-	0	0	0
+
+LIS
+	-	-	-	0	0	0
+Win Probability
+LIS vs CLE
+CLE 44.7%
+LIS 55.3%
+Bot 1
+55.3% LIS
+Green Dry Bones grounded out to pitcher
+CLE 0 - LIS 0
+100
+75
+50
+75
+100
+CLE Lineup
+Batter	AB	R	H	RBI	HR	BB	K	AVG	OBP	SLG
+
+1
+Bowser Jr.
+	1	0	0	0	0	0	0	.000	.000	.000
+
+2
+Koopa
+	1	0	0	0	0	0	0	.000	.000	.000
+
+3
+Green Dry Bones
+	1	0	0	0	0	0	0	.000	.000	.000
+
+4
+Kritter
+	0	0	0	0	0	0	0	.000	.000	.000
+
+5
+Daisy
+	0	0	0	0	0	0	0	.000	.000	.000
+
+6
+Boomerang Bro
+	0	0	0	0	0	0	0	.000	.000	.000
+
+7
+Purple Toad
+	0	0	0	0	0	0	0	.000	.000	.000
+
+8
+Green Noki
+	0	0	0	0	0	0	0	.000	.000	.000
+
+9
+Gray Shy Guy
+	0	0	0	0	0	0	0	.000	.000	.000
+LIS Lineup
+Batter	AB	R	H	RBI	HR	BB	K	AVG	OBP	SLG
+
+1
+Red Kritter
+Current batter
+	0	0	0	0	0	0	0	.000	.000	.000
+
+2
+King Boo
+	0	0	0	0	0	0	0	.000	.000	.000
+
+3
+Petey Piranha
+	0	0	0	0	0	0	0	.000	.000	.000
+
+4
+Donkey Kong
+	0	0	0	0	0	0	0	.000	.000	.000
+
+5
+Mii
+	0	0	0	0	0	0	0	.000	.000	.000
+
+6
+Blue Toad
+	0	0	0	0	0	0	0	.000	.000	.000
+
+7
+Red Koopa
+	0	0	0	0	0	0	0	.000	.000	.000
+
+8
+Yellow Yoshi
+	0	0	0	0	0	0	0	.000	.000	.000
+
+9
+Pink Yoshi
+	0	0	0	0	0	0	0	.000	.000	.000
+CLE Pitchers
+No pitching lines yet.
+LIS Pitchers
+Pitcher	IP	H	R	ER	BB	K	HR	PC-ST	ERA
+
+Donkey Kong
+	1	0	0	0	0	0	0	7-7	0.00

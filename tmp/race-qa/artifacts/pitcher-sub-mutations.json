@@ -1,0 +1,197 @@
+[
+  {
+    "type": "request",
+    "time": 1785681832241,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 178
+  },
+  {
+    "type": "response",
+    "time": 1785681832766,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 703
+  },
+  {
+    "type": "request",
+    "time": 1785681833912,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 1849
+  },
+  {
+    "type": "response",
+    "time": 1785681834378,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 2315
+  },
+  {
+    "type": "request",
+    "time": 1785681834619,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 2556
+  },
+  {
+    "type": "response",
+    "time": 1785681835778,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 3715
+  },
+  {
+    "type": "request",
+    "time": 1785681836298,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 4235
+  },
+  {
+    "type": "response",
+    "time": 1785681837337,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 5274
+  },
+  {
+    "type": "request",
+    "time": 1785681839000,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 6937
+  },
+  {
+    "type": "response",
+    "time": 1785681840031,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 7968
+  },
+  {
+    "type": "request",
+    "time": 1785681840651,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 8588
+  },
+  {
+    "type": "request",
+    "time": 1785681841046,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 8983
+  },
+  {
+    "type": "response",
+    "time": 1785681841513,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 9450
+  },
+  {
+    "type": "response",
+    "time": 1785681841994,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 9931
+  },
+  {
+    "type": "request",
+    "time": 1785681843141,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 11078
+  },
+  {
+    "type": "response",
+    "time": 1785681843752,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 11689
+  },
+  {
+    "type": "request",
+    "time": 1785681845317,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 13254
+  },
+  {
+    "type": "response",
+    "time": 1785681846291,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 14228
+  },
+  {
+    "type": "request",
+    "time": 1785681846799,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 14736
+  },
+  {
+    "type": "response",
+    "time": 1785681847233,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 15170
+  },
+  {
+    "type": "request",
+    "time": 1785681848750,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 16687
+  },
+  {
+    "type": "response",
+    "time": 1785681849900,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 17837
+  },
+  {
+    "type": "request",
+    "time": 1785681850624,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 18561
+  },
+  {
+    "type": "request",
+    "time": 1785681850859,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 18796
+  },
+  {
+    "type": "response",
+    "time": 1785681851501,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 19438
+  },
+  {
+    "type": "response",
+    "time": 1785681851678,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 19615
+  }
+]

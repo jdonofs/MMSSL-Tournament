@@ -1,0 +1,75 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Game View
+Scorebook
+Lineups
+At-Bat Data
+Admin
+Bowser Jr.
+Inning 1 · Groundout (1) · At-bat 1 of 4
+Edit At-Bat
+HIT / FIELDED LOCATION
+Left-click: hit
+Right-click: fielded
+76 ft
+TRAJECTORY
+—
+G
+L
+F
+B
+HIT DISTANCE (FT)
+HANG TIME (SEC)
+EXIT VELOCITY (MPH)
+—
+LAUNCH ANGLE (DEG)
+—
+No video linked to this game.
+Beginning of At-Bat
+End of At-Bat
+PITCHES
+#1
+In Play (Groundout (1))
+Fastball
+Curveball
+Changeup
+Star Pitch
+#2
+In Play (Groundout (1))
+Fastball
+Curveball
+Changeup
+Star Pitch
+#3
+In Play (Groundout (1))
+Fastball
+Curveball
+Changeup
+Star Pitch
+#4
+In Play (Groundout (1))
+Fastball
+Curveball
+Changeup
+Star Pitch
+Save
+Save & Next
+← Previous
+Next →

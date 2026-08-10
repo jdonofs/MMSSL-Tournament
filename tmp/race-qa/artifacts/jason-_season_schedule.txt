@@ -1,0 +1,140 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+SEASON SCHEDULE
+QA TEST
+Regular Season
+Week 1 of 3
+Top 4
+Bompkins
+8
+Dumbos
+8
+Mario Stadium
+Resume Game
+Top 2
+Mossers
+0
+Big Ds
+0
+Yoshi Park
+Resume Game
+Top 1
+Kings
+0
+Schlongs
+0
+Luigi's Mansion
+Resume Game
+Mossers
+W-L
+0-0
+Bompkins
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Dumbos
+W-L
+0-0
+Schlongs
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Big Ds
+W-L
+0-0
+Kings
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Bompkins
+W-L
+0-0
+Schlongs
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Kings
+W-L
+0-0
+Mossers
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Big Ds
+W-L
+0-0
+Dumbos
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Kings
+W-L
+0-0
+Bompkins
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Schlongs
+W-L
+0-0
+Big Ds
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Dumbos
+W-L
+0-0
+Mossers
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Bompkins
+W-L
+0-0
+Big Ds
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Dumbos
+W-L
+0-0
+Kings
+W-L
+0-0
+Stadium TBD
+Set Stadium
+Schlongs
+W-L
+0-0
+Mossers
+W-L
+0-0
+Stadium TBD
+Set Stadium

@@ -1,0 +1,132 @@
+[
+  {
+    "type": "request",
+    "ms": -873,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "response",
+    "ms": -355,
+    "status": 204,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "request",
+    "ms": 53,
+    "method": "POST",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_plate_appearances"
+  },
+  {
+    "type": "request",
+    "ms": 353,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "response",
+    "ms": 522,
+    "status": 201,
+    "method": "POST",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_plate_appearances"
+  },
+  {
+    "type": "response",
+    "ms": 945,
+    "status": 204,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "request",
+    "ms": 991,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "request",
+    "ms": 1018,
+    "method": "POST",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_pitches"
+  },
+  {
+    "type": "response",
+    "ms": 2021,
+    "status": 204,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "response",
+    "ms": 2182,
+    "status": 201,
+    "method": "POST",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_pitches"
+  },
+  {
+    "type": "request",
+    "ms": 2929,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "response",
+    "ms": 4125,
+    "status": 204,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "request",
+    "ms": 4808,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "request",
+    "ms": 5017,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "response",
+    "ms": 6085,
+    "status": 204,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "request",
+    "ms": 6086,
+    "method": "DELETE",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_inning_scores"
+  },
+  {
+    "type": "response",
+    "ms": 6239,
+    "status": 204,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_schedule"
+  },
+  {
+    "type": "response",
+    "ms": 6708,
+    "status": 204,
+    "method": "DELETE",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_inning_scores"
+  },
+  {
+    "type": "request",
+    "ms": 6708,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_pitching_stints"
+  },
+  {
+    "type": "response",
+    "ms": 7902,
+    "status": 204,
+    "method": "PATCH",
+    "url": "https://cfowednmssmbvspbxzyb.supabase.co/rest/v1/season_pitching_stints"
+  }
+]

@@ -1,6 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Moon, Sun, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
 import { useToast } from '../context/ToastContext'
@@ -19,6 +20,7 @@ import {
   generateGameOdds,
   mergeOddsWithExistingRows,
   priceCountPropLine,
+  recalculateOdds,
 } from '../utils/oddsEngine'
 import { parseDollarWager, sanitizeDollarWagerInput, summarizeSlipWagers } from '../utils/bettingSlip'
 import { buildPlacedBetLedgerEntries, resolveGameBets } from '../utils/betResolution'
@@ -26,7 +28,12 @@ import { buildOddsGenerationContext } from '../utils/oddsContext'
 import { persistOddsRowsWithFallback } from '../utils/oddsPersistence'
 import { summarizeBatting, summarizePitching } from '../utils/statsCalculator'
 import { buildAppliedStadiumModel } from '../utils/stadiumOdds'
-import { SEASON_TEAM_LINEUPS, TOURNAMENT_TEAM_LINEUPS, fetchTeamLineup } from '../utils/teamLineups'
+import {
+  SEASON_TEAM_LINEUPS,
+  TOURNAMENT_TEAM_LINEUPS,
+  fetchTeamLineup,
+} from '../utils/teamLineups'
+import { buildActivePitcherByGamePlayer, gamePitcherKey } from '../utils/teamLineupProjection'
 import {
   buildStadiumKeyByGameId,
   getChaosStars,
@@ -38,6 +45,11 @@ import { enrichPlateAppearancesWithDerivedHitTracking } from '../utils/hitFieldD
 import { buildSeasonTeamIdentity, getTeamShortName } from '../utils/teamIdentity'
 import { computeBalance, computeSipCount, computeTotalSipsHeld, getSipPrice } from '../utils/economy'
 import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
+import {
+  applyTrackerLiveStateToGame,
+  buildLiveMarketState,
+  buildTrackerGameSignature,
+} from '../utils/trackerLiveFeed'
 
 const GAME_STATUSES = new Set(['pending', 'active', 'scheduled', 'in_progress', 'complete'])
 const ACTIVE_STATUSES = new Set(['pending', 'active', 'scheduled', 'in_progress'])
@@ -45,12 +57,13 @@ const BOARD_COLUMN_HEADERS = ['Run Line', 'Total', 'Moneyline']
 const ODDS_FLASH_FIELDS = ['odds_home', 'odds_away', 'odds_over', 'odds_under', 'odds_yes', 'odds_no']
 const ODDS_FLASH_DURATION_MS = 700
 const COUNT_PROP_TYPES = new Set(['hr_prop', 'hit_prop', 'k_prop'])
-const ODDS_MODEL_VERSION = 'run-line-pickem-v2'
+const ODDS_MODEL_VERSION = 'tracker-live-v3'
 const DETAIL_TABS = [
   { id: 'game-odds', label: 'Game Odds' },
   { id: 'batter-props', label: 'Batter Props' },
   { id: 'pitcher-props', label: 'Pitcher Props' },
 ]
+
 const STATUS_COLORS = {
   open: '#EAB308',
   won: '#22C55E',
@@ -453,12 +466,13 @@ function getAltSpreads(defaultSpread) {
   return values
 }
 
-function getAltTotals(defaultTotal) {
-  if (!defaultTotal) return []
-  const base = roundToHalf(defaultTotal)
+function getAltTotals(centerTotal, minimumTotal = 0.5) {
+  if (!centerTotal) return []
+  const base = roundToHalf(centerTotal)
+  const minimum = roundToHalf(Math.max(0.5, Number(minimumTotal || 0.5)))
   const values = []
-  for (let current = base - 2; current <= base + 2; current += 0.5) {
-    values.push(roundToHalf(Math.max(1, current)))
+  for (let current = Math.max(minimum, base - 2); current <= base + 2; current += 0.5) {
+    values.push(roundToHalf(current))
   }
   return [...new Set(values)]
 }
@@ -723,6 +737,54 @@ function getAltTotalPricing({ line, totalRow, stadiumModel }) {
   }
 }
 
+function getTotalPricingState({ line, totalRow, stadiumModel }) {
+  if (!totalRow) return null
+  const numericLine = Number(line ?? totalRow.line ?? 0.5)
+  if (numericLine === Number(totalRow.line || 0.5)) {
+    return {
+      line: numericLine,
+      overProb: Number(totalRow.predicted_probability || 0.5),
+      underProb: 1 - Number(totalRow.predicted_probability || 0.5),
+      overOdds: totalRow.odds_over,
+      underOdds: totalRow.odds_under,
+      isAlt: false,
+    }
+  }
+  const pricing = getAltTotalPricing({ line: numericLine, totalRow, stadiumModel })
+  return pricing ? { line: numericLine, ...pricing, isAlt: true } : null
+}
+
+function getClosestPickEmTotal({ totalRow, stadiumModel, currentTotal = 0 }) {
+  if (!totalRow) return null
+  const baseLine = Number(totalRow.line || 0.5)
+  const baseProbability = Number(totalRow.predicted_probability || 0.5)
+  const variance = Number(stadiumModel?.finalModifiers?.varianceMultiplier || 1)
+  const scoring = Number(stadiumModel?.finalModifiers?.scoringFactor || 1)
+  const stepSize = 0.045 / Math.max(0.9, variance) + Math.max(0, scoring - 1) * 0.01
+  const estimatedEvenLine = baseLine + (((baseProbability - 0.5) / Math.max(stepSize, 0.001)) * 0.5)
+  const minimumLine = Math.max(0.5, Number(currentTotal || 0) + 0.5)
+  const firstLine = roundToHalf(Math.max(minimumLine, Math.min(baseLine, estimatedEvenLine) - 2))
+  const lastLine = roundToHalf(Math.max(baseLine, estimatedEvenLine, firstLine) + 2)
+  const candidates = [baseLine]
+  for (let line = firstLine; line <= lastLine + 0.001; line += 0.5) candidates.push(roundToHalf(line))
+
+  let bestState = null
+  let bestDistance = Number.POSITIVE_INFINITY
+  candidates
+    .filter((line, index, values) => line >= minimumLine && values.indexOf(line) === index)
+    .forEach((line) => {
+      const state = getTotalPricingState({ line, totalRow, stadiumModel })
+      if (!state) return
+      const distance = Math.abs(Number(state.overProb || 0.5) - 0.5)
+      if (distance < bestDistance - 0.0001) {
+        bestState = state
+        bestDistance = distance
+      }
+    })
+
+  return bestState || getTotalPricingState({ line: baseLine, totalRow, stadiumModel })
+}
+
 function getBoardRow(row, side, game, playersById, identitiesByPlayerId = {}) {
   const teamLabels = getTeamLabels(game, playersById, identitiesByPlayerId)
   const isHome = side === 'home'
@@ -810,6 +872,28 @@ function normalizeSeasonGame(game, teamsById, stadiumsByName, playersById = {}) 
   }
 }
 
+function overlayTrackerGames(games = [], trackerRows = [], isSeasonMode = false) {
+  const trackerByGameId = Object.fromEntries((trackerRows || []).map((row) => [String(row.game_id), row]))
+  return (games || []).map((game) => {
+    const trackerStats = trackerByGameId[String(game.id)]
+    if (!trackerStats || game.stats_source !== 'tracker') return game
+    return applyTrackerLiveStateToGame(game, trackerStats, {
+      isSeason: isSeasonMode,
+      teamAPlayerId: game.team_a_player_id,
+      teamBPlayerId: game.team_b_player_id,
+    })
+  })
+}
+
+function applyLivePricing(rows, context, game, gamePAs, regulationInnings) {
+  const liveChanges = recalculateOdds(rows, {
+    oddsContext: context,
+    liveState: buildLiveMarketState(game, gamePAs, regulationInnings),
+  })
+  const changesByKey = Object.fromEntries(liveChanges.map((row) => [buildOddsRowKey(row), row]))
+  return rows.map((row) => changesByKey[buildOddsRowKey(row)] || row)
+}
+
 function normalizeSeasonDraftPicks(rosterRows, seasonId, seasonTeams, charactersByName) {
   const teamCount = Math.max((seasonTeams || []).length, 1)
   return (rosterRows || []).map((entry, index) => ({
@@ -864,7 +948,9 @@ function boardGameCardEqual(prev, next) {
     JSON.stringify(prev.total) === JSON.stringify(next.total) &&
     JSON.stringify(prev.runLine) === JSON.stringify(next.runLine) &&
     JSON.stringify(prev.runLineDisplay) === JSON.stringify(next.runLineDisplay) &&
+    JSON.stringify(prev.totalDisplay) === JSON.stringify(next.totalDisplay) &&
     JSON.stringify(prev.stadiumData) === JSON.stringify(next.stadiumData) &&
+    prev.oddsCalculating === next.oddsCalculating &&
     prev.flashSignature === next.flashSignature &&
     JSON.stringify(prev.gameBetSlip) === JSON.stringify(next.gameBetSlip) &&
     prev.headerKicker === next.headerKicker &&
@@ -882,7 +968,9 @@ const BoardGameCard = memo(function BoardGameCard({
   total,
   runLine,
   runLineDisplay,
+  totalDisplay,
   stadiumData,
+  oddsCalculating,
   flashSignature,
   gameBetSlip,
   headerKicker,
@@ -917,15 +1005,24 @@ const BoardGameCard = memo(function BoardGameCard({
   }
 
   const getTotalSide = (isOver) => {
-    if (!total) return { label: '--', odds: null, selectable: false }
-    const label = isOver ? `O ${Number(total.line || 0).toFixed(1)}` : `U ${Number(total.line || 0).toFixed(1)}`
-    const odds = isOver ? total.odds_over : total.odds_under
-    return { label, odds, selectable: true, side: isOver ? 'over' : 'under' }
+    if (!total || !totalDisplay) return { label: '--', odds: null, selectable: false }
+    const label = isOver ? `O ${Number(totalDisplay.line || 0).toFixed(1)}` : `U ${Number(totalDisplay.line || 0).toFixed(1)}`
+    const odds = isOver ? totalDisplay.overOdds : totalDisplay.underOdds
+    return {
+      label,
+      line: totalDisplay.line,
+      odds,
+      selectable: true,
+      side: isOver ? 'over' : 'under',
+      customLine: totalDisplay.isAlt ? totalDisplay.line : undefined,
+      customOdds: totalDisplay.isAlt ? odds : undefined,
+      customProb: totalDisplay.isAlt ? (isOver ? totalDisplay.overProb : totalDisplay.underProb) : undefined,
+    }
   }
 
   return (
     <div
-      className={`sportsbook-game-card ${ready ? '' : 'sportsbook-game-card-disabled'}`}
+      className={`sportsbook-game-card ${ready ? '' : 'sportsbook-game-card-disabled'} ${oddsCalculating ? 'sportsbook-game-card-odds-calculating' : ''}`}
     >
       <div className="sportsbook-game-meta">
         <div className="sportsbook-game-meta-main">
@@ -991,7 +1088,11 @@ const BoardGameCard = memo(function BoardGameCard({
         const tot = getTotalSide(isHome)
         const ml = isHome ? homeRow.moneyline : awayRow.moneyline
         const rlSelected = runLine && gameBetSlip.some((e) => e.rowId === runLine.id && e.side === rl.side)
-        const totSelected = total && gameBetSlip.some((e) => e.rowId === total.id && e.side === tot.side)
+        const totSelected = total && gameBetSlip.some((e) => (
+          e.rowId === total.id &&
+          e.side === tot.side &&
+          Number(e.customLine ?? total.line) === Number(tot.line)
+        ))
         const mlSelected = gameBetSlip.some((e) => e.rowId === ml.market?.id && e.side === ml.side)
 
         const teamRuns = isHome ? game.team_b_runs : game.team_a_runs
@@ -1013,7 +1114,7 @@ const BoardGameCard = memo(function BoardGameCard({
               <button
                 className={`sportsbook-odds-button ${rlSelected ? 'sportsbook-odds-button-selected' : ''} ${flashTokens.includes(isHome ? 'rlh' : 'rla') ? 'sportsbook-odds-flash' : ''}`}
                 data-column-label="Run Line"
-                disabled={!ready || !rl.selectable || runLine?.is_locked || isOddsOffBoard(rl.odds)}
+                disabled={oddsCalculating || !ready || !rl.selectable || runLine?.is_locked || isOddsOffBoard(rl.odds)}
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation()
@@ -1035,12 +1136,19 @@ const BoardGameCard = memo(function BoardGameCard({
               <button
                 className={`sportsbook-odds-button ${totSelected ? 'sportsbook-odds-button-selected' : ''} ${flashTokens.includes(isHome ? 'to' : 'tu') ? 'sportsbook-odds-flash' : ''}`}
                 data-column-label="Total"
-                disabled={!ready || !tot.selectable || total?.is_locked || isOddsOffBoard(tot.odds)}
+                disabled={oddsCalculating || !ready || !tot.selectable || total?.is_locked || isOddsOffBoard(tot.odds)}
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation()
                   if (!total) return
-                  toggleSlipSelection(game, total, tot.side)
+                  toggleSlipSelection(
+                    game,
+                    total,
+                    tot.side,
+                    tot.customLine != null
+                      ? { customLine: tot.customLine, customOdds: tot.customOdds, customProb: tot.customProb }
+                      : null,
+                  )
                 }}
               >
                 <span className="sportsbook-odds-line">{tot.label}</span>
@@ -1050,7 +1158,7 @@ const BoardGameCard = memo(function BoardGameCard({
               <button
                 className={`sportsbook-odds-button ${mlSelected ? 'sportsbook-odds-button-selected' : ''} ${flashTokens.includes(isHome ? 'mlh' : 'mla') ? 'sportsbook-odds-flash' : ''}`}
                 data-column-label="Moneyline"
-                disabled={!ready || !ml.selectable || ml.market?.is_locked || isOddsOffBoard(ml.odds)}
+                disabled={oddsCalculating || !ready || !ml.selectable || ml.market?.is_locked || isOddsOffBoard(ml.odds)}
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation()
@@ -1114,6 +1222,7 @@ export default function BettingTab({ mode = 'tournament' }) {
     pitching: 'season_pitching_stints',
     pitches: 'season_pitches',
     runsScored: 'season_runs_scored',
+    trackerStats: 'season_tracker_live_stats',
     odds: 'season_game_odds',
     bets: 'season_bets',
     settlements: 'season_game_settlements',
@@ -1130,6 +1239,7 @@ export default function BettingTab({ mode = 'tournament' }) {
     pitching: 'pitching_stints',
     pitches: 'pitches',
     runsScored: 'runs_scored',
+    trackerStats: 'tracker_live_stats',
     odds: 'game_odds',
     bets: 'bets',
     settlements: 'game_settlements',
@@ -1163,6 +1273,7 @@ export default function BettingTab({ mode = 'tournament' }) {
   const [stadiums, setStadiums] = useState([])
   const [stadiumGameLog, setStadiumGameLog] = useState([])
   const [gameOdds, setGameOdds] = useState([])
+  const [trackerStats, setTrackerStats] = useState([])
   const [bets, setBets] = useState([])
   const [settlements, setSettlements] = useState([])
   const [ledgerEntries, setLedgerEntries] = useState([])
@@ -1192,6 +1303,10 @@ export default function BettingTab({ mode = 'tournament' }) {
   const [myBetsFilter, setMyBetsFilter] = useState('all')
   const hasLoadedOnceRef = useRef(false)
   const autoSyncRef = useRef({})
+  const oddsRequestRef = useRef(0)
+  const trackerRequestRef = useRef(0)
+  const gamesRequestRef = useRef(0)
+  const oddsRefreshTimerRef = useRef(null)
   // Keep refs to frequently-changing values so the realtime subscription
   // effect below doesn't need them as dependencies (which would tear down
   // and recreate the channel on every update, dropping live events).
@@ -1199,6 +1314,8 @@ export default function BettingTab({ mode = 'tournament' }) {
   useEffect(() => { stadiumsRef.current = stadiums }, [stadiums])
   const gamesRef = useRef(games)
   useEffect(() => { gamesRef.current = games }, [games])
+  const trackerStatsRef = useRef(trackerStats)
+  useEffect(() => { trackerStatsRef.current = trackerStats }, [trackerStats])
   const stadiumGameLogRef = useRef(stadiumGameLog)
   useEffect(() => { stadiumGameLogRef.current = stadiumGameLog }, [stadiumGameLog])
   const playersRef = useRef(players)
@@ -1220,6 +1337,7 @@ export default function BettingTab({ mode = 'tournament' }) {
 
       const [
         { data: gamesData },
+        { data: trackerStatsData },
         { data: playersData },
         { data: charactersData },
         { data: picksData },
@@ -1238,39 +1356,45 @@ export default function BettingTab({ mode = 'tournament' }) {
         { data: sipRedemptionsData },
         { data: balanceAwardsData },
       ] = await Promise.all([
-        supabase.from(sourceTables.games).select('*').order('id'),
-        supabase.from('players').select('*'),
-        supabase.from('characters').select('*'),
+        fetchAllRows(() => supabase.from(sourceTables.games).select('*')),
+        fetchAllRows(() => supabase.from(sourceTables.trackerStats).select('*')),
+        fetchAllRows(() => supabase.from('players').select('*')),
+        fetchAllRows(() => supabase.from('characters').select('*')),
         isSeasonMode
-          ? supabase.from(sourceTables.picks).select('*').eq('season_id', sourceContext?.id || -1).order('created_at')
-          : supabase.from(sourceTables.picks).select('*'),
-        supabase.from(sourceTables.pas).select('*').order('created_at'),
-        supabase.from(sourceTables.pitching).select('*').order('created_at'),
-        supabase.from(sourceTables.pitches).select('game_id,pitcher_id'),
-        supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }).range(0, 49999),
+          ? fetchAllRows(() => supabase.from(sourceTables.picks).select('*').eq('season_id', sourceContext?.id || -1).order('created_at'))
+          : fetchAllRows(() => supabase.from(sourceTables.picks).select('*')),
+        fetchAllRows(() => supabase.from(sourceTables.pas).select('*').order('created_at')),
+        fetchAllRows(() => supabase.from(sourceTables.pitching).select('*').order('created_at')),
+        fetchAllRows(() => supabase.from(sourceTables.pitches).select('game_id,pitcher_id')),
+        fetchAllRows(() => supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false })),
         isSeasonMode
-          ? supabase.from(sourceTables.bets).select('*').eq('season_id', sourceContext?.id || -1).order('placed_at', { ascending: false })
-          : supabase.from(sourceTables.bets).select('*').order('placed_at', { ascending: false }),
-        supabase.from(sourceTables.settlements).select('*').order('settled_at', { ascending: false }),
+          ? fetchAllRows(() => supabase.from(sourceTables.bets).select('*').eq('season_id', sourceContext?.id || -1).order('placed_at', { ascending: false }))
+          : fetchAllRows(() => supabase.from(sourceTables.bets).select('*').order('placed_at', { ascending: false })),
+        fetchAllRows(() => supabase.from(sourceTables.settlements).select('*').order('settled_at', { ascending: false })),
         supabase.from('odds_engine_weights').select('*').eq('id', 1).maybeSingle(),
-        supabase.from('stadiums').select('*'),
+        fetchAllRows(() => supabase.from('stadiums').select('*')),
         isSeasonMode
-          ? supabase.from(sourceTables.stadiumLog).select('*').eq('season_id', sourceContext?.id || -1).order('created_at')
-          : supabase.from(sourceTables.stadiumLog).select('*').order('created_at'),
-        supabase.from(sourceTables.ledgerTable).select('*').eq(economyContextField, economyContextId),
-        supabase.from('player_sips').select('*').eq(economyContextField, economyContextId),
-        supabase.from('sip_transactions').select('*').eq(economyContextField, economyContextId),
-        supabase.from('sip_redemptions').select('*').eq(economyContextField, economyContextId).order('created_at', { ascending: false }),
-        supabase.from('balance_awards').select('*').eq(economyContextField, economyContextId),
+          ? fetchAllRows(() => supabase.from(sourceTables.stadiumLog).select('*').eq('season_id', sourceContext?.id || -1).order('created_at'))
+          : fetchAllRows(() => supabase.from(sourceTables.stadiumLog).select('*').order('created_at')),
+        fetchAllRows(() => supabase.from(sourceTables.ledgerTable).select('*').eq(economyContextField, economyContextId)),
+        fetchAllRows(() => supabase.from('player_sips').select('*').eq(economyContextField, economyContextId)),
+        fetchAllRows(() => supabase.from('sip_transactions').select('*').eq(economyContextField, economyContextId)),
+        fetchAllRows(() => supabase.from('sip_redemptions').select('*').eq(economyContextField, economyContextId).order('created_at', { ascending: false })),
+        fetchAllRows(() => supabase.from('balance_awards').select('*').eq(economyContextField, economyContextId)),
       ])
 
       const teamsById = Object.fromEntries((seasonTeams || []).map((entry) => [entry.id, entry]))
       const stadiumsByName = Object.fromEntries((stadiumsData || []).map((entry) => [entry.name, entry]))
       const charactersByName = Object.fromEntries((charactersData || []).map((entry) => [entry.name, entry]))
       const loadedPlayersById = Object.fromEntries((playersData || []).map((entry) => [entry.id, entry]))
-      const normalizedGames = isSeasonMode
+      const baseNormalizedGames = isSeasonMode
         ? (gamesData || []).map((entry) => normalizeSeasonGame(entry, teamsById, stadiumsByName, loadedPlayersById))
         : (gamesData || []).filter((entry) => GAME_STATUSES.has(entry.status))
+      const sourceGameIds = new Set(baseNormalizedGames
+        .filter((entry) => entry.tournament_id === sourceContext?.id)
+        .map((entry) => String(entry.id)))
+      const scopedTrackerStats = (trackerStatsData || []).filter((row) => sourceGameIds.has(String(row.game_id)))
+      const normalizedGames = overlayTrackerGames(baseNormalizedGames, scopedTrackerStats, isSeasonMode)
       const normalizedPicks = isSeasonMode
         ? normalizeSeasonDraftPicks(picksData || [], sourceContext?.id, seasonTeams, charactersByName)
         : (picksData || [])
@@ -1288,6 +1412,7 @@ export default function BettingTab({ mode = 'tournament' }) {
       )
 
       setGames(normalizedGames)
+      setTrackerStats(scopedTrackerStats)
       setPlayers(playersData || [])
       setCharacters(charactersData || [])
       setDraftPicks(normalizedPicks)
@@ -1323,9 +1448,16 @@ export default function BettingTab({ mode = 'tournament' }) {
   }, [currentTournament?.id, currentSeason?.id, isSeasonMode, seasonTeams, sourceContext?.id])
 
   const refetchOdds = useCallback(async () => {
-    const { data } = await supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }).range(0, 49999)
+    const requestId = ++oddsRequestRef.current
+    const { data, error } = await supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }).range(0, 49999)
+    if (error || requestId !== oddsRequestRef.current) return
     setGameOdds(data || [])
   }, [sourceTables])
+
+  const scheduleOddsRefetch = useCallback(() => {
+    clearTimeout(oddsRefreshTimerRef.current)
+    oddsRefreshTimerRef.current = setTimeout(refetchOdds, 150)
+  }, [refetchOdds])
 
   const refetchBets = useCallback(async () => {
     const query = supabase.from(sourceTables.bets).select('*').order('placed_at', { ascending: false })
@@ -1333,17 +1465,44 @@ export default function BettingTab({ mode = 'tournament' }) {
     setBets(data || [])
   }, [sourceTables, isSeasonMode, sourceContext?.id])
 
+  const refetchTrackerStats = useCallback(async () => {
+    const requestId = ++trackerRequestRef.current
+    const { data } = await supabase.from(sourceTables.trackerStats).select('*')
+    if (requestId !== trackerRequestRef.current) return
+    const sourceGameIds = new Set(gamesRef.current
+      .filter((entry) => entry.tournament_id === sourceContext?.id)
+      .map((entry) => String(entry.id)))
+    const scopedRows = (data || []).filter((row) => sourceGameIds.has(String(row.game_id)))
+    trackerStatsRef.current = scopedRows
+    setTrackerStats(scopedRows)
+    setGames((current) => overlayTrackerGames(current, scopedRows, isSeasonMode))
+  }, [isSeasonMode, sourceContext?.id, sourceTables])
+
+  const refetchPlateAppearances = useCallback(async () => {
+    const { data } = await supabase.from(sourceTables.pas).select('*').order('created_at').range(0, 49999)
+    const stadiumKeyByGameId = buildStadiumKeyByGameId(
+      gamesRef.current,
+      stadiumsRef.current,
+      stadiumGameLogRef.current,
+    )
+    setPlateAppearances(enrichPlateAppearancesWithDerivedHitTracking(data || [], stadiumKeyByGameId))
+  }, [sourceTables])
+
   const refetchGames = useCallback(async () => {
+    const requestId = ++gamesRequestRef.current
     const { data } = isSeasonMode
       ? await supabase.from(sourceTables.games).select('*').eq('season_id', sourceContext?.id || -1).order('id')
       : await supabase.from(sourceTables.games).select('*').order('id')
+    if (requestId !== gamesRequestRef.current) return
     if (isSeasonMode) {
       const teamsById = Object.fromEntries((seasonTeamsRef.current || []).map((entry) => [entry.id, entry]))
       const stadiumsByName = Object.fromEntries(stadiumsRef.current.map((entry) => [entry.name, entry]))
       const playersById = Object.fromEntries(playersRef.current.map((entry) => [entry.id, entry]))
-      setGames((data || []).map((entry) => normalizeSeasonGame(entry, teamsById, stadiumsByName, playersById)))
+      const normalized = (data || []).map((entry) => normalizeSeasonGame(entry, teamsById, stadiumsByName, playersById))
+      setGames(overlayTrackerGames(normalized, trackerStatsRef.current, true))
     } else {
-      setGames((data || []).filter((entry) => GAME_STATUSES.has(entry.status)))
+      const normalized = (data || []).filter((entry) => GAME_STATUSES.has(entry.status))
+      setGames(overlayTrackerGames(normalized, trackerStatsRef.current, false))
     }
   }, [sourceTables, isSeasonMode, sourceContext?.id])
 
@@ -1355,7 +1514,9 @@ export default function BettingTab({ mode = 'tournament' }) {
     ])
     const nameById = Object.fromEntries((charsData || []).map((c) => [c.id, c.name]))
     const thrownKeys = new Set((pitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
-    setPitchingStints((data || []).filter((stint) => thrownKeys.has(`${stint.game_id}:${nameById[stint.character_id]}`)))
+    setPitchingStints((data || []).filter((stint) => (
+      thrownKeys.has(`${stint.game_id}:${nameById[stint.character_id]}`) || Number(stint.innings_pitched) > 0
+    )))
   }, [sourceTables])
 
   const refetchPicks = useCallback(async () => {
@@ -1380,6 +1541,8 @@ export default function BettingTab({ mode = 'tournament' }) {
     const refreshAll = () => {
       refetchOdds()
       refetchBets()
+      refetchTrackerStats()
+      refetchPlateAppearances()
       refetchPitching()
       refetchGames()
       refetchPicks()
@@ -1402,23 +1565,16 @@ export default function BettingTab({ mode = 'tournament' }) {
       document.removeEventListener('visibilitychange', handleVisibility)
       clearInterval(pollInterval)
     }
-  }, [refetchOdds, refetchBets, refetchPitching, refetchGames, refetchPicks])
+  }, [refetchOdds, refetchBets, refetchTrackerStats, refetchPlateAppearances, refetchPitching, refetchGames, refetchPicks])
 
   useEffect(() => {
     const channel = supabase
       .channel(`betting-board-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.odds }, refetchOdds)
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.odds }, scheduleOddsRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.bets }, refetchBets)
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.games }, refetchGames)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pas }, async () => {
-        const { data } = await supabase.from(sourceTables.pas).select('*').order('created_at')
-        const stadiumKeyByGameId = buildStadiumKeyByGameId(
-          gamesRef.current,
-          stadiumsRef.current,
-          stadiumGameLogRef.current,
-        )
-        setPlateAppearances(enrichPlateAppearancesWithDerivedHitTracking(data || [], stadiumKeyByGameId))
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.trackerStats }, refetchTrackerStats)
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pas }, refetchPlateAppearances)
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pitching }, refetchPitching)
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.picks }, refetchPicks)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'odds_engine_weights' }, async () => {
@@ -1431,7 +1587,7 @@ export default function BettingTab({ mode = 'tournament' }) {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.ledgerTable }, async () => {
         const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
-        const { data } = await supabase.from(sourceTables.ledgerTable).select('*').eq(economyContextField, sourceContext?.id || -1)
+        const { data } = await fetchAllRows(() => supabase.from(sourceTables.ledgerTable).select('*').eq(economyContextField, sourceContext?.id || -1))
         setLedgerEntries(data || [])
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'player_sips' }, async () => {
@@ -1441,7 +1597,7 @@ export default function BettingTab({ mode = 'tournament' }) {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sip_transactions' }, async () => {
         const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
-        const { data } = await supabase.from('sip_transactions').select('*').eq(economyContextField, sourceContext?.id || -1)
+        const { data } = await fetchAllRows(() => supabase.from('sip_transactions').select('*').eq(economyContextField, sourceContext?.id || -1))
         setSipTransactions(data || [])
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sip_redemptions' }, async () => {
@@ -1471,8 +1627,11 @@ export default function BettingTab({ mode = 'tournament' }) {
       })
       .subscribe()
 
-    return () => supabase.removeChannel(channel)
-  }, [isSeasonMode, sourceContext?.id, sourceTables, refetchOdds, refetchBets, refetchGames, refetchPitching, refetchPicks])
+    return () => {
+      clearTimeout(oddsRefreshTimerRef.current)
+      supabase.removeChannel(channel)
+    }
+  }, [isSeasonMode, sourceContext?.id, sourceTables, scheduleOddsRefetch, refetchBets, refetchTrackerStats, refetchPlateAppearances, refetchGames, refetchPitching, refetchPicks])
 
   const playersById = useMemo(() => Object.fromEntries(players.map((entry) => [entry.id, entry])), [players])
 
@@ -1649,6 +1808,20 @@ export default function BettingTab({ mode = 'tournament' }) {
   const tournamentGameIds = useMemo(
     () => new Set(tournamentGames.map((entry) => String(entry.id))),
     [tournamentGames],
+  )
+  const trackerManagedGameIds = useMemo(
+    () => new Set((trackerStats || []).map((row) => String(row.game_id))),
+    [trackerStats],
+  )
+  const oddsCalculatingGameIds = useMemo(
+    () => new Set((trackerStats || [])
+      .filter((row) => row.live_feed?.oddsCalculating === true || row.live_feed?.odds_calculating === true)
+      .map((row) => String(row.game_id))),
+    [trackerStats],
+  )
+  const slipHasCalculatingOdds = useMemo(
+    () => betSlip.some((entry) => oddsCalculatingGameIds.has(String(entry.gameId))),
+    [betSlip, oddsCalculatingGameIds],
   )
   const propEntityMetaByLabel = useMemo(() => {
     const sourceDraftPicks = draftPicks.filter((entry) => entry.tournament_id === sourceContext?.id)
@@ -1953,24 +2126,42 @@ export default function BettingTab({ mode = 'tournament' }) {
     return tabs
   }, [detailOdds])
 
-  // session) only writes to team_lineups/season_team_lineups. Poll each
-  // board game's teams' saved fielding.pitcher so odds generation can
-  // target the lineup-designated pitcher immediately — even before that
-  // team has thrown a pitch (no pitching_stints row yet) — instead of
-  // waiting for a pitching_stints row that may not exist until the team
-  // takes the mound. See expectedPitcherByPlayer usage below.
+  // Prefer the game's open position-1 fielder assignment. The saved shared
+  // team lineup is only a fallback before game-specific rows exist.
   const [expectedPitcherByKey, setExpectedPitcherByKey] = useState({})
   useEffect(() => {
     let cancelled = false
+    let requestId = 0
+    const tableConfig = isSeasonMode ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
+    const gameFieldersTable = isSeasonMode ? 'season_game_fielders' : 'game_fielders'
 
     const runPoll = async () => {
+      const thisRequestId = ++requestId
+      const gameIds = [...new Set(boardGames.map((game) => game.id).filter((id) => id != null))]
+      let gameFielders = []
+      if (gameIds.length) {
+        const { data, error } = await supabase.from(gameFieldersTable)
+          .select('id,game_id,team_id,character,position,inning_from,inning_to,created_at')
+          .in('game_id', gameIds)
+          .eq('position', 1)
+          .is('inning_to', null)
+        if (error) console.warn('[betting] live pitcher lookup failed; using saved team lineup fallback', error)
+        else gameFielders = data || []
+      }
+
+      const livePitchers = buildActivePitcherByGamePlayer({
+        games: boardGames,
+        gameFielders,
+        characters,
+        seasonTeams,
+        isSeasonMode,
+      })
       const lookups = []
       boardGames.forEach((game) => {
         const sourceId = isSeasonMode ? sourceContext?.id : game.tournament_id
         if (!sourceId) return
-        const tableConfig = isSeasonMode ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
         ;[game.team_a_player_id, game.team_b_player_id].forEach((playerId) => {
-          if (!playerId) return
+          if (!playerId || livePitchers[gamePitcherKey(game.id, playerId)] != null) return
           lookups.push({ key: `${sourceId}:${playerId}`, table: tableConfig.table, idField: tableConfig.idField, sourceId, playerId })
         })
       })
@@ -1987,11 +2178,28 @@ export default function BettingTab({ mode = 'tournament' }) {
         }),
       )
 
-      if (cancelled) return
-      setExpectedPitcherByKey(Object.fromEntries(results))
+      if (cancelled || thisRequestId !== requestId) return
+      const fallbackPitchers = Object.fromEntries(results)
+      const next = { ...livePitchers }
+      boardGames.forEach((game) => {
+        const sourceId = isSeasonMode ? sourceContext?.id : game.tournament_id
+        ;[game.team_a_player_id, game.team_b_player_id].forEach((playerId) => {
+          if (!playerId) return
+          const key = gamePitcherKey(game.id, playerId)
+          if (next[key] == null && fallbackPitchers[`${sourceId}:${playerId}`] != null) {
+            next[key] = fallbackPitchers[`${sourceId}:${playerId}`]
+          }
+        })
+      })
+      setExpectedPitcherByKey(next)
     }
 
     runPoll()
+    const channel = supabase
+      .channel(`betting-lineups-${isSeasonMode ? 'season' : 'tournament'}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: gameFieldersTable }, runPoll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tableConfig.table }, runPoll)
+      .subscribe()
     // Skipped while hidden — see the fallback-poll comment on the odds/bets poll above for why
     // (an always-active background tab is exactly what browsers reclaim first for memory).
     const handleVisibility = () => {
@@ -2006,19 +2214,19 @@ export default function BettingTab({ mode = 'tournament' }) {
       cancelled = true
       document.removeEventListener('visibilitychange', handleVisibility)
       clearInterval(interval)
+      supabase.removeChannel(channel)
     }
-  }, [boardGames, isSeasonMode, sourceContext?.id])
+  }, [boardGames, characters, isSeasonMode, seasonTeams, sourceContext?.id])
 
   const getExpectedPitcherByPlayer = useCallback((game) => {
-    const sourceId = isSeasonMode ? sourceContext?.id : game.tournament_id
     const map = {}
     ;[game.team_a_player_id, game.team_b_player_id].forEach((playerId) => {
       if (!playerId) return
-      const charId = expectedPitcherByKey[`${sourceId}:${playerId}`]
+      const charId = expectedPitcherByKey[gamePitcherKey(game.id, playerId)]
       if (charId != null) map[playerId] = charId
     })
     return map
-  }, [expectedPitcherByKey, isSeasonMode, sourceContext?.id])
+  }, [expectedPitcherByKey])
 
   const detailGeneratedOddsByKey = useMemo(() => {
     if (!detailGame || !isGameReadyForBetting(detailGame, playersById)) return {}
@@ -2043,17 +2251,23 @@ export default function BettingTab({ mode = 'tournament' }) {
 
     if (!context?.homeRoster?.length || !context?.awayRoster?.length) return {}
 
-    return Object.fromEntries(
-      generateGameOdds(
-        detailGame,
-        context.homeRoster,
-        context.awayRoster,
-        context.homeHistorical,
-        context.awayHistorical,
-        context.playerProps,
-        weights,
-      ).map((row) => [buildOddsRowKey(row), row]),
+    const generatedRows = generateGameOdds(
+      detailGame,
+      context.homeRoster,
+      context.awayRoster,
+      context.homeHistorical,
+      context.awayHistorical,
+      context.playerProps,
+      weights,
     )
+    const liveRows = applyLivePricing(
+      generatedRows,
+      context,
+      detailGame,
+      gamePAs,
+      getScheduledInnings(detailGame, sourceContext?.innings),
+    )
+    return Object.fromEntries(liveRows.map((row) => [buildOddsRowKey(row), row]))
   }, [
     bets,
     charactersById,
@@ -2074,8 +2288,8 @@ export default function BettingTab({ mode = 'tournament' }) {
   const boardSourceSignatures = useMemo(
     () =>
       boardGames.map((game) => {
-        const gamePAs = plateAppearances.filter((entry) => entry.game_id === game.id).length
-        const gamePitching = pitchingStints.filter((entry) => entry.game_id === game.id).length
+        const gamePAs = plateAppearances.filter((entry) => entry.game_id === game.id)
+        const gamePitching = pitchingStints.filter((entry) => entry.game_id === game.id)
         const expectedPitchers = getExpectedPitcherByPlayer(game)
         return {
           game,
@@ -2088,8 +2302,7 @@ export default function BettingTab({ mode = 'tournament' }) {
             Number(game.current_inning || 1),
             String(game.stadium_id || ''),
             Boolean(game.is_night),
-            gamePAs,
-            gamePitching,
+            buildTrackerGameSignature(game, gamePAs, gamePitching),
             draftPicks.filter((entry) => entry.tournament_id === game.tournament_id).length,
             stadiumGameLog.filter((entry) =>
               String(entry.stadium_id) === String(game.stadium_id) &&
@@ -2142,6 +2355,13 @@ export default function BettingTab({ mode = 'tournament' }) {
         context.playerProps,
         weights,
       )
+      const livePricedRows = applyLivePricing(
+        generatedRows,
+        context,
+        game,
+        gamePAs,
+        getScheduledInnings(game, sourceContext?.innings),
+      )
 
       const { data: existingRows } = await supabase
         .from(sourceTables.odds)
@@ -2153,7 +2373,7 @@ export default function BettingTab({ mode = 'tournament' }) {
       // leaving it alongside the newly generated row for the new pitcher,
       // which otherwise shows up as a confusing duplicate market.
       const regeneratedKPropEntities = new Set(
-        generatedRows.filter((row) => row.bet_type === 'k_prop').map((row) => row.target_entity),
+        livePricedRows.filter((row) => row.bet_type === 'k_prop').map((row) => row.target_entity),
       )
       const staleKPropLocks = (existingRows || [])
         .filter((row) => row.bet_type === 'k_prop' && !row.is_locked && !regeneratedKPropEntities.has(row.target_entity))
@@ -2161,7 +2381,7 @@ export default function BettingTab({ mode = 'tournament' }) {
 
       const payload = [
         ...mergeOddsWithExistingRows(
-          generatedRows,
+          livePricedRows,
           existingRows || [],
         ),
         ...staleKPropLocks,
@@ -2191,15 +2411,29 @@ export default function BettingTab({ mode = 'tournament' }) {
     if (!isScorekeeper) return
     boardSourceSignatures.forEach(({ game, signature }) => {
       if (!readyGameIds.has(String(game.id))) return
+      // The authenticated bridge is the sole live-odds writer once a tracker
+      // snapshot exists. Letting this browser persist its own calculation too
+      // creates two writers using independently refreshed state, which makes
+      // lines visibly bounce backward when their requests finish out of order.
+      if (trackerManagedGameIds.has(String(game.id))) {
+        autoSyncRef.current[game.id] = { inFlight: false, signature }
+        return
+      }
       const syncState = autoSyncRef.current[game.id]
       if (syncState?.inFlight || syncState?.signature === signature) return
       handleGenerateOdds(game, { silent: true, sourceSignature: signature })
     })
-  }, [boardSourceSignatures, readyGameIds, isScorekeeper])
+  }, [boardSourceSignatures, readyGameIds, isScorekeeper, trackerManagedGameIds])
 
   // A lineup edit (e.g. from Roster/SeasonRoster or another Scorebook
   const toggleSlipSelection = (game, row, side, customLineOpts = null) => {
-    if (!game || !row?.id || row.is_locked || !isGameReadyForBetting(game, playersById)) return
+    if (
+      !game ||
+      !row?.id ||
+      row.is_locked ||
+      oddsCalculatingGameIds.has(String(game.id)) ||
+      !isGameReadyForBetting(game, playersById)
+    ) return
 
     const normalizedCustomLineOpts = normalizeCustomLineSelection(row, customLineOpts)
     const option = getSideOptions(row, game, playersById, identitiesByPlayerId).find((entry) => entry.side === side)
@@ -2360,8 +2594,13 @@ export default function BettingTab({ mode = 'tournament' }) {
 
   const handlePlaceBets = async () => {
     if (!betSlip.length || !player?.id || !sourceContext?.id) return
+    if (slipHasCalculatingOdds) return
     if (slipHasInvalidWager) {
       pushToast({ title: 'Bet slip invalid', message: 'Every ticket must have a non-negative wager with at most two decimal places, and be at least $0.01.', type: 'error' })
+      return
+    }
+    if (slipHasZeroProfit) {
+      pushToast({ title: 'Bet slip invalid', message: 'Increase the wager: every winning ticket must pay at least $0.01 profit.', type: 'error' })
       return
     }
     if (slipWager > myBalance) {
@@ -2372,7 +2611,9 @@ export default function BettingTab({ mode = 'tournament' }) {
     setPlacingBetId('slip')
 
     const payload = []
+    const submittedKeys = new Set()
     for (const entry of betSlip) {
+      submittedKeys.add(entry.key)
       const game = boardGames.find((item) => String(item.id) === String(entry.gameId))
       const row = (oddsByGameId[String(entry.gameId)] || []).find((item) => item.id === entry.rowId)
       if (!game || !row || !row.id || row.is_locked || !isGameReadyForBetting(game, playersById)) {
@@ -2454,7 +2695,9 @@ export default function BettingTab({ mode = 'tournament' }) {
     if (placedBets.length) {
       setBets((current) => [...placedBets, ...current.filter((entry) => !placedBets.some((created) => created.id === entry.id))])
     }
-    setBetSlip([])
+    // Remove only the tickets just submitted — a ticket the user added to the
+    // slip while this RPC was in flight is still unsubmitted and must survive.
+    setBetSlip((current) => current.filter((entry) => !submittedKeys.has(entry.key)))
     pushToast({ title: 'Bets placed', message: `${payload.length} ticket${payload.length === 1 ? '' : 's'} submitted and debited.`, type: 'success' })
   }
 
@@ -2489,16 +2732,24 @@ export default function BettingTab({ mode = 'tournament' }) {
         const runLine = rows.find((entry) => entry.bet_type === 'run_line')
         const runLineDisplay = getClosestPickEmRunLine({ runLineRow: runLine, moneylineRow: moneyline, completedGameMargins })
         const stadiumData = buildStadiumDisplayModel(game, stadiumsById, stadiumGameLog)
+        const totalDisplay = getClosestPickEmTotal({
+          totalRow: total,
+          stadiumModel: stadiumData.model,
+          currentTotal: Number(game.team_a_runs || 0) + Number(game.team_b_runs || 0),
+        })
         const gamePAs = plateAppearances.filter((entry) => entry.game_id === game.id)
         const gamePAInnings = gamePAs.map((entry) => Number(entry.inning || 1))
         const currentInning = Number(game.current_inning || (gamePAInnings.length ? Math.max(...gamePAInnings) : 1))
         const lastPA = gamePAs.reduce((latest, entry) => (!latest || Number(entry.id) > Number(latest.id) ? entry : latest), null)
         const awayPlayerId = game.team_a_player_id
-        const isTopInning = lastPA
-          ? (lastPA.batting_team_id != null
-            ? lastPA.batting_team_id === game.away_team_id
-            : lastPA.player_id === awayPlayerId)
-          : null
+        const trackerIsTop = game.live_state?.isTop ?? game.live_state?.is_top
+        const isTopInning = trackerIsTop != null
+          ? Boolean(trackerIsTop)
+          : lastPA
+            ? (lastPA.batting_team_id != null
+              ? lastPA.batting_team_id === game.away_team_id
+              : lastPA.player_id === awayPlayerId)
+            : null
         const gameWithInning = { ...game, current_inning: currentInning, is_top_inning: isTopInning }
         const flashSignature = [
           runLine && isOddsFlashing(runLine.id, 'home') ? 'rlh' : '',
@@ -2512,8 +2763,10 @@ export default function BettingTab({ mode = 'tournament' }) {
         return {
           game: gameWithInning,
           ready,
+          oddsCalculating: oddsCalculatingGameIds.has(String(game.id)),
           moneyline,
           total,
+          totalDisplay,
           runLine,
           runLineDisplay,
           stadiumData,
@@ -2524,7 +2777,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           headerKicker: getBettingGameHeaderKicker(game, isSeasonMode, seasonWeekByGameId),
         }
       }),
-    [boardGames, oddsByGameId, playersById, stadiumsById, stadiumGameLog, plateAppearances, isOddsFlashing, betSlip, identitiesByPlayerId, isSeasonMode, seasonWeekByGameId, completedGameMargins],
+    [boardGames, oddsByGameId, playersById, stadiumsById, stadiumGameLog, plateAppearances, isOddsFlashing, betSlip, identitiesByPlayerId, isSeasonMode, seasonWeekByGameId, completedGameMargins, oddsCalculatingGameIds],
   )
 
   const detailTabSections = useMemo(() => {
@@ -2556,32 +2809,43 @@ export default function BettingTab({ mode = 'tournament' }) {
   const detailMoneylineRow = detailOdds.find((row) => row.bet_type === 'moneyline') || null
   const detailRunLineRow = detailOdds.find((row) => row.bet_type === 'run_line') || null
   const detailTotalRow = detailOdds.find((row) => row.bet_type === 'over_under') || null
+  const detailStadiumModel = detailGame ? buildStadiumDisplayModel(detailGame, stadiumsById, stadiumGameLog).model : null
+  const detailCurrentTotal = Number(detailGame?.team_a_runs || 0) + Number(detailGame?.team_b_runs || 0)
   const detailPreferredRunLine = detailRunLineRow && detailMoneylineRow
     ? getClosestPickEmRunLine({ runLineRow: detailRunLineRow, moneylineRow: detailMoneylineRow, completedGameMargins })
     : null
+  const detailPreferredTotal = detailTotalRow
+    ? getClosestPickEmTotal({ totalRow: detailTotalRow, stadiumModel: detailStadiumModel, currentTotal: detailCurrentTotal })
+    : null
   const detailRunLineOptions = detailRunLineRow ? getAltSpreads(Number(detailRunLineRow.line)) : []
-  const detailTotalOptions = detailTotalRow ? getAltTotals(Number(detailTotalRow.line)) : []
+  const detailTotalOptions = detailTotalRow
+    ? getAltTotals(Number(detailPreferredTotal?.line ?? detailTotalRow.line), detailCurrentTotal + 0.5)
+    : []
   const detailDefaultSpread = detailPreferredRunLine?.spread ?? detailRunLineRow?.line
+  const detailDefaultTotal = detailPreferredTotal?.line ?? detailTotalRow?.line
   const detailActiveSpread = detailGame ? getDetailSliderValue(altRunLine[detailGame.id]?.spread ?? detailDefaultSpread, detailRunLineOptions) : undefined
-  const detailActiveTotal = detailGame ? getDetailSliderValue(altTotal[detailGame.id]?.line, detailTotalOptions) : undefined
+  const detailActiveTotal = detailGame ? getDetailSliderValue(altTotal[detailGame.id]?.line ?? detailDefaultTotal, detailTotalOptions) : undefined
   const detailRunLinePricing = detailRunLineRow && detailMoneylineRow && detailActiveSpread
     ? getRunLinePricingState({ spread: detailActiveSpread, runLineRow: detailRunLineRow, moneylineRow: detailMoneylineRow, completedGameMargins })
     : null
   const detailTotalPricing = detailTotalRow && detailActiveTotal
-    ? getAltTotalPricing({
+    ? getTotalPricingState({
       line: detailActiveTotal,
       totalRow: detailTotalRow,
-      stadiumModel: detailGame ? buildStadiumDisplayModel(detailGame, stadiumsById, stadiumGameLog).model : null,
+      stadiumModel: detailStadiumModel,
     })
     : null
   const detailHomeIsFav = Number(detailMoneylineRow?.predicted_probability || 0.5) >= 0.5
-  const slipPayout = betSlip.reduce((sum, entry) => {
+  const detailOddsCalculating = oddsCalculatingGameIds.has(String(detailGame?.id))
+  const slipProfits = betSlip.map((entry) => {
     const game = boardGames.find((item) => String(item.id) === String(entry.gameId))
     const row = (oddsByGameId[String(entry.gameId)] || []).find((item) => item.id === entry.rowId)
     const option = row && game ? getSideOptions(row, game, playersById, identitiesByPlayerId).find((item) => item.side === entry.side) : null
     const wager = parseDollarWager(entry.wagerSips)
-    return sum + calculatePayout(Number.isFinite(wager) ? wager : 0, entry.customOdds ?? option?.odds)
-  }, 0)
+    return calculatePayout(Number.isFinite(wager) ? wager : 0, entry.customOdds ?? option?.odds)
+  })
+  const slipPayout = slipProfits.reduce((sum, profit) => sum + profit, 0)
+  const slipHasZeroProfit = slipProfits.some((profit) => profit < 0.01)
   const { totalWager: slipWager, hasInvalidWager: slipHasInvalidWager } = useMemo(
     () => summarizeSlipWagers(betSlip),
     [betSlip],
@@ -2887,9 +3151,11 @@ export default function BettingTab({ mode = 'tournament' }) {
                   awayRow={card.awayRow}
                   moneyline={card.moneyline}
                   total={card.total}
+                  totalDisplay={card.totalDisplay}
                   runLine={card.runLine}
                   runLineDisplay={card.runLineDisplay}
                   stadiumData={card.stadiumData}
+                  oddsCalculating={card.oddsCalculating}
                   flashSignature={card.flashSignature}
                   gameBetSlip={card.gameBetSlip}
                   headerKicker={card.headerKicker}
@@ -2909,7 +3175,7 @@ export default function BettingTab({ mode = 'tournament' }) {
           ) : null}
 
           {detailGame && viewMode === 'detail' ? (
-            <section className="panel sportsbook-detail">
+            <section className={`panel sportsbook-detail ${detailOddsCalculating ? 'sportsbook-detail-odds-calculating' : ''}`}>
               <div className="sportsbook-detail-head">
                 <button className="ghost-button" onClick={() => setViewMode('board')} type="button">
                   <ArrowLeft size={16} />
@@ -2980,7 +3246,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                       <div className="sportsbook-alt-market-actions">
                         <button
                           className="sportsbook-alt-side-card"
-                          disabled={!detailRunLinePricing || !detailGame}
+                          disabled={detailOddsCalculating || !detailRunLinePricing || !detailGame}
                           onClick={() => toggleSlipSelection(detailGame, detailRunLineRow, 'home', {
                             customLine: detailActiveSpread,
                             customOdds: detailRunLinePricing?.homeOdds,
@@ -2994,7 +3260,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                         </button>
                         <button
                           className="sportsbook-alt-side-card"
-                          disabled={!detailRunLinePricing || !detailGame}
+                          disabled={detailOddsCalculating || !detailRunLinePricing || !detailGame}
                           onClick={() => toggleSlipSelection(detailGame, detailRunLineRow, 'away', {
                             customLine: detailActiveSpread,
                             customOdds: detailRunLinePricing?.awayOdds,
@@ -3063,7 +3329,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                       <div className="sportsbook-alt-market-actions">
                         <button
                           className="sportsbook-alt-side-card"
-                          disabled={!detailTotalPricing || !detailGame}
+                          disabled={detailOddsCalculating || !detailTotalPricing || !detailGame}
                           onClick={() => toggleSlipSelection(detailGame, detailTotalRow, 'over', {
                             customLine: detailActiveTotal,
                             customOdds: detailTotalPricing?.overOdds,
@@ -3077,7 +3343,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                         </button>
                         <button
                           className="sportsbook-alt-side-card"
-                          disabled={!detailTotalPricing || !detailGame}
+                          disabled={detailOddsCalculating || !detailTotalPricing || !detailGame}
                           onClick={() => toggleSlipSelection(detailGame, detailTotalRow, 'under', {
                             customLine: detailActiveTotal,
                             customOdds: detailTotalPricing?.underOdds,
@@ -3287,7 +3553,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                                           return (
                                             <button
                                               className={`sportsbook-odds-button ${selected ? 'sportsbook-odds-button-selected' : ''} ${!isAltLine && isOddsFlashing(row.id, side) ? 'sportsbook-odds-flash' : ''}`}
-                                              disabled={!row.id || row.is_locked || !isGameReadyForBetting(detailGame, playersById) || odds == null}
+                                              disabled={detailOddsCalculating || !row.id || row.is_locked || !isGameReadyForBetting(detailGame, playersById) || odds == null}
                                               key={side}
                                               onClick={() => toggleSlipSelection(
                                                 detailGame,
@@ -3313,7 +3579,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                                           return (
                                             <button
                                               className={`sportsbook-odds-button ${selected ? 'sportsbook-odds-button-selected' : ''} ${isOddsFlashing(row.id, option.side) ? 'sportsbook-odds-flash' : ''}`}
-                                              disabled={!row.id || row.is_locked || !isGameReadyForBetting(detailGame, playersById)}
+                                              disabled={detailOddsCalculating || !row.id || row.is_locked || !isGameReadyForBetting(detailGame, playersById)}
                                               key={option.side}
                                               onClick={() => toggleSlipSelection(detailGame, row, option.side)}
                                               type="button"
@@ -3463,7 +3729,7 @@ export default function BettingTab({ mode = 'tournament' }) {
                       <strong>{`$${slipPayout.toFixed(2)}`}</strong>
                       {slipError ? <div className="sportsbook-slip-error">{slipError}</div> : null}
                     </div>
-                    <button className="solid-button" disabled={placingBetId === 'slip' || slipHasInvalidWager} onClick={handlePlaceBets} type="button">
+                    <button className="solid-button" disabled={placingBetId === 'slip' || slipHasInvalidWager || slipHasZeroProfit || slipHasCalculatingOdds} onClick={handlePlaceBets} type="button">
                       {placingBetId === 'slip' ? 'Placing...' : 'Place Bets'}
                     </button>
                   </div>

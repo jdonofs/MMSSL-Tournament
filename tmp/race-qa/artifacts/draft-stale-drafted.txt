@@ -1,0 +1,54 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA RACE DRAFT 2026-08-02
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+PICK
+2
+ROUND
+1
+REMAINING
+53
+ON THE CLOCK
+Big Ds
+Presentation Mode
+Back Slide
+Advance Slide
+Undo
+Auto Draft Captains
+Skip Pick Reveal
+Round 1 — Select your captain.
+Available Only
+All Players
+Drafted Players
+NAME
+OVR ↓
+TEAM
+RND
+PICK
+Mario
+S Tier
+85
+91
+81
+81
+91
+Bompkins
+1
+1
+—

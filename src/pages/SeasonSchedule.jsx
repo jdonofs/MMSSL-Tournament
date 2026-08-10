@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, MapPin, Moon, Sun } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
 import { useToast } from '../context/ToastContext'
@@ -14,6 +15,7 @@ import { getOrderedStadiums, getStadiumTimeLabel, normalizeIsNightForStadium, st
 import { calculateOutsForPa } from '../utils/statsCalculator'
 import { sortSeasonPlayoffGames } from '../utils/seasonPlayoffs'
 import { buildSeasonTeamIdentity, getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
+import { applyTrackerLiveStateToGame } from '../utils/trackerLiveFeed'
 
 function getStatusTone(status) {
   if (status === 'completed') return { bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.35)', color: '#86EFAC', pillClass: 'status-complete' }
@@ -34,7 +36,11 @@ function getGameUpdateText(game, liveOutsByGameId = {}, regulationInnings) {
   if (!game) return 'Unavailable'
   if (game.status === 'completed') return getFinalStatusLabel(game, regulationInnings)
   if (game.status === 'in_progress') {
-    const { inning, isTop } = deriveLiveInningState(liveOutsByGameId[String(game.id)] || 0)
+    const persistedInning = Number(game.current_inning || game.live_state?.inning || 0)
+    const persistedIsTop = game.is_top_inning ?? game.live_state?.isTop ?? game.live_state?.is_top
+    const { inning, isTop } = persistedInning > 0
+      ? { inning: persistedInning, isTop: persistedIsTop !== false }
+      : deriveLiveInningState(liveOutsByGameId[String(game.id)] || 0)
     return `${isTop ? 'Top' : 'Bottom'} ${inning}`
   }
   if (game.status === 'scheduled') return ''
@@ -309,6 +315,8 @@ export default function SeasonSchedule() {
   const [openingGameId, setOpeningGameId] = useState(null)
   const [scheduleOverrides, setScheduleOverrides] = useState({})
   const [liveOutsByGameId, setLiveOutsByGameId] = useState({})
+  const [trackerStatsByGameId, setTrackerStatsByGameId] = useState({})
+  const liveDataRequestRef = useRef(0)
 
   useEffect(() => {
     supabase.from('stadiums').select('*').then(({ data }) => {
@@ -319,41 +327,65 @@ export default function SeasonSchedule() {
   useEffect(() => {
     if (!currentSeason?.id) {
       setLiveOutsByGameId({})
+      setTrackerStatsByGameId({})
       return undefined
     }
 
     let active = true
-    const loadLiveOuts = async () => {
-      const { data, error } = await supabase
-        .from('season_plate_appearances')
-        .select('game_id, result')
-        .eq('season_id', currentSeason.id)
+    const loadLiveData = async () => {
+      const requestId = ++liveDataRequestRef.current
+      const [{ data, error }, { data: trackerRows, error: trackerError }] = await Promise.all([
+        fetchAllRows(() => supabase
+          .from('season_plate_appearances')
+          .select('game_id,result,outs_on_play')
+          .eq('season_id', currentSeason.id)),
+        fetchAllRows(() => supabase.from('season_tracker_live_stats').select('*')),
+      ])
 
-      if (error || !active) return
+      if (!active || requestId !== liveDataRequestRef.current) return
 
       const next = {}
-      for (const pa of data || []) {
-        const gameId = String(pa.game_id || '')
-        if (!gameId) continue
-        next[gameId] = (next[gameId] || 0) + calculateOutsForPa(pa.result, pa.outs_on_play)
+      if (!error) {
+        for (const pa of data || []) {
+          const gameId = String(pa.game_id || '')
+          if (!gameId) continue
+          next[gameId] = (next[gameId] || 0) + calculateOutsForPa(pa.result, pa.outs_on_play)
+        }
+        setLiveOutsByGameId(next)
       }
-      setLiveOutsByGameId(next)
+      if (!trackerError) {
+        const seasonGameIds = new Set((schedule || []).map((game) => String(game.id)))
+        setTrackerStatsByGameId(Object.fromEntries(
+          (trackerRows || [])
+            .filter((row) => seasonGameIds.has(String(row.game_id)))
+            .map((row) => [String(row.game_id), row]),
+        ))
+      }
     }
 
-    loadLiveOuts()
+    loadLiveData()
 
     const channel = supabase
       .channel(`season-schedule-live-${currentSeason.id}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances', filter: `season_id=eq.${currentSeason.id}` }, () => {
-        loadLiveOuts()
+        loadLiveData()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_tracker_live_stats' }, loadLiveData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_schedule', filter: `season_id=eq.${currentSeason.id}` }, () => {
+        loadLiveData()
+        refreshSeasons(selectedSeasonId).catch(() => {})
       })
       .subscribe()
+    const pollInterval = setInterval(() => {
+      if (!document.hidden) loadLiveData()
+    }, 3000)
 
     return () => {
       active = false
+      clearInterval(pollInterval)
       supabase.removeChannel(channel)
     }
-  }, [currentSeason?.id])
+  }, [currentSeason?.id, refreshSeasons, schedule, selectedSeasonId])
 
   useEffect(() => {
     if (Object.keys(scheduleOverrides).length === 0) return
@@ -387,6 +419,15 @@ export default function SeasonSchedule() {
     () => Object.fromEntries(seasonTeams.map((team) => [team.player_id, buildSeasonTeamIdentity(team)])),
     [seasonTeams],
   )
+  const applyLiveGameState = useCallback((game) => {
+    const trackerStats = trackerStatsByGameId[String(game.id)]
+    if (!trackerStats || game.stats_source !== 'tracker') return game
+    return applyTrackerLiveStateToGame(game, trackerStats, {
+      isSeason: true,
+      teamAPlayerId: teamsById[game.away_team_id]?.player_id,
+      teamBPlayerId: teamsById[game.home_team_id]?.player_id,
+    })
+  }, [teamsById, trackerStatsByGameId])
   const regularSeasonGames = useMemo(
     () => schedule.filter((game) => !game.stage),
     [schedule],
@@ -402,16 +443,16 @@ export default function SeasonSchedule() {
   )
   const selectedWeekGames = useMemo(
     () => (weekGroups.find((entry) => entry.week === selectedWeek)?.games || weekGroups[0]?.games || [])
-      .map((game) => applyGameOverride(game, scheduleOverrides)),
-    [weekGroups, selectedWeek, scheduleOverrides],
+      .map((game) => applyLiveGameState(applyGameOverride(game, scheduleOverrides))),
+    [weekGroups, selectedWeek, scheduleOverrides, applyLiveGameState],
   )
   const orderedPlayoffGames = useMemo(
     () => sortSeasonPlayoffGames(
       schedule.filter((game) => Boolean(game.stage)),
       currentSeason?.playoff_format,
       seasonTeams.length,
-    ).map((game) => applyGameOverride(game, scheduleOverrides)),
-    [schedule, currentSeason?.playoff_format, seasonTeams.length, scheduleOverrides],
+    ).map((game) => applyLiveGameState(applyGameOverride(game, scheduleOverrides))),
+    [schedule, currentSeason?.playoff_format, seasonTeams.length, scheduleOverrides, applyLiveGameState],
   )
   const visiblePlayoffGames = useMemo(
     () => orderedPlayoffGames.filter((game) => game.home_team_id || game.away_team_id),

@@ -10,11 +10,15 @@
     "audit:stats": "node scripts/audit_stats_integrity.mjs",
     "repair:stats": "node scripts/repair_stats_integrity.mjs",
     "verify:season-schedule": "node scripts/verifySeasonSchedule.mjs",
-    "test:betting": "node --test --test-concurrency=1 tests/betting-system.test.mjs"
+    "test:betting": "node --test --test-concurrency=1 tests/betting-system.test.mjs",
+    "test:tracker": "node --test tests/tracker-alignment.test.mjs tests/tracker-live-feed.test.mjs tests/tracker-matchup-prediction.test.mjs",
+    "tracker:bridge": "node scripts/live_tracker_bridge.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
+    "chokidar": "^5.0.0",
     "date-fns": "^4.1.0",
+    "exceljs": "^4.4.0",
     "lucide-react": "^0.511.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -22,6 +26,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.4.1",
+    "playwright": "^1.62.1",
     "vite": "^6.3.5"
   }
 }

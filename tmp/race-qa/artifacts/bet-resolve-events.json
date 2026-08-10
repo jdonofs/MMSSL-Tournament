@@ -1,0 +1,444 @@
+[
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682390244,
+    "method": "POST",
+    "table": "rpc/place_season_bets",
+    "ms": 62
+  },
+  {
+    "label": "admin",
+    "type": "request",
+    "at": 1785682390340,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 158
+  },
+  {
+    "label": "admin",
+    "type": "response",
+    "at": 1785682390458,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 276
+  },
+  {
+    "label": "admin",
+    "type": "request",
+    "at": 1785682390459,
+    "method": "POST",
+    "table": "season_stadium_game_log",
+    "ms": 277
+  },
+  {
+    "label": "admin",
+    "type": "response",
+    "at": 1785682390588,
+    "method": "POST",
+    "status": 201,
+    "table": "season_stadium_game_log",
+    "ms": 406
+  },
+  {
+    "label": "admin",
+    "type": "request",
+    "at": 1785682390684,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 502
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682391247,
+    "method": "POST",
+    "status": 400,
+    "table": "rpc/place_season_bets",
+    "ms": 1065
+  },
+  {
+    "label": "admin",
+    "type": "response",
+    "at": 1785682391247,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 1065
+  },
+  {
+    "label": "admin",
+    "type": "request",
+    "at": 1785682391526,
+    "method": "PATCH",
+    "table": "season_teams",
+    "ms": 1344
+  },
+  {
+    "label": "admin",
+    "type": "request",
+    "at": 1785682391526,
+    "method": "PATCH",
+    "table": "season_teams",
+    "ms": 1344
+  },
+  {
+    "label": "admin",
+    "type": "request",
+    "at": 1785682391526,
+    "method": "PATCH",
+    "table": "season_teams",
+    "ms": 1344
+  },
+  {
+    "label": "admin",
+    "type": "request",
+    "at": 1785682391527,
+    "method": "PATCH",
+    "table": "season_teams",
+    "ms": 1345
+  },
+  {
+    "label": "admin",
+    "type": "request",
+    "at": 1785682391527,
+    "method": "PATCH",
+    "table": "season_teams",
+    "ms": 1345
+  },
+  {
+    "label": "admin",
+    "type": "request",
+    "at": 1785682391528,
+    "method": "PATCH",
+    "table": "season_teams",
+    "ms": 1346
+  },
+  {
+    "label": "admin",
+    "type": "response",
+    "at": 1785682391640,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_teams",
+    "ms": 1458
+  },
+  {
+    "label": "admin",
+    "type": "response",
+    "at": 1785682391669,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_teams",
+    "ms": 1487
+  },
+  {
+    "label": "admin",
+    "type": "response",
+    "at": 1785682391670,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_teams",
+    "ms": 1488
+  },
+  {
+    "label": "admin",
+    "type": "response",
+    "at": 1785682391673,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_teams",
+    "ms": 1491
+  },
+  {
+    "label": "admin",
+    "type": "response",
+    "at": 1785682391696,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_teams",
+    "ms": 1514
+  },
+  {
+    "label": "admin",
+    "type": "response",
+    "at": 1785682391696,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_teams",
+    "ms": 1514
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394146,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 3964
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394172,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 3990
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394207,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4025
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394230,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4048
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394269,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4087
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394293,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4111
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394349,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4167
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394414,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4232
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394443,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4261
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394466,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4284
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394522,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4340
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682394586,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4404
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682395040,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4858
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682395041,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4859
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682395042,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 4860
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682402292,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 12110
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682404255,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 14073
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682404578,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 14396
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682404920,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 14738
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405076,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 14894
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405185,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 15003
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405276,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 15094
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405369,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 15187
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405462,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 15280
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405539,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 15357
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405602,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 15420
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405712,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 15530
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405813,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 15631
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682405899,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 15717
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682406428,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 16246
+  },
+  {
+    "label": "bettor",
+    "type": "request",
+    "at": 1785682408997,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 18815
+  },
+  {
+    "label": "bettor",
+    "type": "response",
+    "at": 1785682411260,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 21078
+  }
+]

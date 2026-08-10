@@ -1,0 +1,9 @@
+[
+  {
+    "type": "request",
+    "at": 1785682005656,
+    "method": "POST",
+    "table": "season_plate_appearances",
+    "ms": 65
+  }
+]

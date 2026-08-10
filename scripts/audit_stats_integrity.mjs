@@ -29,6 +29,7 @@ if (!fs.existsSync(envPath)) {
 const env = loadEnvFile(envPath)
 const SUPABASE_URL = env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY
+const SUPABASE_BEARER_TOKEN = process.env.SUPABASE_ACCESS_TOKEN || SUPABASE_ANON_KEY
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   throw new Error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env.')
@@ -151,7 +152,7 @@ async function fetchAllRows(table, { select = '*', order = null } = {}) {
     const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params.toString()}`, {
       headers: {
         apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Authorization: `Bearer ${SUPABASE_BEARER_TOKEN}`,
         Accept: 'application/json',
         'Range-Unit': 'items',
         Range: `${start}-${start + pageSize - 1}`,
@@ -366,6 +367,7 @@ function recomputePitchingByGame({ games, pas, stints, runs }) {
 
     for (const pa of gamePas) {
       const defense = deriveOffense(game, outsBeforePa)
+      const pitchingPlayerId = pa.pitcher_player_id || defense.pitchingPlayerId
       const paTime = new Date(pa.created_at || 0).getTime()
       // A pitcher who re-enters after being pulled gets a second stints row with the same
       // character_id/player_id — plain .find() always grabs the earliest one, dumping every PA
@@ -378,7 +380,7 @@ function recomputePitchingByGame({ games, pas, stints, runs }) {
       if (pa.pitcher_id != null) {
         const candidateStints = gameStints.filter((stint) => (
           String(stint.character_id) === String(pa.pitcher_id)
-          && String(stint.player_id) === String(defense.pitchingPlayerId)
+          && String(stint.player_id) === String(pitchingPlayerId)
         ))
         const eligibleCandidates = candidateStints.filter((stint) => (
           new Date(stint.created_at || 0).getTime() <= paTime
@@ -388,7 +390,7 @@ function recomputePitchingByGame({ games, pas, stints, runs }) {
 
       if (!activeStint) {
         const eligibleStints = gameStints.filter((stint) => (
-          String(stint.player_id) === String(defense.pitchingPlayerId)
+          String(stint.player_id) === String(pitchingPlayerId)
           && new Date(stint.created_at || 0).getTime() <= paTime
         ))
         activeStint = eligibleStints[eligibleStints.length - 1] || null
@@ -442,7 +444,7 @@ function recomputePitchingByGame({ games, pas, stints, runs }) {
   return recomputedByStintId
 }
 
-function auditPitching({ scope, games, pas, stints, runs }) {
+function auditPitching({ scope, games, pas, stints, runs, pitches }) {
   const issues = {
     innings_pitched: { count: 0, samples: [] },
     hits_allowed: { count: 0, samples: [] },
@@ -457,6 +459,12 @@ function auditPitching({ scope, games, pas, stints, runs }) {
 
   const expectedByStintId = recomputePitchingByGame({ games, pas, stints, runs })
   const stintsByGameId = groupBy(stints, 'game_id')
+  const gamesWithPitchLogs = new Set((pitches || []).map((pitch) => String(pitch.game_id)))
+  const unverifiableGameIds = [...new Set(
+    stints
+      .filter((stint) => !gamesWithPitchLogs.has(String(stint.game_id)))
+      .map((stint) => String(stint.game_id)),
+  )]
 
   const compareStat = (field, sample) => {
     issues[field].count += 1
@@ -464,6 +472,10 @@ function auditPitching({ scope, games, pas, stints, runs }) {
   }
 
   for (const stint of stints) {
+    // Aggregate-imported legacy games can have synthetic PA rows but no actual
+    // pitch chronology. Their workbook pitching lines are authoritative; a PA
+    // reconstruction would invent discrepancies and must not be repair input.
+    if (!gamesWithPitchLogs.has(String(stint.game_id))) continue
     const expected = expectedByStintId[String(stint.id)] || {
       innings_pitched: 0,
       hits_allowed: 0,
@@ -524,7 +536,18 @@ function auditPitching({ scope, games, pas, stints, runs }) {
     }
   }
 
-  return { scope, totalStints: stints.length, issues }
+  return {
+    scope,
+    totalStints: stints.length,
+    verifiedStints: stints.filter((stint) => gamesWithPitchLogs.has(String(stint.game_id))).length,
+    observations: {
+      unverifiableGamesWithoutPitchLogs: {
+        count: unverifiableGameIds.length,
+        samples: unverifiableGameIds.slice(0, 20),
+      },
+    },
+    issues,
+  }
 }
 
 function auditFielding({ scope, pas, fielders }) {
@@ -533,8 +556,19 @@ function auditFielding({ scope, pas, fielders }) {
     missingErrorCharacter: { count: 0, samples: [] },
     missingFielderForCredit: { count: 0, samples: [] },
     missingBuddyJumpFielder: { count: 0, samples: [] },
-    hitLocationOnlyNoOutContactRows: { count: 0, samples: [] },
   }
+  const observations = {
+    gamesWithoutFielderSnapshots: { count: 0, samples: [] },
+    safeContactRowsWithLocationOnly: { count: 0, samples: [] },
+  }
+  const gamesWithFielderSnapshots = new Set(fielders.map((fielder) => String(fielder.game_id)))
+  const gamesWithoutFielderSnapshots = [...new Set(
+    pas
+      .filter((pa) => !gamesWithFielderSnapshots.has(String(pa.game_id)))
+      .map((pa) => String(pa.game_id)),
+  )]
+  observations.gamesWithoutFielderSnapshots.count = gamesWithoutFielderSnapshots.length
+  observations.gamesWithoutFielderSnapshots.samples = gamesWithoutFielderSnapshots.slice(0, 20)
 
   const findFielder = (pa, positionNumber) => fielders.find((fielder) => (
     String(fielder.game_id) === String(pa.game_id)
@@ -590,6 +624,11 @@ function auditFielding({ scope, pas, fielders }) {
       }
     }
 
+    // No snapshot means there is no unambiguous character-to-position mapping
+    // for this historical game. Keep PA-shape checks above, but do not report
+    // invented catcher/assist/putout omissions as repairable integrity errors.
+    if (!gamesWithFielderSnapshots.has(String(pa.game_id))) continue
+
     if (pa.is_error) {
       const errorIndex = errorPosition ? positions.lastIndexOf(errorPosition) : -1
       const assistPositions = errorIndex >= 0 ? positions.slice(0, errorIndex) : positions
@@ -628,8 +667,8 @@ function auditFielding({ scope, pas, fielders }) {
       && calculateOutsForPa(pa.result, pa.outs_on_play) === 0
     )
     if (hitLocationOnlyNoOutContact) {
-      issues.hitLocationOnlyNoOutContactRows.count += 1
-      pushSample(issues.hitLocationOnlyNoOutContactRows.samples, {
+      observations.safeContactRowsWithLocationOnly.count += 1
+      pushSample(observations.safeContactRowsWithLocationOnly.samples, {
         pa_id: pa.id,
         game_id: pa.game_id,
         result: pa.result,
@@ -639,7 +678,7 @@ function auditFielding({ scope, pas, fielders }) {
     }
   }
 
-  return { scope, totalPas: pas.length, totalFielders: fielders.length, issues }
+  return { scope, totalPas: pas.length, totalFielders: fielders.length, observations, issues }
 }
 
 function sumIssueCounts(reportSection = {}) {
@@ -672,6 +711,8 @@ async function main() {
     seasonRunsScored,
     gameFielders,
     seasonGameFielders,
+    pitches,
+    seasonPitches,
   ] = await Promise.all([
     fetchAllRows('players', { select: 'id,name', order: 'id.asc' }),
     fetchAllRows('season_teams', { select: 'id,player_id,season_id', order: 'id.asc' }),
@@ -685,6 +726,8 @@ async function main() {
     fetchAllRows('season_runs_scored', { select: '*', order: 'id.asc' }),
     fetchAllRows('game_fielders', { select: '*', order: 'id.asc' }),
     fetchAllRows('season_game_fielders', { select: '*', order: 'id.asc' }),
+    fetchAllRows('pitches', { select: '*', order: 'created_at.asc' }),
+    fetchAllRows('season_pitches', { select: '*', order: 'created_at.asc' }),
   ])
 
   const normalizedSeasonGames = normalizeSeasonGames(seasonSchedule, seasonTeams)
@@ -703,15 +746,17 @@ async function main() {
       season_runs_scored: seasonRunsScored.length,
       game_fielders: gameFielders.length,
       season_game_fielders: seasonGameFielders.length,
+      pitches: pitches.length,
+      season_pitches: seasonPitches.length,
     },
     tournament: {
       pa: auditPlateAppearances({ scope: 'tournament', pas: plateAppearances, runs: runsScored }),
-      pitching: auditPitching({ scope: 'tournament', games, pas: plateAppearances, stints: pitchingStints, runs: runsScored }),
+      pitching: auditPitching({ scope: 'tournament', games, pas: plateAppearances, stints: pitchingStints, runs: runsScored, pitches }),
       fielding: auditFielding({ scope: 'tournament', pas: plateAppearances, fielders: gameFielders }),
     },
     season: {
       pa: auditPlateAppearances({ scope: 'season', pas: seasonPlateAppearances, runs: seasonRunsScored }),
-      pitching: auditPitching({ scope: 'season', games: normalizedSeasonGames, pas: seasonPlateAppearances, stints: seasonPitchingStints, runs: seasonRunsScored }),
+      pitching: auditPitching({ scope: 'season', games: normalizedSeasonGames, pas: seasonPlateAppearances, stints: seasonPitchingStints, runs: seasonRunsScored, pitches: seasonPitches }),
       fielding: auditFielding({ scope: 'season', pas: seasonPlateAppearances, fielders: seasonGameFielders }),
     },
   }

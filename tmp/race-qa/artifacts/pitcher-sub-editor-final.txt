@@ -1,0 +1,188 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Game View
+Scorebook
+Lineups
+At-Bat Data
+Admin
+Unsaved changes
+
+You have unsaved lineup/fielding changes. Save them before leaving, or discard them?
+
+Save & Leave
+Discard & Leave
+Cancel
+Changes apply starting in inning 1 and update the scorebook, spectator view, and odds immediately.
+Kings
+Batting order & fielding positions
+1
+Bowser Jr.
+7
+5
+4
+7
+P
+2
+Koopa
+6
+3
+4
+6
+CF
+3
+Green Dry Bones
+7
+3
+4
+6
+RF
+4
+Kritter
+7
+4
+7
+3
+3B
+5
+Daisy
+6
+7
+8
+5
+SS
+6
+Boomerang Bro
+7
+5
+5
+3
+LF
+7
+Purple Toad
+6
+5
+2
+7
+C
+8
+Green Noki
+5
+4
+4
+7
+2B
+9
+Gray Shy Guy
+4
+4
+8
+4
+1B
+FIELDING POSITIONS
+Tap player, then tap position to swap
+P
+C
+1B
+2B
+3B
+SS
+LF
+CF
+RF
+You have unsaved changes
+Save Team A Lineup
+Schlongs
+Batting order & fielding positions
+1
+Red Kritter
+8
+3
+7
+3
+3B
+2
+King Boo
+7
+7
+3
+4
+CF
+3
+Petey Piranha
+10
+4
+5
+2
+LF
+4
+Donkey Kong
+9
+6
+3
+2
+P
+5
+Mii
+6
+6
+6
+6
+1B
+6
+Blue Toad
+6
+4
+3
+7
+2B
+7
+Red Koopa
+6
+4
+3
+6
+C
+8
+Yellow Yoshi
+4
+3
+6
+7
+SS
+9
+Pink Yoshi
+3
+2
+6
+9
+RF
+FIELDING POSITIONS
+Tap player, then tap position to swap
+P
+C
+1B
+2B
+3B
+SS
+LF
+CF
+RF
+All changes saved
+Saved

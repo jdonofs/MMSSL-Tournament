@@ -1,0 +1,136 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+Sluggers Season 1
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+PICK
+1
+ROUND
+1
+REMAINING
+54
+ON THE CLOCK
+Bompkins
+Presentation Mode
+Back Slide
+Advance Slide
+Undo
+Auto Draft Captains
+Skip Pick Reveal
+Round 1 — Select your captain.
+Available Only
+All Players
+Drafted Players
+NAME
+OVR ↓
+Mario
+S Tier
+85
+91
+81
+81
+91
+Force
+Birdo
+S Tier
+83
+82
+87
+69
+86
+Force
+Daisy
+S Tier
+78
+85
+88
+69
+86
+Force
+Luigi
+S Tier
+75
+88
+81
+81
+86
+Force
+Bowser
+S Tier
+99
+72
+66
+52
+85
+Force
+Wario
+A Tier
+87
+77
+74
+63
+83
+Force
+Donkey Kong
+A Tier
+92
+83
+59
+47
+83
+Force
+Bowser Jr.
+A Tier
+86
+71
+77
+81
+83
+Force
+Yoshi
+A Tier
+65
+66
+99
+92
+82
+Force
+Peach
+A Tier
+68
+90
+67
+74
+81
+Force
+Waluigi
+B Tier
+51
+88
+62
+70
+73
+Force
+Diddy Kong
+C Tier
+60
+79
+63
+78
+72
+Force

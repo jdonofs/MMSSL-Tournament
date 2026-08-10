@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import useRealtimeEnabled from '../hooks/useRealtimeEnabled'
 import { buildSeasonStandings } from '../utils/competitionStandings'
 import { readLocalStorageItem, removeLocalStorageItem, writeLocalStorageItem } from '../utils/localStorage'
@@ -78,10 +79,10 @@ export function SeasonProvider({ children }) {
     }
 
     const [{ data: teamsData }, { data: scheduleData }, { data: bettingLedgerData }, { data: playersData }] = await Promise.all([
-      supabase.from('season_teams').select('*').eq('season_id', nextSelection).order('created_at'),
-      supabase.from('season_schedule').select('*').eq('season_id', nextSelection).order('round_number').order('id'),
-      supabase.from('season_betting_ledger').select('*').eq('season_id', nextSelection).order('created_at'),
-      supabase.from('players').select('id, name, color').order('name'),
+      fetchAllRows(() => supabase.from('season_teams').select('*').eq('season_id', nextSelection).order('created_at')),
+      fetchAllRows(() => supabase.from('season_schedule').select('*').eq('season_id', nextSelection).order('round_number')),
+      fetchAllRows(() => supabase.from('season_betting_ledger').select('*').eq('season_id', nextSelection).order('created_at')),
+      fetchAllRows(() => supabase.from('players').select('id, name, color').order('name')),
     ])
 
     setSeasonTeams(teamsData || [])
@@ -110,10 +111,10 @@ export function SeasonProvider({ children }) {
 
     const reload = async () => {
       const [{ data: teamsData }, { data: scheduleData }, { data: bettingLedgerData }, { data: playersData }] = await Promise.all([
-        supabase.from('season_teams').select('*').eq('season_id', selectedSeasonId).order('created_at'),
-        supabase.from('season_schedule').select('*').eq('season_id', selectedSeasonId).order('round_number').order('id'),
-        supabase.from('season_betting_ledger').select('*').eq('season_id', selectedSeasonId).order('created_at'),
-        supabase.from('players').select('id, name, color').order('name'),
+        fetchAllRows(() => supabase.from('season_teams').select('*').eq('season_id', selectedSeasonId).order('created_at')),
+        fetchAllRows(() => supabase.from('season_schedule').select('*').eq('season_id', selectedSeasonId).order('round_number')),
+        fetchAllRows(() => supabase.from('season_betting_ledger').select('*').eq('season_id', selectedSeasonId).order('created_at')),
+        fetchAllRows(() => supabase.from('players').select('id, name, color').order('name')),
       ])
       setSeasonTeams(teamsData || [])
       setSchedule(scheduleData || [])

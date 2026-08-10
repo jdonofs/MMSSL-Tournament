@@ -1,13 +1,6 @@
-function stripTransientOddsFields(row = {}) {
-  const {
-    prop_current_count,
-    ...rest
-  } = row
-  return rest
-}
-
 function stripPropColumnsFromRow(row = {}) {
   const {
+    prop_current_count,
     prop_lambda,
     prop_variance_multiplier,
     ...rest
@@ -21,7 +14,7 @@ export function stripPropPricingColumns(rows = []) {
 
 export function isMissingPropPricingColumnError(error) {
   const message = String(error?.message || '')
-  return message.includes("'prop_lambda'") || message.includes("'prop_variance_multiplier'")
+  return message.includes("'prop_current_count'") || message.includes("'prop_lambda'") || message.includes("'prop_variance_multiplier'")
 }
 
 // Thrown when onConflict references a unique constraint that doesn't exist
@@ -40,8 +33,8 @@ export async function persistOddsRowsWithFallback({
   updates = [],
   inserts = [],
 }) {
-  const sanitizedUpdates = (updates || []).map((row) => stripTransientOddsFields(row))
-  const sanitizedInserts = (inserts || []).map((row) => stripTransientOddsFields(row))
+  const sanitizedUpdates = [...(updates || [])]
+  const sanitizedInserts = [...(inserts || [])]
   let persistedRows = [...sanitizedUpdates]
 
   if (sanitizedUpdates.length) {

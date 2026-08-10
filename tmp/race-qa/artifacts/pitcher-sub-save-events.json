@@ -1,0 +1,324 @@
+[
+  {
+    "type": "request",
+    "at": 1785681914740,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 182
+  },
+  {
+    "type": "request",
+    "at": 1785681914795,
+    "method": "DELETE",
+    "table": "season_game_fielders",
+    "ms": 237
+  },
+  {
+    "type": "request",
+    "at": 1785681914979,
+    "method": "DELETE",
+    "table": "season_game_fielders",
+    "ms": 421
+  },
+  {
+    "type": "response",
+    "at": 1785681915278,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 720
+  },
+  {
+    "type": "response",
+    "at": 1785681915309,
+    "method": "DELETE",
+    "status": 200,
+    "table": "season_game_fielders",
+    "ms": 751
+  },
+  {
+    "type": "request",
+    "at": 1785681915310,
+    "method": "POST",
+    "table": "season_game_fielders",
+    "ms": 752
+  },
+  {
+    "type": "response",
+    "at": 1785681915491,
+    "method": "DELETE",
+    "status": 200,
+    "table": "season_game_fielders",
+    "ms": 933
+  },
+  {
+    "type": "request",
+    "at": 1785681915492,
+    "method": "POST",
+    "table": "season_game_fielders",
+    "ms": 934
+  },
+  {
+    "type": "request",
+    "at": 1785681915626,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 1068
+  },
+  {
+    "type": "response",
+    "at": 1785681915896,
+    "method": "POST",
+    "status": 201,
+    "table": "season_game_fielders",
+    "ms": 1338
+  },
+  {
+    "type": "request",
+    "at": 1785681915898,
+    "method": "POST",
+    "table": "season_team_lineups",
+    "ms": 1340
+  },
+  {
+    "type": "response",
+    "at": 1785681915989,
+    "method": "POST",
+    "status": 201,
+    "table": "season_game_fielders",
+    "ms": 1431
+  },
+  {
+    "type": "request",
+    "at": 1785681915990,
+    "method": "POST",
+    "table": "season_team_lineups",
+    "ms": 1432
+  },
+  {
+    "type": "request",
+    "at": 1785681916067,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 1509
+  },
+  {
+    "type": "response",
+    "at": 1785681916160,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 1602
+  },
+  {
+    "type": "response",
+    "at": 1785681916508,
+    "method": "POST",
+    "status": 200,
+    "table": "season_team_lineups",
+    "ms": 1950
+  },
+  {
+    "type": "request",
+    "at": 1785681916509,
+    "method": "POST",
+    "table": "season_pitching_stints",
+    "ms": 1951
+  },
+  {
+    "type": "response",
+    "at": 1785681916688,
+    "method": "POST",
+    "status": 200,
+    "table": "season_team_lineups",
+    "ms": 2130
+  },
+  {
+    "type": "response",
+    "at": 1785681916831,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 2273
+  },
+  {
+    "type": "response",
+    "at": 1785681917051,
+    "method": "POST",
+    "status": 201,
+    "table": "season_pitching_stints",
+    "ms": 2493
+  },
+  {
+    "type": "request",
+    "at": 1785681917254,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 2696
+  },
+  {
+    "type": "response",
+    "at": 1785681918276,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 3718
+  },
+  {
+    "type": "request",
+    "at": 1785681918626,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 4068
+  },
+  {
+    "type": "response",
+    "at": 1785681919187,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 4629
+  },
+  {
+    "type": "request",
+    "at": 1785681921815,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 7257
+  },
+  {
+    "type": "request",
+    "at": 1785681922312,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 7754
+  },
+  {
+    "type": "response",
+    "at": 1785681923456,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 8898
+  },
+  {
+    "type": "response",
+    "at": 1785681923744,
+    "method": "POST",
+    "status": 200,
+    "table": "season_game_odds",
+    "ms": 9186
+  },
+  {
+    "type": "request",
+    "at": 1785681923745,
+    "method": "POST",
+    "table": "season_game_odds",
+    "ms": 9187
+  },
+  {
+    "type": "response",
+    "at": 1785681925006,
+    "method": "POST",
+    "status": 201,
+    "table": "season_game_odds",
+    "ms": 10448
+  },
+  {
+    "type": "request",
+    "at": 1785681925695,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 11137
+  },
+  {
+    "type": "request",
+    "at": 1785681925740,
+    "method": "DELETE",
+    "table": "season_game_odds",
+    "ms": 11182
+  },
+  {
+    "type": "response",
+    "at": 1785681926306,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 11748
+  },
+  {
+    "type": "response",
+    "at": 1785681926353,
+    "method": "DELETE",
+    "status": 204,
+    "table": "season_game_odds",
+    "ms": 11795
+  },
+  {
+    "type": "request",
+    "at": 1785681927821,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 13263
+  },
+  {
+    "type": "response",
+    "at": 1785681928529,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 13971
+  },
+  {
+    "type": "request",
+    "at": 1785681931397,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 16839
+  },
+  {
+    "type": "response",
+    "at": 1785681932391,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 17833
+  },
+  {
+    "type": "request",
+    "at": 1785681933355,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 18797
+  },
+  {
+    "type": "response",
+    "at": 1785681933952,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 19394
+  },
+  {
+    "type": "request",
+    "at": 1785681935734,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 21176
+  },
+  {
+    "type": "response",
+    "at": 1785681936321,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_schedule",
+    "ms": 21763
+  },
+  {
+    "type": "request",
+    "at": 1785681938464,
+    "method": "PATCH",
+    "table": "season_schedule",
+    "ms": 23906
+  }
+]

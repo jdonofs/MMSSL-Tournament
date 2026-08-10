@@ -119,12 +119,21 @@ export default function usePitchCount({ pitcherKey, initialPitchNumber = 0 }) {
     setPitchNumber(nextPitchNumber)
   }, [initialPitchNumber])
 
+  // Ref-backed, so it reflects pitches thrown after this was captured — unlike
+  // reading `balls`/`strikes` from a closure across an `await`.
+  const getCounts = useCallback(() => ({
+    balls: ballsRef.current,
+    strikes: strikesRef.current,
+    pitchNumber: pitchNumberRef.current,
+  }), [])
+
   return {
     balls,
     strikes,
     pitchNumber,
     resetPa,
     restoreState,
+    getCounts,
     setCount: ({ balls: nextBalls = 0, strikes: nextStrikes = 0 }) => {
       ballsRef.current = nextBalls
       strikesRef.current = nextStrikes

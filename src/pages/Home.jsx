@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
@@ -42,8 +43,8 @@ export default function Home() {
       setLoading(true)
       const [{ data: playersData, error: playersError }, { data: gamesData, error: gamesError }] =
         await Promise.all([
-          supabase.from('players').select('*').order('name'),
-          supabase.from('games').select('*').order('id')
+          fetchAllRows(() => supabase.from('players').select('*').order('name')),
+          fetchAllRows(() => supabase.from('games').select('*'))
         ])
 
       const firstError = playersError || gamesError
@@ -120,13 +121,13 @@ export default function Home() {
         { data: fieldersData, error: fieldersError },
         { data: pitchesData },
       ] = await Promise.all([
-        supabase.from('draft_picks').select('*').eq('tournament_id', currentTournament.id).order('pick_number'),
-        supabase.from('characters').select('*').order('name'),
-        supabase.from('games').select('id,tournament_id').order('id'),
-        supabase.from('plate_appearances').select('*').order('created_at'),
-        supabase.from('pitching_stints').select('*').order('created_at'),
-        supabase.from('game_fielders').select('*').order('created_at'),
-        supabase.from('pitches').select('game_id,pitcher_id'),
+        fetchAllRows(() => supabase.from('draft_picks').select('*').eq('tournament_id', currentTournament.id).order('pick_number')),
+        fetchAllRows(() => supabase.from('characters').select('*').order('name')),
+        fetchAllRows(() => supabase.from('games').select('id,tournament_id')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('pitching_stints').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('game_fielders').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id')),
       ])
 
       const error = draftPicksError || charactersError || gamesError || paError || pitchingError || fieldersError
@@ -256,7 +257,7 @@ export default function Home() {
     try {
       const tournament = await importTournamentOneWorkbook()
       await refreshTournaments(tournament.id)
-      const { data: refreshedGames } = await supabase.from('games').select('*').order('id')
+      const { data: refreshedGames } = await fetchAllRows(() => supabase.from('games').select('*'))
       setAllGames(refreshedGames || [])
       pushToast({
         title: 'Tournament 1 imported',

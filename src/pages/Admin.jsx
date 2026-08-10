@@ -17,6 +17,7 @@ import {
   normalizeRegulationInnings,
 } from '../utils/gameRules'
 import { calculateOutsForPa, inningsPitchedFromOuts } from '../utils/statsCalculator'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { savePlayerTeamIdentity } from '../utils/playerTeamIdentity'
 
 function playerEmailFromName(name) {
@@ -638,28 +639,32 @@ export default function Admin() {
   const handleBackup = async () => {
     setBackingUp(true)
     try {
+      // Every table goes through fetchAllRows — a plain select() silently caps at
+      // 1000 rows, which once shipped truncated backups with no error.
       const results = await Promise.all([
-        supabase.from('seasons').select('*').order('created_at'),
-        supabase.from('players').select('*').order('name'),
-        supabase.from('characters').select('*').order('name'),
-        supabase.from('draft_picks').select('*').order('created_at'),
-        supabase.from('season_teams').select('*').order('created_at'),
-        supabase.from('season_schedule').select('*').order('created_at'),
-        supabase.from('season_roster').select('*').order('created_at'),
-        supabase.from('season_lineups').select('*').order('created_at'),
-        supabase.from('season_plate_appearances').select('*').order('created_at'),
-        supabase.from('season_pitching_stints').select('*').order('created_at'),
-        supabase.from('season_pitches').select('*').order('created_at'),
-        supabase.from('season_game_fielders').select('*').order('created_at'),
-        supabase.from('season_runs_scored').select('*').order('created_at'),
-        supabase.from('season_inning_scores').select('*').order('created_at'),
-        supabase.from('games').select('*').order('created_at'),
-        supabase.from('plate_appearances').select('*').order('created_at'),
-        supabase.from('pitching_stints').select('*').order('created_at'),
-        supabase.from('pitches').select('*').order('created_at'),
-        supabase.from('runs_scored').select('*').order('created_at'),
-        supabase.from('inning_scores').select('*').order('created_at'),
-        supabase.from('game_fielders').select('*').order('created_at'),
+        fetchAllRows(() => supabase.from('seasons').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('players').select('*').order('name')),
+        fetchAllRows(() => supabase.from('characters').select('*').order('name')),
+        // draft_picks and the two inning_scores tables have no created_at column —
+        // ordering by it made these three exports fail (400) in every past backup.
+        fetchAllRows(() => supabase.from('draft_picks').select('*')),
+        fetchAllRows(() => supabase.from('season_teams').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('season_schedule').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('season_roster').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('season_lineups').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('season_plate_appearances').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('season_pitching_stints').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('season_pitches').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('season_game_fielders').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('season_runs_scored').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('season_inning_scores').select('*')),
+        fetchAllRows(() => supabase.from('games').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('pitching_stints').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('pitches').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('runs_scored').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('inning_scores').select('*')),
+        fetchAllRows(() => supabase.from('game_fielders').select('*').order('created_at')),
       ])
 
       const [
@@ -752,17 +757,17 @@ export default function Admin() {
         { data: seasonRunsData },
         { data: seasonPitchesData },
       ] = await Promise.all([
-        supabase.from('games').select('id,team_a_player_id,team_b_player_id,home_away_swapped').order('created_at'),
-        supabase.from('plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,pitcher_id,pitcher_player_id,created_at').order('created_at'),
-        supabase.from('pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at'),
-        supabase.from('runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at'),
-        supabase.from('pitches').select('id,pa_id,result').order('created_at'),
-        supabase.from('season_teams').select('id,player_id').order('created_at'),
-        supabase.from('season_schedule').select('id,away_team_id,home_team_id,home_away_swapped').order('created_at'),
-        supabase.from('season_plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,pitcher_id,pitcher_player_id,created_at').order('created_at'),
-        supabase.from('season_pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at'),
-        supabase.from('season_runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at'),
-        supabase.from('season_pitches').select('id,pa_id,result').order('created_at'),
+        fetchAllRows(() => supabase.from('games').select('id,team_a_player_id,team_b_player_id,home_away_swapped').order('created_at')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,pitcher_id,pitcher_player_id,created_at').order('created_at')),
+        fetchAllRows(() => supabase.from('pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at')),
+        fetchAllRows(() => supabase.from('runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at')),
+        fetchAllRows(() => supabase.from('pitches').select('id,pa_id,result').order('created_at')),
+        fetchAllRows(() => supabase.from('season_teams').select('id,player_id').order('created_at')),
+        fetchAllRows(() => supabase.from('season_schedule').select('id,away_team_id,home_team_id,home_away_swapped').order('created_at')),
+        fetchAllRows(() => supabase.from('season_plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,pitcher_id,pitcher_player_id,created_at').order('created_at')),
+        fetchAllRows(() => supabase.from('season_pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at')),
+        fetchAllRows(() => supabase.from('season_runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at')),
+        fetchAllRows(() => supabase.from('season_pitches').select('id,pa_id,result').order('created_at')),
       ])
 
       const playerIdByTeamId = Object.fromEntries((seasonTeamsData || []).map((t) => [String(t.id), t.player_id]))

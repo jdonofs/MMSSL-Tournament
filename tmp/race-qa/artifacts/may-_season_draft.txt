@@ -1,0 +1,212 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+May
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+PICK
+54
+ROUND
+9
+REMAINING
+0
+ON THE CLOCK
+Draft complete
+Available Only
+All Players
+Drafted Players
+NAME
+OVR ↓
+Blue Yoshi
++0
+-1
+B Tier
+59
+72
+89
+86
+77
+Draft
+Boo
++1
+-2
+B Tier
+59
+94
+42
+71
+75
+Draft
+Blue Noki
++1
+-0
+C Tier
+61
+74
+72
+81
+72
+Draft
+Diddy Kong
++1
+-2
+C Tier
+60
+79
+63
+78
+72
+Draft
+Baby Daisy
++2
+-0
+C Tier
+60
+72
+77
+75
+71
+Draft
+Red Noki
++1
+-0
+C Tier
+61
+67
+72
+81
+70
+Draft
+Baby Peach
++3
+-1
+D Tier
+52
+77
+62
+80
+69
+Draft
+Baby Mario
++2
+-1
+D Tier
+54
+70
+59
+86
+68
+Draft
+Green Toad
++1
+-0
+D Tier
+61
+66
+67
+80
+68
+Draft
+Red Magikoopa
++0
+-2
+D Tier
+55
+83
+57
+48
+68
+Draft
+Magikoopa
++0
+-2
+D Tier
+51
+83
+61
+52
+67
+Draft
+Baby Luigi
++2
+-1
+D Tier
+47
+70
+59
+86
+66
+Draft
+Dixie Kong
++1
+-2
+D Tier
+57
+55
+67
+82
+64
+Draft
+Paragoomba
++0
+-1
+D Tier
+56
+66
+59
+69
+62
+Draft
+Yellow Magikoopa
++0
+-2
+D Tier
+56
+71
+61
+52
+62
+Draft
+Green Magikoopa
++0
+-2
+D Tier
+51
+71
+64
+55
+61
+Draft
+Goomba
++0
+-2
+F Tier
+56
+52
+63
+63
+57
+Draft
+Toadsworth
++2
+-0
+F Tier
+56
+10
+61
+65
+42
+Draft

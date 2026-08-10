@@ -1,0 +1,36 @@
+[
+  {
+    "label": "jason",
+    "type": "request",
+    "at": 1785682974794,
+    "method": "POST",
+    "table": "season_roster",
+    "ms": 168
+  },
+  {
+    "label": "jason",
+    "type": "response",
+    "at": 1785682974964,
+    "method": "POST",
+    "status": 201,
+    "table": "season_roster",
+    "ms": 338
+  },
+  {
+    "label": "jason",
+    "type": "request",
+    "at": 1785682974965,
+    "method": "PATCH",
+    "table": "season_teams",
+    "ms": 339
+  },
+  {
+    "label": "jason",
+    "type": "response",
+    "at": 1785682975093,
+    "method": "PATCH",
+    "status": 204,
+    "table": "season_teams",
+    "ms": 467
+  }
+]

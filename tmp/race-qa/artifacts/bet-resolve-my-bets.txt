@@ -1,0 +1,37 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+May
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Balance
+$100.00
+Sips to take
+0
+Board
+My Bets
+Leaderboard
+Buy Sips
+Sips History
+My Bets
+0 bets
+All
+Open
+Settled
+Won
+Lost
+No bets here
+Place a bet from the board to see it here.

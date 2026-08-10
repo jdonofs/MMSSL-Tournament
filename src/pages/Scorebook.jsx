@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+﻿import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeftRight, Moon, Pencil, RotateCcw, RotateCw, Sun, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
 import { useGameSession } from '../context/GameSessionContext'
 import { useToast } from '../context/ToastContext'
@@ -25,13 +26,57 @@ import { buildBettingEntityLabel, estimateLiveWinProbability, generateGameOdds, 
 import { buildOddsGenerationContext as buildSharedOddsGenerationContext } from '../utils/oddsContext'
 import { persistOddsRowsWithFallback } from '../utils/oddsPersistence'
 import { formatPlateAppearanceResult } from '../utils/plateAppearance'
-import { resolveFirstInningNoRun, reopenGameBets, resolveGameBets, resolveOnPA } from '../utils/betResolution'
+import { getBettingWinningSide, resolveFirstInningNoRun, reopenGameBets, resolveGameBets, resolveOnPA } from '../utils/betResolution'
 import { derivePitchingDecisions, groupRunsByPaId } from '../utils/pitchingDecisions'
 import { advanceBracketOnGameComplete, reopenBracketAfterGameEdit } from '../utils/bracketProgression'
 import { buildScorebookPath } from '../utils/scorebookRouting'
+const AtBatEditor = lazy(() => import('./AtBatEditor'))
 import { getTeamAbbreviation, getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
 import { DEFAULT_REGULATION_INNINGS, deriveOffense, getFinalStatusLabel, normalizeRegulationInnings } from '../utils/gameRules'
 import { getHandedness } from '../utils/characterHandedness'
+import { getForcedRunnerIds, shouldNullifyRunsOnInningEndingForce } from '../utils/forcePlay'
+import { assignAuthoritativePitchNumbers } from '../utils/pitchSequence'
+import {
+  HIT_RESULTS,
+  NEEDS_RESOLUTION,
+  IN_PLAY_OUT_OPTIONS,
+  BASE_COVERING_POSITION,
+  BASE_STEP_ORDER,
+  buildPendingAssignment,
+  computePendingState,
+  getRbiFromAssignments,
+  getPreviewRbiFromAssignments,
+  didBatterScore,
+  isTrivialPendingResolution,
+  extractNextRunners,
+  getHomeAssignments,
+  getOutAssignments,
+  pendingLeavesRunnersOnBase,
+  hasAnyActiveRunners,
+  normalizeLiveRunner,
+  normalizeLiveRunners,
+  getNextBase,
+  getLeadForcedRunnerId,
+  mapPositionToForcedBase,
+  inferLikelyForcedOutId,
+  shouldResolveOutAssignments,
+  computePendingOutState,
+  runnerFloorBase,
+  stepBaseValue,
+  computeForcedChainIds,
+  computeFallbackSafePosition,
+  isHomeRunResult,
+  computeBaselineRunnerAssignments,
+  buildRunnerEntriesFromAssignments,
+  applyManualRunnerStep,
+  applyManualRunnerOut,
+  applyManualRunnerReenter,
+  applyManualRunnerDestination,
+  derivePendingResult,
+  computeImmediateNextRunners,
+  getRunsScoredOnPa,
+  requiresInPlayFielderChain,
+} from '../utils/runnerAssignment'
 import {
   buildStadiumKeyByGameId,
   getOrderedStadiums,
@@ -45,7 +90,6 @@ import { useConfirmedAction, useUnsavedChangesGuard } from '../hooks/useUnsavedC
 import { useRegisterUnsavedChanges } from '../context/UnsavedChangesContext'
 import SaveLineupBar from '../components/SaveLineupBar'
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt'
-import AtBatDataEntryPanel from '../components/AtBatDataEntryPanel'
 
 function normalizeBatterHandedness(handedness) {
   return handedness === 'L' ? 'L' : 'R'
@@ -135,12 +179,31 @@ function StadiumHeaderPill({ stadium, isNight, onEdit }) {
   )
 }
 
-const HIT_RESULTS  = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
+// The tracker only knows the game's built-in vanilla team skins (whichever
+// of the 12 default captains was selected in Dolphin), which have no
+// relation to this league's custom drafted team names on their own — but
+// this league's convention is that a team's cosmetic identity follows
+// whichever captain character they drafted (see CAPTAIN_TEAM_MAP in
+// teamIdentity.js), so the captain on a team's roster reliably tells us
+// which vanilla team name in the tracker's output is theirs.
+const CAPTAIN_TO_TRACKER_TEAM_NAME = {
+  Mario: 'Mario Fireballs',
+  Luigi: 'Luigi Knights',
+  'Donkey Kong': 'DK Wilds',
+  'Diddy Kong': 'Diddy Monkeys',
+  Peach: 'Peach Monarchs',
+  Daisy: 'Daisy Flowers',
+  Wario: 'Wario Muscles',
+  Waluigi: 'Waluigi Spitballs',
+  Yoshi: 'Yoshi Eggs',
+  Bowser: 'Bowser Monsters',
+  Birdo: 'Birdo Bows',
+  'Bowser Jr.': 'Jr. Rookies',
+  'Bowser Jr': 'Jr. Rookies',
+}
+
 const WALK_RESULTS = new Set(['BB', 'HBP'])
 const CONTACT_RESULTS = new Set(['foul', 'in_play'])
-// Results that need runner-resolution panel (only when runners are on base)
-const NEEDS_RESOLUTION = new Set(['1B', '2B', '3B'])
-const IN_PLAY_OUT_OPTIONS = ['GO', 'FO', 'LO', 'SF', 'SH']
 const IN_PLAY_HIT_OPTIONS = [
   { value: '1B', label: '1B' },
   { value: '2B', label: '2B' },
@@ -495,160 +558,12 @@ function inningRunsFromRows(rows, playerId) {
   return map
 }
 
-// ─── Runner logic ─────────────────────────────────────────────────────────────
-// Each runner: { characterId, playerId }
-// pendingPA assignments: [{ id, runner, origin, destination, isBatter }]
-
-function buildPendingAssignment(id, runner, origin, destination, isBatter = false) {
-  return { id, runner, origin, destination, isBatter }
-}
-
-function computePendingState(result, runners, batter) {
-  const { first, second, third } = runners
-  const assignments = []
-  const push = (id, runner, origin, destination, isBatter = false) => {
-    if (!runner) return
-    assignments.push(buildPendingAssignment(id, runner, origin, destination, isBatter))
-  }
-
-  const pushForcedFirstBaseAdvances = () => {
-    if (first && second && third) {
-      push('first', first, 'first', 'second')
-      push('second', second, 'second', 'third')
-      push('third', third, 'third', 'home')
-    } else if (first && second) {
-      push('first', first, 'first', 'second')
-      push('second', second, 'second', 'third')
-    } else if (first) {
-      push('first', first, 'first', 'second')
-      push('third', third, 'third', 'third')
-    } else {
-      push('second', second, 'second', 'second')
-      push('third', third, 'third', 'third')
-    }
-  }
-
-  const pushOneBaseErrorAdvance = () => {
-    push('first', first, 'first', 'second')
-    push('second', second, 'second', 'third')
-    push('third', third, 'third', 'home')
-  }
-
-  switch (result) {
-    case '1B':
-      push('batter', batter, 'plate', 'first', true)
-      push('first', first, 'first', 'second')
-      push('second', second, 'second', 'third')
-      push('third', third, 'third', 'home')
-      return { result, assignments }
-    case '2B':
-      push('batter', batter, 'plate', 'second', true)
-      push('first', first, 'first', 'third')
-      push('second', second, 'second', 'home')
-      push('third', third, 'third', 'home')
-      return { result, assignments }
-    case '3B':
-      push('batter', batter, 'plate', 'third', true)
-      push('first', first, 'first', 'home')
-      push('second', second, 'second', 'home')
-      push('third', third, 'third', 'home')
-      return { result, assignments }
-    case 'BB':
-    case 'HBP':
-      push('batter', batter, 'plate', 'first', true)
-      pushForcedFirstBaseAdvances()
-      return { result, assignments }
-    case 'ROE':
-      push('batter', batter, 'plate', 'first', true)
-      pushOneBaseErrorAdvance()
-      return { result, assignments }
-    default:
-      return { result, assignments: [] }
-  }
-}
-
-function getRbiFromAssignments(assignments) {
-  return assignments.filter((assignment) => assignment.destination === 'home' && !assignment.isBatter).length
-}
-
-function getPreviewRbiFromAssignments(result, assignments) {
-  if (result === 'ROE' || result === 'FC') return 0
-  const runnerRbi = getRbiFromAssignments(assignments)
-  const batterScoresOnHit = HIT_RESULTS.has(result) && assignments.some((assignment) => assignment.isBatter && assignment.destination === 'home')
-  return runnerRbi + (batterScoresOnHit ? 1 : 0)
-}
-
-function didBatterScore(assignments) {
-  return assignments.some((assignment) => assignment.isBatter && assignment.destination === 'home')
-}
-
-// True when the only thing the runner-assignment panel would show is the
-// batter going to the one base their hit type guarantees (bases empty, no
-// runner to adjust) — nothing for the scorer to actually decide.
-function isTrivialPendingResolution({ assignments }) {
-  return assignments.length === 1 && assignments[0].isBatter
-}
-
-function extractNextRunners({ assignments }) {
-  return assignments.reduce((next, assignment) => {
-    if (assignment.destination === 'first') next.first = assignment.runner
-    if (assignment.destination === 'second') next.second = assignment.runner
-    if (assignment.destination === 'third') next.third = assignment.runner
-    return next
-  }, { first: null, second: null, third: null })
-}
-
-function getHomeAssignments({ assignments }) {
-  return assignments.filter((assignment) => assignment.destination === 'home')
-}
-
-function getOutAssignments({ assignments }) {
-  return assignments.filter((assignment) => assignment.destination === 'out')
-}
-
-// The runner-placement screen only records *that* a runner was thrown out
-// advancing during a hit (e.g. caught at the plate trying to score on a
-// double) — not which fielder covered the base. That's safely implied: the
-// base they were headed to when marked out has one conventional covering
-// fielder, who becomes the real putout, with whoever touched the ball
-// (fielderChain) credited an assist instead — same as a real "7-2" (or,
-// with a cutoff man also tapped, "7-8-2") notation. Second base is the one
-// genuinely ambiguous case (2B or SS can both cover); SS is the more common
-// default.
-const BASE_COVERING_POSITION = { first: 3, second: 6, third: 5, home: 2 }
-
-function pendingLeavesRunnersOnBase(pending) {
-  return hasAnyActiveRunners(extractNextRunners(pending))
-}
-
-function hasAnyActiveRunners(runners = {}) {
-  return Boolean(runners.first || runners.second || runners.third)
-}
-
-function normalizeLiveRunner(runner = null) {
-  if (!runner || runner.characterId == null || runner.playerId == null) return null
-  // Preserve reachedOnError/chargedToPitcher* alongside the id fields — these
-  // decide earned-run status and pitcher-of-record when this runner eventually
-  // scores. Dropping them here (as this used to) meant a runner who reached on
-  // an error looked "clean" again the moment live_state was read back on a
-  // fresh session, silently turning a should-be-unearned run earned.
-  return {
-    characterId: Number(runner.characterId),
-    playerId: runner.playerId,
-    ...(runner.reachedOnError ? { reachedOnError: true } : {}),
-    ...(runner.chargedToPitcherId != null ? { chargedToPitcherId: runner.chargedToPitcherId } : {}),
-    ...(runner.chargedToPitcherPlayerId != null ? { chargedToPitcherPlayerId: runner.chargedToPitcherPlayerId } : {}),
-  }
-}
-
-function normalizeLiveRunners(runners = {}) {
-  return {
-    first: normalizeLiveRunner(runners.first),
-    second: normalizeLiveRunner(runners.second),
-    third: normalizeLiveRunner(runners.third),
-  }
-}
-
+// ─── Live-state persistence ───────────────────────────────────────────────────
+// live_state (games.live_state / season_schedule.live_state) is the jsonb
+// snapshot of in-progress game state (inning/outs/count/current batter-pitcher/
+// runners) that survives a reload or a second scorekeeper opening the same
+// game — see normalizeLiveRunner(s) in runnerAssignment.js for the runner
+// shape this wraps.
 function hasMeaningfulLiveStatePayload(liveState = null) {
   if (!liveState || typeof liveState !== 'object' || Array.isArray(liveState)) return false
   const hasTrackedValue = [
@@ -673,6 +588,10 @@ function hasMeaningfulLiveStatePayload(liveState = null) {
     'on_deck_character_id',
     'onDeckPlayerId',
     'on_deck_player_id',
+    'pitcherCharacterId',
+    'pitcher_character_id',
+    'pitcherPlayerId',
+    'pitcher_player_id',
     'updatedAt',
     'updated_at',
   ].some((key) => liveState[key] != null)
@@ -695,7 +614,26 @@ function normalizeLiveState(liveState = null) {
     batterPlayerId: liveState.batterPlayerId ?? liveState.batter_player_id ?? null,
     onDeckCharacterId: liveState.onDeckCharacterId ?? liveState.on_deck_character_id ?? null,
     onDeckPlayerId: liveState.onDeckPlayerId ?? liveState.on_deck_player_id ?? null,
+    // Only ever populated by the tracker bridge — manual scoring tracks the
+    // current pitcher via a real pitching_stints row instead.
+    pitcherCharacterId: liveState.pitcherCharacterId ?? liveState.pitcher_character_id ?? null,
+    pitcherPlayerId: liveState.pitcherPlayerId ?? liveState.pitcher_player_id ?? null,
     runners: normalizeLiveRunners(liveState.runners),
+    // The baserunner undo stack (runnersHistory) only ever lived in this component's
+    // in-memory state — a fresh page load/session started it at [], so the very first
+    // Undo after any reload had nothing to pop back to and silently left a just-undone
+    // PA's runner still parked on base even though the PA itself was deleted. Persisting
+    // it here (mirroring `runners` above) lets a fresh session restore the real stack.
+    runnersHistory: Array.isArray(liveState.runnersHistory) ? liveState.runnersHistory.map(normalizeLiveRunners) : [],
+    // Active pitches are not database rows until the PA completes. Keeping the
+    // serializable in-progress sequence in live_state lets a fresh browser (or
+    // a second scorekeeper) resume the count without silently losing the pitch
+    // events that produced it.
+    paPitchRows: Array.isArray(liveState.paPitchRows) ? liveState.paPitchRows : [],
+    starHitUsed: Boolean(liveState.starHitUsed),
+    starHitPending: Boolean(liveState.starHitPending),
+    starHitConnected: Boolean(liveState.starHitConnected),
+    starPitchActive: Boolean(liveState.starPitchActive),
     updatedAt: liveState.updatedAt ?? liveState.updated_at ?? null,
   }
 }
@@ -712,389 +650,6 @@ function serializeLiveStateForComparison(liveState = null) {
     ...normalized,
     updatedAt: null,
   })
-}
-
-function getNextBase(baseKey) {
-  if (baseKey === 'first') return 'second'
-  if (baseKey === 'second') return 'third'
-  if (baseKey === 'third') return 'home'
-  return baseKey
-}
-
-function getLeadForcedRunnerId(runners = {}) {
-  if (runners.first && runners.second && runners.third) return 'third'
-  if (runners.first && runners.second) return 'second'
-  if (runners.first) return 'first'
-  return null
-}
-
-function mapPositionToForcedBase(position) {
-  const normalized = String(position || '')
-  if (normalized === '2') return 'home'
-  if (normalized === '5') return 'third'
-  if (normalized === '4' || normalized === '6') return 'second'
-  if (normalized === '1' || normalized === '3') return 'first'
-  return null
-}
-
-function inferLikelyForcedOutId(putoutPosition, runners = {}) {
-  const position = String(putoutPosition || '')
-  if ((position === '4' || position === '6') && runners.first) return 'first'
-  if (position === '5' && runners.first && runners.second) return 'second'
-  if (position === '2' && runners.first && runners.second && runners.third) return 'third'
-  if (position === '1' || position === '3') return 'batter'
-  return null
-}
-
-function shouldResolveOutAssignments(result, runners = {}) {
-  return hasAnyActiveRunners(runners) && ['GO', 'FO', 'LO', 'SF', 'SH', 'DP'].includes(result)
-}
-
-function computePendingOutState(result, runners, batter, {
-  primaryPosition = null,
-  fielderChain = [],
-} = {}) {
-  const { first, second, third } = runners
-  const assignments = []
-  const push = (id, runner, origin, destination, isBatter = false) => {
-    if (!runner) return
-    assignments.push(buildPendingAssignment(id, runner, origin, destination, isBatter))
-  }
-
-  const putoutPosition = Array.isArray(fielderChain) && fielderChain.length
-    ? fielderChain[fielderChain.length - 1]
-    : primaryPosition
-  const inferredOutId = inferLikelyForcedOutId(putoutPosition, runners)
-  const fallbackForcedOutId = getLeadForcedRunnerId(runners)
-  const resolvedRunnerOutId = inferredOutId && (result !== 'FC' || inferredOutId !== 'batter')
-    ? inferredOutId
-    : fallbackForcedOutId
-  const touchedBases = (Array.isArray(fielderChain) ? fielderChain.slice(1) : [])
-    .map(mapPositionToForcedBase)
-    .filter(Boolean)
-  const outIds = []
-  let batterStillForced = true
-  let firstStillOccupied = Boolean(first)
-  let secondStillOccupied = Boolean(second)
-  let thirdStillOccupied = Boolean(third)
-  for (const touchedBase of touchedBases) {
-    // A throw to third or home retires whoever's standing on the base behind
-    // it — that's true whether they were forced (bases loaded) or just
-    // advancing on their own read (e.g. a runner on 2nd only, thrown out at
-    // third on a 6-5). Only the batter's own advancement is force-gated,
-    // since the batter is always obligated to run.
-    if (touchedBase === 'home' && thirdStillOccupied) {
-      outIds.push('third')
-      thirdStillOccupied = false
-      continue
-    }
-    if (touchedBase === 'third' && secondStillOccupied) {
-      outIds.push('second')
-      secondStillOccupied = false
-      continue
-    }
-    if (touchedBase === 'second' && firstStillOccupied && batterStillForced) {
-      outIds.push('first')
-      firstStillOccupied = false
-      continue
-    }
-    if (touchedBase === 'first' && batterStillForced) {
-      outIds.push('batter')
-      batterStillForced = false
-    }
-  }
-  if (!outIds.length && resolvedRunnerOutId) outIds.push(resolvedRunnerOutId)
-  const outIdSet = new Set(outIds)
-  const isGrounderChoice = result === 'FC' || result === 'DP' || (result === 'GO' && (outIdSet.size > 0 || (resolvedRunnerOutId && inferredOutId !== 'batter')))
-  const batterOut = result === 'SF' || result === 'SH' || (!isGrounderChoice && result !== 'FC')
-  const forcedAtStart = {
-    first: Boolean(first),
-    second: Boolean(first && second),
-    third: Boolean(first && second && third),
-  }
-
-  const batterSafe = !outIdSet.has('batter') && !batterOut
-  if (!batterSafe) {
-    push('batter', batter, 'plate', 'out', true)
-  } else {
-    push('batter', batter, 'plate', 'first', true)
-  }
-
-  // A runner on first is forced to vacate the base the instant the ball is
-  // hit on the ground, regardless of whether the batter-runner ends up safe
-  // or out at first — so advancement here must not be gated on batterSafe
-  // (that previously left a forced runner stranded at first on an ordinary
-  // 6-3/5-3 groundout instead of advancing them to second).
-  const firstAdvances = Boolean(first && !outIdSet.has('first'))
-  const secondAdvances = Boolean(second && !outIdSet.has('second') && firstAdvances)
-  const thirdAdvances = Boolean(third && !outIdSet.has('third') && secondAdvances)
-
-  const defaultRunnerDestination = (baseKey) => {
-    if (result === 'SF') {
-      return baseKey === 'third' ? 'home' : baseKey
-    }
-    if (result === 'SH') {
-      return getNextBase(baseKey)
-    }
-    if (result === 'FO' || result === 'LO') {
-      // A fielder touch after the catch (e.g. the outfielder who caught a
-      // leaping liner throwing back to second) means a runner left before
-      // the tag-up completed and was thrown out — the throw goes back to
-      // the base the runner started on, or to the plate for a runner
-      // trying to score from third. Default to that runner being out
-      // rather than assuming everyone safely stayed put.
-      const isTaggedOut = baseKey === 'third'
-        ? touchedBases.includes('third') || touchedBases.includes('home')
-        : touchedBases.includes(baseKey)
-      return isTaggedOut ? 'out' : baseKey
-    }
-    if (baseKey === 'first') {
-      if (outIdSet.has('first')) return 'out'
-      return firstAdvances ? 'second' : 'first'
-    }
-    if (baseKey === 'second') {
-      if (outIdSet.has('second')) return 'out'
-      return secondAdvances ? 'third' : 'second'
-    }
-    if (baseKey === 'third') {
-      if (outIdSet.has('third')) return 'out'
-      if (result === 'GO' || result === 'FC' || result === 'DP') {
-        return thirdAdvances ? 'home' : 'third'
-      }
-      return forcedAtStart[baseKey] ? getNextBase(baseKey) : baseKey
-    }
-    if (isGrounderChoice || result === 'DP') {
-      return baseKey
-    }
-    if (result === 'GO') {
-      return forcedAtStart[baseKey] ? getNextBase(baseKey) : baseKey
-    }
-    return baseKey
-  }
-
-  push('first', first, 'first', defaultRunnerDestination('first'))
-  push('second', second, 'second', defaultRunnerDestination('second'))
-  push('third', third, 'third', defaultRunnerDestination('third'))
-
-  return {
-    result,
-    assignments,
-    outResolution: true,
-    originalResult: result,
-  }
-}
-
-// ─── Merged build-the-play / runner-placement plan ────────────────────────────
-// The runner placement panel shows one row per active runner (+ the batter),
-// with a current `position` ('first'|'second'|'third'|'home'|'out') defaulted
-// from the same prediction logic as before (computePendingState /
-// computePendingOutState) and then optionally overridden by manual picks.
-const BASE_STEP_ORDER = ['first', 'second', 'third', 'home']
-
-// A runner can't be nudged back past where they actually started this play —
-// for the batter that floor is first base (their best-case outcome), for a
-// runner already on base it's the base they started the play on.
-function runnerFloorBase(id, origin) {
-  return id === 'batter' ? 'first' : origin
-}
-
-function stepBaseValue(position, direction, floor) {
-  const idx = BASE_STEP_ORDER.indexOf(position)
-  if (idx === -1) return position
-  const floorIdx = BASE_STEP_ORDER.indexOf(floor)
-  const rawNext = direction === 'advance' ? idx + 1 : idx - 1
-  const clampedIdx = Math.max(floorIdx, Math.min(BASE_STEP_ORDER.length - 1, rawNext))
-  return BASE_STEP_ORDER[clampedIdx]
-}
-
-// Same chain as computePendingOutState's forcedAtStart, plus the batter (who
-// is always "forced" to run to first) — used so moving one forced runner to a
-// new destination carries the rest of an intact force chain along with it.
-function computeForcedChainIds(runners = {}) {
-  const { first, second, third } = runners
-  const ids = ['batter']
-  if (first) ids.push('first')
-  if (first && second) ids.push('second')
-  if (first && second && third) ids.push('third')
-  return ids
-}
-
-// Where a runner should land if they're pulled out of the "out" column but
-// were never manually placed there (i.e. computePendingOutState auto-detected
-// the out) — the base they'd have reached had that play not gotten them.
-function computeFallbackSafePosition(id, origin, runnersAtStart) {
-  if (id === 'batter') return 'first'
-  const forcedIds = new Set(computeForcedChainIds(runnersAtStart))
-  return forcedIds.has(id) ? getNextBase(origin) : origin
-}
-
-function computeBaselineRunnerAssignments(inPlayState, runners, batterRunner) {
-  if (!inPlayState || isHomeRunResult(inPlayState.result)) return null
-  const fielderChain = inPlayState.fielderChain || []
-  const primaryPosition = inPlayState.isBuddyJump
-    ? (fielderChain[1] || fielderChain[0] || null)
-    : (fielderChain[0] || null)
-  if (inPlayState.resultType === 'hit' && NEEDS_RESOLUTION.has(inPlayState.result)) {
-    return computePendingState(inPlayState.result, runners, batterRunner)
-  }
-  if (inPlayState.resultType === 'error') {
-    return computePendingState('ROE', runners, batterRunner)
-  }
-  if (IN_PLAY_OUT_OPTIONS.includes(inPlayState.result)) {
-    return computePendingOutState(inPlayState.result, runners, batterRunner, { primaryPosition, fielderChain })
-  }
-  return null
-}
-
-function buildRunnerEntriesFromAssignments(pending, runnersAtStart) {
-  if (!pending?.assignments) return []
-  return pending.assignments.map((assignment) => ({
-    id: assignment.id,
-    runner: assignment.runner,
-    origin: assignment.origin,
-    position: assignment.destination,
-    outSource: assignment.destination === 'out' ? 'auto' : null,
-    preOutPosition: null,
-    manual: false,
-    fallbackSafePosition: computeFallbackSafePosition(assignment.id, assignment.origin, runnersAtStart),
-  }))
-}
-
-// Advancing/retreating a runner who'd otherwise land on a base another
-// runner already occupies pushes that occupant one base the same direction
-// too (recursively, in case that cascades into a third runner) — two runners
-// can never end up sharing a base, matching how a force play actually works.
-// Home plate is the one exception: runners stack there, so pushing stops.
-function applyManualRunnerStep(entries, id, direction) {
-  const byId = Object.fromEntries(entries.map((entry) => [entry.id, entry]))
-  const updates = {}
-  const visiting = new Set()
-
-  const push = (currentId) => {
-    if (visiting.has(currentId)) return
-    visiting.add(currentId)
-    const entry = byId[currentId]
-    if (!entry || entry.position === 'out') return
-    const floor = runnerFloorBase(currentId, entry.origin)
-    const fromPos = updates[currentId] ?? entry.position
-    const nextPos = stepBaseValue(fromPos, direction, floor)
-    updates[currentId] = nextPos
-    if (nextPos === fromPos || nextPos === 'home') return
-    const occupant = entries.find((other) => (
-      other.id !== currentId && other.position !== 'out' && (updates[other.id] ?? other.position) === nextPos
-    ))
-    if (occupant) push(occupant.id)
-  }
-
-  push(id)
-
-  return entries.map((entry) => (
-    Object.prototype.hasOwnProperty.call(updates, entry.id)
-      ? { ...entry, position: updates[entry.id], manual: true }
-      : entry
-  ))
-}
-
-function applyManualRunnerOut(entries, id) {
-  return entries.map((entry) => (
-    entry.id === id
-      ? { ...entry, preOutPosition: entry.position, position: 'out', outSource: 'manual', manual: true }
-      : entry
-  ))
-}
-
-function applyManualRunnerReenter(entries, id) {
-  return entries.map((entry) => {
-    if (entry.id !== id) return entry
-    const target = entry.outSource === 'manual'
-      ? (entry.preOutPosition || runnerFloorBase(entry.id, entry.origin))
-      : (entry.fallbackSafePosition || runnerFloorBase(entry.id, entry.origin))
-    return { ...entry, position: target, outSource: null, preOutPosition: null, manual: true }
-  })
-}
-
-function applyManualRunnerDestination(entries, id, destination) {
-  if (destination === 'out') return applyManualRunnerOut(entries, id)
-
-  const targetIndex = BASE_STEP_ORDER.indexOf(destination)
-  if (targetIndex === -1) return entries
-
-  let nextEntries = entries
-  const findEntry = () => nextEntries.find((entry) => entry.id === id)
-
-  if (findEntry()?.position === 'out') {
-    nextEntries = applyManualRunnerReenter(nextEntries, id)
-  }
-
-  let currentEntry = findEntry()
-  if (!currentEntry) return nextEntries
-
-  let currentIndex = BASE_STEP_ORDER.indexOf(currentEntry.position)
-  if (currentIndex === -1 || currentIndex === targetIndex) return nextEntries
-
-  const direction = targetIndex > currentIndex ? 'advance' : 'retreat'
-  let safety = BASE_STEP_ORDER.length + 1
-
-  while (currentEntry.position !== destination && safety > 0) {
-    nextEntries = applyManualRunnerStep(nextEntries, id, direction)
-    currentEntry = findEntry()
-    if (!currentEntry) break
-    const nextIndex = BASE_STEP_ORDER.indexOf(currentEntry.position)
-    if (nextIndex === currentIndex) break
-    currentIndex = nextIndex
-    safety -= 1
-  }
-
-  return nextEntries
-}
-
-function derivePendingResult(pending) {
-  if (!pending?.outResolution) return pending?.result
-  const outCount = getOutAssignments(pending).length
-  const batterOut = pending.assignments.some((assignment) => assignment.isBatter && assignment.destination === 'out')
-  const batterSafe = pending.assignments.some((assignment) => assignment.isBatter && assignment.destination !== 'out')
-
-  if (outCount >= 3) return 'TP'
-  if (outCount >= 2) return 'DP'
-  if (pending.originalResult === 'SF') return 'SF'
-  if (pending.originalResult === 'SH') return 'SH'
-  // Batter reached safely on a batted-ball out-resolution play — a fielder's choice,
-  // whether or not the defense's attempt to retire someone else actually succeeded
-  // (e.g. a bunt fielded and thrown home that doesn't get the lead runner in time
-  // still isn't a sacrifice — the defense had the batter beaten at first and chose
-  // not to take it, which is FC by rule regardless of the throw's outcome).
-  if (batterSafe) return 'FC'
-  if (pending.originalResult === 'FO' || pending.originalResult === 'LO') return pending.originalResult
-  if (batterOut) return 'GO'
-  return pending.originalResult || pending.result
-}
-
-function computeImmediateNextRunners(result, runners, batter) {
-  const { first, second, third } = runners
-  switch (result) {
-    case 'HR':
-    case 'IPHR':
-    case 'TP':
-      return { first: null, second: null, third: null }
-    case 'SF':  return { first, second, third: null }
-    case 'SH':  return { first: null, second: first, third: second }
-    case 'FC':  return { first: batter, second, third }   // lead runner (first) out
-    case 'DP':  return { first: null, second, third }     // runner on first out, batter out
-    default:    return { first, second, third }           // K, GO, FO, LO — runners hold
-  }
-}
-
-function getRunsScoredOnPa(pa) {
-  const isHomer = pa?.result === 'HR' || pa?.result === 'IPHR'
-  return Number(pa?.rbi || 0) + (pa?.run_scored && !isHomer ? 1 : 0)
-}
-
-function isHomeRunResult(result) {
-  return result === 'HR' || result === 'IPHR'
-}
-
-function requiresInPlayFielderChain(result) {
-  return result !== 'HR'
 }
 
 // Positions actually charged with an error for notation/scoring purposes.
@@ -2302,6 +1857,7 @@ export default function Scorebook() {
   const deferRealtimeUntilRef = useRef(0)
   const locallyDeletedPaIdsRef = useRef(new Set())
   const localActivePaRestoreRef = useRef(null)
+  const lastRestoredPitcherStorageKeyRef = useRef(null)
   const undoInFlightRef = useRef(false)
   const queuedUndoCorrectionRef = useRef(null)
   const pitchHistoryLoadedScopeRef = useRef(null)
@@ -2521,6 +2077,53 @@ export default function Scorebook() {
     return currentIds.length > 0 && currentIds.every((id, index) => id === nextIds[index])
   }, [])
 
+  const fetchGameData = useCallback(async () => {
+    if (!selectedGameId) return
+    const [lineupResult, paResult, stintResult, pitchResult, fielderResult, runResult, inningResult] = await Promise.all([
+      supabase.from(scorebookTables.lineups).select('*').eq('game_id', selectedGameId).order('batting_order'),
+      supabase.from(scorebookTables.plateAppearances).select('*').eq('game_id', selectedGameId).order('pa_number'),
+      supabase.from(scorebookTables.pitchingStints).select('*').eq('game_id', selectedGameId).order('created_at'),
+      supabase.from(scorebookTables.pitches).select('*').eq('game_id', selectedGameId).order('pitch_number_game'),
+      supabase.from(scorebookTables.gameFielders).select('*').eq('game_id', selectedGameId).order('created_at'),
+      supabase.from(scorebookTables.runsScored).select('*').eq('game_id', selectedGameId).order('created_at'),
+      supabase.from(scorebookTables.inningScores).select('*').eq('game_id', selectedGameId).order('inning'),
+    ])
+
+    const failures = [lineupResult, paResult, stintResult, pitchResult, fielderResult, runResult, inningResult]
+      .map((result) => result.error)
+      .filter(Boolean)
+    if (failures.length) console.warn('[scorebook] authoritative game refresh was partial', failures)
+
+    if (!lineupResult.error) {
+      setLineups((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(lineupResult.data || [])])
+    }
+    if (!paResult.error) {
+      const authoritativePAs = (paResult.data || []).map(normalizePa)
+      setPlateAppearances((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...authoritativePAs])
+    }
+    if (!stintResult.error) {
+      setPitchingStints((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(stintResult.data || [])])
+    }
+    if (!pitchResult.error) {
+      setPitches((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(pitchResult.data || [])])
+    }
+    if (!fielderResult.error) {
+      setGameFielders((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(fielderResult.data || [])])
+    }
+    if (!runResult.error) {
+      setRunsScored((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(runResult.data || [])])
+    }
+    if (!inningResult.error) {
+      const authoritativeInnings = isSeasonGame
+        ? (inningResult.data || []).map((entry) => ({
+            ...entry,
+            player_id: gameSession.playerIdByTeamId?.[entry.team_id] || null,
+          }))
+        : (inningResult.data || [])
+      setInningScores((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...authoritativeInnings])
+    }
+  }, [selectedGameId, scorebookTables, isSeasonGame, gameSession?.playerIdByTeamId])
+
   // ── Realtime ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!selectedGameId) return
@@ -2730,8 +2333,10 @@ export default function Scorebook() {
         setStadiums(getOrderedStadiums(data || []))
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.stadiumGameLog, filter: isSeasonGame ? `season_id=eq.${gameSession?.sourceId}` : undefined }, async () => {
-        const query = supabase.from(scorebookTables.stadiumGameLog).select('*').order('created_at')
-        const { data } = isSeasonGame ? await query.eq('season_id', gameSession?.sourceId) : await query
+        const { data } = await fetchAllRows(() => {
+          const query = supabase.from(scorebookTables.stadiumGameLog).select('*').order('created_at')
+          return isSeasonGame ? query.eq('season_id', gameSession?.sourceId) : query
+        })
         setStadiumGameLog(data || [])
       })
       .subscribe()
@@ -2748,6 +2353,7 @@ export default function Scorebook() {
   const canEditScorebook = Boolean(
     isScorekeeper
     && selectedGame
+    && selectedGame.stats_source !== 'tracker'
     && !isGameComplete
     && dataLoaded
     && pitchHistoryLoadedScope === scorebookDataScope
@@ -2875,6 +2481,71 @@ export default function Scorebook() {
     }
   }, [selectedGame, videoUrlDraft, scorebookTables.games, pushToast])
 
+  const [trackerStats, setTrackerStats] = useState(null)
+  const [trackerModeSaving, setTrackerModeSaving] = useState(false)
+
+  useEffect(() => {
+    if (!selectedGame || selectedGame.stats_source !== 'tracker' || !scorebookTables.trackerLiveStats) {
+      setTrackerStats(null)
+      return
+    }
+    let cancelled = false
+    const loadTrackerStats = async () => {
+      const { data } = await supabase
+        .from(scorebookTables.trackerLiveStats)
+        .select('*')
+        .eq('game_id', selectedGame.id)
+        .maybeSingle()
+      if (!cancelled) setTrackerStats(data || null)
+    }
+    loadTrackerStats()
+    const interval = setInterval(loadTrackerStats, 5000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [selectedGame?.id, selectedGame?.stats_source, scorebookTables.trackerLiveStats])
+
+  const setStatsSource = useCallback(async (nextSource) => {
+    if (!selectedGame) return
+    setTrackerModeSaving(true)
+    try {
+      const patch = { stats_source: nextSource }
+      const { error } = await supabase.from(scorebookTables.games).update(patch).eq('id', selectedGame.id)
+      if (error) throw error
+      setGames((current) => current.map((game) => (
+        String(game.id) === String(selectedGame.id) ? { ...game, ...patch } : game
+      )))
+      pushToast({
+        title: nextSource === 'tracker' ? 'Live Stat Tracker enabled' : 'Switched to manual scorebook',
+        type: 'success',
+      })
+    } catch (error) {
+      pushToast({ title: 'Unable to update stats source', message: error.message, type: 'error' })
+    } finally {
+      setTrackerModeSaving(false)
+    }
+  }, [selectedGame, scorebookTables.games, pushToast])
+
+  // The tracker only knows the game's built-in vanilla team skins (e.g.
+  // "Wario Muscles"), which have no relation to this league's custom
+  // drafted team names — that can't be auto-matched, so the commissioner
+  // assigns it once per game and it's persisted on the tracker row.
+  const assignTrackerTeam = useCallback(async (trackerTeamName, side) => {
+    if (!selectedGame || !scorebookTables.trackerLiveStats) return
+    const nextMapping = { ...(trackerStats?.team_mapping || {}), [trackerTeamName]: side }
+    setTrackerModeSaving(true)
+    try {
+      const { error } = await supabase
+        .from(scorebookTables.trackerLiveStats)
+        .update({ team_mapping: nextMapping })
+        .eq('game_id', selectedGame.id)
+      if (error) throw error
+      setTrackerStats((current) => (current ? { ...current, team_mapping: nextMapping } : current))
+    } catch (error) {
+      pushToast({ title: 'Unable to save team mapping', message: error.message, type: 'error' })
+    } finally {
+      setTrackerModeSaving(false)
+    }
+  }, [selectedGame, trackerStats, scorebookTables.trackerLiveStats, pushToast])
+
   useEffect(() => {
     setViewedInning(null)
     setGameEndBanner(null)
@@ -2905,33 +2576,6 @@ export default function Scorebook() {
     [trackedPlateAppearances, selectedGameId],
   )
 
-  const handleSaveExitVelocity = useCallback(async (pa, patch) => {
-    const { data: savedPa, error } = await supabase
-      .from(scorebookTables.plateAppearances)
-      .update(patch)
-      .eq('id', pa.id)
-      .select()
-      .single()
-    if (error) {
-      pushToast({ title: 'Exit velocity save failed', message: error.message, type: 'error' })
-      return
-    }
-    setPlateAppearances((cur) => cur.map((row) => (row.id === savedPa.id ? { ...row, ...savedPa } : row)))
-  }, [scorebookTables.plateAppearances, pushToast])
-
-  const handleSavePitchType = useCallback(async (pitchId, patch) => {
-    const { data: savedPitch, error } = await supabase
-      .from(scorebookTables.pitches)
-      .update(patch)
-      .eq('id', pitchId)
-      .select()
-      .single()
-    if (error) {
-      pushToast({ title: 'Pitch type save failed', message: error.message, type: 'error' })
-      return
-    }
-    setPitches((cur) => cur.map((row) => (row.id === savedPitch.id ? { ...row, ...savedPitch } : row)))
-  }, [scorebookTables.pitches, pushToast])
 
   const gamePitching = useMemo(
     () => pitchingStints.filter(p => String(p.game_id) === String(selectedGameId)),
@@ -3006,7 +2650,25 @@ export default function Scorebook() {
       .reduce((sum, pa) => sum + calculateOutsForPa(pa.result, pa.outs_on_play), 0)
     return outsBeforeEditingPa % 3
   }, [editingPa, gamePAs, outsInHalf])
-  const offense = useMemo(() => selectedGame ? deriveOffense(selectedGame, outsRecorded) : null, [selectedGame, outsRecorded])
+  const offense = useMemo(() => {
+    if (!selectedGame) return null
+    // Tracker games never accumulate plate_appearances rows (calculateOutsForPa
+    // has nothing to sum), so outsRecorded-derived offense would stay frozen
+    // at inning 1 forever. The tracker bridge writes inning/half into the same
+    // live_state field manual scoring uses, so prefer that when present.
+    if (selectedGame.stats_source === 'tracker' && selectedGameLiveState) {
+      const isTop = selectedGameLiveState.isTop
+      const inning = selectedGameLiveState.inning || 1
+      const awayPlayerId = selectedGame.home_away_swapped ? selectedGame.team_b_player_id : selectedGame.team_a_player_id
+      const homePlayerId = selectedGame.home_away_swapped ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
+      return {
+        battingPlayerId: isTop ? awayPlayerId : homePlayerId,
+        pitchingPlayerId: isTop ? homePlayerId : awayPlayerId,
+        inning, isTop, halfLabel: `${isTop ? 'Top' : 'Bot'} ${inning}`,
+      }
+    }
+    return deriveOffense(selectedGame, outsRecorded)
+  }, [selectedGame, outsRecorded, selectedGameLiveState])
 
   // True once an error has occurred in the CURRENT half-inning that would have been the
   // inning-ending 3rd out (batter reaches on error with 2 outs already recorded) — per
@@ -3050,6 +2712,84 @@ export default function Scorebook() {
   const battingColor   = getTeamPrimaryColor(battingIdentity, battingPlayer?.color)   || C.accent
   const pitchingColor  = getTeamPrimaryColor(pitchingIdentity, pitchingPlayer?.color) || C.muted
 
+  // Not gated on is_captain — any of the 12 known captain-eligible characters
+  // being on a team's roster at all is enough to know which vanilla tracker
+  // team name is theirs (a roster with more than one just takes the first;
+  // this only needs to be right, not exhaustive, since it's a starting guess
+  // the Admin tab lets a commissioner override).
+  const getTeamCaptainName = useCallback((playerId) => {
+    if (!playerId) return null
+    const picks = draftPicks.filter((p) => String(p.player_id) === String(playerId) && p.character_id)
+    const match = picks.find((p) => CAPTAIN_TO_TRACKER_TEAM_NAME[charactersById[p.character_id]?.name])
+    return match ? charactersById[match.character_id]?.name || null : null
+  }, [draftPicks, charactersById])
+  const teamACaptainName = selectedGame ? getTeamCaptainName(selectedGame.team_a_player_id) : null
+  const teamBCaptainName = selectedGame ? getTeamCaptainName(selectedGame.team_b_player_id) : null
+  const teamAExpectedTrackerName = teamACaptainName ? CAPTAIN_TO_TRACKER_TEAM_NAME[teamACaptainName] : null
+  const teamBExpectedTrackerName = teamBCaptainName ? CAPTAIN_TO_TRACKER_TEAM_NAME[teamBCaptainName] : null
+
+  // Auto-assign the tracker's vanilla team names to Team A/B the moment they
+  // appear, using each team's drafted captain (see CAPTAIN_TO_TRACKER_TEAM_NAME
+  // above) — no manual step needed when the captain resolves cleanly. Only
+  // falls back to the manual buttons in the Admin tab when a captain can't be
+  // resolved or doesn't match one of the 12 known captain names.
+  useEffect(() => {
+    if (!selectedGame || selectedGame.stats_source !== 'tracker' || !trackerStats) return
+    const trackerTeamNames = new Set([
+      ...Object.keys(trackerStats.live_feed?.score || {}),
+      ...(trackerStats.live_feed?.matchup ? [trackerStats.live_feed.matchup.left, trackerStats.live_feed.matchup.right] : []),
+    ])
+    const mapping = trackerStats.team_mapping || {}
+    if (teamAExpectedTrackerName && trackerTeamNames.has(teamAExpectedTrackerName) && !mapping[teamAExpectedTrackerName]) {
+      assignTrackerTeam(teamAExpectedTrackerName, 'A')
+    }
+    if (teamBExpectedTrackerName && trackerTeamNames.has(teamBExpectedTrackerName) && !mapping[teamBExpectedTrackerName]) {
+      assignTrackerTeam(teamBExpectedTrackerName, 'B')
+    }
+  }, [selectedGame, trackerStats, teamAExpectedTrackerName, teamBExpectedTrackerName, assignTrackerTeam])
+
+  // Emergency fallback for a bridge finalization failure. The normal tracker
+  // path records play-by-play, settles bets, locks markets, and completes the
+  // game automatically; this button deliberately applies only the visible
+  // final score so an operator can recover without duplicating settlement.
+  const applyTrackerFinalResult = useCallback(async () => {
+    if (!selectedGame || !trackerStats?.live_feed?.gameEnded) return
+    const scoreEntries = trackerStats.live_feed.score || {}
+    const mapping = trackerStats.team_mapping || {}
+    const teamAKey = Object.keys(mapping).find((key) => mapping[key] === 'A')
+    const teamBKey = Object.keys(mapping).find((key) => mapping[key] === 'B')
+    const teamARuns = teamAKey ? scoreEntries[teamAKey] : null
+    const teamBRuns = teamBKey ? scoreEntries[teamBKey] : null
+    if (teamARuns == null || teamBRuns == null) {
+      pushToast({
+        title: 'Assign the tracker teams first',
+        message: `Tracker reported: ${Object.entries(scoreEntries).map(([k, v]) => `${k} ${v}`).join(', ') || 'nothing'}. Use the Live Stat Tracker card below to assign each tracker team to ${teamAName} or ${teamBName}.`,
+        type: 'error',
+      })
+      return
+    }
+    const winnerPlayerId = teamARuns === teamBRuns ? null
+      : teamARuns > teamBRuns ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
+    setTrackerModeSaving(true)
+    try {
+      const patch = { status: 'complete', team_a_runs: teamARuns, team_b_runs: teamBRuns, winner_player_id: winnerPlayerId }
+      const { error } = await supabase.from(scorebookTables.games).update(patch).eq('id', selectedGame.id)
+      if (error) throw error
+      setGames((current) => current.map((game) => (
+        String(game.id) === String(selectedGame.id) ? { ...game, ...patch } : game
+      )))
+      pushToast({
+        title: 'Final score applied',
+        message: 'Game marked complete. Bet settlement and bracket/standings advancement still need to be handled manually for tracker games.',
+        type: 'success',
+      })
+    } catch (error) {
+      pushToast({ title: 'Unable to apply final score', message: error.message, type: 'error' })
+    } finally {
+      setTrackerModeSaving(false)
+    }
+  }, [selectedGame, trackerStats, teamAName, teamBName, scorebookTables.games, pushToast])
+
   const currentInning  = offense?.inning || 1
   const currentHalfIdx = Math.floor(outsRecorded / 3)
 
@@ -3078,16 +2818,38 @@ export default function Scorebook() {
   const effectiveBatterIdx = overrideBatterIdx !== null
     ? overrideBatterIdx % Math.max(currentLineup.length, 1)
     : autoIdx
-  const currentBatter  = currentLineup[effectiveBatterIdx]
+  // Tracker games have no plate_appearances to index into the lineup with —
+  // the bridge resolves the tracker's batter character to this game's own
+  // roster and writes it into live_state.batterCharacterId, so use that
+  // directly (falling back to the lineup entry if it's on today's lineup,
+  // for the batting-order number).
+  const trackerBatter = (selectedGame?.stats_source === 'tracker' && selectedGameLiveState?.batterCharacterId)
+    ? (currentLineup.find((l) => Number(l.character_id) === Number(selectedGameLiveState.batterCharacterId)) || {
+        character_id: selectedGameLiveState.batterCharacterId,
+        player_id: selectedGameLiveState.batterPlayerId,
+        batting_order: null,
+      })
+    : null
+  const currentBatter  = trackerBatter || currentLineup[effectiveBatterIdx]
   const currentBatterHandedness = batterHandednessForLineupEntry(currentBatter, charactersById)
   const onDeckBatter   = currentLineup[(effectiveBatterIdx + 1) % Math.max(currentLineup.length, 1)]
 
-  // Current pitcher (last stint for defensive team this game)
+  // Current pitcher — tracker games have no pitching_stints row, so build one
+  // from live_state.pitcherCharacterId the same way as the batter above.
   const currentPitcherStint = useMemo(() => {
+    if (selectedGame?.stats_source === 'tracker') {
+      if (!selectedGameLiveState?.pitcherCharacterId) return null
+      // The tracker bridge now creates/updates a real pitching_stints row for
+      // whoever's pitching — prefer that (it has the live IP/H/R/K/pitch
+      // count) and only fall back to a bare id-only placeholder for the brief
+      // window before that row has synced down to this client.
+      const stints = gamePitching.filter((s) => String(s.character_id) === String(selectedGameLiveState.pitcherCharacterId))
+      return stints[stints.length - 1] || { character_id: selectedGameLiveState.pitcherCharacterId, player_id: selectedGameLiveState.pitcherPlayerId, id: null }
+    }
     if (!offense) return null
     const stints = gamePitching.filter(s => s.player_id === offense.pitchingPlayerId)
     return stints[stints.length - 1] ?? null
-  }, [gamePitching, offense])
+  }, [gamePitching, offense, selectedGame, selectedGameLiveState])
   const currentPitcherChar = currentPitcherStint ? charactersById[currentPitcherStint.character_id] : null
   const adminRunnerOptions = useMemo(() => {
     const occupiedIds = new Set([
@@ -3144,6 +2906,7 @@ export default function Scorebook() {
     pitchNumber,
     resetPa: resetPitchCount,
     restoreState: restorePitchState,
+    getCounts: getPitchCounts,
     recordBall,
     recordStrike,
     recordFoul,
@@ -3673,12 +3436,21 @@ export default function Scorebook() {
     if (payloadJson === lastSyncedTeamLineupRef.current[team]) return
     lastSyncedTeamLineupRef.current[team] = payloadJson
 
-    if (!lineupDirtyRef.current[team]) {
+    // Only let saved team_lineups seed lineupDrafts (and, below, lineups/game_fielders)
+    // before the game has actually started. Once the first PA is recorded,
+    // lineups/game_fielders become the authoritative game-specific state — in
+    // particular, currentPitcherStint reflects the real in-game pitcher, and
+    // lineupDrafts[team].fielding.pitcher is kept aligned with it by changePitcher
+    // itself (see "Keep the in-game lineup draft aligned..." above). Without this
+    // gate, this poll/realtime handler (which fires every 5s regardless of game
+    // state) would keep re-seeding lineupDrafts from the stale pregame snapshot —
+    // which is never updated by an in-game pitching change — and the "just took
+    // the mound" effect would then silently revert a mid-game pitcher change back
+    // to whoever was saved before the game started, inserting a duplicate pitching
+    // stint and corrupting that half's pitching line.
+    if (gamePAs.length === 0 && !lineupDirtyRef.current[team]) {
       setLineupDrafts((current) => ({ ...current, [team]: { order: lineupOrder, fielding: fieldingPositions } }))
     }
-    // Only let saved team_lineups seed the live game projection before the game has
-    // actually started. Once scoring or in-game pitcher changes begin, lineups/game_fielders
-    // become the authoritative game-specific state and saved team_lineups stay as the pregame plan.
     if (canEditScorebook && !isGameComplete && gamePAs.length === 0 && (gameLineups.length === 0 || gameFielderRows.length === 0)) {
       // Guard against a stale/mismatched team_lineups snapshot (e.g. saved
       // for a different tournament round or before a trade/roster change)
@@ -3827,11 +3599,11 @@ export default function Scorebook() {
     await Promise.all(teams.map((team) => handleSaveLineupTeam(team)))
   }, [handleSaveLineupTeam])
 
-  // At-Bat Data Entry (the "exitVelo" tab) reports its own dirty state here
-  // since its draft lives inside AtBatDataEntryPanel, not Scorebook — folded
-  // into the same leave-page guard as lineup edits below. atBatPanelRef lets
-  // the "Save & Leave" flow trigger that panel's save without lifting its
-  // whole draft up into Scorebook.
+  // The At-Bat Editor tab reports its own dirty state here since its draft
+  // lives inside AtBatEditor, not Scorebook — folded into the same leave-page
+  // guard as lineup edits below. atBatPanelRef lets the "Save & Leave" flow
+  // trigger that component's save without lifting its whole draft up into
+  // Scorebook.
   const atBatPanelRef = useRef(null)
   const inPlayDetailsFooterRef = useRef(null)
   const inPlayStageRef = useRef(null)
@@ -4297,6 +4069,15 @@ export default function Scorebook() {
         setActivePaLoadedScope(currentActivePaScope)
         return
       }
+      // A just-recorded local pitch is already authoritative in the synchronous
+      // count/row refs. Realtime can echo an older live_state snapshot before the
+      // debounced publisher catches up; re-hydrating that echo here rewinds the
+      // count and lets the next tap record a duplicate pitch. Keep the local
+      // active-PA snapshot in charge during the short publish/refresh window.
+      if (
+        activePaLoadedScope === currentActivePaScope
+        && Date.now() < deferRealtimeUntilRef.current
+      ) return
       const raw = sessionStorage.getItem(storageKey)
       const parsed = raw ? JSON.parse(raw) : null
       // A local undo (reopenLastCompletedPA) deletes+refetches this PA's pitches to
@@ -4312,6 +4093,16 @@ export default function Scorebook() {
       const committedPitchNumber = Number(currentPitcherPitchRows.length)
       const liveStateHasActivePitchCount = Number(selectedGameLiveState?.balls || 0) > 0
         || Number(selectedGameLiveState?.strikes || 0) > 0
+      // The mound just changed pitchers (relative to the last time this effect
+      // resolved a pitch number) — a live_state row published in the same tick
+      // as the change can still be carrying the *previous* pitcher's pitch
+      // count (its own publish effect runs off state that hasn't caught up to
+      // the new pitcherKey yet, and a fresh stint may not have a `pitcherStintId`
+      // to compare against yet either). Refuse to hydrate from live state for
+      // this one resolution — the committed pitch rows for the new pitcher are
+      // the only trustworthy baseline right after a pitching change.
+      const isPitcherChangeTransition = lastRestoredPitcherStorageKeyRef.current !== null
+        && lastRestoredPitcherStorageKeyRef.current !== currentPitcherStorageKey
       // A pitcher change (even mid-at-bat, via the Lineups tab or mound drag)
       // doesn't reset balls/strikes — the count belongs to the at-bat — but
       // it must reset the pitch counter, so this can't just piggyback on
@@ -4319,12 +4110,14 @@ export default function Scorebook() {
       // being hydrated from may still reflect the *previous* pitcher's pitch
       // count if it hasn't been re-published since the change.
       const shouldHydratePitchNumberFromLiveState = shouldHydrateFromLiveState
+        && !isPitcherChangeTransition
         && (!selectedGameLiveState.pitcherStintId || String(selectedGameLiveState.pitcherStintId) === String(currentPitcherStint?.id))
         // A clean 0-0 live state only carries inning/runner context; its pitch
         // number is not needed for PA recovery and can be a stale value written
         // during a pitcher-change render. The committed pitch rows are the
         // authoritative baseline in that case.
         && liveStateHasActivePitchCount
+      lastRestoredPitcherStorageKeyRef.current = currentPitcherStorageKey
       const livePitchNumber = Math.max(
         committedPitchNumber,
         Number(selectedGameLiveState?.pitchNumber ?? committedPitchNumber),
@@ -4355,13 +4148,17 @@ export default function Scorebook() {
         setStarPitchActive(false)
         setPitchActionSheet(null)
         setPendingPitchEvent(null)
-        paPitchRowsRef.current = []
-        setPaPitchRows([])
+        const liveRows = shouldHydrateFromLiveState && Array.isArray(selectedGameLiveState.paPitchRows)
+          ? selectedGameLiveState.paPitchRows
+          : []
+        paPitchRowsRef.current = liveRows
+        setPaPitchRows(liveRows)
         setInPlayState(null)
         setRbiOverlay(null)
-        setStarHitUsed(false)
-        setStarHitPending(false)
-        setStarHitConnected(false)
+        setStarHitUsed(shouldHydrateFromLiveState && Boolean(selectedGameLiveState.starHitUsed))
+        setStarHitPending(shouldHydrateFromLiveState && Boolean(selectedGameLiveState.starHitPending))
+        setStarHitConnected(shouldHydrateFromLiveState && Boolean(selectedGameLiveState.starHitConnected))
+        setStarPitchActive(shouldHydrateFromLiveState && Boolean(selectedGameLiveState.starPitchActive))
         restorePitchState({
           balls: shouldHydrateFromLiveState ? Number(selectedGameLiveState.balls || 0) : 0,
           strikes: shouldHydrateFromLiveState ? Number(selectedGameLiveState.strikes || 0) : 0,
@@ -4391,7 +4188,7 @@ export default function Scorebook() {
       })
     }
     setActivePaLoadedScope(currentActivePaScope)
-  }, [selectedGameId, currentActivePaScope, activePaNumber, currentPitcherPitchRows.length, currentPitcherStorageKey, currentPitcherStint?.id, restorePitchState, selectedGameLiveState, currentBatter?.player_id, currentBatter?.character_id])
+  }, [selectedGameId, currentActivePaScope, activePaLoadedScope, activePaNumber, currentPitcherPitchRows.length, currentPitcherStorageKey, currentPitcherStint?.id, restorePitchState, selectedGameLiveState, currentBatter?.player_id, currentBatter?.character_id])
 
   useEffect(() => {
     if (!selectedGameId || !currentActivePaScope) return
@@ -4514,10 +4311,18 @@ export default function Scorebook() {
           : fallbackRunners,
         offense,
       ))
+      // Mirror the runners fallback above: a fresh session (no sessionStorage yet,
+      // e.g. after closing/reopening the tab) previously always fell back to an
+      // empty undo stack here, so the very first Undo of that session had nothing
+      // to pop back to and left a just-deleted PA's runner still parked on base.
+      // Prefer the same live_state snapshot (persisted server-side, survives a
+      // reload) that `runners` itself already trusts above.
+      const fallbackHistory = shouldTrustLiveStateRunners && Array.isArray(selectedGameLiveState?.runnersHistory)
+        ? selectedGameLiveState.runnersHistory
+        : []
+      const useStoredHistory = shouldTrustStoredHistory && storedHistory && !shouldTrustLiveStateRunners
       setRunnersHistory(
-        shouldTrustStoredHistory
-          ? rawHistory.map((entry) => sanitizeRunnersForOffense(entry, offense))
-          : [],
+        (useStoredHistory ? rawHistory : fallbackHistory).map((entry) => sanitizeRunnersForOffense(entry, offense))
       )
     } catch {
       setRunners({ first: null, second: null, third: null })
@@ -4570,6 +4375,13 @@ export default function Scorebook() {
       normalizeLiveRunners(runners),
       offense,
     )
+    // The baserunner undo stack, sanitized the same way `runners` itself is — every
+    // entry in it belongs to the current half-inning/offense since resetRunners()
+    // clears it at each half turnover, so one sanitize pass covers the whole array.
+    const normalizedRunnersHistory = runnersHistory.map((entry) => sanitizeRunnersForOffense(
+      normalizeLiveRunners(entry),
+      offense,
+    ))
     const hasLiveContext = hasAnyActiveRunners(normalizedRunners)
       // A clean out with nobody left on base (e.g. SF/SH scoring the runner
       // from 3B, or a bases-empty groundout) still needs live_state to
@@ -4586,6 +4398,10 @@ export default function Scorebook() {
       || starPitchActive
       || starHitPending
       || starHitConnected
+      // Bases can be empty right now (e.g. right after a solo HR) while the undo
+      // stack still holds real prior states an Undo needs to fall back to — don't
+      // let a "nothing live" false negative here null out live_state and drop it.
+      || normalizedRunnersHistory.length > 0
     const nextLiveState = hasLiveContext
       ? {
           inning: offense.inning,
@@ -4601,6 +4417,12 @@ export default function Scorebook() {
           onDeckCharacterId: onDeckBatter?.character_id ?? null,
           onDeckPlayerId: onDeckBatter?.player_id ?? null,
           runners: normalizedRunners,
+          runnersHistory: normalizedRunnersHistory,
+          paPitchRows,
+          starHitUsed,
+          starHitPending,
+          starHitConnected,
+          starPitchActive,
           updatedAt: new Date().toISOString(),
         }
       : null
@@ -4615,7 +4437,10 @@ export default function Scorebook() {
 
     const updatePayload = {}
     if (nextSerialized !== lastPublishedLiveStateRef.current || shouldClearLiveState) {
-      updatePayload.live_state = getPersistedLiveStateValue(nextLiveState, isSeasonGame)
+      // Both live providers currently enforce NOT NULL on live_state. Persist
+      // an empty JSON object when the active context is cleared; writing SQL
+      // NULL makes tournament half transitions and completion fail with 400.
+      updatePayload.live_state = getPersistedLiveStateValue(nextLiveState, true)
     }
     if (shouldPromoteStatus) {
       updatePayload.status = targetStatus
@@ -4652,17 +4477,19 @@ export default function Scorebook() {
     currentBatter,
     onDeckBatter,
     runners,
+    runnersHistory,
     balls,
     strikes,
     pitchNumber,
     currentPitcherStint,
-    paPitchRows.length,
+    paPitchRows,
     pendingPA,
     pitchActionSheet,
     pendingPitchEvent,
     inPlayState,
     rbiOverlay,
     starPitchActive,
+    starHitUsed,
     starHitPending,
     starHitConnected,
     activePaNumber,
@@ -5022,10 +4849,10 @@ export default function Scorebook() {
     })
   }, [selectedGame?.id, selectedGame?.status, ensureLiveOdds, pushToast])
 
-  // Reflect the current count and baserunners in live odds (run line, total, moneyline)
-  // even mid at-bat, so the board doesn't sit frozen between plate appearances.
+  // Manual scorebooks may reflect the count mid-at-bat. Tracker games are
+  // priced only by the bridge after a completed plate appearance.
   const syncLiveOddsForCount = useCallback(async (nextBalls, nextStrikes) => {
-    if (!selectedGame || effectiveGameStatus === 'complete' || !gameWinProbabilityContext) return
+    if (!selectedGame || selectedGame.stats_source === 'tracker' || effectiveGameStatus === 'complete' || !gameWinProbabilityContext) return
     try {
       const currentOdds = await ensureLiveOdds(gamePitching, gamePAs)
       const changedRows = recalculateOdds(currentOdds || [], {
@@ -5302,9 +5129,12 @@ export default function Scorebook() {
     if (!pending || !currentBatter || !canEditScorebook) return false
     const resolvedResult = derivePendingResult(pending)
     const outAssignments = getOutAssignments(pending)
-    const batterOut = pending.assignments.some((assignment) => assignment.isBatter && assignment.destination === 'out')
     const inningEndsOnThisPlay = pending.outResolution && (selectionOutsInHalf + outAssignments.length >= 3)
-    const wipeRunsOnPlay = inningEndsOnThisPlay && batterOut
+    const wipeRunsOnPlay = shouldNullifyRunsOnInningEndingForce({
+      inningEnds: inningEndsOnThisPlay,
+      assignments: pending.assignments,
+      runnersAtStart: runners,
+    })
     const occupiedBases = pending.assignments
       .filter((assignment) => ['first', 'second', 'third'].includes(assignment.destination))
       .map((assignment) => assignment.destination)
@@ -5366,7 +5196,7 @@ export default function Scorebook() {
       nextRunners: inningEndsOnThisPlay ? { first: null, second: null, third: null } : extractNextRunners(pending),
     })
     return true
-  }, [canEditScorebook, currentBatter, buildRunEvent, saveEnhancedPA, pushRunners, pushToast, selectionOutsInHalf])
+  }, [canEditScorebook, currentBatter, buildRunEvent, saveEnhancedPA, pushRunners, pushToast, selectionOutsInHalf, runners])
 
   const confirmPendingPA = useCallback(async () => {
     if (!pendingPA) return
@@ -5390,6 +5220,7 @@ export default function Scorebook() {
   const appendPitchEvent = useCallback((event) => {
     if (!event) return event
     clearRedoAction()
+    deferRealtimeHydration(2000)
     const enrichedEvent = {
       ...event,
       // Balls + strikes is not a pitch count once a batter fouls pitches off
@@ -5404,7 +5235,7 @@ export default function Scorebook() {
     setPaPitchRows(paPitchRowsRef.current)
     setStarPitchActive(false)
     return enrichedEvent
-  }, [clearRedoAction, currentPitcherChar?.name, currentPitcherStint?.character_id, currentPitcherStint?.player_id, playersById])
+  }, [clearRedoAction, currentPitcherChar?.name, currentPitcherStint?.character_id, currentPitcherStint?.player_id, playersById, deferRealtimeHydration])
 
   // star_pitch_used marks whether the star pitch was the DECISIVE pitch of the at-bat
   // (the one that ended it — walk/K/HBP/in-play). A star pitch fouled off or taken for
@@ -5942,8 +5773,16 @@ export default function Scorebook() {
       game_id: selectedGame.id,
       player_id: currentBatter.player_id,
       character_id: currentBatter.character_id,
-      batting_team_id: editingPa?.batting_team_id ?? (gameSession.teamIdByPlayerId?.[currentBatter.player_id] ?? null),
-      defensive_team_id: editingPa?.defensive_team_id ?? (gameSession.teamIdByPlayerId?.[offense.pitchingPlayerId] ?? null),
+      batting_team_id: editingPa?.batting_team_id ?? (
+        isSeasonGame
+          ? (gameSession.teamIdByPlayerId?.[currentBatter.player_id] ?? null)
+          : currentBatter.player_id
+      ),
+      defensive_team_id: editingPa?.defensive_team_id ?? (
+        isSeasonGame
+          ? (gameSession.teamIdByPlayerId?.[offense.pitchingPlayerId] ?? null)
+          : offense.pitchingPlayerId
+      ),
       pitcher_id: editingPa?.pitcher_id ?? currentPitcherStint.character_id,
       pitcher_player_id: editingPa?.pitcher_player_id ?? currentPitcherStint.player_id,
       runner_on_first_before: editingPa?.runner_on_first_before ?? Boolean(runners.first),
@@ -6012,6 +5851,15 @@ export default function Scorebook() {
     markSaveStep('insert-pa')
     const { data: savedPa, error } = await query
     if (error) {
+      if (error.code === '23505') {
+        pushToast({
+          title: 'Play already saved',
+          message: 'Another scorekeeper saved this plate appearance first. The scorebook will refresh to the authoritative game state.',
+          type: 'info',
+        })
+        await fetchGameData()
+        return { halfCompleted: false, end: null }
+      }
       if (
         error.message?.includes('trajectory')
         || error.message?.includes('hit_location')
@@ -6043,7 +5891,7 @@ export default function Scorebook() {
     }
     clearRedoAction()
 
-    const pitchPayload = pitchRows.map((pitch, index) => ({
+    let pitchPayload = pitchRows.map((pitch, index) => ({
       game_id: selectedGame.id,
       pa_id: savedPa.id,
       pitcher_id: pitch.pitcherId || currentPitcherChar?.name || '',
@@ -6060,6 +5908,26 @@ export default function Scorebook() {
       count_balls_after: pitch.pitch?.count_balls_after ?? 0,
       count_strikes_after: pitch.pitch?.count_strikes_after ?? 0,
     }))
+    let committedPitchNumber = Number(pitchNumber || 0)
+    if (!editingPa && pitchPayload.length) {
+      // `usePitchCount` keeps the UI responsive, but realtime/live-state
+      // hydration can race the next rapid PA and briefly rewind its local
+      // pitcher total. Number persisted pitches from the database's committed
+      // rows so tournament and season logs stay contiguous and authoritative.
+      markSaveStep('fetch-pitch-sequence')
+      const { data: committedPitchRows, error: pitchSequenceError } = await supabase
+        .from(scorebookTables.pitches)
+        .select('pitcher_id,pitch_number_game')
+        .eq('game_id', selectedGame.id)
+      if (pitchSequenceError) {
+        console.warn('[savePA] authoritative pitch sequence read failed; retaining local numbering', pitchSequenceError)
+      } else {
+        const authoritativeSequence = assignAuthoritativePitchNumbers(pitchPayload, committedPitchRows || [])
+        pitchPayload = authoritativeSequence.rows
+        const { latestByPitcher } = authoritativeSequence
+        committedPitchNumber = Number(latestByPitcher[String(currentPitcherChar?.name || '')] || committedPitchNumber)
+      }
+    }
     const runPayload = runEvents.map((run) => ({
       game_id: selectedGame.id,
       pa_id: savedPa.id,
@@ -6334,7 +6202,15 @@ export default function Scorebook() {
     setStarHitUsed(false)
     setStarHitPending(false)
     setStarHitConnected(false)
-    resetPitchCount()
+    // `committedPitchNumber` was computed above from *this* pitcher's rows —
+    // the one who just finished the half. When the half completes, the next
+    // PA belongs to the opposing team's pitcher, whose count this closure
+    // never looked up; stamping their card with the outgoing pitcher's
+    // number would flash the wrong total right as the buttons unfreeze. Let
+    // the automatic pitcherKey-based reset (in usePitchCount / the active-PA
+    // hydration effect) own it instead once the render past this point sees
+    // the new pitcher.
+    restorePitchState({ balls: 0, strikes: 0, pitchNumber: halfCompleted || end ? 0 : committedPitchNumber })
     if (selectedGame?.id) {
       try { sessionStorage.removeItem(getActivePaStorageKey(selectedGame.id)) } catch {}
     }
@@ -6387,6 +6263,63 @@ export default function Scorebook() {
       setQueuedUndoCorrection(null)
     }
   }, [])
+
+  const deleteLatestPaPersisted = useCallback(async (paId) => {
+    const functionName = isSeasonGame
+      ? 'undo_latest_season_pa'
+      : 'undo_latest_tournament_pa'
+    const { error } = await supabase.rpc(functionName, {
+      p_game_id: selectedGame.id,
+      p_pa_id: paId,
+    })
+    if (error) throw error
+  }, [isSeasonGame, selectedGame?.id])
+
+  // Undo (undo_latest_season_pa/undo_latest_tournament_pa) only deletes the PA's own
+  // pitches/runs/row — it has no way to revert a mid-game pitching change, since that's a
+  // separate action (changePitcher) not tied to any one PA. If the PA just undone was the
+  // only one thrown under the pitcher currently on the mound, that pitcher's stint is left
+  // as a stale, stat-less "ghost" that still reads as the current pitcher (currentPitcherStint
+  // just takes the last stint for the side) and can even wrongly inherit a W/L/S. Clean it up
+  // by deleting that now-empty stint so the previous pitcher becomes current again — but only
+  // when it's safe: the stint must be the *most recent* one for that pitching player (an even
+  // newer stint means it's already been superseded, unrelated to this undo) and there must be
+  // an earlier stint to fall back to (otherwise it's just the starter with nothing recorded
+  // yet, which is normal). Returns the pruned stints list for callers that need it immediately.
+  const pruneOrphanedPitchingStint = useCallback(async (undonePa, remainingPAs, stints) => {
+    if (undonePa?.pitcher_id == null || undonePa?.pitcher_player_id == null) return stints
+    const sameSide = stints.filter((s) => (
+      String(s.character_id) === String(undonePa.pitcher_id) && String(s.player_id) === String(undonePa.pitcher_player_id)
+    ))
+    if (!sameSide.length) return stints
+    const undoneAt = new Date(undonePa.created_at).getTime()
+    const eligible = sameSide.filter((s) => new Date(s.created_at).getTime() <= undoneAt)
+    const staleStint = eligible[eligible.length - 1] || sameSide[0]
+    if (!staleStint) return stints
+
+    const stintsForPlayer = stints
+      .filter((s) => String(s.player_id) === String(staleStint.player_id))
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    const staleIndex = stintsForPlayer.findIndex((s) => String(s.id) === String(staleStint.id))
+    if (staleIndex === -1 || staleIndex !== stintsForPlayer.length - 1) return stints // superseded by a newer stint
+    if (staleIndex === 0) return stints // starting pitcher, nothing to fall back to
+
+    const stillReferenced = remainingPAs.some((pa) => {
+      if (String(pa.pitcher_id) !== String(staleStint.character_id) || String(pa.pitcher_player_id) !== String(staleStint.player_id)) return false
+      const candidates = sameSide.filter((s) => new Date(s.created_at).getTime() <= new Date(pa.created_at).getTime())
+      const resolved = candidates[candidates.length - 1]
+      return resolved && String(resolved.id) === String(staleStint.id)
+    })
+    if (stillReferenced) return stints
+
+    const { error } = await supabase.from(scorebookTables.pitchingStints).delete().eq('id', staleStint.id)
+    if (error) {
+      console.warn('[scorebook undo] failed to prune orphaned pitching stint', error)
+      return stints
+    }
+    setPitchingStints((current) => current.filter((s) => String(s.id) !== String(staleStint.id)))
+    return stints.filter((s) => String(s.id) !== String(staleStint.id))
+  }, [scorebookTables.pitchingStints])
 
   const undoLastPA = useCallback(async () => {
     if (isGameComplete || !gamePAs.length || !selectedGame) return
@@ -6452,12 +6385,7 @@ export default function Scorebook() {
     if (navigator.vibrate) navigator.vibrate(30)
 
     try {
-      await Promise.all([
-        supabase.from(scorebookTables.pitches).delete().eq('pa_id', last.id),
-        supabase.from(scorebookTables.runsScored).delete().eq('pa_id', last.id),
-      ])
-      const { error } = await supabase.from(scorebookTables.plateAppearances).delete().eq('id', last.id)
-      if (error) throw error
+      await deleteLatestPaPersisted(last.id)
 
       releasePersistentUndo()
       interactionReleased = true
@@ -6470,7 +6398,8 @@ export default function Scorebook() {
         if (!isSavingRef.current) {
           await syncScores(optimisticPAs, selectedGame, optimisticRuns)
           await syncInningScores({ freshPAs: optimisticPAs, freshRuns: optimisticRuns, game: selectedGame })
-          await recomputePitchingStatsForGame(optimisticPAs, gamePitching, optimisticRuns, optimisticPitches)
+          const prunedStints = await pruneOrphanedPitchingStint(last, optimisticPAs, gamePitching)
+          await recomputePitchingStatsForGame(optimisticPAs, prunedStints, optimisticRuns, optimisticPitches)
         }
       } catch (maintenanceError) {
         // The PA deletion already committed. Do not visually resurrect it just
@@ -6494,11 +6423,20 @@ export default function Scorebook() {
       paPitchRowsRef.current = []
       setPaPitchRows([])
       restorePitchState({ balls: 0, strikes: 0, pitchNumber })
-      pushToast({ title: 'Undo failed', message: error.message, type: 'error' })
+      if (error.code === '23505') {
+        pushToast({
+          title: 'Game changed before undo',
+          message: 'Another scorekeeper saved a play first. The scorebook will refresh to the authoritative game state.',
+          type: 'info',
+        })
+        await fetchGameData()
+      } else {
+        pushToast({ title: 'Undo failed', message: error.message, type: 'error' })
+      }
     } finally {
       if (!interactionReleased) releasePersistentUndo({ discardQueuedCorrection: true })
     }
-  }, [isGameComplete, gamePAs, selectedGame, gamePitches, gameRuns, runners, runnersHistory, redoAction, pitchNumber, pushToast, popRunners, recomputePitchingStatsForGame, gamePitching, deferRealtimeHydration, restorePitchState, beginPersistentUndo, releasePersistentUndo])
+  }, [isGameComplete, gamePAs, selectedGame, gamePitches, gameRuns, runners, runnersHistory, redoAction, pitchNumber, pushToast, popRunners, recomputePitchingStatsForGame, pruneOrphanedPitchingStint, gamePitching, deferRealtimeHydration, restorePitchState, beginPersistentUndo, releasePersistentUndo, deleteLatestPaPersisted, fetchGameData])
 
   // Undo should always feel like "take back one pitch" — including the pitch
   // that just completed the previous at-bat. undoLastPA (above) throws away
@@ -6595,12 +6533,7 @@ export default function Scorebook() {
     if (navigator.vibrate) navigator.vibrate(30)
 
     try {
-      await Promise.all([
-        supabase.from(scorebookTables.pitches).delete().eq('pa_id', last.id),
-        supabase.from(scorebookTables.runsScored).delete().eq('pa_id', last.id),
-      ])
-      const { error } = await supabase.from(scorebookTables.plateAppearances).delete().eq('id', last.id)
-      if (error) throw error
+      await deleteLatestPaPersisted(last.id)
 
       releasePersistentUndo()
       interactionReleased = true
@@ -6610,7 +6543,8 @@ export default function Scorebook() {
         if (!isSavingRef.current) {
           await syncScores(optimisticPAs, selectedGame, optimisticRuns)
           await syncInningScores({ freshPAs: optimisticPAs, freshRuns: optimisticRuns, game: selectedGame })
-          await recomputePitchingStatsForGame(optimisticPAs, gamePitching, optimisticRuns, optimisticPitches)
+          const prunedStints = await pruneOrphanedPitchingStint(last, optimisticPAs, gamePitching)
+          await recomputePitchingStatsForGame(optimisticPAs, prunedStints, optimisticRuns, optimisticPitches)
         }
       } catch (maintenanceError) {
         console.warn('[scorebook undo] derived-state refresh failed after committed reopen', maintenanceError)
@@ -6632,11 +6566,20 @@ export default function Scorebook() {
       paPitchRowsRef.current = []
       setPaPitchRows([])
       restorePitchState({ balls: 0, strikes: 0, pitchNumber })
-      pushToast({ title: 'Undo failed', message: error.message, type: 'error' })
+      if (error.code === '23505') {
+        pushToast({
+          title: 'Game changed before undo',
+          message: 'Another scorekeeper saved a play first. The scorebook will refresh to the authoritative game state.',
+          type: 'info',
+        })
+        await fetchGameData()
+      } else {
+        pushToast({ title: 'Undo failed', message: error.message, type: 'error' })
+      }
     } finally {
       if (!interactionReleased) releasePersistentUndo({ discardQueuedCorrection: true })
     }
-  }, [isGameComplete, gamePAs, selectedGame, gamePitches, gameRuns, runners, runnersHistory, redoAction, pitchNumber, pushToast, popRunners, recomputePitchingStatsForGame, gamePitching, restorePitchState, deferRealtimeHydration, beginPersistentUndo, releasePersistentUndo])
+  }, [isGameComplete, gamePAs, selectedGame, gamePitches, gameRuns, runners, runnersHistory, redoAction, pitchNumber, pushToast, popRunners, recomputePitchingStatsForGame, pruneOrphanedPitchingStint, gamePitching, restorePitchState, deferRealtimeHydration, beginPersistentUndo, releasePersistentUndo, deleteLatestPaPersisted, fetchGameData])
 
   const undoLastPitch = useCallback(() => {
     if (isGameComplete || !paPitchRows.length) return
@@ -7015,7 +6958,15 @@ export default function Scorebook() {
   const markGameComplete = useCallback(async (winnerId, finalInning, isExtra) => {
     if (!selectedGame) return
     const resolved = winnerId ?? (scores.a === scores.b ? null : scores.a > scores.b ? selectedGame.team_a_player_id : selectedGame.team_b_player_id)
-    const clearedLiveState = getPersistedLiveStateValue(null, isSeasonGame)
+    const resolvedFinalInning = Number(finalInning || currentInning)
+    // The transient walk-off banner passes isExtra explicitly, but a reload
+    // removes that banner and leaves the generic End Game action. Infer the
+    // flag from the persisted inning in that path so an inning-4 finish in a
+    // three-inning game cannot be finalized as a regulation game.
+    const resolvedIsExtra = isExtra == null
+      ? resolvedFinalInning > regulationInnings
+      : Boolean(isExtra)
+    const clearedLiveState = getPersistedLiveStateValue(null, true)
     const completionUpdate = isSeasonGame
       ? {
           status: 'completed',
@@ -7023,8 +6974,8 @@ export default function Scorebook() {
           winner_team_id: resolved ? gameSession.teamIdByPlayerId?.[resolved] || null : null,
           away_score: scores.a,
           home_score: scores.b,
-          final_inning: finalInning || currentInning,
-          is_extra_innings: isExtra || false,
+          final_inning: resolvedFinalInning,
+          is_extra_innings: resolvedIsExtra,
         }
       : {
           status: 'complete',
@@ -7032,8 +6983,8 @@ export default function Scorebook() {
           winner_player_id: resolved,
           team_a_runs: scores.a,
           team_b_runs: scores.b,
-          final_inning: finalInning || currentInning,
-          is_extra_innings: isExtra || false,
+          final_inning: resolvedFinalInning,
+          is_extra_innings: resolvedIsExtra,
         }
     const { error } = await supabase.from(scorebookTables.games).update(completionUpdate).eq('id', selectedGame.id)
     if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
@@ -7043,8 +6994,8 @@ export default function Scorebook() {
       winner_player_id: resolved,
       team_a_runs: scores.a,
       team_b_runs: scores.b,
-      final_inning: finalInning || currentInning,
-      is_extra_innings: isExtra || false,
+      final_inning: resolvedFinalInning,
+      is_extra_innings: resolvedIsExtra,
       live_state: clearedLiveState,
     }
     setGames(cur => cur.map(g => g.id === selectedGame.id ? completedGame : g))
@@ -7086,7 +7037,7 @@ export default function Scorebook() {
       })
       await resolveGameBets(
         selectedGame.id,
-        resolved === selectedGame.team_b_player_id ? 'home' : 'away',
+        getBettingWinningSide(resolved, selectedGame.team_b_player_id),
         scores.a + scores.b,
         pitcherKTotals,
         Math.abs(scores.a - scores.b),
@@ -7189,13 +7140,13 @@ export default function Scorebook() {
       pushToast({ title: isSeasonGame ? 'Season update failed' : 'Bracket update failed', message: bracketError.message, type: 'error' })
     }
     pushToast({ title: 'Game complete', type: 'success' })
-  }, [selectedGame, scores, currentInning, pushToast, gamePitching, charactersById, playersById, tournament, games, isSeasonGame, gameSession, scorebookTables.games, scorebookTables.stadiumGameLog, scorebookTables.pitchingStints, selectedStadium, betResolutionConfig])
+  }, [selectedGame, scores, currentInning, regulationInnings, pushToast, gamePitching, charactersById, playersById, tournament, games, isSeasonGame, gameSession, scorebookTables.games, scorebookTables.stadiumGameLog, scorebookTables.pitchingStints, selectedStadium, betResolutionConfig])
 
   const reopenCompletedGame = useCallback(async () => {
     if (!selectedGame || !isGameComplete) return
 
     const reopenedStatus = isSeasonGame ? 'in_progress' : 'active'
-    const clearedLiveState = getPersistedLiveStateValue(null, isSeasonGame)
+    const clearedLiveState = getPersistedLiveStateValue(null, true)
     const reopenUpdate = isSeasonGame
       ? {
           status: reopenedStatus,
@@ -7350,7 +7301,11 @@ export default function Scorebook() {
     // stint renders first with the previous pitcher's number, the live-state
     // publisher can persist that stale number under the new stint id and then
     // hydrate it back as if it were authoritative.
-    restorePitchState({ balls, strikes, pitchNumber: nextPitchNumber })
+    // Read balls/strikes fresh (ref-backed) rather than from this callback's
+    // closure — a pitch thrown while the stint insert above was in flight would
+    // otherwise be silently reverted by a stale pre-await value here.
+    const freshCounts = getPitchCounts()
+    restorePitchState({ balls: freshCounts.balls, strikes: freshCounts.strikes, pitchNumber: nextPitchNumber })
     if (data) setPitchingStints(cur => [...cur, data])
 
     // Keep the in-game lineup draft aligned with the new pitcher so future
@@ -7400,7 +7355,7 @@ export default function Scorebook() {
       pushToast({ title: 'Odds refresh failed', message: bettingError.message, type: 'error' })
     }
     pushToast({ title: `Pitcher → ${charactersById[characterId]?.name}`, type: 'success' })
-  }, [selectedGame, canEditScorebook, charactersById, playersById, pushToast, gamePitching, gamePitches, currentPitcherStint, buildOddsGenerationContext, gamePAs, upsertChangedOdds, ensureLiveOdds, scorebookTables.pitchingStints, scorebookTables.bets, scorebookTables.gameOdds, addSourceFields, deferRealtimeHydration, isSeasonGame, lineupDrafts, gameSession?.sourceId, restorePitchState, balls, strikes])
+  }, [selectedGame, canEditScorebook, charactersById, playersById, pushToast, gamePitching, gamePitches, currentPitcherStint, buildOddsGenerationContext, gamePAs, upsertChangedOdds, ensureLiveOdds, scorebookTables.pitchingStints, scorebookTables.bets, scorebookTables.gameOdds, addSourceFields, deferRealtimeHydration, isSeasonGame, lineupDrafts, gameSession?.sourceId, restorePitchState, getPitchCounts])
 
   // Keep a stable ref to the latest changePitcher so saveTeamLineup (defined
   // earlier in the component) can trigger pitcher changes without a circular
@@ -7466,8 +7421,24 @@ export default function Scorebook() {
     autoPitcherAssignRef.current = assignKey
     const team = String(offense.pitchingPlayerId) === String(selectedGame.team_a_player_id) ? 'A'
       : String(offense.pitchingPlayerId) === String(selectedGame.team_b_player_id) ? 'B' : null
-    const desiredPitcherCharId = team ? Number(lineupDrafts[team]?.fielding?.pitcher || 0) : 0
-    const seededPitcher = defensiveLineup.find((entry) => Number(entry.character_id) === desiredPitcherCharId)
+    // Prefer the authoritative game_fielders position-1 assignment — already seeded
+    // correctly by syncGameLineupsFromRoster the moment the game was created — over
+    // lineupDrafts, which stays empty until the Lineups tab has been visited or the
+    // pregame team_lineups poll has landed. A game opened straight from the normal
+    // "Start Game" flow (Schedule page) never visits the Lineups tab first, so relying
+    // on lineupDrafts here meant the very first pitcher of the game silently defaulted
+    // to whoever bats leadoff instead of the actually-saved pitcher.
+    const teamId = team === 'A' ? teamAId : teamBId
+    const fielderPitcherRow = gameFielderRows.find((row) => (
+      String(row.team_id) === String(teamId)
+      && Number(row.position) === 1
+      && Number(row.inning_from || 1) <= Number(currentInning)
+      && (row.inning_to == null || Number(row.inning_to) >= Number(currentInning))
+    ))
+    const desiredPitcherCharId = fielderPitcherRow
+      ? defensiveLineup.find((entry) => charactersById[entry.character_id]?.name === fielderPitcherRow.character)?.character_id
+      : (team ? Number(lineupDrafts[team]?.fielding?.pitcher || 0) : 0)
+    const seededPitcher = defensiveLineup.find((entry) => Number(entry.character_id) === Number(desiredPitcherCharId))
     const pitcherToUse = seededPitcher || defensiveLineup[0] || null
     if (!pitcherToUse?.character_id) {
       autoPitcherAssignRef.current = null
@@ -7476,7 +7447,7 @@ export default function Scorebook() {
     changePitcher(offense.pitchingPlayerId, pitcherToUse.character_id).finally(() => {
       if (autoPitcherAssignRef.current === assignKey) autoPitcherAssignRef.current = null
     })
-  }, [selectedGame?.id, selectedGame?.team_a_player_id, selectedGame?.team_b_player_id, isGameComplete, offense?.pitchingPlayerId, currentPitcherStint?.id, defensiveLineup, lineupDrafts, changePitcher])
+  }, [selectedGame?.id, selectedGame?.team_a_player_id, selectedGame?.team_b_player_id, isGameComplete, offense?.pitchingPlayerId, currentPitcherStint?.id, defensiveLineup, gameFielderRows, teamAId, teamBId, currentInning, charactersById, lineupDrafts, changePitcher])
 
   // ── Add game ───────────────────────────────────────────────────────────────
   const addGame = useCallback(async () => {
@@ -7565,9 +7536,9 @@ export default function Scorebook() {
       <div style={{ display: 'inline-flex', gap: 6, padding: 4, borderRadius: 999, border: `1px solid ${C.border}`, background: `${C.card}DD` }}>
         {[
           { key: 'game', label: 'Game View' },
-          { key: 'scorebook', label: 'Scorebook' },
+          ...(selectedGame?.stats_source === 'tracker' ? [] : [{ key: 'scorebook', label: 'Scorebook' }]),
+          { key: 'atBatEditor', label: 'At-Bat Editor' },
           { key: 'lineups', label: 'Lineups' },
-          { key: 'exitVelo', label: 'At-Bat Data' },
           { key: 'admin', label: 'Admin' },
         ].map((tab) => (
           <button
@@ -7598,7 +7569,8 @@ export default function Scorebook() {
     </div>
   ) : null
 
-  const renderGameView = () => (
+  const renderGameView = () => {
+    return (
     <div style={{ color: C.text, paddingBottom: 40, margin: '-1.25rem -1.25rem 0' }}>
       {scorebookToolbar}
       {viewTabs}
@@ -7801,7 +7773,8 @@ export default function Scorebook() {
         />
       )}
     </div>
-  )
+    )
+  }
 
   const renderLineupTeamCard = (team) => {
     const teamName = team === 'A' ? teamAName : teamBName
@@ -7906,28 +7879,23 @@ export default function Scorebook() {
     </div>
   )
 
-  const renderExitVelocityView = () => (
+  const renderAtBatEditorView = () => (
     <div style={{ color: C.text, paddingBottom: 40, margin: '-1.25rem -1.25rem 0' }}>
       {scorebookToolbar}
       {viewTabs}
-      <div style={{ padding: '8px 10px 32px', display: 'grid', gap: 12 }}>
+      <div style={{ padding: '8px 10px 32px' }}>
         {!selectedGame ? (
-          <div style={{ color: C.muted, textAlign: 'center', padding: 24 }}>Select a game to enter at-bat data.</div>
+          <div style={{ color: C.muted, textAlign: 'center', padding: 24 }}>Select a game to edit its at-bats.</div>
         ) : (
-          <SectionCard hideHeader>
-            <AtBatDataEntryPanel
+          <Suspense fallback={<div style={{ color: C.muted, textAlign: 'center', padding: 24 }}>Loading editor…</div>}>
+            <AtBatEditor
               ref={atBatPanelRef}
-              game={selectedGame}
-              pas={gamePAs}
-              pitches={gamePitches}
-              charactersById={charactersById}
-              stadiumKey={stadiumKey}
-              atBatSource={isSeasonGame ? 'season' : 'tournament'}
-              onSave={handleSaveExitVelocity}
-              onSavePitchType={handleSavePitchType}
+              source={isSeasonGame ? 'season' : 'tournament'}
+              gameId={selectedGame.id}
+              embedded
               onDirtyChange={setAtBatDataDirty}
             />
-          </SectionCard>
+          </Suspense>
         )}
       </div>
     </div>
@@ -7956,6 +7924,129 @@ export default function Scorebook() {
                     {videoUrlSaving ? 'Saving…' : 'Save video URL'}
                   </button>
                 </div>
+              </SectionCard>
+
+              <SectionCard
+                title="Live Stat Tracker"
+                subtitle="Feed this game from the community auto-tracker instead of the manual scorebook."
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 13, color: '#CBD5E1' }}>
+                    Currently: <strong style={{ color: selectedGame.stats_source === 'tracker' ? '#22C55E' : '#E2E8F0' }}>
+                      {selectedGame.stats_source === 'tracker' ? 'Live Tracker' : 'Manual Scorebook'}
+                    </strong>
+                    {selectedGame.stats_source === 'tracker' && (
+                      <div style={{ color: '#94A3B8', fontSize: 12, marginTop: 4 }}>
+                        The tracker now drives the live score, count, runners, lineups, pitching changes, fielding changes, in-game odds, and bet settlement. Use the At-Bat Editor only for details the console feed cannot identify confidently.
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="solid-button"
+                      onClick={() => runViewChange(() => setViewMode('atBatEditor'))}
+                    >
+                      Open At-Bat Editor
+                    </button>
+                    <button
+                      type="button"
+                      className={selectedGame.stats_source === 'tracker' ? 'ghost-button' : 'solid-button'}
+                      disabled={trackerModeSaving}
+                      onClick={() => setStatsSource(selectedGame.stats_source === 'tracker' ? 'manual' : 'tracker')}
+                    >
+                      {trackerModeSaving
+                        ? 'Saving…'
+                        : selectedGame.stats_source === 'tracker' ? 'Switch to Manual Scorebook' : 'Switch to Live Tracker'}
+                    </button>
+                  </div>
+                </div>
+                {selectedGame.stats_source === 'tracker' && (() => {
+                  const events = trackerStats?.live_feed?.events || []
+                  const dumpText = events.map((e) => `${e.time} [${e.level}] ${e.message}`).join('\n')
+                  return (
+                    <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', display: 'grid', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                        <div style={{ color: '#94A3B8', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Console Dump</div>
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          disabled={!events.length}
+                          onClick={() => navigator.clipboard?.writeText(dumpText)}
+                          style={{ fontSize: 11, padding: '4px 10px' }}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <div style={{ color: '#94A3B8', fontSize: 11 }}>
+                        Every log line the bridge has seen for this game so far ({events.length}) — copy/paste these when reporting a tracker parsing issue.
+                      </div>
+                      <pre style={{
+                        margin: 0, maxHeight: 420, overflowY: 'auto', overscrollBehavior: 'contain', fontFamily: 'monospace', fontSize: 11,
+                        color: '#CBD5E1', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                      }}>
+                        {events.length ? dumpText : 'No log lines captured yet.'}
+                      </pre>
+                    </div>
+                  )
+                })()}
+                {selectedGame.stats_source === 'tracker' && (() => {
+                  // Only real team names (from the running score), never the
+                  // per-play pitcher/batter matchup — those are individual
+                  // characters, not teams, and listing them here was
+                  // confusingly duplicating each team's own captain name.
+                  const trackerTeamNames = new Set(Object.keys(trackerStats?.live_feed?.score || {}))
+                  const mapping = trackerStats?.team_mapping || {}
+                  const unassigned = [...trackerTeamNames].filter((name) => !mapping[name])
+                  if (trackerTeamNames.size === 0 && !teamACaptainName && !teamBCaptainName) return null
+                  return (
+                    <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', display: 'grid', gap: 8 }}>
+                      <div style={{ color: '#94A3B8', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Tracker Team Assignment</div>
+                      <div style={{ color: '#94A3B8', fontSize: 12 }}>
+                        Auto-detected from each team's drafted captain — {teamAName}: {teamACaptainName ? `${teamACaptainName} → ${teamAExpectedTrackerName || 'no vanilla match'}` : 'no captain set'} · {teamBName}: {teamBCaptainName ? `${teamBCaptainName} → ${teamBExpectedTrackerName || 'no vanilla match'}` : 'no captain set'}.
+                      </div>
+                      {[...trackerTeamNames].map((name) => (
+                        <div key={name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, color: '#E2E8F0' }}>{name}</span>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                              type="button"
+                              className={mapping[name] === 'A' ? 'solid-button' : 'ghost-button'}
+                              disabled={trackerModeSaving}
+                              onClick={() => assignTrackerTeam(name, 'A')}
+                            >
+                              {teamAName}
+                            </button>
+                            <button
+                              type="button"
+                              className={mapping[name] === 'B' ? 'solid-button' : 'ghost-button'}
+                              disabled={trackerModeSaving}
+                              onClick={() => assignTrackerTeam(name, 'B')}
+                            >
+                              {teamBName}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {trackerTeamNames.size > 0 && unassigned.length === 0 && (
+                        <div style={{ fontSize: 12, color: '#22C55E' }}>All tracker teams assigned.</div>
+                      )}
+                    </div>
+                  )
+                })()}
+                {selectedGame.stats_source === 'tracker' && trackerStats?.live_feed?.gameEnded && selectedGame.status !== 'complete' && (
+                  <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 13, color: '#CBD5E1' }}>
+                      The tracker reported a final score{trackerStats.live_feed.winner ? ` (${trackerStats.live_feed.winner} win)` : ''}, but automatic finalization has not completed and this game is still marked {selectedGame.status}.
+                      <div style={{ color: '#94A3B8', fontSize: 12, marginTop: 4 }}>
+                        Use this as an emergency fallback. It only sets the score and status; review the bridge log before applying it.
+                      </div>
+                    </div>
+                    <button type="button" className="solid-button" disabled={trackerModeSaving} onClick={applyTrackerFinalResult}>
+                      {trackerModeSaving ? 'Saving…' : 'Apply Final Score'}
+                    </button>
+                  </div>
+                )}
               </SectionCard>
 
               <SectionCard
@@ -8039,12 +8130,20 @@ export default function Scorebook() {
     )
   }
 
-  if (viewMode === 'lineups' && isScorekeeper) {
-    return <>{renderLineupsView()}<UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
+  // Tracker-fed games have no play-by-play data for the granular manual-entry
+  // grid to work from — route everything except Admin (where the mode gets
+  // toggled), Lineups (pregame setup, unaffected), and the At-Bat Editor
+  // (works for any game) to the read-only tracker box score instead.
+  if (selectedGame?.stats_source === 'tracker' && viewMode !== 'admin' && viewMode !== 'lineups' && viewMode !== 'atBatEditor') {
+    return <>{renderGameView()}<UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
   }
 
-  if (viewMode === 'exitVelo' && isScorekeeper) {
-    return <>{renderExitVelocityView()}<UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
+  if (viewMode === 'atBatEditor' && isScorekeeper) {
+    return <>{renderAtBatEditorView()}<UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
+  }
+
+  if (viewMode === 'lineups' && isScorekeeper) {
+    return <>{renderLineupsView()}<UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
   }
 
   if (viewMode === 'admin' && isScorekeeper) {

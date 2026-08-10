@@ -1,0 +1,329 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Game View
+Scorebook
+Lineups
+At-Bat Data
+Admin
+Luigi's Mansion
+Night
+⇄ Swap Home/Away
+BATTER
+Bowser Jr.
+Kings · #1
+AVG .000
+HR 0
+RBI 0
+PITCHER
+Donkey Kong
+Schlongs
+IP 0
+H 0
+R 0
+ER 0
+BB 0
+K 0
+P 1
+CLE
+LIS
+1
+-
+-
+2
+-
+-
+3
+-
+-
+R
+H
+E
+0
+0
+0
+0
+0
+0
+B
+S
+O
+BALL IN PLAY — RESULT
+1B
+2B
+3B
+HR
+IPHR
+GO
+FO
+LO
+SF
+SH
+E
+BACK
+
+[
+  {
+    "tag": "button",
+    "text": "Tournament",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Season",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "select",
+    "text": "QA STATS QA PLAYOFFS SE QA PLAYOFFS DE QA TEST TEST MSL Season 1",
+    "type": null,
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "a",
+    "text": "Jason",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "button",
+    "text": "Logout",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "a",
+    "text": "Standings",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Schedule",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Bracket",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Draft",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Roster",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Bets",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Stats",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Admin",
+    "type": null,
+    "role": null,
+    "title": "Admin"
+  },
+  {
+    "tag": "button",
+    "text": "Game View",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Scorebook",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Lineups",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "At-Bat Data",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Admin",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Edit stadium for this game",
+    "type": "button",
+    "role": null,
+    "title": "Edit stadium for this game",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "⇄ Swap Home/Away",
+    "type": "button",
+    "role": null,
+    "title": "Swap which team bats first (top of the inning) — updates the batting order, line score, and game view for everyone.",
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "1B",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "2B",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "3B",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "HR",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "IPHR",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "GO",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "FO",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "LO",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "SF",
+    "type": "button",
+    "role": null,
+    "title": "SF requires a runner on base.",
+    "disabled": true
+  },
+  {
+    "tag": "button",
+    "text": "SH",
+    "type": "button",
+    "role": null,
+    "title": "SH requires a runner on base.",
+    "disabled": true
+  },
+  {
+    "tag": "button",
+    "text": "E",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "BACK",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  }
+]

@@ -1,0 +1,26 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:5173",
+      "localStorage": [
+        {
+          "name": "draft-skip-reveal",
+          "value": "false"
+        },
+        {
+          "name": "sluggers-selected-tournament",
+          "value": "1"
+        },
+        {
+          "name": "sluggers-selected-season",
+          "value": "54"
+        },
+        {
+          "name": "sb-cfowednmssmbvspbxzyb-auth-token",
+          "value": "{\"access_token\":\"eyJhbGciOiJFUzI1NiIsImtpZCI6ImUzMjRjYmMyLTI3ZDEtNGMxOS04YWUyLTNmNWE3MTFiY2Y1ZiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2Nmb3dlZG5tc3NtYnZzcGJ4enliLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiIxYmRmMzI3NC1hMzZjLTQ0MzEtYjliZC00MTEwZjkxNzJjZDUiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzg1Njg0NzI3LCJpYXQiOjE3ODU2ODExMjcsImVtYWlsIjoibWF5QHNsdWdnZXJzLmxvY2FsIiwicGhvbmUiOiIiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJlbWFpbCIsInByb3ZpZGVycyI6WyJlbWFpbCJdfSwidXNlcl9tZXRhZGF0YSI6e30sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoicGFzc3dvcmQiLCJ0aW1lc3RhbXAiOjE3ODU2ODExMjd9XSwic2Vzc2lvbl9pZCI6ImFmNDZkZDdlLWJiYWQtNDhjYy1hNDViLTA3YmM1N2I1YjQ1MiIsImlzX2Fub255bW91cyI6ZmFsc2V9.uI_LhMXeEdHlFNmf9wxgvPmzJS69PNMbBsrab_8yKPKjT2XmTk6EIycX6AoqL4D_1RD1Be0tbH1kV79eHqO9MA\",\"token_type\":\"bearer\",\"expires_in\":3600,\"expires_at\":1785684727,\"refresh_token\":\"y6xul5vx4sjj\",\"user\":{\"id\":\"1bdf3274-a36c-4431-b9bd-4110f9172cd5\",\"aud\":\"authenticated\",\"role\":\"authenticated\",\"email\":\"may@sluggers.local\",\"email_confirmed_at\":\"2026-06-10T13:20:45.691794Z\",\"phone\":\"\",\"confirmed_at\":\"2026-06-10T13:20:45.691794Z\",\"last_sign_in_at\":\"2026-08-02T14:32:07.764432962Z\",\"app_metadata\":{\"provider\":\"email\",\"providers\":[\"email\"]},\"user_metadata\":{},\"identities\":[{\"identity_id\":\"93332636-a5aa-48a8-bbe0-bc276a916874\",\"id\":\"1bdf3274-a36c-4431-b9bd-4110f9172cd5\",\"user_id\":\"1bdf3274-a36c-4431-b9bd-4110f9172cd5\",\"identity_data\":{\"email\":\"may@sluggers.local\",\"sub\":\"1bdf3274-a36c-4431-b9bd-4110f9172cd5\"},\"provider\":\"email\",\"last_sign_in_at\":\"2026-06-10T13:20:45.691794Z\",\"created_at\":\"2026-06-10T13:20:45.691794Z\",\"updated_at\":\"2026-06-10T13:20:45.691794Z\",\"email\":\"may@sluggers.local\"}],\"created_at\":\"2026-06-10T13:20:45.691794Z\",\"updated_at\":\"2026-08-02T14:32:07.778451Z\",\"is_anonymous\":false},\"weak_password\":{\"message\":\"Password should be at least 6 characters.\",\"reasons\":[\"length\"]}}"
+        }
+      ]
+    }
+  ]
+}

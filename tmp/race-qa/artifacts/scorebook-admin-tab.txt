@@ -1,0 +1,265 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Game View
+Scorebook
+Lineups
+At-Bat Data
+Admin
+Game Video
+Save video URL
+Scorebook Admin
+Manual corrections for the active batting side and recorded plate appearances.
+CURRENT OFFENSE
+Kings
+1B
+Empty
+Clear
+2B
+Empty
+Clear
+3B
+Empty
+Clear
+ADD RUNNER
+1st Base
+2nd Base
+3rd Base
+Select batter
+Bowser Jr.
+Koopa
+Green Dry Bones
+Kritter
+Daisy
+Boomerang Bro
+Purple Toad
+Green Noki
+Gray Shy Guy
+Add Runner
+Undo Latest Action
+
+[
+  {
+    "tag": "button",
+    "text": "Tournament",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Season",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "select",
+    "text": "QA STATS QA PLAYOFFS SE QA PLAYOFFS DE QA TEST TEST MSL Season 1",
+    "type": null,
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "a",
+    "text": "Jason",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "button",
+    "text": "Logout",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "a",
+    "text": "Standings",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Schedule",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Bracket",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Draft",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Roster",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Bets",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Stats",
+    "type": null,
+    "role": null,
+    "title": null
+  },
+  {
+    "tag": "a",
+    "text": "Admin",
+    "type": null,
+    "role": null,
+    "title": "Admin"
+  },
+  {
+    "tag": "button",
+    "text": "Game View",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Scorebook",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Lineups",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "At-Bat Data",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Admin",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "input",
+    "text": "https://www.youtube.com/watch?v=...",
+    "type": "text",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Save video URL",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Clear",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": true
+  },
+  {
+    "tag": "button",
+    "text": "Clear",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": true
+  },
+  {
+    "tag": "button",
+    "text": "Clear",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": true
+  },
+  {
+    "tag": "select",
+    "text": "1st Base 2nd Base 3rd Base",
+    "type": null,
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "select",
+    "text": "Select batter Bowser Jr. Koopa Green Dry Bones Kritter Daisy Boomerang Bro Purple Toad Green Noki Gray Shy Guy",
+    "type": null,
+    "role": null,
+    "title": null,
+    "disabled": false
+  },
+  {
+    "tag": "button",
+    "text": "Add Runner",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": true
+  },
+  {
+    "tag": "button",
+    "text": "Undo Latest Action",
+    "type": "button",
+    "role": null,
+    "title": null,
+    "disabled": false
+  }
+]

@@ -1,13 +1,37 @@
-import { buildBettingEntityLabel } from './oddsEngine'
-import { getPlayerSkillProfile } from './teamIdentity'
-import { inningsAsDecimal } from './statsCalculator'
-import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules'
-import { summarizeHitDistance } from './hitDistanceStats'
+import { buildBettingEntityLabel } from './oddsEngine.js'
+import { getPlayerSkillProfile } from './teamIdentity.js'
+import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules.js'
 
 const DEFAULT_AVG_DISTANCE_FT = 220
 const DEFAULT_HARD_HIT_RATE = 0.18
 
 const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
+
+// Kept local so this shared odds-context builder remains Node-compatible for
+// the tracker bridge. Importing the UI-oriented stats/hit-distance modules
+// pulls JSX-only field-visualization dependencies into the bridge process.
+function inningsAsDecimal(inningsPitched = 0) {
+  const innings = Number(inningsPitched || 0)
+  const whole = Math.trunc(innings)
+  const fraction = Number((innings - whole).toFixed(3))
+  const extraOuts = Math.abs(fraction - 0.1) < 0.001 ? 1 : Math.abs(fraction - 0.2) < 0.001 ? 2 : Math.round(fraction * 3)
+  return ((whole * 3) + extraOuts) / 3
+}
+
+function summarizeHitDistance(plateAppearances = []) {
+  const distances = (plateAppearances || [])
+    .map((pa) => Number(pa?.hit_distance_ft))
+    .filter((distance) => Number.isFinite(distance) && distance > 0)
+  if (!distances.length) return { sampleSize: 0, avgDistance: null, maxDistance: null, hardHitCount: null, hardHitRate: null }
+  const hardHitCount = distances.filter((distance) => distance >= 275).length
+  return {
+    sampleSize: distances.length,
+    avgDistance: Math.round((distances.reduce((sum, distance) => sum + distance, 0) / distances.length) * 10) / 10,
+    maxDistance: Math.round(Math.max(...distances)),
+    hardHitCount,
+    hardHitRate: Math.round((hardHitCount / distances.length) * 1000) / 1000,
+  }
+}
 
 function average(values, fallback = 0) {
   if (!values.length) return fallback

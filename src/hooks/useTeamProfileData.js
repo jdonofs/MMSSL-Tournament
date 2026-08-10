@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { computeRangeLeagueConstants, summarizeFieldingRange } from '../utils/fieldingRange'
 import {
   abbreviateSeasonName,
@@ -305,37 +306,37 @@ export default function useTeamProfileData(playerId, scope) {
         stadiumsResult, stadiumGameLogResult, seasonStadiumGameLogResult,
         gameFieldersResult, seasonGameFieldersResult,
       ] = await Promise.all([
-        supabase.from('players').select('*'),
-        supabase.from('season_teams').select('*'),
-        supabase.from('season_roster').select('*'),
-        supabase.from('season_schedule').select('*'),
-        supabase.from('season_betting_ledger').select('*'),
-        supabase.from('season_plate_appearances').select('*'),
-        supabase.from('season_pitching_stints').select('*'),
-        supabase.from('season_pitches').select('*'),
-        supabase.from('draft_picks').select('*'),
-        supabase.from('games').select('*'),
-        supabase.from('plate_appearances').select('*'),
-        supabase.from('pitching_stints').select('*'),
-        supabase.from('pitches').select('*'),
-        supabase.from('tournaments').select('*').order('tournament_number'),
-        supabase.from('seasons').select('*').order('created_at'),
-        supabase.from('tournament_trade_proposals').select('*'),
-        supabase.from('tournament_trade_proposal_moves').select('*'),
-        supabase.from('season_trade_proposals').select('*'),
-        supabase.from('season_trade_proposal_moves').select('*'),
-        supabase.from('season_waivers').select('*'),
-        supabase.from('characters').select('*'),
+        fetchAllRows(() => supabase.from('players').select('*')),
+        fetchAllRows(() => supabase.from('season_teams').select('*')),
+        fetchAllRows(() => supabase.from('season_roster').select('*')),
+        fetchAllRows(() => supabase.from('season_schedule').select('*')),
+        fetchAllRows(() => supabase.from('season_betting_ledger').select('*')),
+        fetchAllRows(() => supabase.from('season_plate_appearances').select('*')),
+        fetchAllRows(() => supabase.from('season_pitching_stints').select('*')),
+        fetchAllRows(() => supabase.from('season_pitches').select('*')),
+        fetchAllRows(() => supabase.from('draft_picks').select('*')),
+        fetchAllRows(() => supabase.from('games').select('*')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('*')),
+        fetchAllRows(() => supabase.from('pitching_stints').select('*')),
+        fetchAllRows(() => supabase.from('pitches').select('*')),
+        fetchAllRows(() => supabase.from('tournaments').select('*').order('tournament_number')),
+        fetchAllRows(() => supabase.from('seasons').select('*').order('created_at')),
+        fetchAllRows(() => supabase.from('tournament_trade_proposals').select('*')),
+        fetchAllRows(() => supabase.from('tournament_trade_proposal_moves').select('*')),
+        fetchAllRows(() => supabase.from('season_trade_proposals').select('*')),
+        fetchAllRows(() => supabase.from('season_trade_proposal_moves').select('*')),
+        fetchAllRows(() => supabase.from('season_waivers').select('*')),
+        fetchAllRows(() => supabase.from('characters').select('*')),
         // Unfiltered (not scoped to this player) — the game log's win/loss/save reconstruction
         // needs every run in a game, not just the ones this team's characters scored. Both
         // tables are small league-wide, so fetching in full is cheap.
-        supabase.from('season_runs_scored').select('*'),
-        supabase.from('runs_scored').select('*'),
-        supabase.from('stadiums').select('id,name'),
-        supabase.from('stadium_game_log').select(STADIUM_GAME_LOG_SELECT),
-        supabase.from('season_stadium_game_log').select(SEASON_STADIUM_GAME_LOG_SELECT),
-        supabase.from('game_fielders').select('*'),
-        supabase.from('season_game_fielders').select('*'),
+        fetchAllRows(() => supabase.from('season_runs_scored').select('*')),
+        fetchAllRows(() => supabase.from('runs_scored').select('*')),
+        fetchAllRows(() => supabase.from('stadiums').select('id,name')),
+        fetchAllRows(() => supabase.from('stadium_game_log').select(STADIUM_GAME_LOG_SELECT)),
+        fetchAllRows(() => supabase.from('season_stadium_game_log').select(SEASON_STADIUM_GAME_LOG_SELECT)),
+        fetchAllRows(() => supabase.from('game_fielders').select('*')),
+        fetchAllRows(() => supabase.from('season_game_fielders').select('*')),
       ])
       if (cancelled) return
 

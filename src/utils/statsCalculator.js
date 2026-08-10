@@ -1237,7 +1237,6 @@ export function buildFieldingChances(plateAppearances = [], gameFielders = [], c
       : pa.result === 'K'
         ? [2]
         : ((pa.is_error || outsOnPlay > 0) && fallbackPosition != null ? [fallbackPosition] : [])
-    if (!positions.length) continue
 
     positions.forEach((position, index) => {
       const fielder = matchFielderForPa(pa, gameFieldersByGameId, position)

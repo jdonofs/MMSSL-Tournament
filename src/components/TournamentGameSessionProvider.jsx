@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { useTournament } from '../context/TournamentContext'
 import { GameSessionProvider } from '../context/GameSessionContext'
 import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
@@ -28,6 +29,7 @@ const TOURNAMENT_TABLES = {
   gameOdds: 'game_odds',
   settlements: 'game_settlements',
   stadiumGameLog: 'stadium_game_log',
+  trackerLiveStats: 'tracker_live_stats',
 }
 
 export default function TournamentGameSessionProvider({ children }) {
@@ -55,22 +57,21 @@ export default function TournamentGameSessionProvider({ children }) {
         pitchRowsResult, { data: fieldersData, error: fieldersError }, { data: runsData, error: runsError }, { data: inningScoresData, error: inningScoresError },
         { data: stadiumsData }, { data: stadiumLogData },
       ] = await Promise.all([
-        supabase.from(TOURNAMENT_TABLES.games).select('*').order('id'),
-        supabase.from('players').select('*'),
-        supabase.from(TOURNAMENT_TABLES.lineups).select('*').order('batting_order'),
-        supabase.from('characters').select('*'),
-        supabase.from(TOURNAMENT_TABLES.draftPicks).select('*'),
-        supabase.from(TOURNAMENT_TABLES.plateAppearances).select('*').order('created_at'),
-        supabase.from(TOURNAMENT_TABLES.pitchingStints).select('*').order('created_at'),
-        // Only the selected game's pitch log is used by Scorebook. Keeping this
-        // query game-scoped avoids the same 1,000-row truncation problem that a
-        // tournament-wide pitch fetch would eventually cause.
-        supabase.from(TOURNAMENT_TABLES.pitches).select('*').eq('game_id', gameId).order('created_at'),
-        supabase.from(TOURNAMENT_TABLES.gameFielders).select('*').order('created_at'),
-        supabase.from(TOURNAMENT_TABLES.runsScored).select('*').order('created_at'),
-        supabase.from(TOURNAMENT_TABLES.inningScores).select('*').order('inning'),
-        supabase.from('stadiums').select('*'),
-        supabase.from(TOURNAMENT_TABLES.stadiumGameLog).select('*').order('created_at'),
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.games).select('*')),
+        fetchAllRows(() => supabase.from('players').select('*')),
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.lineups).select('*').order('batting_order')),
+        fetchAllRows(() => supabase.from('characters').select('*')),
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.draftPicks).select('*')),
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.plateAppearances).select('*').order('created_at')),
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.pitchingStints).select('*').order('created_at')),
+        // Only the selected game's pitch log is used by Scorebook, so this stays
+        // game-scoped; fetchAllRows still guards a marathon game's pitch count.
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.pitches).select('*').eq('game_id', gameId).order('created_at')),
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.gameFielders).select('*').order('created_at')),
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.runsScored).select('*').order('created_at')),
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.inningScores).select('*').order('inning')),
+        fetchAllRows(() => supabase.from('stadiums').select('*')),
+        fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.stadiumGameLog).select('*').order('created_at')),
       ])
 
       return {

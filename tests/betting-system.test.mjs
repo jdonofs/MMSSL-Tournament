@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { resolveGameBets, resolveOnPA, resolveFirstInningNoRun, reopenGameBets, buildPlacedBetLedgerEntries } from '../src/utils/betResolution.js'
+import { resolveGameBets, resolveOnPA, resolveFirstInningNoRun, reopenGameBets, runPostGameCalibration, buildPlacedBetLedgerEntries, getBettingWinningSide } from '../src/utils/betResolution.js'
 import {
   buildBettingEntityLabel,
   generateGameOdds,
   recalculateOdds,
   priceMarket,
+  priceBalancedTotalLine,
   calculatePayout,
   DEFAULT_LIABILITY_CAP,
 } from '../src/utils/oddsEngine.js'
 import { supabase } from '../src/supabaseClient.js'
 import { parseDollarWager, sanitizeDollarWagerInput, summarizeSlipWagers } from '../src/utils/bettingSlip.js'
 import { buildSettleUpBalances, computeSettleUpAmount, hasSettleUpAssignments } from '../src/utils/settleUp.js'
+import { persistOddsRowsWithFallback } from '../src/utils/oddsPersistence.js'
 import { createFakeSupabase } from './helpers/fakeSupabase.mjs'
 
 const TOURNAMENT_ID = 5
@@ -87,6 +89,36 @@ test('buildPlacedBetLedgerEntries debits wagers with the expected source metadat
   ])
 })
 
+test('postgame calibration is a no-op when a completed game has no graded predictions', async () => {
+  const originalWeights = {
+    id: 1,
+    char_stats_weight: 0.333,
+    historical_weight: 0.333,
+    live_weight: 0.334,
+    games_evaluated: 26,
+    last_brier_score: 0,
+    updated_at: '2026-06-08T16:45:07.289Z',
+  }
+
+  await withFakeSupabase({
+    bets: [],
+    odds_engine_weights: [originalWeights],
+    odds_calibration_log: [],
+  }, async (db) => {
+    const result = await runPostGameCalibration(GAME_ID, {
+      ...BETTING_CONFIG,
+      enableCalibrationLogging: true,
+      enableWeightAdjustment: true,
+      weightsTable: 'odds_engine_weights',
+      oddsCalibrationTable: 'odds_calibration_log',
+    })
+
+    assert.deepEqual(result, { brierScore: null, weights: null })
+    assert.deepEqual(db.odds_engine_weights, [originalWeights])
+    assert.deepEqual(db.odds_calibration_log, [])
+  })
+})
+
 test('resolveOnPA settles first-inning-run yes/no bets once a later play confirms a first-inning run', async () => {
   const yesBet = makeBet({ id: 1, bet_type: 'first_inning_run', chosen_side: 'yes', potential_payout_dollars: 9 })
   const noBet = makeBet({ id: 2, player_id: 'p2', bet_type: 'first_inning_run', chosen_side: 'no', potential_payout_dollars: 11 })
@@ -118,6 +150,27 @@ test('resolveOnPA settles first-inning-run yes/no bets once a later play confirm
         points_change: 19,
       },
     ])
+  })
+})
+
+test('resolveOnPA locks first-inning betting immediately when the current play scores, before deferred settlement', async () => {
+  const yesBet = makeBet({ id: 1, bet_type: 'first_inning_run', chosen_side: 'yes' })
+  const noBet = makeBet({ id: 2, player_id: 'p2', bet_type: 'first_inning_run', chosen_side: 'no' })
+
+  await withFakeSupabase({
+    bets: [yesBet, noBet],
+    game_odds: [{ id: 9, game_id: GAME_ID, bet_type: 'first_inning_run', target_entity: null, is_locked: false }],
+    points_ledger: makePlacementLedger([yesBet, noBet]),
+    runs_scored: [{ id: 1, game_id: GAME_ID, pa_id: 10, inning: 1 }],
+    plate_appearances: [],
+  }, async (db) => {
+    const updates = await resolveOnPA(GAME_ID, { id: 10, inning: 1, rbi: 1 }, BETTING_CONFIG)
+
+    assert.equal(updates.length, 0, 'settlement should still wait for the confirming next play')
+    assert.equal(db.bets.find((bet) => bet.id === 1).status, 'open')
+    assert.equal(db.bets.find((bet) => bet.id === 2).status, 'open')
+    assert.equal(db.game_odds[0].is_locked, true, 'new bets must stop as soon as the outcome is known')
+    assert.equal(db.points_ledger.filter((row) => row.reason.startsWith('bet_settled:')).length, 0)
   })
 })
 
@@ -242,6 +295,60 @@ test('resolveGameBets pushes (voids + refunds) moneyline/run_line/over_under bet
   })
 })
 
+test('scorebook winner mapping preserves a tied game as null so moneyline and run-line bets push', () => {
+  assert.equal(getBettingWinningSide(null, 'home-player'), null)
+  assert.equal(getBettingWinningSide('home-player', 'home-player'), 'home')
+  assert.equal(getBettingWinningSide('away-player', 'home-player'), 'away')
+})
+
+test('repeated settlement is idempotent and keeps cent-rounded balance math exact', async () => {
+  const winner = makeBet({ id: 1, odds: -150, wager_dollars: 10, potential_payout_dollars: 6.67 })
+  const loser = makeBet({ id: 2, player_id: 'p1', chosen_side: 'away', odds: 150, wager_dollars: 10, potential_payout_dollars: 15 })
+  const bets = [winner, loser]
+
+  await withFakeSupabase({
+    bets,
+    points_ledger: makePlacementLedger(bets),
+  }, async (db) => {
+    await resolveGameBets(GAME_ID, 'home', 4, {}, 2, BETTING_CONFIG)
+    await resolveGameBets(GAME_ID, 'home', 4, {}, 2, BETTING_CONFIG)
+
+    const settlementRows = db.points_ledger.filter((row) => row.reason.startsWith('bet_settled:'))
+    assert.equal(settlementRows.length, 1)
+    assert.equal(settlementRows[0].points_change, 16.67)
+    const ledgerNet = db.points_ledger.reduce((sum, row) => sum + Number(row.points_change || 0), 0)
+    assert.equal(Math.round(ledgerNet * 100) / 100, -3.33)
+  })
+})
+
+test('odds persistence keeps the current prop count needed for authoritative alternate pricing', async () => {
+  const fake = createFakeSupabase({
+    game_odds: [{ id: 1, game_id: GAME_ID, bet_type: 'hr_prop', target_entity: 'Mario (Aidan)' }],
+  })
+
+  await persistOddsRowsWithFallback({
+    supabase: fake,
+    table: 'game_odds',
+    updates: [{
+      id: 1,
+      game_id: GAME_ID,
+      bet_type: 'hr_prop',
+      target_entity: 'Mario (Aidan)',
+      prop_current_count: 2,
+      prop_lambda: 0.8,
+      prop_variance_multiplier: 1.1,
+    }],
+  })
+
+  assert.equal(fake.db.game_odds[0].prop_current_count, 2)
+  assert.equal(fake.db.game_odds[0].prop_lambda, 0.8)
+})
+
+test('sub-cent winning profit rounds to zero so the placement guard must reject it', () => {
+  assert.equal(calculatePayout(0.01, -225), 0)
+  assert.equal(calculatePayout(0.03, -225), 0.01)
+})
+
 test('reopenGameBets reopens resolved markets, including first-inning-run bets, and removes settled ledger rows', async () => {
   const moneyline = makeBet({ id: 1, bet_type: 'moneyline', status: 'won', result_correct: true, resolved_at: '2026-07-20T12:05:00.000Z' })
   const firstInning = makeBet({ id: 2, player_id: 'p2', bet_type: 'first_inning_run', chosen_side: 'yes', status: 'lost', result_correct: false, resolved_at: '2026-07-20T12:05:00.000Z' })
@@ -355,6 +462,10 @@ test('generateGameOdds carries current in-game counts into generated prop market
   assert.equal(peachHit.line, 1.5)
   assert.equal(luigiK.prop_current_count, 1)
   assert.ok(luigiK.line > luigiK.prop_current_count)
+
+  const repeatedRows = generateGameOdds(game, homeRoster, awayRoster, history, history, playerProps)
+  const stripTimestamps = (oddsRows) => oddsRows.map(({ updated_at, ...row }) => row)
+  assert.deepEqual(stripTimestamps(repeatedRows), stripTimestamps(rows))
 })
 
 test('recalculateOdds locks first-inning-run markets after the window closes', () => {
@@ -547,6 +658,29 @@ test('priceMarket suspends a side once liability exceeds the cap, and heavier mo
     impliedProbabilityFromAmericanOdds(heavyOnA.oddsA) > impliedProbabilityFromAmericanOdds(balanced.oddsA),
     'heavy money on side A should make side A pay out relatively less (worse odds for new A bettors), not better',
   )
+})
+
+test('priceBalancedTotalLine moves a stale extreme total to the closest pick-em line', () => {
+  const balanced = priceBalancedTotalLine({
+    projectedTotal: 8.1,
+    totalStdDev: 2.5,
+    currentTotal: 5,
+  })
+
+  assert.equal(balanced.line, 8)
+  assert.ok(Math.abs(balanced.pricing.probabilityA - 0.5) < 0.04)
+  assert.ok(Math.abs(balanced.pricing.oddsA) < 150)
+  assert.ok(Math.abs(balanced.pricing.oddsB) < 150)
+})
+
+test('priceBalancedTotalLine never offers a total below runs already scored', () => {
+  const balanced = priceBalancedTotalLine({
+    projectedTotal: 7,
+    totalStdDev: 2,
+    currentTotal: 9,
+  })
+
+  assert.ok(balanced.line >= 9.5)
 })
 
 test('calculatePayout matches the American-odds formula both sides of even money', () => {

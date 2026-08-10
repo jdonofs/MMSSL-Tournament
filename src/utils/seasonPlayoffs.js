@@ -127,7 +127,10 @@ function buildSeasonGamePatch(game, nextHomeTeamId, nextAwayTeamId, resetGame) {
     patch.winner_team_id = null
     patch.away_score = 0
     patch.home_score = 0
-    patch.live_state = null
+    // season_schedule.live_state is NOT NULL — {} is the "empty" sentinel used
+    // everywhere else this column is cleared for a season game (see
+    // getPersistedLiveStateValue in Scorebook.jsx).
+    patch.live_state = {}
     patch.final_inning = null
     patch.is_extra_innings = false
   }
@@ -156,6 +159,32 @@ async function clearSeasonGameArtifacts(supabase, gameId, seasonId) {
 
   const failed = results.find((result) => result.error)
   if (failed?.error) throw failed.error
+}
+
+// Reopening a regular-season game invalidates the seeding of every postseason
+// game that was derived from the completed standings. Remove that downstream
+// graph (including any scorebook/betting artifacts) so recompleting the regular
+// season can seed a single fresh bracket from the corrected standings.
+export async function clearSeasonPlayoffsAfterRegularGameReopen({
+  supabase,
+  season,
+  schedule,
+} = {}) {
+  if (!season?.id) return []
+  const playoffGames = (schedule || []).filter((game) => Boolean(game.stage))
+  if (!playoffGames.length) return []
+
+  for (const game of playoffGames) {
+    await clearSeasonGameArtifacts(supabase, game.id, season.id)
+  }
+
+  const ids = playoffGames.map((game) => game.id)
+  const { error } = await supabase
+    .from('season_schedule')
+    .delete()
+    .in('id', ids)
+  if (error) throw error
+  return ids
 }
 
 async function insertSeasonPlayoffGame(supabase, season, roundNumber, stage, homeTeamId, awayTeamId) {
@@ -299,10 +328,22 @@ async function syncSeasonChampionshipResetState({
   if (!shouldEnableReset) {
     if (
       resetGame
-      && resetGame.status === 'scheduled'
-      && (resetGame.home_team_id || resetGame.away_team_id || resetGame.stadium_picker_team_id)
+      && (resetGame.home_team_id || resetGame.away_team_id || resetGame.stadium_picker_team_id || resetGame.status !== 'scheduled')
     ) {
-      const cleared = await updateSeasonPlayoffGame(supabase, resetGame, null, null)
+      // The reset game may already have been played (e.g. an earlier bracket
+      // game just got reopened, un-deciding the Championship game the reset
+      // depended on) — clear its result/artifacts, not just its participants,
+      // so a stale winner can't keep the season "completed".
+      const needsReset = resetGame.status !== 'scheduled'
+      const cleared = await updateSeasonPlayoffGame(supabase, resetGame, null, null, needsReset)
+      if (needsReset) {
+        try {
+          await clearSeasonGameArtifacts(supabase, resetGame.id, season.id)
+        } catch (err) {
+          await updateSeasonPlayoffGame(supabase, cleared, resetGame.home_team_id, resetGame.away_team_id, false)
+          throw err
+        }
+      }
       return [cleared]
     }
     return []

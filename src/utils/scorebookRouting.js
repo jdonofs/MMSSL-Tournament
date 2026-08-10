@@ -30,3 +30,15 @@ export function buildAtBatPath({ id, source = 'tournament' } = {}) {
   const resolvedSource = source === 'season' ? 'season' : 'tournament'
   return `/at-bat/${resolvedSource}/${id}`
 }
+
+// Games flagged stats_source='tracker' skip the live manual Scorebook
+// entirely — this is the standalone paginated at-bat-by-at-bat editor for
+// completing/correcting what the tracker bridge recorded.
+export function buildTrackerEditorPath({ gameId, source = 'tournament' } = {}) {
+  if (gameId == null || gameId === '') {
+    return null
+  }
+
+  const resolvedSource = source === 'season' ? 'season' : 'tournament'
+  return `/tracker-editor/${resolvedSource}/${gameId}`
+}

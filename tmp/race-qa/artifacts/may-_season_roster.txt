@@ -1,0 +1,109 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+May
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Rosters
+Trade Center
+Free Agents
+Transactions
+Viewing:
+Bompkins (Aidan)
+Big Ds (Donovan)
+Kings (Jason)
+Schlongs (Justin)
+Mossers (May) — You
+Dumbos (Nick)
+LINEUP
+Auto Lineup
+1
+Funky Kong
+8
+4
+6
+3
+3B
+2
+Blue Kritter
+6
+5
+7
+3
+1B
+3
+King K. Rool
+10
+6
+2
+1
+C
+4
+Yellow Pianta
+8
+4
+4
+2
+LF
+5
+Red Toad
+5
+5
+3
+7
+CF
+6
+Green Shy Guy
+5
+3
+7
+5
+2B
+7
+Red Yoshi
+4
+3
+4
+8
+RF
+8
+Light-Blue Yoshi
+3
+3
+6
+8
+SS
+9
+Waluigi
+4
+8
+8
+5
+P
+Auto Fielding
+FIELDING POSITIONS
+Tap player, then tap position to swap
+P
+C
+1B
+2B
+3B
+SS
+LF
+CF
+RF
+All changes saved
+Saved

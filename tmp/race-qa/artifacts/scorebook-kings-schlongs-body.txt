@@ -1,0 +1,95 @@
+SLUGGERS
+Season Mode
+Tournament
+Season
+QA STATS
+QA PLAYOFFS SE
+QA PLAYOFFS DE
+QA TEST
+TEST
+MSL Season 1
+Jason
+Logout
+Standings
+Schedule
+Bracket
+Draft
+Roster
+Bets
+Stats
+Game View
+Scorebook
+Lineups
+At-Bat Data
+Admin
+Luigi's Mansion
+Night
+⇄ Swap Home/Away
+BATTER
+Bowser Jr.
+Kings · #1
+AVG .000
+HR 0
+RBI 0
+PITCHER
+Donkey Kong
+Schlongs
+IP 0
+H 0
+R 0
+ER 0
+BB 0
+K 0
+P 0
+CLE
+LIS
+1
+-
+-
+2
+-
+-
+3
+-
+-
+R
+H
+E
+0
+0
+0
+0
+0
+0
+B
+S
+O
+1
+2
+3
+4
+5
+6
+7
+8
+9
+1
+2
+3
+4
+5
+6
+7
+8
+9
+STAR PITCH
+STAR HIT
+BALL
+SWING
+LOOK
+FOUL
+HBP
+IN PLAY
+Undo
+Redo
+End Game

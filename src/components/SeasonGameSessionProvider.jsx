@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { fetchAllRows } from '../utils/fetchAllRows'
 import { GameSessionProvider } from '../context/GameSessionContext'
 import { useSeason } from '../context/SeasonContext'
 import { buildSeasonStandings } from '../utils/competitionStandings'
@@ -12,6 +13,7 @@ import {
 } from '../utils/gameRules'
 import {
   advanceSeasonPlayoffs,
+  clearSeasonPlayoffsAfterRegularGameReopen,
   reopenSeasonPlayoffs,
   seedSeasonPlayoffs,
 } from '../utils/seasonPlayoffs'
@@ -31,6 +33,7 @@ const SEASON_TABLES = {
   gameOdds: 'season_game_odds',
   settlements: 'season_game_settlements',
   stadiumGameLog: 'season_stadium_game_log',
+  trackerLiveStats: 'season_tracker_live_stats',
 }
 
 export default function SeasonGameSessionProvider({ children }) {
@@ -99,24 +102,23 @@ export default function SeasonGameSessionProvider({ children }) {
         { data: stadiumsData },
         { data: stadiumLogData },
       ] = await Promise.all([
-        supabase.from(SEASON_TABLES.games).select('*').eq('season_id', currentSeason.id).order('round_number').order('id'),
-        supabase.from('players').select('*'),
-        supabase.from(SEASON_TABLES.lineups).select('*').eq('season_id', currentSeason.id).order('batting_order'),
-        supabase.from('characters').select('*'),
-        supabase.from(SEASON_TABLES.draftPicks).select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from(SEASON_TABLES.plateAppearances).select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from(SEASON_TABLES.pitchingStints).select('*').eq('season_id', currentSeason.id).order('created_at'),
-        // Scorebook only consumes pitch rows for the selected game. Loading the
-        // entire season silently hits Supabase's default 1,000-row response cap
-        // in longer seasons, which can omit the active game's pitches and reset
-        // the live pitch counter back to zero after a data refresh.
-        supabase.from(SEASON_TABLES.pitches).select('*').eq('game_id', gameId).order('created_at'),
-        supabase.from(SEASON_TABLES.gameFielders).select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from(SEASON_TABLES.runsScored).select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from(SEASON_TABLES.inningScores).select('*').eq('season_id', currentSeason.id).order('inning'),
-        supabase.from('season_teams').select('*').eq('season_id', currentSeason.id).order('created_at'),
-        supabase.from('stadiums').select('*'),
-        supabase.from(SEASON_TABLES.stadiumGameLog).select('*').eq('season_id', currentSeason.id).order('created_at'),
+        fetchAllRows(() => supabase.from(SEASON_TABLES.games).select('*').eq('season_id', currentSeason.id).order('round_number')),
+        fetchAllRows(() => supabase.from('players').select('*')),
+        fetchAllRows(() => supabase.from(SEASON_TABLES.lineups).select('*').eq('season_id', currentSeason.id).order('batting_order')),
+        fetchAllRows(() => supabase.from('characters').select('*')),
+        fetchAllRows(() => supabase.from(SEASON_TABLES.draftPicks).select('*').eq('season_id', currentSeason.id).order('created_at')),
+        fetchAllRows(() => supabase.from(SEASON_TABLES.plateAppearances).select('*').eq('season_id', currentSeason.id).order('created_at')),
+        fetchAllRows(() => supabase.from(SEASON_TABLES.pitchingStints).select('*').eq('season_id', currentSeason.id).order('created_at')),
+        // Scorebook only consumes pitch rows for the selected game, so this one
+        // stays game-scoped — but it still goes through fetchAllRows in case a
+        // marathon game somehow produces more than a page of pitches.
+        fetchAllRows(() => supabase.from(SEASON_TABLES.pitches).select('*').eq('game_id', gameId).order('created_at')),
+        fetchAllRows(() => supabase.from(SEASON_TABLES.gameFielders).select('*').eq('season_id', currentSeason.id).order('created_at')),
+        fetchAllRows(() => supabase.from(SEASON_TABLES.runsScored).select('*').eq('season_id', currentSeason.id).order('created_at')),
+        fetchAllRows(() => supabase.from(SEASON_TABLES.inningScores).select('*').eq('season_id', currentSeason.id).order('inning')),
+        fetchAllRows(() => supabase.from('season_teams').select('*').eq('season_id', currentSeason.id).order('created_at')),
+        fetchAllRows(() => supabase.from('stadiums').select('*')),
+        fetchAllRows(() => supabase.from(SEASON_TABLES.stadiumGameLog).select('*').eq('season_id', currentSeason.id).order('created_at')),
       ])
 
       const charactersByName = Object.fromEntries((charsData || []).map((entry) => [entry.name, entry]))
@@ -391,11 +393,18 @@ export default function SeasonGameSessionProvider({ children }) {
           seasonTeams: allTeams || [],
         })
       } else {
+        if (hasPlayoffGames) {
+          await clearSeasonPlayoffsAfterRegularGameReopen({
+            supabase,
+            season: currentSeason,
+            schedule: allGames || [],
+          })
+        }
         await supabase
           .from('seasons')
           .update({
             champion_player_id: null,
-            status: allRegularSeasonComplete || hasPlayoffGames ? 'playoffs' : 'active',
+            status: allRegularSeasonComplete ? 'playoffs' : 'active',
           })
           .eq('id', currentSeason.id)
       }

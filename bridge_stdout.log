@@ -1,0 +1,10 @@
+
+> sluggers-tournament-tracker@1.0.0 tracker:bridge
+> node scripts/live_tracker_bridge.mjs
+
+[tracker-bridge 2026-08-10T03:17:50.409Z] signing in as jason@sluggers.local
+[tracker-bridge 2026-08-10T03:17:51.623Z] syncing into game_id=2286
+[tracker-bridge 2026-08-10T03:17:51.817Z] box score synced: 20 batting rows, 0 pitching rows
+[tracker-bridge 2026-08-10T03:17:51.818Z] launching tracker: C:\Users\jdono\Sluggers\sluggers-stat-tracker-windows\sluggers-stat-tracker.exe
+[tracker-bridge 2026-08-10T03:17:51.825Z] live feed + box score watcher running. Ctrl+C to stop.
+[tracker-bridge 2026-08-10T03:17:52.257Z] box score synced: 20 batting rows, 0 pitching rows
