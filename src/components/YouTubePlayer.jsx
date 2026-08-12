@@ -49,8 +49,6 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
   const endSecRef = useRef(endSec)
   const startSecRef = useRef(startSec)
   const pollRef = useRef(null)
-  const primingRef = useRef(false)
-  const primingTimeoutRef = useRef(null)
   const [isReady, setIsReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isAtClipEnd, setIsAtClipEnd] = useState(false)
@@ -65,6 +63,8 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
   // what made it stutter.
   const [scrubValue, setScrubValue] = useState(null)
   const lastDragSeekRef = useRef(0)
+  const isScrubbingRef = useRef(false)
+  const resumeAfterScrubRef = useRef(false)
 
   const hasClip = startSec != null && endSec != null && endSec > startSec
 
@@ -90,6 +90,8 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
     setIsPlaying(false)
     setIsAtClipEnd(false)
     setProgressSec(startSec ?? 0)
+    isScrubbingRef.current = false
+    resumeAfterScrubRef.current = false
 
     if (!videoId || !containerRef.current) return undefined
 
@@ -99,6 +101,7 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
       playerRef.current = new YT.Player(containerRef.current, {
         videoId,
         playerVars: {
+          autoplay: 0,
           start: startSec != null ? Math.max(0, Math.floor(startSec)) : undefined,
           modestbranding: 1,
           rel: 0,
@@ -117,18 +120,13 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
             // preference. Tearing out the captions module entirely is the
             // only reliable way to force them off.
             playerRef.current?.unloadModule?.('captions')
+            // Keep initialization passive. Calling seekTo here can cause the
+            // YouTube iframe to start playback before the user presses Play.
+            // handlePlayClick performs the real seek immediately before the
+            // first user-initiated playback instead.
             if (hasClip) {
-              // Silently play-then-pause right away so the clip is already
-              // buffered by the time the user actually presses play — a
-              // cold play always has to buffer first, and that buffering
-              // shows YouTube's own loading UI through once our cover comes
-              // down. Doing it now, while the cover is already up for other
-              // reasons, means the real click starts instantly.
-              primingRef.current = true
-              playerRef.current.playVideo()
-              primingTimeoutRef.current = setTimeout(() => {
-                primingRef.current = false
-              }, 4000)
+              const clipStart = startSecRef.current ?? 0
+              setProgressSec(clipStart)
             }
           },
           // Poll while playing so playback can be stopped right at the
@@ -136,17 +134,16 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
           // "stop at time" option, only start-time playerVars. Also drives
           // the custom scrubber's progress while a clip is active.
           onStateChange: (event) => {
-            if (primingRef.current) {
-              if (event.data === YT.PlayerState.PLAYING) {
-                playerRef.current.pauseVideo()
-              } else if (event.data === YT.PlayerState.PAUSED) {
-                clearTimeout(primingTimeoutRef.current)
-                primingRef.current = false
-              }
-              return
-            }
             clearInterval(pollRef.current)
             const playing = event.data === YT.PlayerState.PLAYING
+            // A seek can briefly push the iframe back into PLAYING even if
+            // pauseVideo was sent at the start of a drag. Keep it suspended
+            // until the user releases the scrubber.
+            if (playing && isScrubbingRef.current) {
+              playerRef.current?.pauseVideo?.()
+              setIsPlaying(false)
+              return
+            }
             if (playing) playerRef.current?.unloadModule?.('captions')
             setIsPlaying(playing)
             if (!playing) return
@@ -173,8 +170,6 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
     return () => {
       cancelled = true
       clearInterval(pollRef.current)
-      clearTimeout(primingTimeoutRef.current)
-      primingRef.current = false
       if (playerRef.current?.destroy) {
         playerRef.current.destroy()
         playerRef.current = null
@@ -220,7 +215,20 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
       return
     }
     if (isPlaying) playerRef.current.pauseVideo?.()
-    else playerRef.current.playVideo?.()
+    else {
+      // YouTube can report PLAYING while still positioned at 0 even when a
+      // start playerVar was supplied. Correct an out-of-clip position before
+      // the first real play so progress polling always has a valid baseline.
+      const clipStart = startSecRef.current ?? 0
+      const clipEnd = endSecRef.current
+      const current = playerRef.current.getCurrentTime?.()
+      if (hasClip && (current == null || current < clipStart - 0.05 || (clipEnd != null && current >= clipEnd))) {
+        playerRef.current.seekTo?.(clipStart, true)
+        setProgressSec(clipStart)
+        setIsAtClipEnd(false)
+      }
+      playerRef.current.playVideo?.()
+    }
   }
 
   function seekWithinClip(sec) {
@@ -230,25 +238,56 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
     setIsAtClipEnd(false)
   }
 
+  function beginScrub() {
+    if (isScrubbingRef.current || !playerRef.current) return
+    const wasPlaying = isPlaying || playerRef.current.getPlayerState?.() === 1
+    isScrubbingRef.current = true
+    resumeAfterScrubRef.current = wasPlaying
+    clearInterval(pollRef.current)
+    if (wasPlaying) playerRef.current.pauseVideo?.()
+  }
+
   // Called on every drag tick — updates the thumb immediately, and seeks the
   // actual video too (throttled) so frames visibly advance while dragging,
   // which is the reason to scrub in the first place.
   const DRAG_SEEK_THROTTLE_MS = 120
   function scrubTo(sec) {
+    // Some browsers fire one final change event after mouseup. The release
+    // handler has already committed and (when needed) resumed playback, so
+    // ignore that trailing event instead of pausing the player again.
+    if (!isScrubbingRef.current) return
     setScrubValue(sec)
     const now = performance.now()
     if (now - lastDragSeekRef.current < DRAG_SEEK_THROTTLE_MS) return
     lastDragSeekRef.current = now
     const start = startSecRef.current ?? 0
     playerRef.current?.seekTo?.(start + sec, true)
+    playerRef.current?.pauseVideo?.()
   }
 
   // Fires on release (mouseup/touchend/keyup) — guarantees the final
   // position lands exactly where released, bypassing the throttle above.
-  function commitScrub() {
-    if (scrubValue == null) return
-    seekWithinClip(scrubValue)
+  function commitScrub(finalValue = scrubValue) {
+    if (!isScrubbingRef.current || finalValue == null) return
+    const shouldResume = resumeAfterScrubRef.current
+    isScrubbingRef.current = false
+    resumeAfterScrubRef.current = false
+    seekWithinClip(finalValue)
     setScrubValue(null)
+    if (shouldResume) playerRef.current?.playVideo?.()
+  }
+
+  function finishPointerScrub(event) {
+    commitScrub(Number(event.currentTarget.value))
+  }
+
+  const scrubKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']
+  function handleScrubKeyDown(event) {
+    if (scrubKeys.includes(event.key)) beginScrub()
+  }
+
+  function handleScrubKeyUp(event) {
+    if (scrubKeys.includes(event.key)) commitScrub(Number(event.currentTarget.value))
   }
 
   function toggleFullscreen() {
@@ -326,9 +365,12 @@ const YouTubePlayer = forwardRef(function YouTubePlayer({ videoId, startSec, end
             value={displayedElapsed}
             disabled={!isReady}
             onChange={(e) => scrubTo(Number(e.target.value))}
-            onMouseUp={commitScrub}
-            onTouchEnd={commitScrub}
-            onKeyUp={commitScrub}
+            onMouseDown={beginScrub}
+            onMouseUp={finishPointerScrub}
+            onTouchStart={beginScrub}
+            onTouchEnd={finishPointerScrub}
+            onKeyDown={handleScrubKeyDown}
+            onKeyUp={handleScrubKeyUp}
             style={{ flex: 1, accentColor: 'var(--accent, #EAB308)' }}
           />
           <span className="muted" style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>

@@ -1,6 +1,6 @@
 import { calculateOutsForPa } from './statsCalculator'
 import { deriveOffense } from './gameRules'
-import { computePendingState, computePendingOutState, extractNextRunners } from './runnerAssignment'
+import { computePendingState, computePendingOutState, extractNextRunners, normalizeStoredRunnerAssignments } from './runnerAssignment'
 
 const HOLDS_RUNNERS = new Set(['K'])
 const CLEARS_BASES = new Set(['HR', 'IPHR', 'TP'])
@@ -33,20 +33,15 @@ function applyKnownScorers(nextRunners, scorerKeys) {
   return result
 }
 
-// Best-effort replay of a single completed PA's runner movement, used only to
-// reconstruct WHO (not just how many) is on base for a page that hasn't been
-// opened/resolved by this editor yet. The exact identity of a baserunner
-// isn't stored anywhere once a play resolves — only the aggregate outs/rbi/
-// run_scored numbers are (plus, now, exactly who scored via runs_scored) — so
-// a play that was manually resolved away from the "obvious" default in some
-// other way (extra base taken but not scored, thrown out at an unexpected
-// base) still won't perfectly replay here. Opening that page in the editor
-// and confirming (or correcting) the runners shown is what keeps this honest
-// going forward.
+// Replay one completed PA's runner movement. Newly edited PAs carry the exact
+// assignments; legacy rows fall back to the old result-based reconstruction
+// plus their runs_scored ledger.
 function replayOnePa(pa, runners, scorerKeys) {
   const batterRunner = { characterId: pa.character_id, playerId: pa.player_id }
   if (CLEARS_BASES.has(pa.result)) return { first: null, second: null, third: null }
   if (HOLDS_RUNNERS.has(pa.result)) return runners
+  const storedAssignments = normalizeStoredRunnerAssignments(pa.runner_assignments)
+  if (storedAssignments) return extractNextRunners({ assignments: storedAssignments })
   if (HIT_LIKE.has(pa.result)) return applyKnownScorers(extractNextRunners(computePendingState(pa.result, runners, batterRunner)), scorerKeys)
   if (OUT_LIKE.has(pa.result)) return applyKnownScorers(extractNextRunners(computePendingOutState(pa.result, runners, batterRunner)), scorerKeys)
   return runners

@@ -8,7 +8,7 @@ import { useGameSession } from '../context/GameSessionContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
 import { useAuth } from '../context/AuthContext'
-import { battedBallResults, calculateOutsForPa, filterRunEventsForCharacter, inningsPitchedFromOuts, isOfficialAtBat, normalizeRbiForPaResult, summarizeBatting, summarizePitching } from '../utils/statsCalculator'
+import { battedBallResults, calculateOutsForPa, filterRunEventsForCharacter, inningsPitchedFromOuts, isCreditedHit, isOfficialAtBat, normalizeRbiForPaResult, summarizeBatting, summarizePitching } from '../utils/statsCalculator'
 import { estimateExitVelocity, exitVelocityDistanceFt, ROBBED_HR_WALL_MARGIN_FT, ROBBED_HR_CARRY_FT } from '../utils/hitDistanceStats'
 import CharacterPortrait from '../components/CharacterPortrait'
 import MiddleClickLink from '../components/MiddleClickLink'
@@ -312,7 +312,7 @@ function runsFromPAs(pas, playerId, runs = []) {
     .reduce((s, pa) => s + getPaScoringRuns(pa), 0)
 }
 function hitsFromPAs(pas, playerId) {
-  return pas.filter(pa => pa.player_id === playerId && HIT_RESULTS.has(pa.result)).length
+  return pas.filter((pa) => String(pa.player_id) === String(playerId) && isCreditedHit(pa)).length
 }
 function errorsFromPAs(pas, playerId, opponentPlayerId) {
   return pas.filter((pa) => pa.is_error && String(pa.player_id) === String(opponentPlayerId)).length
@@ -4944,8 +4944,8 @@ export default function Scorebook() {
         const paRuns = overrideRuns.filter((run) => String(run.pa_id) === String(pa.id))
 
         next._outsRecorded += outs
-        if (HIT_RESULTS.has(pa.result)) next.hits_allowed += 1
-        if (isHomeRunResult(pa.result)) next.hr_allowed += 1
+        if (isCreditedHit(pa)) next.hits_allowed += 1
+        if (isCreditedHit(pa) && isHomeRunResult(pa.result)) next.hr_allowed += 1
         if (pa.result === 'BB') next.walks += 1
         if (pa.result === 'K') next.strikeouts += 1
         // Every pitch of this PA belongs to whichever stint the PA itself was
@@ -7032,8 +7032,8 @@ export default function Scorebook() {
       const hitTotals = {}
       gamePAs.forEach((pa) => {
         const key = buildBettingEntityLabel(charactersById[pa.character_id], playersById[pa.player_id])
-        if (pa.result === 'HR' || pa.result === 'IPHR') hrTotals[key] = Number(hrTotals[key] || 0) + 1
-        if (HIT_RESULTS.has(pa.result)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
+        if (isCreditedHit(pa) && (pa.result === 'HR' || pa.result === 'IPHR')) hrTotals[key] = Number(hrTotals[key] || 0) + 1
+        if (isCreditedHit(pa)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
       })
       await resolveGameBets(
         selectedGame.id,
@@ -7944,13 +7944,6 @@ export default function Scorebook() {
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button
                       type="button"
-                      className="solid-button"
-                      onClick={() => runViewChange(() => setViewMode('atBatEditor'))}
-                    >
-                      Open At-Bat Editor
-                    </button>
-                    <button
-                      type="button"
                       className={selectedGame.stats_source === 'tracker' ? 'ghost-button' : 'solid-button'}
                       disabled={trackerModeSaving}
                       onClick={() => setStatsSource(selectedGame.stats_source === 'tracker' ? 'manual' : 'tracker')}
@@ -7987,50 +7980,6 @@ export default function Scorebook() {
                       }}>
                         {events.length ? dumpText : 'No log lines captured yet.'}
                       </pre>
-                    </div>
-                  )
-                })()}
-                {selectedGame.stats_source === 'tracker' && (() => {
-                  // Only real team names (from the running score), never the
-                  // per-play pitcher/batter matchup — those are individual
-                  // characters, not teams, and listing them here was
-                  // confusingly duplicating each team's own captain name.
-                  const trackerTeamNames = new Set(Object.keys(trackerStats?.live_feed?.score || {}))
-                  const mapping = trackerStats?.team_mapping || {}
-                  const unassigned = [...trackerTeamNames].filter((name) => !mapping[name])
-                  if (trackerTeamNames.size === 0 && !teamACaptainName && !teamBCaptainName) return null
-                  return (
-                    <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', display: 'grid', gap: 8 }}>
-                      <div style={{ color: '#94A3B8', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Tracker Team Assignment</div>
-                      <div style={{ color: '#94A3B8', fontSize: 12 }}>
-                        Auto-detected from each team's drafted captain — {teamAName}: {teamACaptainName ? `${teamACaptainName} → ${teamAExpectedTrackerName || 'no vanilla match'}` : 'no captain set'} · {teamBName}: {teamBCaptainName ? `${teamBCaptainName} → ${teamBExpectedTrackerName || 'no vanilla match'}` : 'no captain set'}.
-                      </div>
-                      {[...trackerTeamNames].map((name) => (
-                        <div key={name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 13, color: '#E2E8F0' }}>{name}</span>
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <button
-                              type="button"
-                              className={mapping[name] === 'A' ? 'solid-button' : 'ghost-button'}
-                              disabled={trackerModeSaving}
-                              onClick={() => assignTrackerTeam(name, 'A')}
-                            >
-                              {teamAName}
-                            </button>
-                            <button
-                              type="button"
-                              className={mapping[name] === 'B' ? 'solid-button' : 'ghost-button'}
-                              disabled={trackerModeSaving}
-                              onClick={() => assignTrackerTeam(name, 'B')}
-                            >
-                              {teamBName}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      {trackerTeamNames.size > 0 && unassigned.length === 0 && (
-                        <div style={{ fontSize: 12, color: '#22C55E' }}>All tracker teams assigned.</div>
-                      )}
                     </div>
                   )
                 })()}

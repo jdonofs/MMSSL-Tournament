@@ -1,0 +1,353 @@
+{
+    "structDefs": {
+        "rootNode": [
+        ]
+    },
+    "watchList": [
+        {
+            "absoluteBranch": false,
+            "address": "8131E3DC",
+            "baseIndex": 0,
+            "label": "Candidate 1-A",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8131E3E0",
+            "baseIndex": 0,
+            "label": "Candidate 1-B",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8131E3E4",
+            "baseIndex": 0,
+            "label": "Candidate 1-C",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81452740",
+            "baseIndex": 0,
+            "label": "Candidate 2-A",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81452744",
+            "baseIndex": 0,
+            "label": "Candidate 2-B",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81452748",
+            "baseIndex": 0,
+            "label": "Candidate 2-C",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "812428A0",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8131E5C0",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8136A4D0",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8136A4D4",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81444BFC",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81479520",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81479594",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8147965C",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "814796B0",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "814796C8",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81479724",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8147973C",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "900D6830",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "900D6B70",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "900D6B7C",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "900D6B88",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "900D6B94",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "900D6BA0",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "900D6BAC",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "900D6BB8",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "900D6BC4",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "92278B64",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "92279A38",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "92421C84",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "92422B58",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "92A48F3C",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "92A48F6C",
+            "baseIndex": 0,
+            "label": "No label",
+            "typeIndex": 3,
+            "unsigned": true
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8131E5BC",
+            "baseIndex": 0,
+            "label": "Boot2 1-X",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8131E5C0",
+            "baseIndex": 0,
+            "label": "Boot2 1-Y",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8131E5C4",
+            "baseIndex": 0,
+            "label": "Boot2 1-Z",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81444BF8",
+            "baseIndex": 0,
+            "label": "Boot2 2-X",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81444BFC",
+            "baseIndex": 0,
+            "label": "Boot2 2-Y",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81444C00",
+            "baseIndex": 0,
+            "label": "Boot2 2-Z",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "80795310",
+            "baseIndex": 0,
+            "label": "Pointer Test X",
+            "pointerOffsets": [
+                "558"
+            ],
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "80795310",
+            "baseIndex": 0,
+            "label": "Pointer Test Y",
+            "pointerOffsets": [
+                "55C"
+            ],
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "80795310",
+            "baseIndex": 0,
+            "label": "Pointer Test Z",
+            "pointerOffsets": [
+                "560"
+            ],
+            "typeIndex": 3,
+            "unsigned": false
+        }
+    ]
+}

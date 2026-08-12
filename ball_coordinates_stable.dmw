@@ -1,0 +1,41 @@
+{
+    "structDefs": {
+        "rootNode": [
+        ]
+    },
+    "watchList": [
+        {
+            "absoluteBranch": false,
+            "address": "80795310",
+            "baseIndex": 0,
+            "label": "Ball X",
+            "pointerOffsets": [
+                "558"
+            ],
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "80795310",
+            "baseIndex": 0,
+            "label": "Ball Y",
+            "pointerOffsets": [
+                "55C"
+            ],
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "80795310",
+            "baseIndex": 0,
+            "label": "Ball Z",
+            "pointerOffsets": [
+                "560"
+            ],
+            "typeIndex": 3,
+            "unsigned": false
+        }
+    ]
+}

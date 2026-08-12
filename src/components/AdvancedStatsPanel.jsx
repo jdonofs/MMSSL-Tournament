@@ -11,8 +11,10 @@ function formatIndex(value, fallback = '-') {
   return Number.isFinite(value) ? Math.round(value) : fallback
 }
 
+const SEASON_COLUMN = { key: 'label', label: 'Season' }
+
 const BATTING_COLUMNS = [
-  { key: 'label', label: 'Season' },
+  SEASON_COLUMN,
   { key: 'babip', label: 'BABIP', render: (r) => formatDecimal(r.babip) },
   { key: 'iso', label: 'ISO', render: (r) => formatDecimal(r.iso) },
   { key: 'woba', label: 'wOBA', render: (r) => formatDecimal(r.woba) },
@@ -26,7 +28,7 @@ const BATTING_COLUMNS = [
 ]
 
 const PITCHING_COLUMNS = [
-  { key: 'label', label: 'Season' },
+  SEASON_COLUMN,
   { key: 'fip', label: 'FIP', render: (r) => (r.hasInningsPitched ? formatDecimal(r.fip, 2) : '-') },
   { key: 'eraMinus', label: 'ERA-', render: (r) => (r.hasInningsPitched ? formatIndex(r.eraMinus) : '-') },
   { key: 'fipMinus', label: 'FIP-', render: (r) => (r.hasInningsPitched ? formatIndex(r.fipMinus) : '-') },
@@ -50,8 +52,10 @@ const noData = <p style={{ color: '#475569', fontSize: 12, fontStyle: 'italic', 
 // Standard Stats, with a Batting/Pitching toggle rather than stacking both. The toggle always
 // renders (even with zero data) so a scope/character with no pitching, say, still lets the user
 // switch to it and see "No data recorded yet" instead of the tab disappearing entirely.
-export default function AdvancedStatsPanel({ battingRows, battingCareerRow, pitchingRows, pitchingCareerRow, hasBatting, hasPitching, onRowClick }) {
+export default function AdvancedStatsPanel({ battingRows, battingCareerRow, pitchingRows, pitchingCareerRow, hasBatting, hasPitching, onRowClick, isCareer = true }) {
   const [view, setView] = useState(hasBatting ? 'batting' : 'pitching')
+  const battingColumns = isCareer ? BATTING_COLUMNS : BATTING_COLUMNS.filter((col) => col !== SEASON_COLUMN)
+  const pitchingColumns = isCareer ? PITCHING_COLUMNS : PITCHING_COLUMNS.filter((col) => col !== SEASON_COLUMN)
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -60,8 +64,8 @@ export default function AdvancedStatsPanel({ battingRows, battingCareerRow, pitc
         <button type="button" style={toggleButtonStyle(view === 'pitching')} onClick={() => setView('pitching')}>Pitching</button>
       </div>
       {view === 'batting'
-        ? (hasBatting ? <StatTable columns={BATTING_COLUMNS} rows={battingRows} careerRow={battingCareerRow} onRowClick={onRowClick} /> : noData)
-        : (hasPitching ? <StatTable columns={PITCHING_COLUMNS} rows={pitchingRows} careerRow={pitchingCareerRow} onRowClick={onRowClick} /> : noData)}
+        ? (hasBatting ? <StatTable columns={battingColumns} rows={battingRows} careerRow={battingCareerRow} onRowClick={onRowClick} showTypePill={isCareer} /> : noData)
+        : (hasPitching ? <StatTable columns={pitchingColumns} rows={pitchingRows} careerRow={pitchingCareerRow} onRowClick={onRowClick} showTypePill={isCareer} /> : noData)}
     </div>
   )
 }

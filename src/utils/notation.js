@@ -75,6 +75,7 @@ const PITCH_RESULT_LABELS = {
   ball: 'Ball',
   looking: 'Called Strike',
   swinging_miss: 'Swinging Strike',
+  strike_unknown: 'Strike (Swing Unknown)',
   foul: 'Foul',
   hbp: 'Hit By Pitch',
   in_play: 'In Play',

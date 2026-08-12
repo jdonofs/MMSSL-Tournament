@@ -11,7 +11,8 @@
     "repair:stats": "node scripts/repair_stats_integrity.mjs",
     "verify:season-schedule": "node scripts/verifySeasonSchedule.mjs",
     "test:betting": "node --test --test-concurrency=1 tests/betting-system.test.mjs",
-    "test:tracker": "node --test tests/tracker-alignment.test.mjs tests/tracker-live-feed.test.mjs tests/tracker-matchup-prediction.test.mjs",
+    "test:tracker": "node --test tests/tracker-alignment.test.mjs tests/tracker-live-feed.test.mjs tests/tracker-matchup-prediction.test.mjs tests/tracker-play-events.test.mjs",
+    "tracker:preview": "node scripts/tracker_at_bat_preview.mjs",
     "tracker:bridge": "node scripts/live_tracker_bridge.mjs"
   },
   "dependencies": {

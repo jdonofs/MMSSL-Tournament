@@ -410,6 +410,66 @@ export function buildRunnerEntriesFromAssignments(pending, runnersAtStart) {
   }))
 }
 
+const STORED_RUNNER_DESTINATIONS = new Set(['first', 'second', 'third', 'home', 'out'])
+
+// Plate appearances persist the resolved runner map as JSON so editor choices
+// survive reloads and later PAs can replay the exact base state. Keep parsing
+// tolerant of JSON strings for older imports and of a legacy `position` key.
+export function normalizeStoredRunnerAssignments(value) {
+  let rows = value
+  if (typeof rows === 'string') {
+    try { rows = JSON.parse(rows) } catch { return null }
+  }
+  if (!Array.isArray(rows)) return null
+  const normalized = []
+  for (const row of rows) {
+    const destination = row?.destination ?? row?.position
+    if (!row?.id || !row?.runner || !STORED_RUNNER_DESTINATIONS.has(destination)) return null
+    normalized.push({
+      id: String(row.id),
+      runner: row.runner,
+      origin: row.origin ?? null,
+      destination,
+      isBatter: Boolean(row.isBatter ?? row.is_batter ?? row.id === 'batter'),
+    })
+  }
+  return normalized
+}
+
+export function serializeRunnerEntries(entries) {
+  if (!Array.isArray(entries)) return null
+  return entries.map((entry) => ({
+    id: entry.id,
+    runner: entry.runner,
+    origin: entry.origin ?? null,
+    destination: entry.position,
+    isBatter: entry.id === 'batter',
+  }))
+}
+
+export function resolveScoringRunners(scoredRunnerIds, assignments = [], runnersBefore = {}, batter = null) {
+  const assignmentsById = new Map(assignments.map((assignment) => [String(assignment.id), assignment]))
+  return (scoredRunnerIds || []).map((runnerId) => (
+    assignmentsById.get(String(runnerId))?.runner
+    ?? (runnerId === 'batter' ? batter : runnersBefore?.[runnerId])
+  )).filter(Boolean)
+}
+
+export function hydrateRunnerEntries(defaultEntries, storedAssignments) {
+  const stored = normalizeStoredRunnerAssignments(storedAssignments)
+  if (!stored) return defaultEntries
+  const byId = new Map(stored.map((assignment) => [assignment.id, assignment]))
+  return defaultEntries.map((entry) => {
+    const saved = byId.get(String(entry.id))
+    const sameRunner = saved
+      && String(saved.runner?.characterId ?? '') === String(entry.runner?.characterId ?? '')
+      && String(saved.runner?.playerId ?? '') === String(entry.runner?.playerId ?? '')
+    return sameRunner
+      ? { ...entry, position: saved.destination, manual: true }
+      : entry
+  })
+}
+
 // Advancing/retreating a runner who'd otherwise land on a base another
 // runner already occupies pushes that occupant one base the same direction
 // too (recursively, in case that cascades into a third runner) — two runners

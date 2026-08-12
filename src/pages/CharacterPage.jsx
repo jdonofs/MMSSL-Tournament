@@ -374,7 +374,6 @@ const SECTION_LINKS = [
   { id: 'batted-ball', label: 'Batted Ball' },
   { id: 'batted-ball-allowed', label: 'Batted Ball Allowed' },
   { id: 'power', label: 'Contact Authority' },
-  { id: 'xstats', label: 'Expected Stats' },
   { id: 'postseason', label: 'Postseason' },
   { id: 'fielding', label: 'Fielding' },
   { id: 'splits', label: 'Splits' },
@@ -479,6 +478,9 @@ export default function CharacterPage() {
     return { type: 'career' }
   }, [seasonId, tournamentId])
   const isCareer = scope.type === 'career'
+  // Year-by-year tables' first column ("Season") is only useful on the Career page — a page
+  // already scoped to one season/tournament would just repeat the same label on every row.
+  const seasonColumn = isCareer ? [{ key: 'label', label: 'Season' }] : []
 
   // Chemistry highlighting is scoped to the *logged-in* player's own roster, not this
   // character's — see useLoggedInRosterNames for why. Empty when logged out.
@@ -487,8 +489,8 @@ export default function CharacterPage() {
   const profileData = useCharacterProfileData(character, isCareer ? null : scope, presetState?.profileData || {})
   const extras = useCharacterExtras(character, isCareer ? null : scope)
   const {
-    fieldingHistory, allTimeFielding, fieldingByPosition,
-    starHitFieldingByPosition, fieldingRangeByPosition, parkFactorRows, teamHistory, transactions, awardRows, statMedians, statMaxes, statMins,
+    fieldingHistory, allTimeFielding, fieldingByPosition, fieldingHistoryByPosition,
+    starHitFieldingHistoryByPosition, fieldingRangeByPosition, parkFactorRows, teamHistory, transactions, awardRows, statMedians, statMaxes, statMins,
   } = extras
 
   const [gamelogStatType, setGamelogStatType] = useState('batting')
@@ -497,6 +499,7 @@ export default function CharacterPage() {
   const [splitsView, setSplitsView] = useState('batting')
   const [starsUsedView, setStarsUsedView] = useState('batting')
   const [starsAgainstView, setStarsAgainstView] = useState('batting')
+  const [parkFactorsView, setParkFactorsView] = useState('batting')
 
   const {
     currentTournamentBatting, currentTournamentPitching, allTimeBatting, allTimePitching,
@@ -633,7 +636,7 @@ export default function CharacterPage() {
   }
 
   const battingColumns = [
-    { key: 'label', label: 'Season' },
+    ...seasonColumn,
     { key: 'plateAppearances', label: 'PA' },
     { key: 'atBats', label: 'AB' },
     { key: 'runs', label: 'R' },
@@ -650,7 +653,7 @@ export default function CharacterPage() {
     { key: 'ops', label: 'OPS', render: (r) => formatDecimal(r.ops), bold: ledStat('OPS') },
   ]
   const pitchingColumns = [
-    { key: 'label', label: 'Season' },
+    ...seasonColumn,
     { key: 'games', label: 'G' },
     { key: 'innings', label: 'IP', render: (r) => formatDecimal(r.innings, 1) },
     { key: 'wins', label: 'W', bold: ledStat('W'), award: awardBadgeForRow },
@@ -671,7 +674,40 @@ export default function CharacterPage() {
   const fieldingByEventKey = new Map(fieldingHistory.map((entry) => [entry.eventKey, entry]))
   const appearances = fieldingByPosition
   const primaryPositionCode = appearances.positions[0] ? POSITION_CODES[appearances.positions[0].position] : null
+
+  // ─── Year-by-year fielding, broken out by position (Baseball-Reference style) ──────────────
+  const fieldingHistoryRows = fieldingHistoryByPosition
+    .map((entry) => ({ ...entry, label: getHistoryEntryLabel(entry) }))
+    .filter((row) => isCareer || matchesScope(row, scope))
+    .sort(sortHistoryEntries)
+  const fieldingHistoryColumns = [
+    ...seasonColumn,
+    { key: 'position', label: 'Pos' },
+    { key: 'games', label: 'G' },
+    { key: 'gamesStarted', label: 'GS' },
+    { key: 'chances', label: 'TC' },
+    { key: 'putouts', label: 'PO' },
+    { key: 'assists', label: 'A' },
+    { key: 'errors', label: 'E' },
+    { key: 'fieldingPct', label: 'FLD%', render: (r) => formatDecimal(r.fieldingPct) },
+    { key: 'buddyJumps', label: 'BJ' },
+    { key: 'nicePlays', label: 'NP' },
+  ]
+
+  const starHitFieldingHistoryRows = starHitFieldingHistoryByPosition
+    .map((entry) => ({ ...entry, label: getHistoryEntryLabel(entry) }))
+    .filter((row) => isCareer || matchesScope(row, scope))
+    .sort(sortHistoryEntries)
+  const starHitFieldingHistoryColumns = [
+    ...seasonColumn,
+    { key: 'position', label: 'Pos' },
+    { key: 'chances', label: 'TC' },
+    { key: 'errors', label: 'E' },
+    { key: 'fieldingPct', label: 'FLD%', render: (r) => formatDecimal(r.fieldingPct) },
+  ]
   const battingHistoryForScope = isCareer ? battingHistory : battingHistory.filter((row) => matchesScope(row, scope))
+  // Value Batting (simplified WAR) combined with Expected Stats — both are per-event summaries
+  // of the same battingHistoryForScope rawPas, so they share one Season-row table.
   const valueBattingRows = battingHistoryForScope
     .map((entry) => {
       const fieldingForEvent = fieldingByEventKey.get(entry.eventKey)
@@ -680,7 +716,8 @@ export default function CharacterPage() {
         errors: fieldingForEvent?.errors || 0,
         position: primaryPositionCode,
       })
-      return { eventKey: entry.eventKey, eventId: entry.eventId, eventType: entry.eventType, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue, ...vb }
+      const xb = expectedRowFor(entry.rawPas || [])
+      return { eventKey: entry.eventKey, eventId: entry.eventId, eventType: entry.eventType, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue, ...vb, ...xb }
     })
     .sort(sortHistoryEntries)
   // fieldingRangeByPosition is a career-scoped total (see useCharacterExtras.js), so its Range
@@ -694,9 +731,10 @@ export default function CharacterPage() {
       position: primaryPositionCode,
       rangeRuns: fieldingRangeByPosition?.qualifies ? fieldingRangeByPosition.totalRangeRuns : null,
     }),
+    ...expectedRowFor(allTimeBatting.rawPas || []),
   } : null
   const valueBattingColumns = [
-    { key: 'label', label: 'Season' },
+    ...seasonColumn,
     { key: 'rbat', label: 'Rbat' },
     { key: 'rbaser', label: 'Rbaser' },
     { key: 'rfield', label: 'Rfield' },
@@ -705,6 +743,9 @@ export default function CharacterPage() {
     { key: 'waa', label: 'WAA' },
     { key: 'rar', label: 'RAR' },
     { key: 'war', label: 'WAR' },
+    { key: 'xBA', label: 'xBA', render: (r) => formatDecimal(r.xBA) },
+    { key: 'xSLG', label: 'xSLG', render: (r) => formatDecimal(r.xSLG) },
+    { key: 'xwOBA', label: 'xwOBA', render: (r) => formatDecimal(r.xwOBA) },
   ]
 
   // ─── Per-event breakdowns shared by Advanced Stats / Star Hit / Batted Ball / Power / Star Pitch
@@ -808,7 +849,7 @@ export default function CharacterPage() {
     .sort(sortHistoryEntries)
   const battedBallAllowedCareerRow = isCareer ? { label: 'Career', ...battedBallAllowedRowFor(allTimePitching.rawPas || []) } : null
   const battedBallAllowedColumns = [
-    { key: 'label', label: 'Season' },
+    ...seasonColumn,
     { key: 'ldRate', label: 'LD%', render: (r) => `${(r.battedBall.ldRate * 100).toFixed(0)}%` },
     { key: 'gbRate', label: 'GB%', render: (r) => `${(r.battedBall.gbRate * 100).toFixed(0)}%` },
     { key: 'fbRate', label: 'FB%', render: (r) => `${(r.battedBall.fbRate * 100).toFixed(0)}%` },
@@ -836,19 +877,14 @@ export default function CharacterPage() {
     .sort(sortHistoryEntries)
   const starPitchAgainstCareerRow = isCareer ? { label: 'Career', ...starPitchRowFor(allTimeBatting.rawPas || [], selectPitchesForPas(allPitches, allTimeBatting.rawPas || [])) } : null
 
-  // Expected Stats
+  // Expected Stats (xBA/xSLG/xwOBA) — folded into the Value Batting table's columns above.
   function expectedRowFor(pas) {
     const b = summarizeBatting(pas)
     return { avg: b.avg, slg: b.slg, ...summarizeExpectedBatting(pas, expectedOutcomeModel) }
   }
-  const expectedRows = battingHistoryForScope
-    .map((entry) => ({ ...battingRowMeta(entry), ...expectedRowFor(entry.rawPas || []) }))
-    .sort(sortHistoryEntries)
-  const expectedCareerRow = isCareer ? { label: 'Career', ...expectedRowFor(allTimeBatting.rawPas || []) } : null
-  const expectedEmpty = expectedRows.every((r) => !r.sampleSize)
 
   const starHitColumns = [
-    { key: 'label', label: 'Season' },
+    ...seasonColumn,
     { key: 'used', label: 'Used' },
     { key: 'contactRate', label: 'Contact %', render: (r) => `${(r.contactRate * 100).toFixed(0)}%` },
     { key: 'avgRbiPerUse', label: 'RBI/Use', render: (r) => formatDecimal(r.avgRbiPerUse, 2) },
@@ -873,7 +909,7 @@ export default function CharacterPage() {
   // allowed stats (strike%, whiff%, allowed LD%/pull%) aren't star-specific and live in Advanced
   // Stats / Batted Ball instead.
   const starPitchColumns = [
-    { key: 'label', label: 'Season' },
+    ...seasonColumn,
     { key: 'used', label: <><StarIcon /> Used</>, render: (r) => formatInteger(r.star.used) },
     { key: 'paUsed', label: <><StarIcon /> PA</>, render: (r) => formatInteger(r.star.paUsed) },
     { key: 'pitchBalls', label: 'Ball', render: (r) => formatInteger(r.star.pitchBalls) },
@@ -894,7 +930,7 @@ export default function CharacterPage() {
     { key: 'resultOut', label: 'Out', render: (r) => r.star.resultBreakdown?.Out || 0 },
   ]
   const battedBallColumns = [
-    { key: 'label', label: 'Season' },
+    ...seasonColumn,
     { key: 'ldRate', label: 'LD%', render: (r) => `${(r.battedBall.ldRate * 100).toFixed(0)}%` },
     { key: 'gbRate', label: 'GB%', render: (r) => `${(r.battedBall.gbRate * 100).toFixed(0)}%` },
     { key: 'fbRate', label: 'FB%', render: (r) => `${(r.battedBall.fbRate * 100).toFixed(0)}%` },
@@ -913,7 +949,7 @@ export default function CharacterPage() {
     { key: 'fbWoba', label: 'FB wOBA', render: (r) => formatDecimal(r.byType.flyBall.wobaOnContact) },
   ]
   const powerColumns = [
-    { key: 'label', label: 'Season' },
+    ...seasonColumn,
     { key: 'bip', label: 'BIP', render: (r) => formatInteger(r.distance.sampleSize || r.exitVelo.sampleSize || r.contactQuality.sampleSize) },
     { key: 'avgExitVelo', label: 'Avg EV', render: (r) => (r.exitVelo.avgExitVelocity != null ? `${r.exitVelo.avgExitVelocity} mph` : '-') },
     { key: 'maxExitVelo', label: 'Max EV', render: (r) => (r.exitVelo.maxExitVelocity != null ? `${r.exitVelo.maxExitVelocity} mph` : '-') },
@@ -932,15 +968,6 @@ export default function CharacterPage() {
     { key: 'pullSlg', label: 'Pull SLG', render: (r) => formatDecimal(r.sprayContact.pull.slgOnContact) },
     { key: 'oppoSlg', label: 'Oppo SLG', render: (r) => formatDecimal(r.sprayContact.oppo.slgOnContact) },
   ]
-  const expectedColumns = [
-    { key: 'label', label: 'Season' },
-    { key: 'avg', label: 'AVG', render: (r) => formatDecimal(r.avg) },
-    { key: 'xBA', label: 'xBA', render: (r) => formatDecimal(r.xBA) },
-    { key: 'slg', label: 'SLG', render: (r) => formatDecimal(r.slg) },
-    { key: 'xSLG', label: 'xSLG', render: (r) => formatDecimal(r.xSLG) },
-    { key: 'xwOBA', label: 'xwOBA', render: (r) => formatDecimal(r.xwOBA) },
-  ]
-
   // ─── Postseason Batting/Pitching ────────────────────────────────────────────
   function postseasonRowFromEntry(entry) {
     const psPas = (entry.rawPas || []).filter((pa) => pa.isPostseason)
@@ -1015,15 +1042,34 @@ export default function CharacterPage() {
   // Park factors describe a STADIUM's own league-wide effect on an outcome (1.00 = neutral), not
   // anything about this character specifically — this table is just filtered to the parks this
   // character has actually played at, same numbers anyone would see for that stadium.
-  const parkFactorColumns = [
+  const battingParkFactorColumns = [
     { key: 'stadiumName', label: 'Stadium' },
     { key: 'hr', label: 'HR', render: (r) => formatDecimal(r.hr, 2) },
     { key: 'r', label: 'Runs', render: (r) => formatDecimal(r.r, 2) },
     { key: 'h', label: 'Hits', render: (r) => formatDecimal(r.h, 2) },
+    { key: 'single', label: '1B', render: (r) => formatDecimal(r.single, 2) },
+    { key: 'double', label: '2B', render: (r) => formatDecimal(r.double, 2) },
+    { key: 'triple', label: '3B', render: (r) => formatDecimal(r.triple, 2) },
     { key: 'walk', label: 'BB', render: (r) => formatDecimal(r.walk, 2) },
-    { key: 'strikeout', label: 'K', render: (r) => formatDecimal(r.strikeout, 2) },
+    { key: 'hbp', label: 'HBP', render: (r) => formatDecimal(r.hbp, 2) },
+    { key: 'sacFly', label: 'SF', render: (r) => formatDecimal(r.sacFly, 2) },
+    { key: 'sacHit', label: 'SH', render: (r) => formatDecimal(r.sacHit, 2) },
     { key: 'hardHit', label: 'Hard-Hit', render: (r) => formatDecimal(r.hardHit, 2) },
     { key: 'barrel', label: 'Barrel', render: (r) => formatDecimal(r.barrel, 2) },
+  ]
+  const pitchingParkFactorColumns = [
+    { key: 'stadiumName', label: 'Stadium' },
+    { key: 'hr', label: 'HR Allowed', render: (r) => formatDecimal(r.hr, 2) },
+    { key: 'r', label: 'R Allowed', render: (r) => formatDecimal(r.r, 2) },
+    { key: 'h', label: 'H Allowed', render: (r) => formatDecimal(r.h, 2) },
+    { key: 'walk', label: 'BB Allowed', render: (r) => formatDecimal(r.walk, 2) },
+    { key: 'strikeout', label: 'K', render: (r) => formatDecimal(r.strikeout, 2) },
+    { key: 'hbp', label: 'HBP Allowed', render: (r) => formatDecimal(r.hbp, 2) },
+    { key: 'error', label: 'E', render: (r) => formatDecimal(r.error, 2) },
+    { key: 'doublePlay', label: 'DP', render: (r) => formatDecimal(r.doublePlay, 2) },
+    { key: 'reachedOnError', label: 'ROE', render: (r) => formatDecimal(r.reachedOnError, 2) },
+    { key: 'hardHit', label: 'Hard-Hit Allowed', render: (r) => formatDecimal(r.hardHit, 2) },
+    { key: 'barrel', label: 'Barrel Allowed', render: (r) => formatDecimal(r.barrel, 2) },
   ]
   const pitchingSplitRows = [
     { label: 'Home', eventType: null, ...pitchingSplits.home },
@@ -1081,7 +1127,6 @@ export default function CharacterPage() {
   const starHitAgainstEmpty = (starHitAgainstCurrent.used || 0) === 0
   const starPitchAgainstCurrent = summarizeStarPitching(showBatting.rawPas || [], showBattingPitches)
   const starPitchAgainstEmpty = (starPitchAgainstCurrent.used || 0) === 0 && (starPitchAgainstCurrent.paUsed || 0) === 0
-  const starHitFieldingEmpty = starHitFieldingByPosition.positions.length === 0
   const noData = <p style={{ color: '#475569', fontSize: 12, fontStyle: 'italic', margin: 0 }}>No data recorded yet</p>
 
   const rawPasBatting = showBatting.rawPas || []
@@ -1396,11 +1441,11 @@ export default function CharacterPage() {
                 ]}
               />
               {standardStatsView === 'batting' ? (
-                hasStandardBattingRows ? <StatTable columns={battingColumns} rows={battingTableRows} careerRow={battingCareerRow} /> : noData
+                hasStandardBattingRows ? <StatTable columns={battingColumns} rows={battingTableRows} careerRow={battingCareerRow} showTypePill={isCareer} /> : noData
               ) : standardStatsView === 'pitching' ? (
-                hasStandardPitchingRows ? <StatTable columns={pitchingColumns} rows={pitchingTableRows} careerRow={pitchingCareerRow} /> : noData
+                hasStandardPitchingRows ? <StatTable columns={pitchingColumns} rows={pitchingTableRows} careerRow={pitchingCareerRow} showTypePill={isCareer} /> : noData
               ) : (
-                appearances.positions.length === 0 ? noData : <FieldingPositionTable appearances={appearances} allTimeFielding={allTimeFielding} />
+                fieldingHistoryRows.length === 0 ? noData : <StatTable columns={fieldingHistoryColumns} rows={fieldingHistoryRows} showTypePill={isCareer} />
               )}
             </div>
           </Section>
@@ -1408,15 +1453,7 @@ export default function CharacterPage() {
           {/* Value Batting (simplified WAR) */}
           <Section id="value" title="Value Batting">
             {valueBattingRows.length === 0 ? noData : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                <StatTable columns={valueBattingColumns} rows={valueBattingRows} careerRow={valueBattingCareerRow} />
-                <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
-                  In-house approximation of Baseball-Reference's value stats — linear-weights Rbat, a
-                  fielding-pct-based Rfield, a flat positional adjustment (primary position: {appearances.positions[0]?.position || '—'}),
-                  and a flat replacement baseline. Rbaser is always 0 (no baserunning event data is tracked). Not directly
-                  comparable to MLB WAR.
-                </p>
-              </div>
+              <StatTable columns={valueBattingColumns} rows={valueBattingRows} careerRow={valueBattingCareerRow} showTypePill={isCareer} />
             )}
           </Section>
 
@@ -1429,11 +1466,12 @@ export default function CharacterPage() {
               pitchingCareerRow={advancedPitchingCareerRow}
               hasBatting={hasBatting}
               hasPitching={!pitchingEmpty}
+              isCareer={isCareer}
             />
           </Section>
 
           {/* Stars (star hit batting + star pitch pitching, toggled) */}
-          <Section id="stars-used" title="Stars Used" subtitle="This character's own Star Hit and Star Pitch usage — Star Hit shows their batting use, Star Pitch shows their pitching use.">
+          <Section id="stars-used" title="Stars Used">
             <div style={{ display: 'grid', gap: 14 }}>
               <StatTypeToggle
                 value={starsUsedView}
@@ -1444,15 +1482,15 @@ export default function CharacterPage() {
                 ]}
               />
               {starsUsedView === 'batting' ? (
-                starHitEmpty ? noData : <StatTable columns={starHitColumns} rows={starHitRows} careerRow={starHitCareerRow} />
+                starHitEmpty ? noData : <StatTable columns={starHitColumns} rows={starHitRows} careerRow={starHitCareerRow} showTypePill={isCareer} />
               ) : (
-                starPitchEmpty ? noData : <StatTable columns={starPitchColumns} rows={starPitchRows} careerRow={starPitchCareerRow} />
+                starPitchEmpty ? noData : <StatTable columns={starPitchColumns} rows={starPitchRows} careerRow={starPitchCareerRow} showTypePill={isCareer} />
               )}
             </div>
           </Section>
 
           {/* Opponent's star ability used against this character */}
-          <Section id="stars-against" title="Stars Against" subtitle="Opponents' Star Hit and Star Pitch usage against this character — 'vs Star Pitch' shows how this character fared batting against an opposing pitcher's Star Pitch, 'vs Star Hit' shows how they fared pitching against an opposing batter's Star Hit.">
+          <Section id="stars-against" title="Stars Against">
             <div style={{ display: 'grid', gap: 14 }}>
               <StatTypeToggle
                 value={starsAgainstView}
@@ -1464,32 +1502,12 @@ export default function CharacterPage() {
                 ]}
               />
               {starsAgainstView === 'batting' ? (
-                starPitchAgainstEmpty ? noData : <StatTable columns={starPitchColumns} rows={starPitchAgainstRows} careerRow={starPitchAgainstCareerRow} />
+                starPitchAgainstEmpty ? noData : <StatTable columns={starPitchColumns} rows={starPitchAgainstRows} careerRow={starPitchAgainstCareerRow} showTypePill={isCareer} />
               ) : starsAgainstView === 'pitching' ? (
-                starHitAgainstEmpty ? noData : <StatTable columns={starHitColumns} rows={starHitAgainstRows} careerRow={starHitAgainstCareerRow} />
+                starHitAgainstEmpty ? noData : <StatTable columns={starHitColumns} rows={starHitAgainstRows} careerRow={starHitAgainstCareerRow} showTypePill={isCareer} />
               ) : (
-                starHitFieldingEmpty ? noData : (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table className="data-table" style={{ minWidth: 320 }}>
-                      <thead><tr><th>Pos</th><th>TC</th><th>E</th><th><StatLabel label="FLD%" /></th></tr></thead>
-                      <tbody>
-                        {starHitFieldingByPosition.positions.map((row) => (
-                          <tr key={row.position}>
-                            <td>{row.position}</td>
-                            <td>{row.chances}</td>
-                            <td>{row.errors}</td>
-                            <td>{formatDecimal(row.fieldingPct)}</td>
-                          </tr>
-                        ))}
-                        <tr style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontWeight: 700 }}>
-                          <td style={{ color: '#94A3B8', fontWeight: 700 }}>Total</td>
-                          <td>{starHitFieldingByPosition.totalChances}</td>
-                          <td>{starHitFieldingByPosition.totalErrors}</td>
-                          <td>{formatDecimal(starHitFieldingByPosition.fieldingPct)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                starHitFieldingHistoryRows.length === 0 ? noData : (
+                  <StatTable columns={starHitFieldingHistoryColumns} rows={starHitFieldingHistoryRows} showTypePill={isCareer} />
                 )
               )}
             </div>
@@ -1498,14 +1516,14 @@ export default function CharacterPage() {
           {/* Batted Ball (trajectory, spray, plate discipline) */}
           <Section id="batted-ball" title="Batted Ball">
             {battedBallEmpty ? noData : (
-              <StatTable columns={battedBallColumns} rows={battedBallRows} careerRow={battedBallCareerRow} />
+              <StatTable columns={battedBallColumns} rows={battedBallRows} careerRow={battedBallCareerRow} showTypePill={isCareer} />
             )}
           </Section>
 
           {/* Batted Ball Allowed */}
           <Section id="batted-ball-allowed" title="Batted Ball Allowed">
             {pitchingEmpty ? noData : (
-              <StatTable columns={battedBallAllowedColumns} rows={battedBallAllowedRows} careerRow={battedBallAllowedCareerRow} />
+              <StatTable columns={battedBallAllowedColumns} rows={battedBallAllowedRows} careerRow={battedBallAllowedCareerRow} showTypePill={isCareer} />
             )}
           </Section>
 
@@ -1513,7 +1531,7 @@ export default function CharacterPage() {
           <Section id="power" title="Contact Authority">
             {powerEmpty ? noData : (
               <div style={{ display: 'grid', gap: 12 }}>
-                <StatTable columns={powerColumns} rows={powerRows} careerRow={powerCareerRow} />
+                <StatTable columns={powerColumns} rows={powerRows} careerRow={powerCareerRow} showTypePill={isCareer} />
                 {wouldBeHrCount > 0 ? (
                   <p style={{ color: '#94A3B8', fontSize: 12, margin: 0 }}>
                     {wouldBeHrCount} of {character.name}'s non-homers would have left the yard in at least one other stadium.
@@ -1524,27 +1542,15 @@ export default function CharacterPage() {
             )}
           </Section>
 
-          {/* Expected stats */}
-          <Section id="xstats" title="Expected Stats">
-            {expectedEmpty ? noData : (
-              <div style={{ display: 'grid', gap: 12 }}>
-                <StatTable columns={expectedColumns} rows={expectedRows} careerRow={expectedCareerRow} />
-                <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
-                  xBA/xSLG/xwOBA are modeled from tracked exit velocity/launch angle, compared against similar contact league-wide.
-                </p>
-              </div>
-            )}
-          </Section>
-
           {/* Postseason */}
           {hasPostseasonData && (
             <Section id="postseason" title="Postseason">
               <div style={{ display: 'grid', gap: 12 }}>
                 <StatTypeToggle value={postseasonView} onChange={setPostseasonView} />
                 {postseasonView === 'batting' ? (
-                  hasPostseasonBatting ? <StatTable columns={battingColumns} rows={postseasonBattingRows} careerRow={postseasonBattingCareerRow} /> : noData
+                  hasPostseasonBatting ? <StatTable columns={battingColumns} rows={postseasonBattingRows} careerRow={postseasonBattingCareerRow} showTypePill={isCareer} /> : noData
                 ) : (
-                  hasPostseasonPitching ? <StatTable columns={pitchingColumns} rows={postseasonPitchingRows} careerRow={postseasonPitchingCareerRow} /> : noData
+                  hasPostseasonPitching ? <StatTable columns={pitchingColumns} rows={postseasonPitchingRows} careerRow={postseasonPitchingCareerRow} showTypePill={isCareer} /> : noData
                 )}
               </div>
             </Section>
@@ -1552,26 +1558,19 @@ export default function CharacterPage() {
 
           {/* Fielding — games/games-started and fielding performance broken out by position */}
           <Section id="fielding" title="Fielding">
-            {appearances.positions.length === 0 ? (
-              <div style={{ display: 'grid', gap: 6 }}>
-                {noData}
-                <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
-                  Only total chances, errors, and fielding % are tracked — putouts/assists come from the fielder chain recorded during scoring.
-                </p>
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                <FieldingPositionTable appearances={appearances} allTimeFielding={allTimeFielding} />
-                <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
-                  PO/A are derived from the recorded fielder chain on each play (last fielder touched = putout, earlier fielders = assists). BJ counts Buddy Jump assists/putouts.
-                </p>
+            {appearances.positions.length === 0 ? noData : (
+              <div style={{ display: 'grid', gap: 16 }}>
+                {fieldingHistoryRows.length > 0 && (
+                  <StatTable columns={fieldingHistoryColumns} rows={fieldingHistoryRows} showTypePill={isCareer} />
+                )}
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <div style={{ color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>Career Totals by Position</div>
+                  <FieldingPositionTable appearances={appearances} allTimeFielding={allTimeFielding} />
+                </div>
                 {fieldingRangeByPosition && fieldingRangeByPosition.positions.length > 0 && (
-                  <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                  <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>Range Runs</div>
                     <FieldingRangeTable fieldingRangeByPosition={fieldingRangeByPosition} />
-                    <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
-                      Difficulty-adjusted range: outs actually converted vs. expected, given how hard each chance was to get to, compared to the league's out rate on plays of similar difficulty at that position. Only counts the first fielder to touch a batted ball (not relay throws), and only shows once a position has enough rangeable plays. Confidence reflects how much of that sample has real hang-time/actual-fielded-location data vs. an estimate from where the ball landed — it rises automatically as more games get that detail filled in, no need to re-check back.
-                    </p>
                   </div>
                 )}
               </div>
@@ -1601,10 +1600,18 @@ export default function CharacterPage() {
           </Section>
 
           {/* Park Factors */}
-          <Section id="park-factors" title="Park Factors" subtitle="How each stadium this character has played at affects outcomes relative to the league average (1.00 = neutral, >1.00 favors that outcome). These numbers describe the stadium, not this character specifically.">
-            {parkFactorRows.length === 0
-              ? noData
-              : <StatTable columns={parkFactorColumns} rows={parkFactorRows} />}
+          <Section id="park-factors" title="Park Factors">
+            <div style={{ display: 'grid', gap: 12 }}>
+              <StatTypeToggle value={parkFactorsView} onChange={setParkFactorsView} />
+              {parkFactorRows.length === 0
+                ? noData
+                : (
+                  <StatTable
+                    columns={parkFactorsView === 'batting' ? battingParkFactorColumns : pitchingParkFactorColumns}
+                    rows={parkFactorRows}
+                  />
+                )}
+            </div>
           </Section>
 
           {/* Trends */}

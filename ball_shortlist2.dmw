@@ -1,0 +1,56 @@
+{
+    "structDefs": {
+        "rootNode": [
+        ]
+    },
+    "watchList": [
+        {
+            "absoluteBranch": false,
+            "address": "8131E3DC",
+            "baseIndex": 0,
+            "label": "Candidate 1-A",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8131E3E0",
+            "baseIndex": 0,
+            "label": "Candidate 1-B",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "8131E3E4",
+            "baseIndex": 0,
+            "label": "Candidate 1-C",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81452740",
+            "baseIndex": 0,
+            "label": "Candidate 2-A",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81452744",
+            "baseIndex": 0,
+            "label": "Candidate 2-B",
+            "typeIndex": 3,
+            "unsigned": false
+        },
+        {
+            "absoluteBranch": false,
+            "address": "81452748",
+            "baseIndex": 0,
+            "label": "Candidate 2-C",
+            "typeIndex": 3,
+            "unsigned": false
+        }
+    ]
+}

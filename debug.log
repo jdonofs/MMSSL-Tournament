@@ -4,3 +4,12 @@
 [0810/113640.883:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1
 [0810/113642.438:ERROR:net\disk_cache\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)
 [0810/113642.438:ERROR:net\disk_cache\disk_cache.cc:285] Unable to create cache
+[0810/211226.843:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1
+[0810/211311.550:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1
+[0810/211526.307:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1
+[0810/214217.264:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1
+[0810/214411.404:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1
+[0811/183757.504:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1
+[0811/183845.658:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1
+[0811/195036.270:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1
+[0811/195126.241:ERROR:net\base\network_change_notifier_win.cc:213] WSALookupServiceBegin failed with: -1

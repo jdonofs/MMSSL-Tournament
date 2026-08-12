@@ -1,11 +1,10 @@
 import { buildBettingEntityLabel } from './oddsEngine.js'
 import { getPlayerSkillProfile } from './teamIdentity.js'
 import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules.js'
+import { isCreditedHit } from './creditedHit.js'
 
 const DEFAULT_AVG_DISTANCE_FT = 220
 const DEFAULT_HARD_HIT_RATE = 0.18
-
-const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 
 // Kept local so this shared odds-context builder remains Node-compatible for
 // the tracker bridge. Importing the UI-oriented stats/hit-distance modules
@@ -91,9 +90,9 @@ function buildPlayerHistoricalSummary({
   return {
     gamesPlayed: relevantGames.length,
     winRate: relevantGames.length ? relevantGames.filter((game) => game.winner_player_id === playerId).length / relevantGames.length : 0.5,
-    avg: relevantPAs.filter((entry) => HIT_RESULTS.has(entry.result)).length / totalPas,
-    hitRate: relevantPAs.filter((entry) => HIT_RESULTS.has(entry.result)).length / totalPas,
-    hrRate: relevantPAs.filter((entry) => entry.result === 'HR' || entry.result === 'IPHR').length / totalPas,
+    avg: relevantPAs.filter(isCreditedHit).length / totalPas,
+    hitRate: relevantPAs.filter(isCreditedHit).length / totalPas,
+    hrRate: relevantPAs.filter((entry) => isCreditedHit(entry) && (entry.result === 'HR' || entry.result === 'IPHR')).length / totalPas,
     kRate: relevantPAs.filter((entry) => entry.result === 'K').length / totalPas,
     strikeoutsPerInning: totalInnings > 0 ? strikeouts / totalInnings : 0,
     strikeoutsPerGame: relevantPitching.length ? strikeouts / relevantPitching.length : 0,
@@ -273,8 +272,8 @@ export function buildOddsGenerationContext({
           skillProfile: getPlayerSkillProfile(player),
           entityLabel: buildBettingEntityLabel(character, player),
           paSoFar: ownPAs.length,
-          hitsSoFar: ownPAs.filter((pa) => HIT_RESULTS.has(pa.result)).length,
-          hrSoFar: ownPAs.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length,
+          hitsSoFar: ownPAs.filter(isCreditedHit).length,
+          hrSoFar: ownPAs.filter((pa) => isCreditedHit(pa) && (pa.result === 'HR' || pa.result === 'IPHR')).length,
           kSoFar: currentPitcherId === entry.character_id
             ? gamePAs.filter((pa) => pa.player_id === opposingPlayerId && pa.result === 'K').length
             : 0,

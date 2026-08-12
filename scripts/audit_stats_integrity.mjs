@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { isCreditedHit } from '../src/utils/creditedHit.js'
 
 const VALID_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'BB', 'HBP', 'K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
-const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const ZERO_RBI_RESULTS = new Set(['FC', 'ROE', 'DP', 'TP'])
 const STRIKEOUT_TYPES = new Set(['KL', 'KS'])
 
@@ -402,8 +402,8 @@ function recomputePitchingByGame({ games, pas, stints, runs }) {
         const paRuns = gameRuns.filter((run) => String(run.pa_id) === String(pa.id))
 
         targetStats._outs += outs
-        if (HIT_RESULTS.has(pa.result)) targetStats.hits_allowed += 1
-        if (isHomeRunResult(pa.result)) targetStats.hr_allowed += 1
+        if (isCreditedHit(pa)) targetStats.hits_allowed += 1
+        if (isCreditedHit(pa) && isHomeRunResult(pa.result)) targetStats.hr_allowed += 1
         if (pa.result === 'BB') targetStats.walks += 1
         if (pa.result === 'K') targetStats.strikeouts += 1
 

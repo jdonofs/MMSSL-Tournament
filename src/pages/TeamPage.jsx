@@ -11,6 +11,7 @@ import TeamLogo from '../components/TeamLogo'
 import CharacterPortrait from '../components/CharacterPortrait'
 import MiddleClickLink from '../components/MiddleClickLink'
 import { getTeamShortName } from '../utils/teamIdentity'
+import { shortenCharacterName } from '../utils/mii'
 import { buildScorebookPath } from '../utils/scorebookRouting'
 import { MIN_RANGE_CHANCES } from '../utils/fieldingRange'
 
@@ -106,7 +107,7 @@ function PlayerCell({ row }) {
   const content = (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
       <CharacterPortrait name={row.label} size={22} />
-      {row.label}
+      {shortenCharacterName(row.label)}
     </span>
   )
   if (!row.linkTo) return content
@@ -336,15 +337,35 @@ const SPLITS_COLUMNS = [
 // Park factors describe a STADIUM's own league-wide effect on an outcome (1.00 = neutral), not
 // anything about this team specifically — this table is just filtered to the parks this team has
 // actually played at, same numbers anyone would see for that stadium.
-const PARK_FACTOR_COLUMNS = [
+const BATTING_PARK_FACTOR_COLUMNS = [
   { key: 'stadiumName', label: 'Stadium' },
   { key: 'hr', label: 'HR', render: (row) => formatDecimal(row.hr, 2) },
   { key: 'r', label: 'Runs', render: (row) => formatDecimal(row.r, 2) },
   { key: 'h', label: 'Hits', render: (row) => formatDecimal(row.h, 2) },
+  { key: 'single', label: '1B', render: (row) => formatDecimal(row.single, 2) },
+  { key: 'double', label: '2B', render: (row) => formatDecimal(row.double, 2) },
+  { key: 'triple', label: '3B', render: (row) => formatDecimal(row.triple, 2) },
   { key: 'walk', label: 'BB', render: (row) => formatDecimal(row.walk, 2) },
-  { key: 'strikeout', label: 'K', render: (row) => formatDecimal(row.strikeout, 2) },
+  { key: 'hbp', label: 'HBP', render: (row) => formatDecimal(row.hbp, 2) },
+  { key: 'sacFly', label: 'SF', render: (row) => formatDecimal(row.sacFly, 2) },
+  { key: 'sacHit', label: 'SH', render: (row) => formatDecimal(row.sacHit, 2) },
   { key: 'hardHit', label: 'Hard-Hit', render: (row) => formatDecimal(row.hardHit, 2) },
   { key: 'barrel', label: 'Barrel', render: (row) => formatDecimal(row.barrel, 2) },
+]
+
+const PITCHING_PARK_FACTOR_COLUMNS = [
+  { key: 'stadiumName', label: 'Stadium' },
+  { key: 'hr', label: 'HR Allowed', render: (row) => formatDecimal(row.hr, 2) },
+  { key: 'r', label: 'R Allowed', render: (row) => formatDecimal(row.r, 2) },
+  { key: 'h', label: 'H Allowed', render: (row) => formatDecimal(row.h, 2) },
+  { key: 'walk', label: 'BB Allowed', render: (row) => formatDecimal(row.walk, 2) },
+  { key: 'strikeout', label: 'K', render: (row) => formatDecimal(row.strikeout, 2) },
+  { key: 'hbp', label: 'HBP Allowed', render: (row) => formatDecimal(row.hbp, 2) },
+  { key: 'error', label: 'E', render: (row) => formatDecimal(row.error, 2) },
+  { key: 'doublePlay', label: 'DP', render: (row) => formatDecimal(row.doublePlay, 2) },
+  { key: 'reachedOnError', label: 'ROE', render: (row) => formatDecimal(row.reachedOnError, 2) },
+  { key: 'hardHit', label: 'Hard-Hit Allowed', render: (row) => formatDecimal(row.hardHit, 2) },
+  { key: 'barrel', label: 'Barrel Allowed', render: (row) => formatDecimal(row.barrel, 2) },
 ]
 
 const BASE_SECTION_LINKS = [
@@ -387,6 +408,7 @@ export default function TeamPage() {
   const [starsUsedView, setStarsUsedView] = useState('batting')
   const [starsAgainstView, setStarsAgainstView] = useState('batting')
   const [splitsView, setSplitsView] = useState('batting')
+  const [parkFactorsView, setParkFactorsView] = useState('batting')
 
   // The "true" originating page is only present in router state on the initial navigation into
   // this team — clicking a sidebar Career/Season/Tournament link re-navigates within this same
@@ -707,7 +729,7 @@ export default function TeamPage() {
                     }}
                   >
                     <CharacterPortrait name={character.name} size={22} />
-                    {character.name}
+                    {shortenCharacterName(character.name)}
                   </MiddleClickLink>
                 ))}
               </div>
@@ -744,7 +766,7 @@ export default function TeamPage() {
                         >
                           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <CharacterPortrait name={p.name} size={22} />
-                            <span style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 600 }}>{p.name}</span>
+                            <span style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 600 }}>{shortenCharacterName(p.name)}</span>
                           </span>
                           <span style={{ color: gold, fontSize: 13, fontWeight: 700 }}>{formatDecimal(p.ops)} OPS</span>
                         </MiddleClickLink>
@@ -767,7 +789,7 @@ export default function TeamPage() {
                         >
                           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <CharacterPortrait name={p.name} size={22} />
-                            <span style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 600 }}>{p.name}</span>
+                            <span style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 600 }}>{shortenCharacterName(p.name)}</span>
                           </span>
                           <span style={{ color: gold, fontSize: 13, fontWeight: 700 }}>{formatDecimal(p.era, 2)} ERA</span>
                         </MiddleClickLink>
@@ -820,7 +842,7 @@ export default function TeamPage() {
           </Section>
 
           {/* Stars Used */}
-          <Section id="stars-used" title="Stars Used" subtitle="This team's own Star Hit and Star Pitch usage — Batting shows batters using Star Hit, Pitching shows pitchers using Star Pitch.">
+          <Section id="stars-used" title="Stars Used">
             <div style={{ display: 'grid', gap: 12 }}>
               <StatTypeToggle
                 value={starsUsedView}
@@ -841,7 +863,7 @@ export default function TeamPage() {
           </Section>
 
           {/* Stars Against — opposing star ability used against this team */}
-          <Section id="stars-against" title="Stars Against" subtitle="Opponents' Star Hit and Star Pitch usage against this team — 'vs Star Pitch' shows how this team's batters fared when an opposing pitcher used Star Pitch, 'vs Star Hit' shows how this team's pitchers fared when an opposing batter used Star Hit.">
+          <Section id="stars-against" title="Stars Against">
             <div style={{ display: 'grid', gap: 12 }}>
               <StatTypeToggle
                 value={starsAgainstView}
@@ -891,12 +913,7 @@ export default function TeamPage() {
           {/* Expected Stats */}
           <Section id="xstats" title="Expected Stats">
             {tables.expectedRows.every((r) => !r.sampleSize) ? noData : (
-              <div style={{ display: 'grid', gap: 12 }}>
-                <StatTable columns={EXPECTED_COLUMNS} rows={tables.expectedRows} careerRow={tables.expectedCareerRow} onRowClick={characterRowClick} />
-                <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
-                  xBA/xSLG/xwOBA are modeled from tracked exit velocity/launch angle, compared against similar contact league-wide.
-                </p>
-              </div>
+              <StatTable columns={EXPECTED_COLUMNS} rows={tables.expectedRows} careerRow={tables.expectedCareerRow} onRowClick={characterRowClick} />
             )}
           </Section>
 
@@ -911,10 +928,18 @@ export default function TeamPage() {
           </Section>
 
           {/* Park Factors */}
-          <Section id="park-factors" title="Park Factors" subtitle="How each stadium this team has played at affects outcomes relative to the league average (1.00 = neutral, >1.00 favors that outcome). These numbers describe the stadium, not this team specifically.">
-            {tables.parkFactorRows.length === 0
-              ? noData
-              : <StatTable columns={PARK_FACTOR_COLUMNS} rows={tables.parkFactorRows} />}
+          <Section id="park-factors" title="Park Factors">
+            <div style={{ display: 'grid', gap: 12 }}>
+              <StatTypeToggle value={parkFactorsView} onChange={setParkFactorsView} />
+              {tables.parkFactorRows.length === 0
+                ? noData
+                : (
+                  <StatTable
+                    columns={parkFactorsView === 'batting' ? BATTING_PARK_FACTOR_COLUMNS : PITCHING_PARK_FACTOR_COLUMNS}
+                    rows={tables.parkFactorRows}
+                  />
+                )}
+            </div>
           </Section>
 
           {/* Draft Value */}

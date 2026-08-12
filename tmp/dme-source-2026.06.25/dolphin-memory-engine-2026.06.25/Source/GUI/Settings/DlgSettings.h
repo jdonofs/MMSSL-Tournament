@@ -1,0 +1,34 @@
+#pragma once
+
+#include <QComboBox>
+#include <QDialog>
+#include <QLabel>
+#include <QSlider>
+#include <QSpinBox>
+
+#include <QDialogButtonBox>
+
+class DlgSettings : public QDialog
+{
+public:
+  explicit DlgSettings(QWidget* parent = nullptr);
+  ~DlgSettings() override;
+
+  DlgSettings(const DlgSettings&) = delete;
+  DlgSettings(DlgSettings&&) = delete;
+  DlgSettings& operator=(const DlgSettings&) = delete;
+  DlgSettings& operator=(DlgSettings&&) = delete;
+
+private:
+  void loadSettings();
+  void saveSettings() const;
+
+  QComboBox* m_cmbTheme;
+  QSpinBox* m_spnWatcherUpdateTimerMs;
+  QSpinBox* m_spnScannerUpdateTimerMs;
+  QSpinBox* m_spnViewerUpdateTimerMs;
+  QSpinBox* m_spnFreezeTimerMs;
+  QSpinBox* m_spnScannerShowThreshold;
+  QComboBox* m_cmbViewerBytesSeparator;
+  QDialogButtonBox* m_buttonsDlg;
+};

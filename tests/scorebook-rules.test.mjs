@@ -3,8 +3,19 @@ import test from 'node:test'
 
 import { getForcedRunnerIds, shouldNullifyRunsOnInningEndingForce } from '../src/utils/forcePlay.js'
 import { assignAuthoritativePitchNumbers } from '../src/utils/pitchSequence.js'
+import { isCreditedHit, isCreditedHitType } from '../src/utils/creditedHit.js'
 
 const runner = (id) => ({ characterId: id, playerId: `p${id}` })
+
+test('an error flag suppresses hit credit for a tracker-announced single', () => {
+  const cleanSingle = { game_id: 1, result: '1B', is_error: false, is_official_ab: true }
+  const bobbledSingle = { game_id: 1, result: '1B', is_error: true, is_official_ab: true }
+
+  assert.equal(isCreditedHit(cleanSingle), true)
+  assert.equal(isCreditedHit(bobbledSingle), false)
+  assert.equal(isCreditedHitType(cleanSingle, '1B'), true)
+  assert.equal(isCreditedHitType(bobbledSingle, '1B'), false)
+})
 
 test('forced chain extends through third only with the bases loaded', () => {
   assert.deepEqual(getForcedRunnerIds({ first: runner(1), second: runner(2), third: runner(3) }), [

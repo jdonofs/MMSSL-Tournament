@@ -44,14 +44,47 @@ import {
   validateTrackerBattingOrder,
 } from './tracker_alignment.mjs'
 import { computePendingState, computePendingOutState, extractNextRunners } from '../src/utils/runnerAssignment.js'
+import { isCreditedHit } from '../src/utils/creditedHit.js'
+import { getStadiumKeyByName } from '../src/utils/stadiums.js'
 import { resolveOnPA } from '../src/utils/betResolution.js'
 import { buildTrackerMarketInputSignature } from '../src/utils/trackerLiveFeed.js'
 import { resolveTrackerMatchupForHalf } from '../src/utils/trackerMatchupPrediction.js'
+import { assembleErrorNotation } from '../src/utils/notation.js'
 import {
   buildTrackerBetResolutionConfig,
   settleCompletedTrackerGame,
   syncTrackerLiveOdds,
 } from './tracker_betting_sync.mjs'
+import {
+  applyTrackerBattedBallToBuffer,
+  applyTrackerFieldedBallToBuffer,
+  applyPaDerivedTrackerInningState,
+  applyTrackerInningStateMessage,
+  buildExactTrackerRunnerAssignments,
+  captureTrackerPutout,
+  consumeTrackerPitch,
+  isTrackerReplayMessage,
+  isTrackerRobbedHomeRun,
+  markPendingTrackerStarPitch,
+  numberTrackerPitches,
+  parseTrackerBattedBallMessage,
+  parseTrackerFieldedBallMessage,
+  parseTrackerHitByPitchMessage,
+  parseTrackerInningStateMessage,
+  parseTrackerPutoutMessage,
+  shouldChargeTrackerBobbleError,
+  shouldClassifyTrackerFielderChoice,
+  shouldCreditTrackerPutout,
+  shouldReclassifyTrackerFlyOutAsSacFly,
+  TRACKER_BATTED_BALL_MARKER,
+  TRACKER_FIELDED_BALL_MARKER,
+  trackerBattedBallPaFields,
+  trackerCaughtBallResult,
+  trackerFieldedBallPaFields,
+  trackerOutsOnPlay,
+  trackerPitchStatFields,
+  trackerStarPitchPaFlags,
+} from './tracker_play_events.mjs'
 
 function loadEnvFile(filePath) {
   const env = {}
@@ -96,6 +129,7 @@ let TARGET_TEAM_B_PLAYER_ID = null
 let TARGET_SEASON_ID = null // season games only: season_schedule.season_id, stamped onto every row a season table requires it on
 let TARGET_SOURCE_ID = null // tournament_id or season_id used by shared team-lineup rows
 let TARGET_GAME_ROW = null
+let TARGET_STADIUM_KEY = null
 let GAME_TABLES = null // set once TARGET_GAMES_TABLE is known — the row-per-play tables matching it
 const TEAM_ID_BY_PLAYER_ID = {} // season only: player_id -> season_teams.id (tournament PA rows use player_id directly instead)
 
@@ -144,6 +178,17 @@ async function resolveTeamPlayerIds(source, gameRow) {
   return { teamAPlayerId: playerIdByTeamId[gameRow.away_team_id] || null, teamBPlayerId: playerIdByTeamId[gameRow.home_team_id] || null }
 }
 
+async function resolveTargetStadiumKey(gameRow) {
+  let stadiumName = gameRow?.stadium || null
+  if (!stadiumName && gameRow?.stadium_id) {
+    const { data, error } = await supabase
+      .from('stadiums').select('name').eq('id', gameRow.stadium_id).maybeSingle()
+    if (error) throw error
+    stadiumName = data?.name || null
+  }
+  return getStadiumKeyByName(stadiumName)
+}
+
 async function applyTargetSource(source, row) {
   TARGET_GAME_ROW = row
   TARGET_STATS_TABLE = source.statsTable
@@ -151,6 +196,7 @@ async function applyTargetSource(source, row) {
   TARGET_ROSTER_TABLE = source.rosterTable
   TARGET_SEASON_ID = source.gamesTable === 'season_schedule' ? row.season_id : null
   TARGET_SOURCE_ID = source.gamesTable === 'season_schedule' ? row.season_id : row.tournament_id
+  TARGET_STADIUM_KEY = await resolveTargetStadiumKey(row)
   GAME_TABLES = source.gamesTable === 'season_schedule'
     ? {
         lineups: 'season_lineups', gameFielders: 'season_game_fielders',
@@ -688,16 +734,15 @@ async function syncTrackerPositionChange(characterName, position) {
 // only showing a display-only blob. Mirrors the literal `result` enum and
 // derivation helpers from src/utils/statsCalculator.js / Scorebook.jsx.
 //
-// The tracker's log has no way to tell us things the manual scorebook
-// captures (hit location/distance, star hits, error detail, buddy jumps,
-// fielder's choice vs. double play) — those fields are left null here and
-// are expected to be filled in after the fact via the site's At-Bat editor.
+// The stock tracker's log has no way to tell us every detail the manual
+// scorebook captures. The experimental advanced-stat build now supplies exit
+// velocity, launch angle, spray angle, and landing/catch distance; unsupported
+// details are still left null for later review in the site's At-Bat editor.
 // Anything the parser can't confidently classify (an unrecognized result
 // phrase, an out on a non-batter runner, etc.) is skipped with a console
 // warning rather than guessed, so it doesn't write wrong stats — that PA is
 // left for manual entry instead.
 
-const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const OUT_RESULTS = new Set(['K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH'])
 
 function isHomeRunResult(result) {
@@ -708,8 +753,8 @@ function isOfficialAtBat(result) {
   return !['BB', 'HBP', 'SF', 'SH'].includes(result)
 }
 
-function normalizeRbiForPaResult(result, rbi = 0) {
-  if (result === 'ROE' || result === 'DP' || result === 'TP' || result === 'FC') return 0
+function normalizeRbiForPaResult(result, rbi = 0, isError = false) {
+  if (isError || result === 'ROE' || result === 'DP' || result === 'TP' || result === 'FC') return 0
   return Number(rbi || 0)
 }
 
@@ -807,6 +852,18 @@ async function nextPaNumber() {
   return (count || 0) + 1
 }
 
+async function latestGamePitchNumber() {
+  const { data, error } = await supabase
+    .from(GAME_TABLES.pitches)
+    .select('pitch_number_game')
+    .eq('game_id', TARGET_GAME_ID)
+    .order('pitch_number_game', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return Number(data?.pitch_number_game || 0)
+}
+
 async function insertPlateAppearance(payload) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const withPaNumber = { ...payload, pa_number: await nextPaNumber() }
@@ -895,8 +952,8 @@ async function recomputePitchingStatsForGame() {
     const stat = statsByStintId[activeStint.id]
     const outs = calculateOutsForPa(pa.result, pa.outs_on_play)
     stat._outs += outs
-    if (HIT_RESULTS.has(pa.result)) stat.hits_allowed += 1
-    if (isHomeRunResult(pa.result)) stat.hr_allowed += 1
+    if (isCreditedHit(pa)) stat.hits_allowed += 1
+    if (isCreditedHit(pa) && isHomeRunResult(pa.result)) stat.hr_allowed += 1
     if (pa.result === 'BB') stat.walks += 1
     if (pa.result === 'K') stat.strikeouts += 1
 
@@ -1200,9 +1257,17 @@ async function finalizeTrackerGame() {
 
 let parserInning = 1
 let parserIsTop = true
+// Tracks outs within the current half inning purely off completed PAs run
+// through this same serialized play-event chain — deliberately independent
+// of liveState.outs (which is updated synchronously per log line and can run
+// ahead of/behind whichever PA this chain is still slowly writing to
+// Supabase) so a sac-fly reclassification always sees the out count as it
+// stood when this specific plate appearance actually began.
+let parserOutsInHalf = 0
 let currentPaBuffer = null
 let paFinalizationInProgress = false
 let completedPaRevision = 0
+let pendingRunnerAssignmentBackfill = null
 
 function freshPaBuffer(pitcherName, batterName, pitcherIds, batterIds, battingTeamId, defensiveTeamId) {
   return {
@@ -1211,22 +1276,121 @@ function freshPaBuffer(pitcherName, batterName, pitcherIds, batterIds, battingTe
     batterCharacterId: batterIds.characterId, batterPlayerId: batterIds.playerId,
     battingTeamId, defensiveTeamId,
     inning: parserInning, isTop: parserIsTop,
+    outsBeforePa: parserOutsInHalf,
     countSeenOnce: false,
     lastCount: { balls: 0, strikes: 0 },
     pendingPitchType: null,
+    pendingStarPitch: false,
+    pendingDoublePlay: false,
+    pendingTriplePlay: false,
     contactRecorded: false,
     pitches: [],
     result: null,
     unresolvedReason: null,
     rbi: 0,
     runEvents: [],
+    runnersBefore: { first: null, second: null, third: null },
     starHitUsed: false,
     battedBallTrajectory: null,
     putoutFielderName: null,
+    observedPutouts: [],
     assistFielderNames: [],
     isBuddyJump: false,
     buddyJumpFielderName: null,
+    bobbleFielderName: null,
+    advancedBattedBall: null,
+    advancedFielding: null,
   }
+}
+
+function recordRunnerBeforePa(buf, { characterName, base }) {
+  if (!buf || !['first', 'second', 'third'].includes(base)) return false
+  const characterId = resolveCharacterId(characterName)
+  const playerId = resolvePlayerIdForCharacter(characterName)
+  if (characterId == null || playerId == null) return false
+  buf.runnersBefore[base] = { characterId, playerId }
+  return true
+}
+
+// Persist only runner movements that follow directly from the result. Hits
+// with pre-existing runners and batted-ball outs can include discretionary
+// advances that are not fully described by the stock play-by-play; those stay
+// null until the exact post-play base snapshot is added to the tracker feed.
+function deterministicRunnerAssignments(buf, isError) {
+  const runners = buf.runnersBefore || { first: null, second: null, third: null }
+  const batter = {
+    characterId: Number(buf.batterCharacterId),
+    playerId: buf.batterPlayerId,
+    ...(isError ? { reachedOnError: true } : {}),
+    chargedToPitcherId: buf.pitcherCharacterId,
+    chargedToPitcherPlayerId: buf.pitcherPlayerId,
+  }
+  const hasRunners = Boolean(runners.first || runners.second || runners.third)
+
+  if (buf.result === 'HR' || buf.result === 'IPHR') {
+    return [
+      { id: 'batter', runner: batter, origin: 'plate', destination: 'home', isBatter: true },
+      ...['first', 'second', 'third'].filter((base) => runners[base]).map((base) => ({
+        id: base, runner: runners[base], origin: base, destination: 'home', isBatter: false,
+      })),
+    ]
+  }
+  if (buf.result === 'BB' || buf.result === 'HBP') {
+    return computePendingState(buf.result, runners, batter).assignments
+  }
+  if (!hasRunners && ['1B', '2B', '3B', 'ROE'].includes(buf.result)) {
+    return computePendingState(buf.result, runners, batter).assignments
+  }
+  if (!hasRunners && ['GO', 'FO', 'LO', 'SF', 'SH', 'DP', 'TP', 'K'].includes(buf.result)) {
+    return [{ id: 'batter', runner: batter, origin: 'plate', destination: 'out', isBatter: true }]
+  }
+  if (!hasRunners && buf.result === 'FC') {
+    return [{ id: 'batter', runner: batter, origin: 'plate', destination: 'first', isBatter: true }]
+  }
+  return null
+}
+
+async function backfillPriorRunnerAssignments(nextPaBuffer) {
+  const pending = pendingRunnerAssignmentBackfill
+  pendingRunnerAssignmentBackfill = null
+  if (!pending || !nextPaBuffer) return
+  const { buf, savedPaId, isError } = pending
+  // A side change clears the bases; it is not a post-play runner snapshot for
+  // the previous offense, so retain the conservative assignments already
+  // written for that inning-ending PA.
+  if (String(buf.battingTeamId) !== String(nextPaBuffer.battingTeamId)) return
+
+  const runnerForName = (name) => {
+    const characterId = resolveCharacterId(name)
+    const playerId = resolvePlayerIdForCharacter(name)
+    return characterId == null || playerId == null ? null : { characterId, playerId }
+  }
+  const runnerKey = (runner) => runner ? `${runner.characterId}:${runner.playerId}` : null
+  const scoringRunnerKeys = new Set(buf.runEvents.map((run) => runnerKey(runnerForName(run.scorerName))).filter(Boolean))
+  const outRunnerKeys = new Set(buf.observedPutouts.map((putout) => runnerKey(runnerForName(putout.runnerName))).filter(Boolean))
+  const batter = {
+    characterId: Number(buf.batterCharacterId),
+    playerId: buf.batterPlayerId,
+    ...(isError ? { reachedOnError: true } : {}),
+    chargedToPitcherId: buf.pitcherCharacterId,
+    chargedToPitcherPlayerId: buf.pitcherPlayerId,
+  }
+  const assignments = buildExactTrackerRunnerAssignments({
+    runnersBefore: buf.runnersBefore,
+    batter,
+    nextRunners: nextPaBuffer.runnersBefore,
+    scoringRunnerKeys,
+    outRunnerKeys,
+    batterOut: ['K', 'GO', 'FO', 'LO', 'SF', 'SH'].includes(buf.result),
+  })
+  if (!assignments) {
+    log(`runner destinations for ${buf.batterName}'s ${buf.result} were not fully described by the next-base snapshot; retaining conservative values.`)
+    return
+  }
+  const { error } = await supabase.from(GAME_TABLES.plateAppearances)
+    .update({ runner_assignments: assignments })
+    .eq('id', savedPaId)
+  if (error) log(`exact runner-assignment update failed for ${buf.batterName}:`, error.message)
 }
 
 // Resolves a tracker fielder name to their current defensive position number
@@ -1244,7 +1408,22 @@ function currentFieldingPositionNumber(playerId, name) {
 }
 
 function pushPitch(buf, type, before, after) {
-  buf.pitches.push({ type, before: before || { ...buf.lastCount }, after: after || { ...buf.lastCount } })
+  buf.pitches.push(consumeTrackerPitch(buf, {
+    type,
+    before: before || { ...buf.lastCount },
+    after: after || { ...buf.lastCount },
+  }))
+}
+
+// "Double play!"/"Triple play!" arrive as their own lines, separate from the
+// "<batter>'s hit was caught!"/putout lines that set the base FO/GO result —
+// and the tracker doesn't guarantee which comes first. Apply whichever
+// pending multi-out flag is set the moment a batted-ball out result lands,
+// and also re-check here in case the multi-out line itself arrives after.
+function applyPendingMultiOut(buf) {
+  if (!['FO', 'LO', 'GO'].includes(buf.result)) return
+  if (buf.pendingTriplePlay) { buf.result = 'TP'; buf.pendingTriplePlay = false; buf.pendingDoublePlay = false }
+  else if (buf.pendingDoublePlay) { buf.result = 'DP'; buf.pendingDoublePlay = false }
 }
 
 // Caught fly balls never get their own "Fair ball!" line (unlike grounders/
@@ -1255,6 +1434,14 @@ function ensureContactPitch(buf) {
   pushPitch(buf, 'in_play')
   buf.contactRecorded = true
   bumpLivePitchCount(buf, true)
+}
+
+function ensureHitByPitch(buf) {
+  if (buf.result === 'HBP') return
+  pushPitch(buf, 'hbp')
+  buf.pendingPitchType = null
+  buf.result = 'HBP'
+  bumpLivePitchCount(buf, false)
 }
 
 async function startNewPa(pitcherName, batterName) {
@@ -1296,6 +1483,11 @@ async function finalizeCurrentPaIfAny() {
   currentPaBuffer = null
   if (!buf) return
 
+  if (shouldClassifyTrackerFielderChoice(buf)) {
+    buf.result = 'FC'
+    buf.unresolvedReason = null
+  }
+
   if (!buf.result) {
     log(`could not determine a result for ${buf.batterName}'s plate appearance (vs. ${buf.pitcherName}) — skipping stat write.` +
       (buf.unresolvedReason ? ` Reason: ${buf.unresolvedReason}.` : '') +
@@ -1312,14 +1504,42 @@ async function finalizeCurrentPaIfAny() {
   let completed = false
   paFinalizationInProgress = true
   try {
+    // The measured launch angle separates low airborne contact from a fly.
+    // Normalize the result before sacrifice-fly and official-AB rules run.
+    if (buf.result === 'FO' && buf.battedBallTrajectory === 'L') buf.result = 'LO'
+
+    // The stock tracker announces bobbles but does not publish a separate
+    // official-error counter. When it credits the batter with a safe base on
+    // that same bobbled play, store the scorer-facing result as ROE so the hit
+    // is not accidentally counted in batting/pitching totals.
+    const isBobbleError = shouldChargeTrackerBobbleError({
+      bobbleFielderName: buf.bobbleFielderName,
+      result: buf.result,
+    })
+    if (isBobbleError && ['1B', '2B', '3B'].includes(buf.result)) buf.result = 'ROE'
+
     // Turns the fielder names captured off the play-by-play into the same
     // trajectory+position-chain notation the manual scorebook/editor write
     // (see src/utils/notation.js), so buildFieldingChances in
     // src/utils/statsCalculator.js credits putouts/assists/buddy jumps for
-    // tracker games exactly like it does for manually-scored ones. Only
-    // built for batted-ball outs (GO/FO) — hits/BB/K carry no fielder chain
-    // here (K's catcher putout is inferred automatically downstream).
+    // tracker games exactly like it does for manually-scored ones. A hit can
+    // also carry a chain when a baserunner was put out on the play. BB and K
+    // do not (the catcher's strikeout putout is inferred downstream).
+    // A sac fly is a scoring rule, not a judgment call — the tracker never
+    // says "sacrifice", but a caught fly ball that scores a runner with fewer
+    // than 2 outs is one by definition, so reclassify it before it gets
+    // written as a plain flyout (which would wrongly count as an official AB).
+    if (shouldReclassifyTrackerFlyOutAsSacFly({
+      result: buf.result,
+      outsBeforePa: buf.outsBeforePa,
+      scoredNonBatterRunner: buf.runEvents.some((run) => run.scorerName !== buf.batterName),
+    })) {
+      buf.result = 'SF'
+    }
+    const outsOnPlay = trackerOutsOnPlay(buf, calculateOutsForPa(buf.result, null))
+    parserOutsInHalf += outsOnPlay
     let hitNotation = null
+    let errorNotation = null
     let buddyJumpAssistPosition = null
     let buddyJumpPutoutPosition = null
     if (buf.isBuddyJump && buf.buddyJumpFielderName) {
@@ -1327,7 +1547,7 @@ async function finalizeCurrentPaIfAny() {
       if (buf.assistFielderNames.length) {
         buddyJumpAssistPosition = currentFieldingPositionNumber(buf.pitcherPlayerId, buf.assistFielderNames[0])
       }
-    } else if ((buf.result === 'GO' || buf.result === 'FO') && buf.putoutFielderName) {
+    } else if (outsOnPlay > 0 && buf.putoutFielderName) {
       const chainNames = [...buf.assistFielderNames, buf.putoutFielderName]
       const positions = chainNames.map((name) => currentFieldingPositionNumber(buf.pitcherPlayerId, name))
       if (positions.every((position) => position != null)) {
@@ -1338,6 +1558,20 @@ async function finalizeCurrentPaIfAny() {
       }
     }
 
+    const starPitchFlags = trackerStarPitchPaFlags(buf.pitches, outsOnPlay)
+    const errorPosition = isBobbleError
+      ? currentFieldingPositionNumber(buf.pitcherPlayerId, buf.bobbleFielderName)
+      : null
+    if (isBobbleError && errorPosition != null) {
+      const leadingPositions = buf.assistFielderNames
+        .map((name) => currentFieldingPositionNumber(buf.pitcherPlayerId, name))
+        .filter((position) => position != null)
+      const fieldingChain = [...leadingPositions, errorPosition]
+      errorNotation = assembleErrorNotation(buf.battedBallTrajectory || 'G', fieldingChain, errorPosition)
+      hitNotation = errorNotation
+    }
+    const batterRun = buf.runEvents.find((run) => run.scorerName === buf.batterName)
+    const runnerAssignments = deterministicRunnerAssignments(buf, isBobbleError)
     const paPayload = addSourceFields({
       game_id: TARGET_GAME_ID,
       player_id: buf.batterPlayerId,
@@ -1348,28 +1582,61 @@ async function finalizeCurrentPaIfAny() {
       pitcher_player_id: buf.pitcherPlayerId,
       inning: buf.inning,
       result: buf.result,
-      outs_on_play: calculateOutsForPa(buf.result, null),
-      rbi: normalizeRbiForPaResult(buf.result, buf.rbi),
+      outs_on_play: outsOnPlay,
+      rbi: normalizeRbiForPaResult(buf.result, buf.rbi, isBobbleError),
       run_scored: isHomeRunResult(buf.result) || buf.runEvents.some((r) => r.scorerName === buf.batterName),
       is_official_ab: isOfficialAtBat(buf.result),
-      is_earned_run: true,
+      is_earned_run: batterRun ? batterRun.earnedRun === true : !isBobbleError,
+      runner_on_first_before: Boolean(buf.runnersBefore.first),
+      runner_on_second_before: Boolean(buf.runnersBefore.second),
+      runner_on_third_before: Boolean(buf.runnersBefore.third),
+      runner_assignments: runnerAssignments,
       star_hit_used: Boolean(buf.starHitUsed),
+      star_pitch_used: starPitchFlags.starPitchUsed,
+      star_pitch_successful: starPitchFlags.starPitchSuccessful,
+      ...trackerBattedBallPaFields(buf.advancedBattedBall, { stadiumKey: TARGET_STADIUM_KEY }),
+      ...trackerFieldedBallPaFields(buf.advancedFielding, { stadiumKey: TARGET_STADIUM_KEY }),
+      // Preserve the separately editable At-Bat Editor trajectory whenever
+      // the tracker has an authoritative play classification. Ground-ball
+      // putouts set G and caught-hit records set F; safe hits remain null
+      // unless the tracker exposes a trustworthy trajectory signal.
+      trajectory: buf.battedBallTrajectory,
       hit_notation: hitNotation,
+      is_error: isBobbleError,
+      error_position: errorPosition,
+      error_character: isBobbleError
+        ? characterNamesById[String(resolveCharacterId(buf.bobbleFielderName))] || buf.bobbleFielderName
+        : null,
+      error_player: isBobbleError ? playerNamesById[String(buf.pitcherPlayerId)] || null : null,
+      error_notation: errorNotation,
+      fielder_choice_out: buf.result === 'FC',
+      // The tracker uses the same replay flow for offensive highlights,
+      // defensive highlights, Buddy Jumps, and some strikeouts. It exposes
+      // no reliable general-dive signal, so Nice Plays remain a postgame edit.
+      is_nice_play: false,
       is_buddy_jump: Boolean(buf.isBuddyJump),
       buddy_jump_assist_position: buddyJumpAssistPosition,
       buddy_jump_putout_position: buddyJumpPutoutPosition,
+      is_robbed_hr: isTrackerRobbedHomeRun({
+        record: buf.advancedBattedBall,
+        isBuddyJump: buf.isBuddyJump,
+        stadiumKey: TARGET_STADIUM_KEY,
+      }),
+      strikeout_type: buf.result === 'K'
+        ? (buf.pitches.at(-1)?.type === 'looking' ? 'KL'
+          : buf.pitches.at(-1)?.type === 'swinging_miss' ? 'KS' : null)
+        : null,
     })
     const savedPa = await insertPlateAppearance(paPayload)
 
     if (buf.pitches.length) {
-      const pitchPayload = buf.pitches.map((p, index) => addSourceFields({
+      const numberedPitches = numberTrackerPitches(buf.pitches, await latestGamePitchNumber())
+      const pitchPayload = numberedPitches.map((p) => addSourceFields({
         game_id: TARGET_GAME_ID, pa_id: savedPa.id,
         pitcher_id: buf.pitcherName, pitcher_player: '', batter_id: buf.batterName,
         inning: buf.inning, half: buf.isTop ? 'top' : 'bottom',
-        pitch_number_pa: index + 1, pitch_number_game: 0,
-        is_star_pitch: false, result: p.type,
-        count_balls_before: p.before.balls, count_strikes_before: p.before.strikes,
-        count_balls_after: p.after.balls, count_strikes_after: p.after.strikes,
+        pitch_number_pa: p.pitch_number_pa, pitch_number_game: p.pitch_number_game,
+        ...trackerPitchStatFields(p),
       }))
       const { error: pitchError } = await supabase.from(GAME_TABLES.pitches).insert(pitchPayload)
       if (pitchError) log('pitch insert failed for', buf.batterName, ':', pitchError.message)
@@ -1391,7 +1658,7 @@ async function finalizeCurrentPaIfAny() {
           game_id: TARGET_GAME_ID, pa_id: savedPa.id, inning: buf.inning, half: buf.isTop ? 'top' : 'bottom',
           scoring_player_id: scorerPlayerId, scoring_character_id: scorerCharacterId,
           charged_to_pitcher_id: chargedCharacterId, charged_to_pitcher_player_id: chargedPlayerId,
-          is_earned_run: run.earnedRun !== false,
+          is_earned_run: run.earnedRun === true,
         }))
       }
       if (runPayload.length) {
@@ -1414,6 +1681,7 @@ async function finalizeCurrentPaIfAny() {
     } catch (bettingError) {
       log('live bet resolution failed for PA', savedPa.pa_number, ':', bettingError.message)
     }
+    pendingRunnerAssignmentBackfill = { buf, savedPaId: savedPa.id, isError: isBobbleError }
     completedPaRevision += 1
     completed = true
     log(`recorded PA #${savedPa.pa_number}: ${buf.batterName} -> ${buf.result}${buf.rbi ? ` (${buf.rbi} RBI)` : ''}`)
@@ -1459,7 +1727,51 @@ async function processPlayEvent(message) {
   const buf = currentPaBuffer
   let m
 
+  if (String(message || '').trim().startsWith(TRACKER_FIELDED_BALL_MARKER)) {
+    const advancedFielding = parseTrackerFieldedBallMessage(message)
+    if (!advancedFielding) {
+      log('ignored malformed advanced fielding record:', message)
+      return
+    }
+    if (!buf) {
+      log(`ignored advanced fielding record with no active plate appearance (contact ${advancedFielding.contactSeq}).`)
+      return
+    }
+    if (!applyTrackerFieldedBallToBuffer(buf, advancedFielding)) {
+      log(`ignored advanced fielding record for ${advancedFielding.batterName} vs. ${advancedFielding.pitcherName}; ` +
+        `active matchup is ${buf.batterName} vs. ${buf.pitcherName}.`)
+    }
+    return
+  }
+
+  if (String(message || '').trim().startsWith(TRACKER_BATTED_BALL_MARKER)) {
+    const advancedBattedBall = parseTrackerBattedBallMessage(message)
+    if (!advancedBattedBall) {
+      log('ignored malformed advanced batted-ball record:', message)
+      return
+    }
+    if (!buf) {
+      log(`ignored advanced batted-ball record with no active plate appearance (contact ${advancedBattedBall.contactSeq}).`)
+      return
+    }
+    if (!applyTrackerBattedBallToBuffer(buf, advancedBattedBall)) {
+      log(`ignored advanced batted-ball record for ${advancedBattedBall.batterName} vs. ${advancedBattedBall.pitcherName}; ` +
+        `active matchup is ${buf.batterName} vs. ${buf.pitcherName}.`)
+      return
+    }
+    return
+  }
+
   if (buf) {
+    const runnerBefore = parseTrackerRunnerMessage(message)
+    if (runnerBefore) {
+      if (!recordRunnerBeforePa(buf, runnerBefore)) {
+        log(`could not resolve ${runnerBefore.characterName} on ${runnerBefore.base} for runner-state persistence.`)
+      }
+      return
+    }
+    if (markPendingTrackerStarPitch(buf, message)) return
+    if (isTrackerReplayMessage(message)) return
     if (/^Strike\s+\d+\.$/i.test(message)) { buf.pendingPitchType = 'strike'; return }
     if (/^Foul ball!$/i.test(message)) { buf.pendingPitchType = 'foul'; return }
     if (/^Fair ball!$/i.test(message)) {
@@ -1474,11 +1786,15 @@ async function processPlayEvent(message) {
       const newStrikes = Number(m[2])
       if (!buf.countSeenOnce) {
         // the first "Count: 0-0" after a matchup is the starting count, not a pitch
+        await backfillPriorRunnerAssignments(buf)
         buf.countSeenOnce = true
         buf.lastCount = { balls: newBalls, strikes: newStrikes }
         return
       }
-      const type = buf.pendingPitchType === 'strike' ? 'swinging_miss' : buf.pendingPitchType === 'foul' ? 'foul' : 'ball'
+      // The stock log only says "Strike"; it does not say whether the batter
+      // offered. Preserve that uncertainty instead of corrupting swing/miss
+      // metrics by labeling every generic strike a swinging miss.
+      const type = buf.pendingPitchType === 'strike' ? 'strike_unknown' : buf.pendingPitchType === 'foul' ? 'foul' : 'ball'
       pushPitch(buf, type, buf.lastCount, { balls: newBalls, strikes: newStrikes })
       buf.pendingPitchType = null
       buf.lastCount = { balls: newBalls, strikes: newStrikes }
@@ -1487,6 +1803,22 @@ async function processPlayEvent(message) {
       return
     }
 
+    const hitBatter = parseTrackerHitByPitchMessage(message)
+    if (hitBatter && hitBatter === buf.batterName) {
+      ensureHitByPitch(buf)
+      return
+    }
+
+    if (/^Double play!$/i.test(message)) {
+      if (['FO', 'LO', 'GO'].includes(buf.result)) buf.result = 'DP'
+      else buf.pendingDoublePlay = true
+      return
+    }
+    if (/^Triple play!$/i.test(message)) {
+      if (['FO', 'LO', 'GO'].includes(buf.result)) buf.result = 'TP'
+      else buf.pendingTriplePlay = true
+      return
+    }
     // The catching/put-out fielder's identity is only ever named on its own
     // line ("<fielder> put <name> out!"), separate from the "<batter>'s hit
     // was caught!" line that actually decides the PA result — so this has to
@@ -1496,23 +1828,30 @@ async function processPlayEvent(message) {
     if ((m = message.match(/^(.+?)'s hit was caught!$/i)) && m[1].trim() === buf.batterName) {
       if (!buf.result) {
         ensureContactPitch(buf)
-        buf.result = 'FO'
+        buf.result = trackerCaughtBallResult(buf.advancedBattedBall)
+        applyPendingMultiOut(buf)
       }
-      buf.battedBallTrajectory = buf.battedBallTrajectory || 'F'
+      buf.battedBallTrajectory = buf.battedBallTrajectory
+        || (buf.result === 'LO' ? 'L' : 'F')
       return
     }
-    if ((m = message.match(/^(.+?)\s+put\s+(.+?)\s+out!$/i))) {
-      const fielderName = m[1].trim()
-      const whoOut = m[2].trim()
-      if (whoOut === buf.batterName) {
+    const putout = parseTrackerPutoutMessage(message)
+    if (putout) {
+      const { runnerName: whoOut } = putout
+      captureTrackerPutout(buf, putout)
+      // On some star-swing catches the tracker increments the out before its
+      // OUT RUNNER memory value updates, then emits "No Player" for the runner.
+      // The preceding caught-hit line already proves the batter was retired,
+      // so retain the named fielder instead of discarding valid putout credit.
+      if (shouldCreditTrackerPutout({ runnerName: whoOut, batterName: buf.batterName, result: buf.result })) {
         if (!buf.result) {
           ensureContactPitch(buf)
           buf.result = 'GO'
+          applyPendingMultiOut(buf)
           buf.battedBallTrajectory = buf.battedBallTrajectory || 'G'
         }
-        buf.putoutFielderName = fielderName
       } else if (!buf.result) {
-        buf.unresolvedReason = `a putout was recorded on ${whoOut}, not the batter — possible fielder's choice/double play`
+        buf.unresolvedReason = `a putout was recorded on ${whoOut}, not the batter — retaining it as a baserunner out while awaiting the batter result`
       }
       return
     }
@@ -1521,6 +1860,12 @@ async function processPlayEvent(message) {
     // earlier link(s) in the chain.
     if ((m = message.match(/^(.+?)\s+recorded an assist!$/i))) {
       buf.assistFielderNames.push(m[1].trim())
+      return
+    }
+    // Keep the bobbler as a candidate; final scoring depends on whether the
+    // batter reaches safely or the defense still completes the out.
+    if ((m = message.match(/^(.+?)\s+bobbled the ball!$/i))) {
+      buf.bobbleFielderName = m[1].trim()
       return
     }
     if ((m = message.match(/^(.+?)\s+is going up for a buddy jump!$/i))) {
@@ -1544,6 +1889,11 @@ async function processPlayEvent(message) {
       if ((m = message.match(/^(.+?)\s+recorded an? (?:star )?single!$/i)) && m[1].trim() === buf.batterName) { ensureContactPitch(buf); buf.result = '1B'; return }
       if ((m = message.match(/^(.+?)\s+recorded an? (?:star )?double!$/i)) && m[1].trim() === buf.batterName) { ensureContactPitch(buf); buf.result = '2B'; return }
       if ((m = message.match(/^(.+?)\s+recorded an? (?:star )?triple!$/i)) && m[1].trim() === buf.batterName) { ensureContactPitch(buf); buf.result = '3B'; return }
+      // "recorded an inside the park home run!" is worded entirely differently
+      // from the over-the-fence "hits a ... home run ... off of ...!" phrasing
+      // matched below, so it needs its own pattern or it's silently dropped as
+      // an unrecognized result (no HR credit, no run, no stats).
+      if ((m = message.match(/^(.+?)\s+recorded an? (?:star )?inside the park home run!$/i)) && m[1].trim() === buf.batterName) { ensureContactPitch(buf); buf.result = 'IPHR'; return }
       if ((m = message.match(/^(.+?)\s+hits an?\s+.*(?:homer|home run).*off of\s+.+!$/i)) && m[1].trim() === buf.batterName) { ensureContactPitch(buf); buf.result = 'HR'; return }
       if ((m = message.match(/^.+?\s+struck out\s+(.+?)!$/i)) && m[1].trim() === buf.batterName) { buf.result = 'K'; return }
     }
@@ -1558,7 +1908,10 @@ async function processPlayEvent(message) {
       return
     }
     if ((m = message.match(/^(.+?)\s+recorded a run!$/i))) {
-      buf.runEvents.push({ scorerName: m[1].trim(), chargedToPitcherName: null, earnedRun: true })
+      // The tracker explicitly follows earned runs with a separate charge
+      // line. Start false so the absence of that line correctly means the run
+      // was unearned instead of treating every run as earned by default.
+      buf.runEvents.push({ scorerName: m[1].trim(), chargedToPitcherName: null, earnedRun: false })
       const scorerPlayerId = resolvePlayerIdForCharacter(m[1].trim()) ?? buf.batterPlayerId
       if (String(scorerPlayerId) === String(TARGET_TEAM_A_PLAYER_ID)) {
         setLiveScoreForSide('A', Number(scoreState.a || 0) + 1)
@@ -1568,8 +1921,13 @@ async function processPlayEvent(message) {
       return
     }
     if ((m = message.match(/^(.+?)\s+was charged with an? earned run$/i))) {
-      const openRun = [...buf.runEvents].reverse().find((r) => r.chargedToPitcherName == null)
+      const openRun = buf.runEvents.at(-1)
       if (openRun) { openRun.chargedToPitcherName = m[1].trim(); openRun.earnedRun = true }
+      return
+    }
+    if ((m = message.match(/^(.+?)\s+inherited this runner from (.+?)\.\s+(.+?)\s+will be charged any earned runs\.$/i))) {
+      const openRun = buf.runEvents.at(-1)
+      if (openRun && m[2].trim() === m[3].trim()) openRun.chargedToPitcherName = m[2].trim()
       return
     }
   }
@@ -1580,6 +1938,7 @@ async function processPlayEvent(message) {
     currentPaBuffer = null
     parserInning = 1
     parserIsTop = true
+    parserOutsInHalf = 0
     awayTeamName = null
     homeTeamName = null
     setLiveScoreForSide('A', 0)
@@ -1598,6 +1957,7 @@ async function processPlayEvent(message) {
   if ((m = message.match(/^Next:\s*(Top|Bottom) of inning (\d+)$/i))) {
     parserInning = Number(m[2])
     parserIsTop = /top/i.test(m[1])
+    parserOutsInHalf = 0
     return
   }
   if ((m = message.match(/^(.+?)\s+vs\.\s+(.+)$/))) {
@@ -1706,6 +2066,7 @@ let trackerRunnerSnapshot = null
 let pendingTrackerRunnerSnapshot = null
 let trackerRunnerFeedDetected = false
 let trackerRunnerSnapshotRejected = false
+let trackerInningFeedDetected = false
 
 function emptyRunnerState() {
   return { first: null, second: null, third: null }
@@ -1802,18 +2163,11 @@ function buildLiveStatePayload() {
   }
 }
 
-// The "N outs" console line is the only source liveState.outs/inning/isTop
-// ever had, and it doesn't get printed for the very last out of a game (the
-// tracker prints "Final Score:" instead of one more out line) — so those
-// fields would silently freeze one out short and never advance past whatever
-// half-inning the game actually ended in. plate_appearances rows are written
-// independently of that line (finalizeCurrentPaIfAny derives outs_on_play
-// straight from the play's own result), so they're the authoritative record
-// of how many outs have actually happened — recompute from there instead of
-// trusting the log parse, every time state is pushed. Runner identity is
-// first reconstructed from recorded plate appearances as a fallback, then
-// replaced by the tracker's explicit start-of-matchup base snapshot when one
-// is available.
+// PA replay repairs state on startup before the tracker has emitted an inning
+// line. Once the tracker explicitly reports "N outs" / "Next: ...", those
+// values are authoritative: a PA can be incomplete or miss a baserunner out,
+// and must never regress a correctly advanced half inning. Runner identity is
+// likewise replayed only as a fallback, then replaced by explicit snapshots.
 async function resyncGameStateFromPAs() {
   const [{ data: pas, error }, { data: runs, error: runsError }] = await Promise.all([
     supabase.from(GAME_TABLES.plateAppearances)
@@ -1835,9 +2189,10 @@ async function resyncGameStateFromPAs() {
   }
   const sortedPAs = [...pas].sort((a, b) => Number(a.pa_number) - Number(b.pa_number))
   const totalOuts = sortedPAs.reduce((sum, pa) => sum + calculateOutsForPa(pa.result, pa.outs_on_play), 0)
-  const halfInning = Math.floor(totalOuts / 3)
-  const priorHalfInning = ((Math.max(1, Number(liveState.inning || 1)) - 1) * 2) + (liveState.isTop === false ? 1 : 0)
-  if (halfInning !== priorHalfInning) {
+  const inningSync = applyPaDerivedTrackerInningState(liveState, totalOuts, {
+    hasExplicitTrackerState: trackerInningFeedDetected,
+  })
+  if (inningSync.halfChanged) {
     // A PA resync can discover the third out before the later "Changing
     // sides!" log line arrives. Never publish the newly-derived half-inning
     // with the completed PA's count still attached to it.
@@ -1845,9 +2200,6 @@ async function resyncGameStateFromPAs() {
     clearTrackerRunnerSnapshot()
     liveState.currentBatter = null
   }
-  liveState.outs = totalOuts % 3
-  liveState.inning = Math.floor(halfInning / 2) + 1
-  liveState.isTop = halfInning % 2 === 0
   const replayedRunners = deriveCurrentRunners(sortedPAs, totalOuts, scorerKeysByPaId)
   liveState.runners = trackerRunnerSnapshot
     ? { ...trackerRunnerSnapshot }
@@ -1964,6 +2316,8 @@ const LOG_LINE_RE = /^(\d{2}:\d{2}:\d{2})\s+\[(\w+)\]\s+(.*)$/
 
 function applyLogMessage(message) {
   let m
+  const inningStateMessage = applyTrackerInningStateMessage(liveState, message)
+  if (inningStateMessage) trackerInningFeedDetected = true
   if ((m = message.match(/^(.+?)\s+vs\.\s+(.+)$/))) {
     const pitcherName = m[1].trim()
     const batterName = m[2].trim()
@@ -1986,15 +2340,14 @@ function applyLogMessage(message) {
     // The tracker follows every matchup header with one line per occupied
     // base. Starting from empty makes omitted bases authoritative too.
     beginTrackerRunnerSnapshot()
-  } else if ((m = message.match(/^Next:\s*(Top|Bottom) of inning (\d+)$/i))) {
-    liveState.inning = Number(m[2])
-    liveState.isTop = /top/i.test(m[1])
+  } else if (inningStateMessage?.type === 'next_half') {
     liveState.currentBatter = null
     clearLiveCount()
     clearTrackerRunnerSnapshot()
     refreshCurrentMatchup()
-  } else if ((m = message.match(/^(\d+)\s+outs?$/i))) {
-    liveState.outs = Number(m[1])
+  } else if (inningStateMessage?.type === 'outs') {
+    // The helper applied this authoritative value before the event-specific
+    // side effects in this chain.
   } else if ((m = message.match(/^Count:\s*(\d)-(\d)$/i))) {
     liveState.balls = Number(m[1])
     liveState.strikes = Number(m[2])
@@ -2005,7 +2358,7 @@ function applyLogMessage(message) {
     liveState.abNumber = Number(m[1])
   } else if ((m = parseTrackerRunnerMessage(message))) {
     applyTrackerRunnerSnapshotEntry(m)
-  } else if (/^Changing sides!$/i.test(message)) {
+  } else if (inningStateMessage?.type === 'side_change') {
     liveState.currentBatter = null
     clearLiveCount()
     clearTrackerRunnerSnapshot()
@@ -2108,6 +2461,8 @@ async function main() {
     // carry that stale UI lock into a newly started tracker session.
     oddsCalculating: false,
   })
+  trackerInningFeedDetected = previousLiveFeed.inningStateSource === 'tracker'
+    || (previousLiveFeed.events || []).some((event) => parseTrackerInningStateMessage(event?.message))
   setLiveScoreForSide('A', scoreState.a, { syncGame: false })
   setLiveScoreForSide('B', scoreState.b, { syncGame: false })
 

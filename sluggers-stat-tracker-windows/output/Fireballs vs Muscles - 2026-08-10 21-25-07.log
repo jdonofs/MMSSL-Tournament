@@ -1,0 +1,275 @@
+21:15:40 [INFO] Dolphin hooked.
+21:15:40 [INFO] Waiting for match to begin...
+21:15:40 [INFO] Match is starting now!
+21:15:41 [INFO] Initializing game, team, and player data...
+21:15:41 [INFO] Mario Fireballs vs. Wario Muscles @ Daytime Peach Ice Garden
+21:15:41 [INFO] The Fireballs will bat first!
+21:15:43 [INFO] Wario vs. Yoshi
+21:15:43 [INFO] 0 outs
+21:15:43 [DEBUG] Count: 0-0
+21:15:43 [DEBUG] [TRACKER_BATTING] team=Fireballs|batting=Yoshi,Yellow Shy Guy,Mario,Dark Bones,Blue Dry Bones,Hammer Bro.,Blooper,Green Paratroopa,Fire Bro.
+21:15:43 [DEBUG] [TRACKER_BATTING] team=Muscles|batting=Shy Guy,Blue Kritter,Bowser,Wario,Blue Pianta,Tiny Kong,Baby DK,Red Pianta,Toadette
+21:15:48 [DEBUG] [TRACKER_LINEUP] team=Muscles|batting=Shy Guy,Blue Kritter,Bowser,Wario,Blue Pianta,Tiny Kong,Baby DK,Red Pianta,Toadette|fielding=P=Wario,C=Bowser,1B=Blue Kritter,2B=Blue Pianta,3B=Red Pianta,SS=Shy Guy,LF=Tiny Kong,CF=Baby DK,RF=Toadette
+21:15:48 [DEBUG] Muscles Starting Lineup Set!
+21:15:49 [INFO] Fair ball!
+21:15:50 [INFO] Fair ball fielded!
+21:15:51 [INFO] Blue Kritter put Yoshi out!
+21:15:51 [INFO] Blue Pianta recorded an assist!
+21:15:51 [INFO] Blue Pianta threw the ball for the out!
+21:15:53 [INFO] Plate appearance #1 for Yoshi.
+21:15:53 [INFO] At-bat #1 for Yoshi.
+21:15:55 [INFO] Wario vs. Yellow Shy Guy
+21:15:55 [INFO] 1 outs
+21:15:55 [DEBUG] Count: 0-0
+21:15:56 [INFO] Game paused...
+21:16:49 [DEBUG] Count: 0-0
+21:16:52 [INFO] Ball 1.
+21:16:54 [DEBUG] Count: 1-0
+21:16:58 [INFO] Fair ball!
+21:16:59 [INFO] Fair ball fielded!
+21:17:03 [INFO] Plate appearance #1 for Yellow Shy Guy.
+21:17:03 [INFO] At-bat #1 for Yellow Shy Guy.
+21:17:04 [DEBUG] Wario has allowed 1 hits!
+21:17:04 [DEBUG] Yellow Shy Guy recorded a single!
+21:17:04 [INFO] Wario vs. Mario
+21:17:04 [INFO] 1 outs
+21:17:04 [DEBUG] Count: 0-0
+21:17:04 [DEBUG] Yellow Shy Guy is on first.
+21:17:12 [INFO] Mario's hit was caught!
+21:17:12 [INFO] Toadette put Mario out!
+21:17:15 [INFO] Plate appearance #1 for Mario.
+21:17:15 [INFO] At-bat #1 for Mario.
+21:17:16 [INFO] Wario vs. Dark Bones
+21:17:16 [INFO] 2 outs
+21:17:16 [DEBUG] Count: 0-0
+21:17:22 [INFO] Strike 1.
+21:17:23 [DEBUG] Count: 0-1
+21:17:34 [INFO] Dark Bones's hit was caught!
+21:17:34 [INFO] Tiny Kong put Dark Bones out!
+21:17:36 [INFO] Plate appearance #1 for Dark Bones.
+21:17:36 [INFO] At-bat #1 for Dark Bones.
+21:17:36 [INFO] Mario Fireballs - 0
+21:17:36 [INFO] Wario Muscles - 0
+21:17:36 [INFO] Changing sides!
+21:17:39 [INFO] Next: Bottom of inning 1
+21:17:39 [INFO] Upcoming batter: Shy Guy
+21:17:39 [INFO] On deck: Blue Kritter
+21:17:43 [INFO] Mario vs. Shy Guy
+21:17:43 [INFO] 0 outs
+21:17:43 [DEBUG] Count: 0-0
+21:17:46 [DEBUG] [TRACKER_LINEUP] team=Fireballs|batting=Yoshi,Yellow Shy Guy,Mario,Dark Bones,Blue Dry Bones,Hammer Bro.,Blooper,Green Paratroopa,Fire Bro.|fielding=P=Mario,C=Fire Bro.,1B=Yellow Shy Guy,2B=Blue Dry Bones,3B=Green Paratroopa,SS=Blooper,LF=Hammer Bro.,CF=Yoshi,RF=Dark Bones
+21:17:46 [DEBUG] Fireballs Starting Lineup Set!
+21:17:47 [INFO] Strike 1.
+21:17:47 [DEBUG] Count: 0-1
+21:17:55 [INFO] Shy Guy's hit was caught!
+21:17:55 [INFO] Hammer Bro. put Shy Guy out!
+21:17:57 [INFO] Plate appearance #1 for Shy Guy.
+21:17:57 [INFO] At-bat #1 for Shy Guy.
+21:17:58 [INFO] Mario vs. Blue Kritter
+21:17:58 [INFO] 1 outs
+21:17:58 [DEBUG] Count: 0-0
+21:18:00 [INFO] Strike 1.
+21:18:01 [DEBUG] Count: 0-1
+21:18:05 [INFO] Fair ball!
+21:18:07 [INFO] Fair ball fielded!
+21:18:12 [INFO] Plate appearance #1 for Blue Kritter.
+21:18:12 [INFO] At-bat #1 for Blue Kritter.
+21:18:14 [DEBUG] Mario has allowed 1 hits!
+21:18:14 [DEBUG] Blue Kritter recorded a double!
+21:18:14 [INFO] Mario vs. Bowser
+21:18:14 [INFO] 1 outs
+21:18:14 [DEBUG] Count: 0-0
+21:18:14 [DEBUG] Blue Kritter is on second.
+21:18:18 [INFO] Bowser used a star swing!
+21:18:19 [INFO] Fair ball!
+21:18:22 [INFO] Fair ball fielded!
+21:18:25 [INFO] Blue Kritter recorded a run!
+21:18:25 [DEBUG] Mario was charged with an earned run
+21:18:25 [DEBUG] Score Updated: Mario Fireballs 0 - Wario Muscles 1
+21:18:27 [WARNING] Ball possession status changed to HELD but no current ball holder found after refreshing. This may be a misread or a very fast change. Last ball holder: Blue Dry Bones
+21:18:27 [INFO] Plate appearance #1 for Bowser.
+21:18:27 [INFO] At-bat #1 for Bowser.
+21:18:27 [INFO] Stat tracking paused for replay.
+21:18:31 [INFO] Replay ended. Resuming stat tracking.
+21:18:32 [DEBUG] Pitch already processed.
+21:18:34 [DEBUG] Mario has allowed 2 hits!
+21:18:34 [INFO] Bowser recorded 1 RBI!
+21:18:34 [DEBUG] Bowser recorded a star single!
+21:18:34 [INFO] Mario vs. Wario
+21:18:34 [INFO] 1 outs
+21:18:34 [DEBUG] Count: 0-0
+21:18:34 [DEBUG] Bowser is on first.
+21:18:39 [INFO] Wario's hit was caught!
+21:18:39 [INFO] Yoshi put Wario out!
+21:18:42 [INFO] Plate appearance #1 for Wario.
+21:18:42 [INFO] At-bat #1 for Wario.
+21:18:44 [INFO] Mario vs. Blue Pianta
+21:18:44 [INFO] 2 outs
+21:18:44 [DEBUG] Count: 0-0
+21:18:47 [INFO] Strike 1.
+21:18:47 [DEBUG] Count: 0-1
+21:18:51 [INFO] Hammer Bro. bobbled the ball!
+21:18:52 [INFO] Fair ball!
+21:18:53 [INFO] Fair ball fielded!
+21:18:57 [INFO] Plate appearance #1 for Blue Pianta.
+21:18:57 [INFO] At-bat #1 for Blue Pianta.
+21:19:00 [DEBUG] Mario has allowed 3 hits!
+21:19:00 [DEBUG] Blue Pianta recorded a single!
+21:19:00 [INFO] Mario vs. Tiny Kong
+21:19:00 [INFO] 2 outs
+21:19:00 [DEBUG] Count: 0-0
+21:19:00 [DEBUG] Blue Pianta is on first.
+21:19:00 [DEBUG] Bowser is on third.
+21:19:14 [INFO] Strike 1.
+21:19:14 [DEBUG] Count: 0-1
+21:19:20 [INFO] Tiny Kong's hit was caught!
+21:19:20 [INFO] Yoshi put Tiny Kong out!
+21:19:22 [INFO] Plate appearance #1 for Tiny Kong.
+21:19:22 [INFO] At-bat #1 for Tiny Kong.
+21:19:22 [INFO] Mario Fireballs - 0
+21:19:22 [INFO] Wario Muscles - 1
+21:19:22 [INFO] Changing sides!
+21:19:25 [INFO] Next: Top of inning 2
+21:19:25 [INFO] Upcoming batter: Blue Dry Bones
+21:19:25 [INFO] On deck: Hammer Bro.
+21:20:14 [INFO] Wario vs. Blue Dry Bones
+21:20:14 [INFO] 0 outs
+21:20:14 [DEBUG] Count: 0-0
+21:20:19 [INFO] Strike 1.
+21:20:21 [DEBUG] Count: 0-1
+21:20:24 [INFO] Strike 2.
+21:20:26 [DEBUG] Count: 0-2
+21:20:30 [INFO] Wario used a star pitch!
+21:20:33 [INFO] Strike 3.
+21:20:33 [INFO] Wario struck out Blue Dry Bones!
+21:20:35 [INFO] Plate appearance #1 for Blue Dry Bones.
+21:20:35 [INFO] At-bat #1 for Blue Dry Bones.
+21:20:37 [INFO] Wario vs. Hammer Bro.
+21:20:37 [INFO] 1 outs
+21:20:37 [DEBUG] Count: 0-0
+21:20:43 [INFO] Strike 1.
+21:20:45 [DEBUG] Count: 0-1
+21:20:48 [INFO] Strike 2.
+21:20:50 [DEBUG] Count: 0-2
+21:20:58 [INFO] Foul ball!
+21:20:59 [DEBUG] Count: 0-2
+21:21:10 [INFO] Hammer Bro.'s hit was caught!
+21:21:10 [INFO] Baby DK put Hammer Bro. out!
+21:21:12 [INFO] Plate appearance #1 for Hammer Bro..
+21:21:12 [INFO] At-bat #1 for Hammer Bro..
+21:21:13 [INFO] Wario vs. Blooper
+21:21:13 [INFO] 2 outs
+21:21:13 [DEBUG] Count: 0-0
+21:21:18 [INFO] Strike 1.
+21:21:20 [DEBUG] Count: 0-1
+21:21:23 [INFO] Blooper used a star swing!
+21:21:24 [INFO] Blooper's hit was caught!
+21:21:24 [INFO] Shy Guy put Blooper out!
+21:21:26 [INFO] Plate appearance #1 for Blooper.
+21:21:26 [INFO] At-bat #1 for Blooper.
+21:21:26 [INFO] Stat tracking paused for replay.
+21:21:26 [INFO] Replay ended. Resuming stat tracking.
+21:21:26 [DEBUG] Pitch already processed.
+21:21:26 [INFO] Mario Fireballs - 0
+21:21:26 [INFO] Wario Muscles - 1
+21:21:26 [INFO] Changing sides!
+21:21:29 [INFO] Next: Bottom of inning 2
+21:21:29 [INFO] Upcoming batter: Baby DK
+21:21:29 [INFO] On deck: Red Pianta
+21:21:33 [INFO] Mario vs. Baby DK
+21:21:33 [INFO] 0 outs
+21:21:33 [DEBUG] Count: 0-0
+21:21:47 [INFO] Strike 1.
+21:21:48 [DEBUG] Count: 0-1
+21:21:51 [INFO] Blue Dry Bones bobbled the ball!
+21:21:52 [INFO] Fair ball!
+21:21:54 [INFO] Fair ball fielded!
+21:21:56 [INFO] Plate appearance #1 for Baby DK.
+21:21:56 [INFO] At-bat #1 for Baby DK.
+21:21:57 [DEBUG] Mario has allowed 4 hits!
+21:21:57 [DEBUG] Baby DK recorded a single!
+21:21:57 [INFO] Mario vs. Red Pianta
+21:21:57 [INFO] 0 outs
+21:21:57 [DEBUG] Count: 0-0
+21:21:57 [DEBUG] Baby DK is on first.
+21:21:59 [INFO] Game paused...
+21:22:00 [DEBUG] Count: 0-0
+21:22:04 [INFO] Red Pianta's hit was caught!
+21:22:04 [INFO] Dark Bones put Red Pianta out!
+21:22:07 [INFO] Plate appearance #1 for Red Pianta.
+21:22:07 [INFO] At-bat #1 for Red Pianta.
+21:22:08 [INFO] Mario vs. Toadette
+21:22:08 [INFO] 1 outs
+21:22:08 [DEBUG] Count: 0-0
+21:22:11 [INFO] Fair ball!
+21:22:12 [INFO] Fair ball fielded!
+21:22:13 [INFO] Blooper put Baby DK out!
+21:22:13 [INFO] Blue Dry Bones recorded an assist!
+21:22:13 [INFO] Blue Dry Bones threw the ball for the out!
+21:22:14 [INFO] Double play!
+21:22:14 [INFO] Yellow Shy Guy put Toadette out!
+21:22:14 [INFO] Blue Dry Bones recorded an assist!
+21:22:14 [INFO] Blooper recorded an assist!
+21:22:14 [INFO] Blooper threw the ball for the out!
+21:22:16 [INFO] Blooper was credited with a double play!
+21:22:16 [INFO] Blue Dry Bones was credited with a double play!
+21:22:16 [INFO] Yellow Shy Guy was credited with a double play!
+21:22:16 [INFO] Plate appearance #1 for Toadette.
+21:22:16 [INFO] At-bat #1 for Toadette.
+21:22:16 [INFO] Mario Fireballs - 0
+21:22:16 [INFO] Wario Muscles - 1
+21:22:16 [INFO] Changing sides!
+21:22:19 [INFO] Next: Top of inning 3
+21:22:19 [INFO] Upcoming batter: Green Paratroopa
+21:22:19 [INFO] On deck: Fire Bro.
+21:22:23 [INFO] Wario vs. Green Paratroopa
+21:22:23 [INFO] 0 outs
+21:22:23 [DEBUG] Count: 0-0
+21:22:30 [INFO] Wario used a star pitch!
+21:22:31 [INFO] Green Paratroopa used a star swing!
+21:22:32 [INFO] Foul ball!
+21:22:34 [DEBUG] Count: 0-1
+21:22:37 [INFO] Green Paratroopa used a star swing!
+21:22:38 [INFO] Green Paratroopa's hit was caught!
+21:22:38 [INFO] Red Pianta put Green Paratroopa out!
+21:22:40 [INFO] Plate appearance #1 for Green Paratroopa.
+21:22:40 [INFO] At-bat #1 for Green Paratroopa.
+21:22:41 [INFO] Wario vs. Fire Bro.
+21:22:41 [INFO] 1 outs
+21:22:41 [DEBUG] Count: 0-0
+21:22:47 [INFO] Fair ball!
+21:22:47 [INFO] Fair ball fielded!
+21:22:49 [INFO] Blue Kritter put Fire Bro. out!
+21:22:49 [INFO] Shy Guy recorded an assist!
+21:22:49 [INFO] Shy Guy threw the ball for the out!
+21:22:51 [INFO] Plate appearance #1 for Fire Bro..
+21:22:51 [INFO] At-bat #1 for Fire Bro..
+21:22:53 [INFO] Wario vs. Yoshi
+21:22:53 [INFO] 2 outs
+21:22:53 [DEBUG] Count: 0-0
+21:22:59 [INFO] Wario used a star pitch!
+21:23:03 [INFO] Yoshi used a star swing!
+21:23:04 [INFO] Blue Kritter bobbled the ball!
+21:23:05 [INFO] Fair ball!
+21:23:09 [INFO] Fair ball fielded!
+21:23:13 [INFO] Plate appearance #2 for Yoshi.
+21:23:13 [INFO] At-bat #2 for Yoshi.
+21:23:14 [DEBUG] Wario has allowed 2 hits!
+21:23:14 [DEBUG] Yoshi recorded a star double!
+21:23:14 [INFO] Wario vs. Yellow Shy Guy
+21:23:14 [INFO] 2 outs
+21:23:14 [DEBUG] Count: 0-0
+21:23:14 [DEBUG] Yoshi is on second.
+21:23:17 [INFO] Yellow Shy Guy used a star swing!
+21:23:18 [INFO] Blue Pianta bobbled the ball!
+21:23:20 [INFO] Yellow Shy Guy's hit was caught!
+21:23:20 [INFO] Toadette put Yellow Shy Guy out!
+21:23:24 [INFO] Plate appearance #2 for Yellow Shy Guy.
+21:23:24 [INFO] At-bat #2 for Yellow Shy Guy.
+21:23:24 [INFO] Stat tracking paused for replay.
+21:23:31 [INFO] Replay ended. Resuming stat tracking.
+21:23:31 [DEBUG] Pitch already processed.
+21:23:31 [INFO] Final Score:
+21:23:31 [INFO] Mario Fireballs - 0
+21:23:31 [INFO] Wario Muscles - 1
+21:23:31 [INFO] Wario Muscles win!

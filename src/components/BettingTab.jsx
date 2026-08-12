@@ -23,6 +23,7 @@ import {
   recalculateOdds,
 } from '../utils/oddsEngine'
 import { parseDollarWager, sanitizeDollarWagerInput, summarizeSlipWagers } from '../utils/bettingSlip'
+import { isCreditedHit } from '../utils/creditedHit'
 import { buildPlacedBetLedgerEntries, resolveGameBets } from '../utils/betResolution'
 import { buildOddsGenerationContext } from '../utils/oddsContext'
 import { persistOddsRowsWithFallback } from '../utils/oddsPersistence'
@@ -299,7 +300,6 @@ function getCountPropSeasonStat(row, statsByEntity = {}) {
   return ''
 }
 
-const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const HR_RESULTS = new Set(['HR', 'IPHR'])
 
 function formatBetTitle(bet, game, playersById, identitiesByPlayerId = {}) {
@@ -371,10 +371,9 @@ function getBetProgress(bet, game, plateAppearances, pitchingStints, charactersB
   }
 
   if (bet.bet_type === 'hr_prop' || bet.bet_type === 'hit_prop') {
-    const matchSet = bet.bet_type === 'hr_prop' ? HR_RESULTS : HIT_RESULTS
     const current = gamePAs.filter((pa) =>
       buildBettingEntityLabel(charactersById[pa.character_id], playersById[pa.player_id]) === bet.target_entity &&
-      matchSet.has(pa.result),
+      isCreditedHit(pa) && (bet.bet_type !== 'hr_prop' || HR_RESULTS.has(pa.result)),
     ).length
     return { current, line, unit: bet.bet_type === 'hr_prop' ? 'HR' : 'hits', wantsOver: bet.chosen_side === 'over' }
   }
@@ -397,8 +396,8 @@ function buildGameResolutionTotals(gameId, plateAppearances, pitchingStints, cha
   plateAppearances.forEach((entry) => {
     if (String(entry.game_id) !== scopedGameId) return
     const key = buildBettingEntityLabel(charactersById[entry.character_id], playersById[entry.player_id])
-    if (entry.result === 'HR' || entry.result === 'IPHR') hrTotals[key] = Number(hrTotals[key] || 0) + 1
-    if (HIT_RESULTS.has(entry.result)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
+    if (isCreditedHit(entry) && (entry.result === 'HR' || entry.result === 'IPHR')) hrTotals[key] = Number(hrTotals[key] || 0) + 1
+    if (isCreditedHit(entry)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
   })
 
   return {

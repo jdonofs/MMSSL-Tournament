@@ -16,7 +16,7 @@ import {
   normalizeMercyRuleDifferential,
   normalizeRegulationInnings,
 } from '../utils/gameRules'
-import { calculateOutsForPa, inningsPitchedFromOuts } from '../utils/statsCalculator'
+import { calculateOutsForPa, inningsPitchedFromOuts, isCreditedHit } from '../utils/statsCalculator'
 import { fetchAllRows } from '../utils/fetchAllRows'
 import { savePlayerTeamIdentity } from '../utils/playerTeamIdentity'
 
@@ -758,20 +758,19 @@ export default function Admin() {
         { data: seasonPitchesData },
       ] = await Promise.all([
         fetchAllRows(() => supabase.from('games').select('id,team_a_player_id,team_b_player_id,home_away_swapped').order('created_at')),
-        fetchAllRows(() => supabase.from('plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,pitcher_id,pitcher_player_id,created_at').order('created_at')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,is_error,pitcher_id,pitcher_player_id,created_at').order('created_at')),
         fetchAllRows(() => supabase.from('pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at')),
         fetchAllRows(() => supabase.from('runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at')),
         fetchAllRows(() => supabase.from('pitches').select('id,pa_id,result').order('created_at')),
         fetchAllRows(() => supabase.from('season_teams').select('id,player_id').order('created_at')),
         fetchAllRows(() => supabase.from('season_schedule').select('id,away_team_id,home_team_id,home_away_swapped').order('created_at')),
-        fetchAllRows(() => supabase.from('season_plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,pitcher_id,pitcher_player_id,created_at').order('created_at')),
+        fetchAllRows(() => supabase.from('season_plate_appearances').select('id,game_id,player_id,result,rbi,run_scored,is_earned_run,is_error,pitcher_id,pitcher_player_id,created_at').order('created_at')),
         fetchAllRows(() => supabase.from('season_pitching_stints').select('id,game_id,player_id,character_id,created_at').order('created_at')),
         fetchAllRows(() => supabase.from('season_runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at')),
         fetchAllRows(() => supabase.from('season_pitches').select('id,pa_id,result').order('created_at')),
       ])
 
       const playerIdByTeamId = Object.fromEntries((seasonTeamsData || []).map((t) => [String(t.id), t.player_id]))
-      const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
       const isHR = (r) => r === 'HR' || r === 'IPHR'
 
       const computeStatsForGame = (game, gamePAs, gameStints, gameRuns, gamePitches) => {
@@ -824,8 +823,8 @@ export default function Admin() {
             const outs = calculateOutsForPa(pa.result, pa.outs_on_play)
             const paRuns = gameRuns.filter((run) => String(run.pa_id) === String(pa.id))
             next._outs += outs
-            if (HIT_RESULTS.has(pa.result)) next.hits_allowed += 1
-            if (isHR(pa.result)) next.hr_allowed += 1
+            if (isCreditedHit(pa)) next.hits_allowed += 1
+            if (isCreditedHit(pa) && isHR(pa.result)) next.hr_allowed += 1
             if (pa.result === 'BB') next.walks += 1
             if (pa.result === 'K') next.strikeouts += 1
             // Every pitch of this PA belongs to whichever stint the PA itself was attributed to

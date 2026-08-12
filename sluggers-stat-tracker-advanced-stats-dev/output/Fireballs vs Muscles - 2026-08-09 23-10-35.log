@@ -1,0 +1,161 @@
+23:07:13 [INFO] Dolphin hooked.
+23:07:13 [INFO] Waiting for match to begin...
+23:07:13 [INFO] Initializing game, team, and player data...
+23:07:13 [INFO] Wario vs. Blooper
+23:07:13 [INFO] 1 outs
+23:07:13 [DEBUG] Count: 0-0
+23:07:14 [INFO] Shy Guy bobbled the ball!
+23:07:15 [INFO] Blooper's hit was caught!
+23:07:15 [INFO] Tiny Kong put Blooper out!
+23:07:17 [INFO] Plate appearance #1 for Blooper.
+23:07:17 [INFO] At-bat #1 for Blooper.
+23:07:19 [INFO] Wario vs. Yoshi
+23:07:19 [INFO] 2 outs
+23:07:19 [DEBUG] Count: 0-0
+23:07:26 [DEBUG] Muscles Starting Lineup Set!
+23:07:29 [INFO] Foul ball!
+23:07:30 [WARNING] Ball possession status changed to HELD but no current ball holder found after refreshing. This may be a misread or a very fast change. Last ball holder: Wario
+23:07:31 [DEBUG] Count: 0-1
+23:07:34 [INFO] Fair ball!
+23:07:35 [INFO] Fair ball fielded!
+23:07:36 [INFO] Red Pianta put Yoshi out!
+23:07:36 [INFO] Shy Guy recorded an assist!
+23:07:36 [INFO] Shy Guy threw the ball for the out!
+23:07:38 [INFO] Plate appearance #1 for Yoshi.
+23:07:38 [INFO] At-bat #1 for Yoshi.
+23:07:38 [INFO] Mario Fireballs - 4
+23:07:38 [INFO] Wario Muscles - 6
+23:07:38 [INFO] Changing sides!
+23:07:41 [INFO] Next: Bottom of inning 2
+23:07:41 [INFO] Upcoming batter: Blue Kritter
+23:07:41 [INFO] On deck: Toadette
+23:07:48 [INFO] Mario vs. Blue Kritter
+23:07:48 [INFO] 0 outs
+23:07:48 [DEBUG] Count: 0-0
+23:08:07 [DEBUG] Fireballs Starting Lineup Set!
+23:08:09 [INFO] Strike 1.
+23:08:09 [DEBUG] Count: 0-1
+23:08:18 [INFO] Blue Kritter's hit was caught!
+23:08:18 [INFO] Yoshi put Blue Kritter out!
+23:08:20 [INFO] Plate appearance #1 for Blue Kritter.
+23:08:20 [INFO] At-bat #1 for Blue Kritter.
+23:08:21 [INFO] Mario vs. Toadette
+23:08:21 [INFO] 1 outs
+23:08:21 [DEBUG] Count: 0-0
+23:08:24 [INFO] Strike 1.
+23:08:25 [DEBUG] Count: 0-1
+23:08:27 [INFO] Fair ball!
+23:08:28 [INFO] Fair ball fielded!
+23:08:30 [INFO] Blue Dry Bones put Toadette out!
+23:08:30 [INFO] Green Paratroopa recorded an assist!
+23:08:30 [INFO] Green Paratroopa threw the ball for the out!
+23:08:32 [INFO] Plate appearance #1 for Toadette.
+23:08:32 [INFO] At-bat #1 for Toadette.
+23:08:34 [INFO] Mario vs. Bowser
+23:08:34 [INFO] 2 outs
+23:08:34 [DEBUG] Count: 0-0
+23:08:42 [INFO] Fair ball!
+23:08:43 [INFO] Fair ball fielded!
+23:08:47 [INFO] Plate appearance #1 for Bowser.
+23:08:47 [INFO] At-bat #1 for Bowser.
+23:08:49 [DEBUG] Mario has allowed 1 hits!
+23:08:49 [DEBUG] Bowser recorded a double!
+23:08:49 [INFO] Mario vs. Wario
+23:08:49 [INFO] 2 outs
+23:08:49 [DEBUG] Count: 0-0
+23:08:49 [DEBUG] Bowser is on second.
+23:08:53 [INFO] Strike 1.
+23:08:53 [DEBUG] Count: 0-1
+23:08:58 [INFO] Fair ball!
+23:08:59 [INFO] Fair ball fielded!
+23:09:01 [INFO] Bowser recorded a run!
+23:09:01 [DEBUG] Mario was charged with an earned run
+23:09:01 [DEBUG] Score Updated: Mario Fireballs 4 - Wario Muscles 7
+23:09:03 [INFO] Plate appearance #1 for Wario.
+23:09:03 [INFO] At-bat #1 for Wario.
+23:09:03 [INFO] Stat tracking paused for replay.
+23:09:04 [INFO] Replay ended. Resuming stat tracking.
+23:09:05 [DEBUG] Pitch already processed.
+23:09:07 [DEBUG] Mario has allowed 2 hits!
+23:09:07 [INFO] Wario recorded 1 RBI!
+23:09:07 [DEBUG] Wario recorded a single!
+23:09:07 [INFO] Mario vs. Blue Pianta
+23:09:07 [INFO] 2 outs
+23:09:07 [DEBUG] Count: 0-0
+23:09:07 [DEBUG] Wario is on first.
+23:09:12 [INFO] Fair ball!
+23:09:14 [INFO] Wario recorded a run!
+23:09:14 [DEBUG] Mario was charged with an earned run
+23:09:14 [DEBUG] Score Updated: Mario Fireballs 4 - Wario Muscles 9
+23:09:14 [INFO] Blue Pianta recorded a run!
+23:09:14 [DEBUG] Mario was charged with an earned run
+23:09:14 [DEBUG] Score Updated: Mario Fireballs 4 - Wario Muscles 9
+23:09:14 [INFO] Blue Pianta hits a two-run homer off of Mario!
+23:09:18 [INFO] Plate appearance #1 for Blue Pianta.
+23:09:18 [INFO] At-bat #1 for Blue Pianta.
+23:09:18 [INFO] Stat tracking paused for replay.
+23:09:20 [INFO] Replay ended. Resuming stat tracking.
+23:09:20 [DEBUG] Pitch already processed.
+23:09:21 [DEBUG] Mario has allowed 3 hits!
+23:09:21 [INFO] Blue Pianta recorded 2 RBI!
+23:09:21 [INFO] Mario vs. Red Pianta
+23:09:21 [INFO] 2 outs
+23:09:21 [DEBUG] Count: 0-0
+23:09:26 [INFO] Strike 1.
+23:09:27 [DEBUG] Count: 0-1
+23:09:29 [INFO] Strike 2.
+23:09:30 [DEBUG] Count: 0-2
+23:09:32 [INFO] Strike 3.
+23:09:32 [INFO] Mario struck out Red Pianta!
+23:09:34 [INFO] Plate appearance #1 for Red Pianta.
+23:09:34 [INFO] At-bat #1 for Red Pianta.
+23:09:34 [INFO] Mario Fireballs - 4
+23:09:34 [INFO] Wario Muscles - 9
+23:09:34 [INFO] Changing sides!
+23:09:37 [INFO] Next: Top of inning 3
+23:09:37 [INFO] Upcoming batter: Green Paratroopa
+23:09:37 [INFO] On deck: Mario
+23:09:42 [INFO] Wario vs. Green Paratroopa
+23:09:42 [INFO] 0 outs
+23:09:42 [DEBUG] Count: 0-0
+23:09:46 [INFO] Strike 1.
+23:09:48 [DEBUG] Count: 0-1
+23:09:48 [INFO] Game paused...
+23:09:52 [INFO] Game paused...
+23:09:59 [INFO] Bowser was moved to P.
+23:09:59 [INFO] Wario was moved to C.
+23:10:00 [INFO] Bowser vs. Green Paratroopa
+23:10:00 [INFO] 0 outs
+23:10:00 [DEBUG] Count: 0-1
+23:10:03 [INFO] Strike 2.
+23:10:04 [DEBUG] Count: 0-2
+23:10:05 [INFO] Strike 3.
+23:10:05 [INFO] Bowser struck out Green Paratroopa!
+23:10:07 [INFO] Plate appearance #1 for Green Paratroopa.
+23:10:07 [INFO] At-bat #1 for Green Paratroopa.
+23:10:10 [INFO] Bowser vs. Mario
+23:10:10 [INFO] 1 outs
+23:10:10 [DEBUG] Count: 0-0
+23:10:11 [INFO] Strike 1.
+23:10:12 [DEBUG] Count: 0-1
+23:10:14 [INFO] Strike 2.
+23:10:14 [DEBUG] Count: 0-2
+23:10:16 [INFO] Strike 3.
+23:10:16 [INFO] Bowser struck out Mario!
+23:10:18 [INFO] Plate appearance #1 for Mario.
+23:10:18 [INFO] At-bat #1 for Mario.
+23:10:20 [INFO] Bowser vs. Hammer Bro.
+23:10:20 [INFO] 2 outs
+23:10:20 [DEBUG] Count: 0-0
+23:10:22 [INFO] Strike 1.
+23:10:22 [DEBUG] Count: 0-1
+23:10:24 [INFO] Strike 2.
+23:10:24 [DEBUG] Count: 0-2
+23:10:26 [INFO] Strike 3.
+23:10:26 [INFO] Bowser struck out Hammer Bro.!
+23:10:29 [INFO] Plate appearance #1 for Hammer Bro..
+23:10:29 [INFO] At-bat #1 for Hammer Bro..
+23:10:29 [INFO] Final Score:
+23:10:29 [INFO] Mario Fireballs - 4
+23:10:29 [INFO] Wario Muscles - 9
+23:10:29 [INFO] Wario Muscles win!

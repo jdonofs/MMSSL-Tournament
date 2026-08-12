@@ -1,0 +1,80 @@
+#pragma once
+
+#include <memory>
+#include <unordered_map>
+
+#include <QByteArray>
+#include <QLockFile>
+#include <QSettings>
+
+#include "../../Common/CommonTypes.h"
+
+class SConfig
+{
+public:
+  static SConfig& getInstance();
+
+  SConfig();
+  ~SConfig();
+
+  SConfig(const SConfig&) = delete;
+  SConfig(SConfig&&) = delete;
+  SConfig& operator=(const SConfig&) = delete;
+  SConfig& operator=(SConfig&&) = delete;
+
+  QString getSettingsFilepath() const;
+
+  QByteArray getMainWindowGeometry() const;
+  QByteArray getMainWindowState() const;
+  QByteArray getSplitterState() const;
+
+  QString getWatchModel() const;
+  QString getStructDefs() const;
+  bool getAutoHook() const;
+
+  int getTheme() const;
+
+  int getWatcherUpdateTimerMs() const;
+  int getFreezeTimerMs() const;
+  int getScannerUpdateTimerMs() const;
+  int getViewerUpdateTimerMs() const;
+  int getScannerShowThreshold() const;
+
+  int getViewerNbrBytesSeparator() const;
+
+  void setMainWindowGeometry(QByteArray const&);
+  void setMainWindowState(QByteArray const&);
+  void setSplitterState(QByteArray const&);
+
+  void setWatchModel(const QString& json);
+  void setStructDefs(const QString& json);
+  void setAutoHook(bool enabled);
+
+  void setTheme(int theme);
+
+  void setWatcherUpdateTimerMs(int watcherUpdateTimerMs);
+  void setFreezeTimerMs(int freezeTimerMs);
+  void setScannerUpdateTimerMs(int scannerUpdateTimerMs);
+  void setViewerUpdateTimerMs(int viewerUpdateTimerMs);
+  void setScannerShowThreshold(int scannerShowThreshold);
+
+  void setViewerNbrBytesSeparator(int viewerNbrBytesSeparator);
+
+  bool ownsSettingsFile() const;
+
+  bool getAutoloadLastFile() const;
+  void setAutoloadLastFile(bool enabled);
+  QString getLastLoadedFile() const;
+  void setLastLoadedFile(const QString& fileName);
+
+  bool getCollapseGroupsOnSave() const;
+  void setCollapseGroupsOnSave(bool enabled);
+
+private:
+  void setValue(const QString& key, const QVariant& value);
+  QVariant value(const QString& key, const QVariant& defaultValue) const;
+
+  std::unique_ptr<QLockFile> m_lockFile;
+  std::unordered_map<QString, QVariant> m_map;
+  QSettings* m_settings{};
+};

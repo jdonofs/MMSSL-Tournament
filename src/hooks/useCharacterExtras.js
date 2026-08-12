@@ -4,9 +4,11 @@ import { fetchAllRows } from '../utils/fetchAllRows'
 import {
   abbreviateSeasonName,
   aggregateFieldingHistoryByEvent,
+  aggregateFieldingHistoryByEventAndPosition,
   aggregateGameHistoryByEvent,
   aggregatePitchingHistoryByEvent,
   buildCharacterFieldingGameHistory,
+  buildFieldingGameEventMeta,
   buildCharacterGameHistory,
   buildCharacterIntrinsics,
   buildCharacterPitchingGameHistory,
@@ -33,7 +35,9 @@ function createDefaultExtras() {
     allTimeFielding: null,
     characterGameFielders: [],
     fieldingByPosition: { totalGames: 0, positions: [] },
+    fieldingHistoryByPosition: [],
     starHitFieldingByPosition: { positions: [], totalChances: 0, totalErrors: 0, fieldingPct: null },
+    starHitFieldingHistoryByPosition: [],
     fieldingRangeByPosition: { positions: [], totalRangeable: 0, totalRangeRuns: null },
     parkFactorRows: [],
     teamHistory: [],
@@ -359,6 +363,9 @@ export default function useCharacterExtras(character, scope = null) {
       const characterFieldingChances = allFieldingChances.filter((chance) => String(chance.characterId) === String(character.id))
       const fieldingByPosition = summarizeFieldingByPosition(characterGameFielders, characterFieldingChances)
       const starHitFieldingByPosition = summarizeStarHitFieldingByPosition(characterFieldingChances)
+      const fieldingGameEventMeta = buildFieldingGameEventMeta(games, tournaments, seasonFieldingPas, seasons)
+      const fieldingHistoryByPosition = aggregateFieldingHistoryByEventAndPosition(characterFieldingChances, characterGameFielders, fieldingGameEventMeta)
+      const starHitFieldingHistoryByPosition = aggregateFieldingHistoryByEventAndPosition(characterFieldingChances, [], fieldingGameEventMeta, { starHitOnly: true })
       const rangeLeagueConstants = computeRangeLeagueConstants(allFieldingChances)
       const fieldingRangeByPosition = summarizeFieldingRange(characterFieldingChances, rangeLeagueConstants)
       const allTimeFielding = fieldingGameHistory.length ? (() => {
@@ -507,7 +514,9 @@ export default function useCharacterExtras(character, scope = null) {
         allTimeFielding,
         characterGameFielders,
         fieldingByPosition,
+        fieldingHistoryByPosition,
         starHitFieldingByPosition,
+        starHitFieldingHistoryByPosition,
         fieldingRangeByPosition,
         parkFactorRows,
         teamHistory,

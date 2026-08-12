@@ -123,6 +123,7 @@ create table plate_appearances (
   result text,
   rbi int default 0,
   run_scored boolean default false,
+  runner_assignments jsonb,
   created_at timestamptz default now()
 );
 

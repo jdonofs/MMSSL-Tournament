@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
+import { isCreditedHit } from '../src/utils/creditedHit.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -32,7 +33,6 @@ const tournament1Workbook = JSON.parse(
 )
 
 const RESULT_OUTS = new Set(['K', 'GO', 'FO', 'LO', 'SF', 'SH'])
-const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const OFFICIAL_AB_EXCLUSIONS = new Set(['BB', 'HBP', 'SF', 'SH'])
 const generatedSqlStatements = []
 
@@ -813,8 +813,8 @@ function recomputePitchingByGame({ games, pas, stints, runs, pitches }) {
         const paPitches = pitchesByPaId[String(pa.id)] || []
 
         targetStats._outs += outs
-        if (HIT_RESULTS.has(pa.result)) targetStats.hits_allowed += 1
-        if (isHomeRunResult(pa.result)) targetStats.hr_allowed += 1
+        if (isCreditedHit(pa)) targetStats.hits_allowed += 1
+        if (isCreditedHit(pa) && isHomeRunResult(pa.result)) targetStats.hr_allowed += 1
         if (pa.result === 'BB') targetStats.walks += 1
         if (pa.result === 'K') targetStats.strikeouts += 1
         targetStats.pitches_thrown += paPitches.length
@@ -1062,13 +1062,13 @@ async function repairPitchingStints({ tournamentPaOverrides = [] } = {}) {
     { data: seasonPitches, error: seasonPitchesError },
   ] = await Promise.all([
     supabase.from('games').select('id,team_a_player_id,team_b_player_id,home_away_swapped').order('created_at'),
-    supabase.from('plate_appearances').select('id,game_id,pa_number,result,rbi,run_scored,is_earned_run,pitcher_id,created_at,outs_on_play').order('created_at'),
+    supabase.from('plate_appearances').select('id,game_id,pa_number,result,rbi,run_scored,is_earned_run,is_error,pitcher_id,created_at,outs_on_play').order('created_at'),
     supabase.from('pitching_stints').select('id,game_id,player_id,character_id,created_at,innings_pitched,hits_allowed,runs_allowed,earned_runs,walks,strikeouts,hr_allowed,pitches_thrown,strikes_thrown').order('created_at'),
     supabase.from('runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at'),
     supabase.from('pitches').select('id,pa_id,result').order('created_at'),
     supabase.from('season_teams').select('id,player_id').order('created_at'),
     supabase.from('season_schedule').select('id,away_team_id,home_team_id,home_away_swapped').order('created_at'),
-    supabase.from('season_plate_appearances').select('id,game_id,pa_number,result,rbi,run_scored,is_earned_run,pitcher_id,created_at,outs_on_play').order('created_at'),
+    supabase.from('season_plate_appearances').select('id,game_id,pa_number,result,rbi,run_scored,is_earned_run,is_error,pitcher_id,created_at,outs_on_play').order('created_at'),
     supabase.from('season_pitching_stints').select('id,game_id,player_id,character_id,created_at,innings_pitched,hits_allowed,runs_allowed,earned_runs,walks,strikeouts,hr_allowed,pitches_thrown,strikes_thrown').order('created_at'),
     supabase.from('season_runs_scored').select('id,game_id,pa_id,charged_to_pitcher_id,is_earned_run').order('created_at'),
     supabase.from('season_pitches').select('id,pa_id,result').order('created_at'),

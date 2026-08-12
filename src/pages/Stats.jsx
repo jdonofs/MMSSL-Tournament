@@ -150,20 +150,22 @@ function formatTooltipNumber(value, digits = 1, fallback = '-') {
   return Number.isFinite(value) ? Number(value).toFixed(digits) : fallback
 }
 
+// Green = best, yellow = middle of the pack, red = worst -- a five-stop gradient
+// (green -> lime -> yellow -> orange -> red) rather than a hard 3-color cutoff.
 function getPositiveMetricColor(value) {
   if (!Number.isFinite(value)) return '#94A3B8'
-  if (value >= 130) return '#EAB308'
-  if (value >= 110) return '#22C55E'
-  if (value >= 90) return '#F8FAFC'
+  if (value >= 130) return '#22C55E'
+  if (value >= 110) return '#84CC16'
+  if (value >= 90) return '#EAB308'
   if (value >= 70) return '#F97316'
   return '#EF4444'
 }
 
 function getInverseMetricColor(value) {
   if (!Number.isFinite(value)) return '#94A3B8'
-  if (value <= 70) return '#EAB308'
-  if (value <= 90) return '#22C55E'
-  if (value <= 110) return '#F8FAFC'
+  if (value <= 70) return '#22C55E'
+  if (value <= 90) return '#84CC16'
+  if (value <= 110) return '#EAB308'
   if (value <= 130) return '#F97316'
   return '#EF4444'
 }

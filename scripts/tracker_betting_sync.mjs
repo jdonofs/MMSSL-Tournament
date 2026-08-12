@@ -10,8 +10,8 @@ import {
 import { persistOddsRowsWithFallback } from '../src/utils/oddsPersistence.js'
 import { buildLiveMarketState } from '../src/utils/trackerLiveFeed.js'
 import { resolveGameBets } from '../src/utils/betResolution.js'
+import { isCreditedHit } from '../src/utils/creditedHit.js'
 
-const HIT_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const LIVE_ODDS_FIELDS = [
   'line',
   'odds_home', 'odds_away',
@@ -237,8 +237,8 @@ export async function settleCompletedTrackerGame({
   })
   gamePAs.forEach((pa) => {
     const key = buildBettingEntityLabel(data.charactersById[pa.character_id], data.playersById[pa.player_id])
-    if (pa.result === 'HR' || pa.result === 'IPHR') hrTotals[key] = Number(hrTotals[key] || 0) + 1
-    if (HIT_RESULTS.has(pa.result)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
+    if (isCreditedHit(pa) && (pa.result === 'HR' || pa.result === 'IPHR')) hrTotals[key] = Number(hrTotals[key] || 0) + 1
+    if (isCreditedHit(pa)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
   })
   const winningSide = winnerPlayerId == null ? null : String(winnerPlayerId) === String(teamBPlayerId) ? 'home' : 'away'
   return resolveGameBets(

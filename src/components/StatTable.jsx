@@ -51,7 +51,7 @@ function defaultDirectionFor(key) {
   return key === 'label' ? 1 : -1
 }
 
-export default function StatTable({ columns, rows, careerRow, onRowClick }) {
+export default function StatTable({ columns, rows, careerRow, onRowClick, showTypePill = true }) {
   const [sort, setSort] = useState(null)
   const awardColumn = columns.find((col) => col.award)
 
@@ -109,7 +109,7 @@ export default function StatTable({ columns, rows, careerRow, onRowClick }) {
               {columns.map((col, colIndex) => (
                 <td key={col.key}>
                   <Cell col={col} row={row} />
-                  {colIndex === 0 && <TypePill eventType={row.eventType} />}
+                  {colIndex === 0 && showTypePill && <TypePill eventType={row.eventType} />}
                 </td>
               ))}
               {awardColumn && <td key="__award" style={{ color: '#94A3B8', fontSize: 11 }}>{awardColumn.award(row) || ''}</td>}

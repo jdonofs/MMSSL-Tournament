@@ -3,6 +3,9 @@ import { getHandedness } from './characterHandedness'
 import { getPlayerSkillProfile } from './teamIdentity'
 import { deriveTrackedHitFields } from './hitFieldDerivation'
 import { computeDifficultySignal } from './fieldingRange'
+import { isCreditedHit, isCreditedHitType, isCreditedHomeRun } from './creditedHit'
+
+export { isCreditedHit } from './creditedHit'
 
 export const hitResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const plateAppearanceResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'BB', 'HBP', 'K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
@@ -160,14 +163,15 @@ export function filterRunEventsForPlayer(runEvents = [], playerId, plateAppearan
 // is kept only as a fallback for games recorded before runs_scored existed.
 export function summarizeBatting(plateAppearances = [], runEvents = []) {
   const atBats = plateAppearances.filter((pa) => isOfficialAtBat(pa)).length
-  const hits = plateAppearances.filter((pa) => hitResults.has(pa.result)).length
+  const hits = plateAppearances.filter(isCreditedHit).length
   const walks = plateAppearances.filter((pa) => pa.result === 'BB').length
   const hbp = plateAppearances.filter((pa) => pa.result === 'HBP').length
-  const singles = plateAppearances.filter((pa) => pa.result === '1B').length
-  const doubles = plateAppearances.filter((pa) => pa.result === '2B').length
-  const triples = plateAppearances.filter((pa) => pa.result === '3B').length
-  const homeRuns = plateAppearances.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length
+  const singles = plateAppearances.filter((pa) => isCreditedHitType(pa, '1B')).length
+  const doubles = plateAppearances.filter((pa) => isCreditedHitType(pa, '2B')).length
+  const triples = plateAppearances.filter((pa) => isCreditedHitType(pa, '3B')).length
+  const homeRuns = plateAppearances.filter(isCreditedHomeRun).length
   const totalBases = plateAppearances.reduce((total, pa) => {
+    if (!isCreditedHit(pa)) return total
     if (pa.result === '1B') return total + 1
     if (pa.result === '2B') return total + 2
     if (pa.result === '3B') return total + 3
@@ -180,7 +184,7 @@ export function summarizeBatting(plateAppearances = [], runEvents = []) {
   const hitByPitch = hbp
   const rispPas = plateAppearances.filter((pa) => hasRispOpportunity(pa))
   const rispAtBats = rispPas.filter((pa) => isOfficialAtBat(pa)).length
-  const rispHits = rispPas.filter((pa) => hitResults.has(pa.result)).length
+  const rispHits = rispPas.filter(isCreditedHit).length
 
   const gameIdsWithRunTracking = new Set(runEvents.map((run) => String(run.game_id)))
   const legacyRuns = plateAppearances.filter(
@@ -377,10 +381,10 @@ export function summarizeSprayContactProfile(plateAppearances = []) {
     if (direction && byDirection[direction]) byDirection[direction].push(pa)
   })
   const build = (pas) => {
-    const singles = pas.filter((pa) => pa.result === '1B').length
-    const doubles = pas.filter((pa) => pa.result === '2B').length
-    const triples = pas.filter((pa) => pa.result === '3B').length
-    const hrs = pas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length
+    const singles = pas.filter((pa) => isCreditedHitType(pa, '1B')).length
+    const doubles = pas.filter((pa) => isCreditedHitType(pa, '2B')).length
+    const triples = pas.filter((pa) => isCreditedHitType(pa, '3B')).length
+    const hrs = pas.filter(isCreditedHomeRun).length
     const tb = singles + (doubles * 2) + (triples * 3) + (hrs * 4)
     return {
       sampleSize: pas.length,
@@ -403,11 +407,11 @@ export function summarizeBattedBallTypeProfile(plateAppearances = []) {
   const byTrajectory = (traj) => plateAppearances.filter((pa) => battedBallResults.has(pa.result) && pa.trajectory === traj)
   const build = (pas) => {
     const total = pas.length
-    const hits = pas.filter((pa) => hitResults.has(pa.result)).length
-    const singles = pas.filter((pa) => pa.result === '1B').length
-    const doubles = pas.filter((pa) => pa.result === '2B').length
-    const triples = pas.filter((pa) => pa.result === '3B').length
-    const hrs = pas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length
+    const hits = pas.filter(isCreditedHit).length
+    const singles = pas.filter((pa) => isCreditedHitType(pa, '1B')).length
+    const doubles = pas.filter((pa) => isCreditedHitType(pa, '2B')).length
+    const triples = pas.filter((pa) => isCreditedHitType(pa, '3B')).length
+    const hrs = pas.filter(isCreditedHomeRun).length
     const tb = singles + (doubles * 2) + (triples * 3) + (hrs * 4)
     const babipDenom = total - hrs
     const wobaNumerator = (0.89 * singles) + (1.27 * doubles) + (1.62 * triples) + (2.10 * hrs)
@@ -459,7 +463,7 @@ export function summarizeStarHits(plateAppearances = []) {
   // without contact ever being marked. A batted-ball result is proof of contact on its own, so
   // treat it as connected even if the flag itself is missing/stale.
   const connected = used.filter((pa) => pa.star_hit_connected || battedBallResults.has(pa.result))
-  const successful = used.filter((pa) => hitResults.has(pa.result))
+  const successful = used.filter(isCreditedHit)
   // Uses the PA's own credited RBI rather than the separate star_hit_rbi column — a data-entry
   // bug in Scorebook's runner-resolution flow (hits needing base assignment, e.g. singles/doubles)
   // leaves star_hit_rbi at 0 even when the play drove in a run, while the PA's real `rbi` field is
@@ -472,8 +476,8 @@ export function summarizeStarHits(plateAppearances = []) {
   const resultBreakdown = ['1B', '2B', '3B', 'HR', 'K', 'BB', 'Out', 'Error'].reduce((acc, result) => {
     acc[result] = used.filter((pa) => {
       const derivedResult = pa.star_hit_result || (
-        hitResults.has(pa.result) ? pa.result
-          : pa.is_error ? 'Error'
+        pa.is_error ? 'Error'
+          : isCreditedHit(pa) ? pa.result
             : pa.result === 'K' ? 'K'
               : (pa.result === 'BB' || pa.result === 'HBP') ? 'BB'
                 : 'Out'
@@ -529,13 +533,13 @@ export function summarizeStarPitching(plateAppearances = [], pitches = []) {
   const starPitches = pitches.filter((pitch) => pitch.is_star_pitch)
   const starPitchPas = plateAppearances.filter((pa) => pa.star_pitch_used)
   const outsOnStarPitch = starPitchPas.filter((pa) => pa.star_pitch_successful).length
-  const hitsAllowedOnStarPitch = starPitchPas.filter((pa) => hitResults.has(pa.result)).length
+  const hitsAllowedOnStarPitch = starPitchPas.filter(isCreditedHit).length
   // The star pitch itself is one pitch inside a PA that may run several more pitches before it
   // ends — resultBreakdown/oppSlashLine below describe how the whole PA ended, not what the star
   // pitch immediately did when it wasn't put in play. These cover that: of every star pitch thrown,
   // how many were called balls vs. strikes (looking/swinging/foul) on that pitch specifically.
   const pitchBalls = starPitches.filter((pitch) => pitch.result === 'ball').length
-  const pitchStrikes = starPitches.filter((pitch) => ['looking', 'swinging_miss', 'foul'].includes(pitch.result)).length
+  const pitchStrikes = starPitches.filter((pitch) => ['looking', 'swinging_miss', 'strike_unknown', 'foul'].includes(pitch.result)).length
   const usageByCount = starPitches.reduce((acc, pitch) => {
     const key = `${pitch.count_balls_before ?? 0}-${pitch.count_strikes_before ?? 0}`
     acc[key] = (acc[key] || 0) + 1
@@ -543,7 +547,7 @@ export function summarizeStarPitching(plateAppearances = [], pitches = []) {
   }, {})
   const resultBreakdown = ['1B', '2B', '3B', 'HR', 'K', 'BB', 'Out'].reduce((acc, result) => {
     acc[result] = starPitchPas.filter((pa) => {
-      if (result === 'HR') return pa.result === 'HR' || pa.result === 'IPHR'
+      if (result === 'HR') return isCreditedHomeRun(pa)
       if (result === 'Out') return outResults.has(pa.result) && pa.result !== 'K'
       return pa.result === result
     }).length
@@ -570,7 +574,7 @@ export function summarizeStarPitching(plateAppearances = [], pitches = []) {
 
 export function summarizePitchMix(plateAppearances = [], pitches = []) {
   const total = pitches.length
-  const strikes = pitches.filter((pitch) => ['swinging_miss', 'looking', 'foul', 'in_play'].includes(pitch.result)).length
+  const strikes = pitches.filter((pitch) => ['swinging_miss', 'looking', 'strike_unknown', 'foul', 'in_play'].includes(pitch.result)).length
   const firstPitchStrikes = plateAppearances.length
     ? pitches.filter((pitch) => pitch.count_balls_before === 0 && pitch.count_strikes_before === 0 && pitch.result !== 'ball' && pitch.result !== 'hbp').length / plateAppearances.length
     : 0
@@ -785,10 +789,10 @@ function clampGameDelta(value) {
 // summarizeAdvancedBatting so the per-game perf score and the season/career advanced stats agree.
 function wobaForPas(pas = []) {
   const abs = pas.filter((pa) => isOfficialAtBat(pa)).length
-  const singles = pas.filter((pa) => pa.result === '1B').length
-  const doubles = pas.filter((pa) => pa.result === '2B').length
-  const triples = pas.filter((pa) => pa.result === '3B').length
-  const hrs = pas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length
+  const singles = pas.filter((pa) => isCreditedHitType(pa, '1B')).length
+  const doubles = pas.filter((pa) => isCreditedHitType(pa, '2B')).length
+  const triples = pas.filter((pa) => isCreditedHitType(pa, '3B')).length
+  const hrs = pas.filter(isCreditedHomeRun).length
   const walks = pas.filter((pa) => pa.result === 'BB').length
   const hbp = pas.filter((pa) => pa.result === 'HBP').length
   const sfs = pas.filter((pa) => pa.result === 'SF').length
@@ -1494,6 +1498,83 @@ export function aggregateFieldingHistoryByEvent(entries = []) {
     .sort((a, b) => (a.eventSortKey - b.eventSortKey) || (a.eventType > b.eventType ? 1 : -1))
 }
 
+// Builds a gameId -> event metadata lookup (eventKey/eventType/eventId/eventNumber/eventSortKey)
+// across both tournament and season games, keyed by String(game_id) so it can be joined against
+// fielding chances/game-fielder rows regardless of which side's numeric id type they carry.
+export function buildFieldingGameEventMeta(games = [], tournaments = [], seasonPlateAppearances = [], seasons = []) {
+  const tournamentById = Object.fromEntries(tournaments.map((t) => [t.id, t]))
+  const seasonById = Object.fromEntries(seasons.map((s) => [s.id, s]))
+  const tournamentGameMetaById = buildGameMetaById(
+    games, tournamentById, 'tournament', 'tournament_id',
+    (tournament, id) => tournament?.tournament_number ?? id,
+    (tournament) => tournament?.tournament_number ?? 0,
+  )
+  const seasonGameMetaById = buildSeasonGameMetaFromPAs(seasonPlateAppearances, seasonById)
+  const combined = {}
+  Object.entries(tournamentGameMetaById).forEach(([gameId, meta]) => { combined[String(gameId)] = meta })
+  Object.entries(seasonGameMetaById).forEach(([gameId, meta]) => { combined[String(gameId)] = meta })
+  return combined
+}
+
+// Groups one character's fielding chances (buildFieldingChances output, filtered to a single
+// character) and their raw game-fielder rows (the source of truth for G/GS, since a start with
+// zero balls hit their way wouldn't appear in `chances`) into one row per season/tournament +
+// position — mirrors summarizeFieldingByPosition's per-position shape but broken out year-by-year,
+// Baseball-Reference style. `starHitOnly: true` scopes to chances the opposing batter used Star
+// Hit on and skips G/GS (matches summarizeStarHitFieldingByPosition's narrower shape) — pass an
+// empty gameFielderRows array alongside it.
+export function aggregateFieldingHistoryByEventAndPosition(chances = [], gameFielderRows = [], gameEventMetaById = {}, { starHitOnly = false } = {}) {
+  const scopedChances = starHitOnly ? chances.filter((c) => c.starHitUsed) : chances
+  const rows = new Map()
+
+  const ensureRow = (meta, position) => {
+    const rowKey = `${meta.eventKey}::${position}`
+    if (!rows.has(rowKey)) {
+      rows.set(rowKey, {
+        eventKey: meta.eventKey, eventId: meta.eventId, eventType: meta.eventType,
+        eventNumber: meta.eventNumber, eventSortKey: meta.eventSortKey,
+        sortGroup: meta.eventType === 'tournament' ? 0 : 1, sortValue: meta.eventSortKey,
+        position, games: new Set(), gamesStarted: new Set(),
+        chances: 0, putouts: 0, assists: 0, errors: 0, buddyJumps: 0, nicePlays: 0,
+      })
+    }
+    return rows.get(rowKey)
+  }
+
+  if (!starHitOnly) {
+    gameFielderRows.forEach((row) => {
+      const meta = gameEventMetaById[String(row.game_id)]
+      if (!meta) return
+      const position = POSITION_LABELS[Number(row.position)] || String(row.position ?? '?')
+      const r = ensureRow(meta, position)
+      r.games.add(String(row.game_id))
+      if (Number(row.inning_from || 1) === 1) r.gamesStarted.add(String(row.game_id))
+    })
+  }
+
+  scopedChances.forEach((chance) => {
+    const meta = gameEventMetaById[String(chance.gameId)]
+    if (!meta) return
+    const position = POSITION_LABELS[Number(chance.position)] || String(chance.position ?? '?')
+    const r = ensureRow(meta, position)
+    if (chance.isBuddyJump) { r.buddyJumps += 1; return }
+    r.chances += 1
+    if (chance.isPutout) r.putouts += 1
+    if (chance.isAssist) r.assists += 1
+    if (chance.isError) r.errors += 1
+    if (chance.isNicePlay) r.nicePlays += 1
+  })
+
+  return [...rows.values()]
+    .map((r) => ({
+      ...r,
+      games: r.games.size,
+      gamesStarted: r.gamesStarted.size,
+      fieldingPct: r.chances ? (r.chances - r.errors) / r.chances : null,
+    }))
+    .sort((a, b) => (a.eventSortKey - b.eventSortKey) || (a.eventType > b.eventType ? 1 : -1) || (b.chances - a.chances))
+}
+
 // Returns the percentile (0-100) of `value` within `allValues` — "% of the field at or below
 // this value." Pass `invert: true` for stats where lower is better (ERA, whiff%, K%) so the
 // returned percentile still reads as "better than X% of the league" either way. Generalizes the
@@ -1577,11 +1658,11 @@ export function calculateOutsForPa(result, outsOnPlay = null) {
 // League constants for 3-inning / 9-out games.
 export function computeLeagueConstants(allPAs = [], allStints = []) {
   const totalPA = allPAs.length || 1
-  const hits = allPAs.filter((pa) => hitResults.has(pa.result)).length
-  const singles = allPAs.filter((pa) => pa.result === '1B').length
-  const doubles = allPAs.filter((pa) => pa.result === '2B').length
-  const triples = allPAs.filter((pa) => pa.result === '3B').length
-  const hrs = allPAs.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length
+  const hits = allPAs.filter(isCreditedHit).length
+  const singles = allPAs.filter((pa) => isCreditedHitType(pa, '1B')).length
+  const doubles = allPAs.filter((pa) => isCreditedHitType(pa, '2B')).length
+  const triples = allPAs.filter((pa) => isCreditedHitType(pa, '3B')).length
+  const hrs = allPAs.filter(isCreditedHomeRun).length
   const walks = allPAs.filter((pa) => pa.result === 'BB').length
   const hbp = allPAs.filter((pa) => pa.result === 'HBP').length
   const sfs = allPAs.filter((pa) => pa.result === 'SF').length
@@ -1614,11 +1695,11 @@ export function summarizeAdvancedBatting(plateAppearances = [], leagueConstants 
 
   const pa = plateAppearances.length || 1
   const abs = plateAppearances.filter((entry) => isOfficialAtBat(entry)).length || 1
-  const hits = plateAppearances.filter((entry) => hitResults.has(entry.result)).length
-  const singles = plateAppearances.filter((entry) => entry.result === '1B').length
-  const doubles = plateAppearances.filter((entry) => entry.result === '2B').length
-  const triples = plateAppearances.filter((entry) => entry.result === '3B').length
-  const hrs = plateAppearances.filter((entry) => entry.result === 'HR' || entry.result === 'IPHR').length
+  const hits = plateAppearances.filter(isCreditedHit).length
+  const singles = plateAppearances.filter((entry) => isCreditedHitType(entry, '1B')).length
+  const doubles = plateAppearances.filter((entry) => isCreditedHitType(entry, '2B')).length
+  const triples = plateAppearances.filter((entry) => isCreditedHitType(entry, '3B')).length
+  const hrs = plateAppearances.filter(isCreditedHomeRun).length
   const walks = plateAppearances.filter((entry) => entry.result === 'BB').length
   const hbp = plateAppearances.filter((entry) => entry.result === 'HBP').length
   const sfs = plateAppearances.filter((entry) => entry.result === 'SF').length
@@ -1677,10 +1758,10 @@ export function summarizeAdvancedPitching(stints = [], leagueConstants = {}, opt
   const k = stints.reduce((sum, stint) => sum + (stint.strikeouts || 0), 0)
   const hr = stints.reduce((sum, stint) => sum + (stint.hr_allowed || 0), 0)
   const hasPaData = Array.isArray(plateAppearances) && plateAppearances.length > 0
-  const paHits = hasPaData ? plateAppearances.filter((pa) => hitResults.has(pa.result)).length : h
+  const paHits = hasPaData ? plateAppearances.filter(isCreditedHit).length : h
   const paWalks = hasPaData ? plateAppearances.filter((pa) => pa.result === 'BB').length : bb
   const paStrikeouts = hasPaData ? plateAppearances.filter((pa) => pa.result === 'K').length : k
-  const paHomeRuns = hasPaData ? plateAppearances.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length : hr
+  const paHomeRuns = hasPaData ? plateAppearances.filter(isCreditedHomeRun).length : hr
   const hbpAllowed = hasPaData ? plateAppearances.filter((pa) => pa.result === 'HBP').length : 0
   const battersFaced = hasPaData ? plateAppearances.length : Math.max(1, totalOuts + h + bb + hbpAllowed)
   const atBatsAgainst = hasPaData ? plateAppearances.filter((pa) => isOfficialAtBat(pa)).length : h + totalOuts
@@ -1742,7 +1823,8 @@ export function calculateParkFactors(stadiumPas = [], allPas = [], stadiumRunEve
   }
 
   const countResult = (pas, result) => pas.filter((pa) => pa.result === result).length
-  const countHr = (pas) => pas.filter((pa) => pa.result === 'HR' || pa.result === 'IPHR').length
+  const countHitResult = (pas, result) => pas.filter((pa) => isCreditedHitType(pa, result)).length
+  const countHr = (pas) => pas.filter(isCreditedHomeRun).length
 
   // Real runs are tracked via run-event rows (runs_scored/season_runs_scored), not
   // pa.run_scored — that flag only reflects the batter's own PA and misses runs scored by
@@ -1756,12 +1838,12 @@ export function calculateParkFactors(stadiumPas = [], allPas = [], stadiumRunEve
     hr: factor(countHr(stadiumPas), countHr(allPas)),
     r: factor(runCount[0], runCount[1]),
     h: factor(
-      stadiumPas.filter((pa) => hitResults.has(pa.result)).length,
-      allPas.filter((pa) => hitResults.has(pa.result)).length,
+      stadiumPas.filter(isCreditedHit).length,
+      allPas.filter(isCreditedHit).length,
     ),
-    single: factor(countResult(stadiumPas, '1B'), countResult(allPas, '1B')),
-    double: factor(countResult(stadiumPas, '2B'), countResult(allPas, '2B')),
-    triple: factor(countResult(stadiumPas, '3B'), countResult(allPas, '3B')),
+    single: factor(countHitResult(stadiumPas, '1B'), countHitResult(allPas, '1B')),
+    double: factor(countHitResult(stadiumPas, '2B'), countHitResult(allPas, '2B')),
+    triple: factor(countHitResult(stadiumPas, '3B'), countHitResult(allPas, '3B')),
     walk: factor(countResult(stadiumPas, 'BB'), countResult(allPas, 'BB')),
     strikeout: factor(countResult(stadiumPas, 'K'), countResult(allPas, 'K')),
     hbp: factor(countResult(stadiumPas, 'HBP'), countResult(allPas, 'HBP')),

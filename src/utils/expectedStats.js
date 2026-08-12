@@ -10,7 +10,8 @@
 // of every other recorded batted ball in the league, weighted by how close
 // their EV/LA are to the one being estimated (a Gaussian kernel, not a fixed
 // grid, since our sample sizes are far too small for MLB-style discrete bins).
-import { hitResults, isOfficialAtBat } from './statsCalculator'
+import { isOfficialAtBat } from './statsCalculator'
+import { isCreditedHit } from './creditedHit'
 
 const EV_BANDWIDTH_MPH = 6
 const LA_BANDWIDTH_DEG = 8
@@ -19,10 +20,11 @@ const TOTAL_BASES = { '1B': 1, '2B': 2, '3B': 3, HR: 4, IPHR: 4 }
 
 function battedBallOutcome(pa) {
   const result = pa.result
+  const creditedHit = isCreditedHit(pa)
   return {
-    isHit: hitResults.has(result) ? 1 : 0,
-    totalBases: TOTAL_BASES[result] || 0,
-    wobaValue: WOBA_WEIGHTS[result] || 0,
+    isHit: creditedHit ? 1 : 0,
+    totalBases: creditedHit ? TOTAL_BASES[result] || 0 : 0,
+    wobaValue: creditedHit ? WOBA_WEIGHTS[result] || 0 : 0,
   }
 }
 
@@ -116,10 +118,10 @@ export function summarizeExpectedBatting(rawPlateAppearances = [], model) {
 
     // No usable EV/LA (legacy row, star hit, or a walk/HBP/SF already excluded above) —
     // fall back to the actual result so it isn't silently dropped from the total.
-    const isHit = hitResults.has(pa.result) ? 1 : 0
+    const isHit = isCreditedHit(pa) ? 1 : 0
     xHitTotal += isHit
-    xBasesTotal += TOTAL_BASES[pa.result] || 0
-    xWobaTotal += WOBA_WEIGHTS[pa.result] || 0
+    xBasesTotal += isHit ? TOTAL_BASES[pa.result] || 0 : 0
+    xWobaTotal += isHit ? WOBA_WEIGHTS[pa.result] || 0 : 0
   })
 
   const xBA = abs ? xHitTotal / abs : null
