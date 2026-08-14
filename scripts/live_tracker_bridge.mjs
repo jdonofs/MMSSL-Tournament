@@ -63,6 +63,7 @@ import {
   buildExactTrackerRunnerAssignments,
   captureTrackerPutout,
   consumeTrackerPitch,
+  isTrackerBuntedBall,
   isTrackerReplayMessage,
   isTrackerRobbedHomeRun,
   markPendingTrackerStarPitch,
@@ -71,13 +72,16 @@ import {
   parseTrackerFieldedBallMessage,
   parseTrackerHitByPitchMessage,
   parseTrackerInningStateMessage,
+  parseTrackerPitchProvisionalMessage,
   parseTrackerPutoutMessage,
   shouldChargeTrackerBobbleError,
   shouldClassifyTrackerFielderChoice,
+  shouldClassifyTrackerSacrificeBunt,
   shouldCreditTrackerPutout,
   shouldReclassifyTrackerFlyOutAsSacFly,
   TRACKER_BATTED_BALL_MARKER,
   TRACKER_FIELDED_BALL_MARKER,
+  TRACKER_PITCH_PROVISIONAL_MARKER,
   trackerBattedBallPaFields,
   trackerCaughtBallResult,
   trackerFieldedBallPaFields,
@@ -1268,6 +1272,14 @@ let currentPaBuffer = null
 let paFinalizationInProgress = false
 let completedPaRevision = 0
 let pendingRunnerAssignmentBackfill = null
+// Separate from pendingRunnerAssignmentBackfill (which the next batter's
+// first "Count:" line consumes and clears): a batted-ball record for a
+// contact that never got a real landing/catch can arrive well after that —
+// its flight-timeout flush routinely loses the race against the next
+// matchup line, and even against the next batter's first full pitch. This
+// stays populated across that whole window so the record still finds its
+// way onto the plate appearance it actually belongs to.
+let lastFinalizedPa = null
 
 function freshPaBuffer(pitcherName, batterName, pitcherIds, batterIds, battingTeamId, defensiveTeamId) {
   return {
@@ -1285,6 +1297,7 @@ function freshPaBuffer(pitcherName, batterName, pitcherIds, batterIds, battingTe
     pendingTriplePlay: false,
     contactRecorded: false,
     pitches: [],
+    pendingPitchTelemetry: [],
     result: null,
     unresolvedReason: null,
     rbi: 0,
@@ -1408,11 +1421,33 @@ function currentFieldingPositionNumber(playerId, name) {
 }
 
 function pushPitch(buf, type, before, after) {
+  const telemetry = buf.pendingPitchTelemetry.shift() || null
   buf.pitches.push(consumeTrackerPitch(buf, {
     type,
     before: before || { ...buf.lastCount },
     after: after || { ...buf.lastCount },
+    pitchType: telemetry?.pitchType ?? null,
+    isStarPitch: Boolean(telemetry?.isStarPitch),
   }))
+}
+
+// The tracker's pitch-flight diagnostic can arrive before or after the
+// count-change line that actually closes out the pitch, so it either merges
+// straight onto the just-pushed pitch (matched by its 1-based position in
+// this PA) or waits in a queue for the next pushPitch to consume — mirrors
+// tracker_preview_state.mjs's applyPitchTelemetry.
+function applyPitchTelemetry(buf, telemetry) {
+  if (!buf || !telemetry) return false
+  if (telemetry.pitcherName && telemetry.pitcherName !== 'unknown' && telemetry.pitcherName !== buf.pitcherName) return false
+  if (telemetry.batterName && telemetry.batterName !== 'unknown' && telemetry.batterName !== buf.batterName) return false
+  const lastPitch = buf.pitches.at(-1)
+  if (lastPitch && lastPitch.pitchType == null && telemetry.pitchCounter === buf.pitches.length) {
+    lastPitch.pitchType = telemetry.pitchType
+    lastPitch.isStarPitch = Boolean(lastPitch.isStarPitch || telemetry.isStarPitch)
+  } else {
+    buf.pendingPitchTelemetry.push(telemetry)
+  }
+  return true
 }
 
 // "Double play!"/"Triple play!" arrive as their own lines, separate from the
@@ -1529,12 +1564,26 @@ async function finalizeCurrentPaIfAny() {
     // says "sacrifice", but a caught fly ball that scores a runner with fewer
     // than 2 outs is one by definition, so reclassify it before it gets
     // written as a plain flyout (which would wrongly count as an official AB).
+    const isBunt = isTrackerBuntedBall(buf.advancedBattedBall)
     if (shouldReclassifyTrackerFlyOutAsSacFly({
       result: buf.result,
       outsBeforePa: buf.outsBeforePa,
       scoredNonBatterRunner: buf.runEvents.some((run) => run.scorerName !== buf.batterName),
+      isBunt,
     })) {
       buf.result = 'SF'
+    }
+    // A sacrifice bunt is scored by the same kind of rule as the sac fly above,
+    // and is now detectable because the measured exit velocity says a bunt was
+    // laid down. The bunt itself reaches the database through `trajectory`
+    // ('B'), written from buf.battedBallTrajectory below.
+    if (shouldClassifyTrackerSacrificeBunt({
+      isBunt,
+      result: buf.result,
+      outsBeforePa: buf.outsBeforePa,
+      hasRunnerOn: Boolean(buf.runnersBefore.first || buf.runnersBefore.second || buf.runnersBefore.third),
+    })) {
+      buf.result = 'SH'
     }
     const outsOnPlay = trackerOutsOnPlay(buf, calculateOutsForPa(buf.result, null))
     parserOutsInHalf += outsOnPlay
@@ -1596,10 +1645,12 @@ async function finalizeCurrentPaIfAny() {
       star_pitch_successful: starPitchFlags.starPitchSuccessful,
       ...trackerBattedBallPaFields(buf.advancedBattedBall, { stadiumKey: TARGET_STADIUM_KEY }),
       ...trackerFieldedBallPaFields(buf.advancedFielding, { stadiumKey: TARGET_STADIUM_KEY }),
-      // Preserve the separately editable At-Bat Editor trajectory whenever
-      // the tracker has an authoritative play classification. Ground-ball
-      // putouts set G and caught-hit records set F; safe hits remain null
-      // unless the tracker exposes a trustworthy trajectory signal.
+      // applyTrackerBattedBallToBuffer (tracker_play_events.mjs) derives this
+      // from launch angle for any landing/catch endpoint, safe hits included
+      // — it is not out-only. It stays null only when no batted-ball record
+      // ever arrived for this contact (e.g. the exe in use doesn't emit
+      // TRACKER_BATTED_BALL_PROVISIONAL), leaving room for the separately
+      // editable At-Bat Editor trajectory.
       trajectory: buf.battedBallTrajectory,
       hit_notation: hitNotation,
       is_error: isBobbleError,
@@ -1682,6 +1733,7 @@ async function finalizeCurrentPaIfAny() {
       log('live bet resolution failed for PA', savedPa.pa_number, ':', bettingError.message)
     }
     pendingRunnerAssignmentBackfill = { buf, savedPaId: savedPa.id, isError: isBobbleError }
+    lastFinalizedPa = { buf, savedPaId: savedPa.id }
     completedPaRevision += 1
     completed = true
     log(`recorded PA #${savedPa.pa_number}: ${buf.batterName} -> ${buf.result}${buf.rbi ? ` (${buf.rbi} RBI)` : ''}`)
@@ -1755,9 +1807,36 @@ async function processPlayEvent(message) {
       return
     }
     if (!applyTrackerBattedBallToBuffer(buf, advancedBattedBall)) {
+      if (lastFinalizedPa && applyTrackerBattedBallToBuffer(lastFinalizedPa.buf, advancedBattedBall)) {
+        const { error } = await supabase.from(GAME_TABLES.plateAppearances)
+          .update({
+            ...trackerBattedBallPaFields(lastFinalizedPa.buf.advancedBattedBall, { stadiumKey: TARGET_STADIUM_KEY }),
+            trajectory: lastFinalizedPa.buf.battedBallTrajectory,
+          })
+          .eq('id', lastFinalizedPa.savedPaId)
+        if (error) log('late batted-ball backfill failed for', advancedBattedBall.batterName, ':', error.message)
+        return
+      }
       log(`ignored advanced batted-ball record for ${advancedBattedBall.batterName} vs. ${advancedBattedBall.pitcherName}; ` +
         `active matchup is ${buf.batterName} vs. ${buf.pitcherName}.`)
       return
+    }
+    return
+  }
+
+  if (String(message || '').trim().startsWith(TRACKER_PITCH_PROVISIONAL_MARKER)) {
+    const telemetry = parseTrackerPitchProvisionalMessage(message)
+    if (!telemetry) {
+      log('ignored malformed pitch diagnostic record:', message)
+      return
+    }
+    if (!buf) {
+      log(`ignored pitch diagnostic record with no active plate appearance (pitch ${telemetry.pitchCounter}).`)
+      return
+    }
+    if (!applyPitchTelemetry(buf, telemetry)) {
+      log(`ignored pitch diagnostic record for ${telemetry.batterName} vs. ${telemetry.pitcherName}; ` +
+        `active matchup is ${buf.batterName} vs. ${buf.pitcherName}.`)
     }
     return
   }

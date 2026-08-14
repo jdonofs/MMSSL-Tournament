@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stadium Image Calibrator</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 20px; background: #0f172a; color: #f8fafc;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    p.sub { margin: 0 0 16px; color: #94a3b8; font-size: 13px; max-width: 900px; line-height: 1.5; }
+    .row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+    #stage { position: relative; flex: 1 1 640px; min-width: 320px; cursor: crosshair; }
+    #stage img { display: block; width: 100%; height: auto; border-radius: 10px; }
+    #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    aside { flex: 0 0 340px; }
+    .panel {
+      background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+      padding: 12px; margin-bottom: 12px;
+    }
+    .step { padding: 6px 8px; border-radius: 6px; font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
+    .step.done { background: rgba(34,197,94,0.12); color: #86efac; }
+    .step.active { background: rgba(250,204,21,0.15); color: #fde047; font-weight: 700; }
+    .step.todo { color: #64748b; }
+    button {
+      background: #334155; color: #f8fafc; border: 1px solid #475569;
+      border-radius: 6px; padding: 7px 12px; font: inherit; cursor: pointer;
+    }
+    button:hover { background: #475569; }
+    select { background: #0f172a; color: #f8fafc; border: 1px solid #475569; border-radius: 6px; padding: 6px; font: inherit; }
+    textarea { width: 100%; height: 130px; background: #0f172a; color: #a5b4fc; border: 1px solid #334155; border-radius: 6px; font: inherit; font-size: 11px; padding: 8px; }
+    .metric { font-size: 13px; margin: 4px 0; }
+    .good { color: #86efac; } .warn { color: #fbbf24; } .bad { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>Stadium Image Calibrator</h1>
+  <p class="sub">
+    Fits the exact mapping between the game's ground plane and this stadium's artwork, so measured
+    world coordinates can be drawn on the stylised image with no loss of accuracy. Click the eight
+    landmarks; every one has a known world position already — the infield from the base measurement,
+    the outfield three from the fence measurement.
+    <br /><br />
+    <strong>The outfield three matter most.</strong> Fitting on the infield alone spans ~38 units and
+    then extrapolates out to a fence at 80–100, which is where a projective transform is least
+    reliable: tiny clicking error near home becomes tens of feet at the wall, and the wall line drifts
+    off the painted wall even while the diamond looks perfect. Anchoring both foul poles and dead
+    centre makes the fit interpolate across the whole park instead.
+    <br /><br />
+    <strong>The verification is visual.</strong> Once fitted, the measured outfield fence is projected
+    through the transform and drawn in green. If it traces the wall in the artwork, the calibration
+    is correct — that curve took no part in the fit.
+    <br /><br />
+    <strong>Two different checks, once the wall pairs are in.</strong> The yellow crosses are the
+    height model reproducing your own clicks — they should sit on the pink dots. The pink LINE is
+    something else: it follows the measured fence raised to wall height, not your clicks, so it can
+    run parallel to the wall but offset from it even when the crosses are perfect. That offset means
+    the fence measurement and the painted wall disagree, and the panel reports it in feet.
+  </p>
+
+  <div class="row">
+    <div id="stage">
+      <img id="park" alt="" />
+      <svg id="overlay" preserveAspectRatio="none" viewBox="0 0 100 100"></svg>
+    </div>
+    <aside>
+      <div class="panel">
+        <label>Park <select id="parkSelect"></select></label>
+      </div>
+      <div class="panel">
+        <div style="font-weight:700;margin-bottom:6px">Click these, in order</div>
+        <div id="steps"></div>
+        <div style="margin-top:10px;border-top:1px solid #334155;padding-top:10px">
+          <div style="font-weight:700;margin-bottom:4px;font-size:12px">
+            Tracked balls (best height calibration)
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;line-height:1.45">
+            Paste <code>x, y, z</code> per line from a home run's landing telemetry, then click
+            where each ACTUALLY landed, in order. Each ball carries its own measured height, so
+            this needs no assumed wall height and spans a real range — far better conditioned
+            than wall pairs, which all sit at one height.
+          </div>
+          <textarea id="ballInput" style="height:64px" placeholder="40.8092041, 9.12498188, -103.234673
+54.8327065, 4.64520693, -60.3664055"></textarea>
+        </div>
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+          <button id="undo">Undo</button>
+          <button id="reset">Reset</button>
+          <button id="useSaved">Use saved calibration</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div style="font-weight:700;margin-bottom:6px">Fit</div>
+        <div id="metrics" class="metric" style="color:#64748b">Waiting for four points…</div>
+      </div>
+      <div class="panel">
+        <div style="font-weight:700;margin-bottom:6px">Paste into parkGeometry.js</div>
+        <textarea id="output" readonly placeholder="Appears once fitted"></textarea>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import {
+      PARK_FENCES, HOME_PLATE, infieldCorners, FEET_PER_UNIT, fenceRadiusAt,
+      WALL_HEIGHT_UNITS, PARK_IMAGE_HOMOGRAPHY,
+    } from '/src/utils/parkGeometry.js'
+    import {
+      fitHomography, applyHomography, applyHomographyWithHeight,
+      fitVerticalVanishing, invertHomography,
+    } from '/src/utils/homography.js'
+
+    // Stadium art paths and aspect ratios mirror STADIUM_CONFIGS. Only parks
+    // with measured fence geometry can be calibrated -- without a fence to
+    // project, there would be nothing to check the fit against.
+    const PARK_IMAGES = {
+      mario_stadium: { image: '/stadiums/mario-stadium.png', label: 'Mario Stadium' },
+      yoshi_park: { image: '/stadiums/yoshi-park.png', label: 'Yoshi Park' },
+      wario_city: { image: '/stadiums/wario-stadium.png', label: 'Wario City' },
+      dk_jungle: { image: '/stadiums/dk-jungle.png', label: 'DK Jungle' },
+      bowser_castle: { image: '/stadiums/bowser-castle.png', label: 'Bowser Castle' },
+      bowser_jr_playroom: { image: '/stadiums/bowser-jr-playroom.png', label: "Bowser Jr. Playroom" },
+      daisy_cruiser: { image: '/stadiums/daisy-cruiser.png', label: 'Daisy Cruiser' },
+      peach_ice_garden: { image: '/stadiums/peach-ice-garden.png', label: 'Peach Ice Garden' },
+      luigis_mansion: { image: "/stadiums/luigi's-mansion.png", label: "Luigi's Mansion" },
+    }
+
+    const corners = infieldCorners()
+
+    // Where the wall stands at a given angle, from the fence measurement.
+    function fencePoint(angleDeg) {
+      const radius = fenceRadiusAt(park, angleDeg)
+      if (radius == null) return null
+      const rad = (angleDeg * Math.PI) / 180
+      return {
+        x: HOME_PLATE.x + radius * Math.sin(rad),
+        z: HOME_PLATE.z - radius * Math.cos(rad),
+      }
+    }
+
+    // Infield landmarks alone span only ~38 units, while the fence sits at
+    // 80-100. Fitting on the infield and then drawing the wall extrapolates a
+    // projective transform 2.5x past its calibration region, which is where it
+    // is least trustworthy -- sub-pixel clicking error near home fans out into
+    // tens of feet at the fence, and the wall line drifts off the painted wall
+    // even though the diamond looks perfect.
+    //
+    // The outfield entries below fix that WITHOUT touching any measurement:
+    // their world positions come straight from the measured fence, so they add
+    // anchors at the far end of the field and the fit interpolates across the
+    // whole park instead of extrapolating over most of it.
+    function landmarks() {
+      const list = [
+        { key: 'home', label: 'Home plate', world: corners.home },
+        { key: 'first', label: 'First base', world: corners.first },
+        { key: 'second', label: 'Second base', world: corners.second },
+        { key: 'third', label: 'Third base', world: corners.third },
+        { key: 'rubber', label: "Pitcher's rubber", world: corners.rubber },
+      ]
+      const outfield = [
+        ['lfPole', 'LF foul pole — where it meets the wall base', -45],
+        ['centre', 'Dead centre — wall BASE on the centre line', 0],
+        ['rfPole', 'RF foul pole — where it meets the wall base', 45],
+      ]
+      for (const [key, label, angle] of outfield) {
+        const world = fencePoint(angle)
+        if (world) list.push({ key, label, world, outfield: true })
+      }
+      return list
+    }
+    // Built in selectPark rather than here: landmarks() reads the outfield
+    // anchors out of the selected park's fence, and `park` is declared below.
+    // Calling it at this point hits the temporal dead zone, which throws and
+    // takes the whole module down — no dropdown, no image, no handlers.
+    let LANDMARKS = []
+
+    const parkSelect = document.getElementById('parkSelect')
+    const stage = document.getElementById('stage')
+    const img = document.getElementById('park')
+    const overlay = document.getElementById('overlay')
+    const stepsEl = document.getElementById('steps')
+    const metricsEl = document.getElementById('metrics')
+    const outputEl = document.getElementById('output')
+
+    let park = null
+    let clicks = []
+    // Base/top pairs on the outfield wall. The base fixes a ground position
+    // (invert the homography) and the top is that same spot at a height we
+    // already know, which is what pins the vertical vanishing point.
+    let wallClicks = []
+    // Where each pasted tracked ball ACTUALLY landed, clicked in paste order.
+    let ballClicks = []
+    // Reuse an already-saved ground calibration instead of re-clicking the
+    // eight landmarks. The ground fit and the height fit are independent —
+    // height only needs a matrix to work against — so redoing the landmarks
+    // just to add tracked balls throws away a good calibration and risks a
+    // worse one.
+    let useSaved = false
+
+    const measured = Object.keys(PARK_FENCES)
+    for (const key of Object.keys(PARK_IMAGES)) {
+      const option = document.createElement('option')
+      option.value = key
+      option.textContent = measured.includes(key)
+        ? PARK_IMAGES[key].label
+        : `${PARK_IMAGES[key].label} — no fence measured yet`
+      option.disabled = !measured.includes(key)
+      parkSelect.appendChild(option)
+    }
+    parkSelect.value = measured[0] || Object.keys(PARK_IMAGES)[0]
+
+    function selectPark(key) {
+      park = key
+      useSaved = false
+      LANDMARKS = landmarks()
+      const savedButton = document.getElementById('useSaved')
+      if (savedButton) savedButton.style.display = PARK_IMAGE_HOMOGRAPHY[key] ? '' : 'none'
+      clicks = []
+      wallClicks = []
+      ballClicks = []
+      img.src = PARK_IMAGES[key].image
+      render()
+    }
+
+    stage.addEventListener('click', (event) => {
+      const rect = img.getBoundingClientRect()
+      const point = {
+        x: ((event.clientX - rect.left) / rect.width) * 100,
+        y: ((event.clientY - rect.top) / rect.height) * 100,
+      }
+      if (!useSaved && clicks.length < LANDMARKS.length) clicks.push(point)
+      else if (ballClicks.length < trackedBalls().length) ballClicks.push(point)
+      else wallClicks.push(point)
+      render()
+    })
+
+    document.getElementById('undo').onclick = () => {
+      if (wallClicks.length) wallClicks.pop()
+      else if (ballClicks.length) ballClicks.pop()
+      else clicks.pop()
+      render()
+    }
+    document.getElementById('reset').onclick = () => { clicks = []; wallClicks = []; ballClicks = []; render() }
+    parkSelect.onchange = () => selectPark(parkSelect.value)
+    document.getElementById('ballInput').addEventListener('input', () => { ballClicks = []; render() })
+    document.getElementById('useSaved').onclick = () => {
+      if (!PARK_IMAGE_HOMOGRAPHY[park]) return
+      useSaved = !useSaved
+      clicks = []
+      ballClicks = []
+      wallClicks = []
+      render()
+    }
+
+    function currentFit() {
+      if (useSaved && PARK_IMAGE_HOMOGRAPHY[park]) {
+        return { matrix: PARK_IMAGE_HOMOGRAPHY[park], residuals: [], rmsPercent: null, saved: true }
+      }
+      if (clicks.length < 4) return null
+      return fitHomography(clicks.map((image, i) => ({ world: LANDMARKS[i].world, image })))
+    }
+
+    // Each completed base/top pair becomes one known-height correspondence:
+    // invert the ground mapping on the base to learn where it is, then treat
+    // the top as that same spot at the wall's height.
+    // Tracked balls parsed from the paste box: "x, y, z" per line, straight
+    // from a landing telemetry card. Blank and malformed lines are skipped so
+    // pasting a whole block does not need cleaning up first.
+    function trackedBalls() {
+      return (document.getElementById('ballInput').value || '')
+        .split('\n')
+        .map((line) => line.split(/[,\s]+/).map(Number).filter((n) => Number.isFinite(n)))
+        .filter((parts) => parts.length >= 3)
+        .map(([x, y, z]) => ({ x, y, z }))
+        .filter((ball) => ball.y > 0.5)
+    }
+
+    // Height calibration from tracked balls, in preference to wall pairs.
+    //
+    // A ball brings its own MEASURED height, so nothing here depends on
+    // WALL_HEIGHT_UNITS being right -- which matters, because that value comes
+    // from a single ball clipping the top and any error in it scales with
+    // height. Wall pairs all sit at one height, so they pin the vertical's
+    // direction but barely constrain how it grows; balls landing anywhere from
+    // the wall top to deep in the stands constrain both.
+    function ballVerticalFit(matrix) {
+      const balls = trackedBalls()
+      if (balls.length < 2 || ballClicks.length < balls.length) return null
+      return fitVerticalVanishing(matrix, balls.map((ball, index) => ({
+        world: { x: ball.x, z: ball.z, height: ball.y },
+        image: ballClicks[index],
+      })))
+    }
+
+    function verticalFit(matrix) {
+      const pairs = []
+      for (let i = 0; i + 1 < wallClicks.length; i += 2) {
+        const world = invertHomography(matrix, wallClicks[i].x, wallClicks[i].y)
+        if (!world) continue
+        pairs.push({
+          world: { x: world.x, z: world.z, height: WALL_HEIGHT_UNITS },
+          image: wallClicks[i + 1],
+        })
+      }
+      return pairs.length >= 2 ? fitVerticalVanishing(matrix, pairs) : null
+    }
+
+    function svg(tag, attrs) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', tag)
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v)
+      return el
+    }
+
+    function render() {
+      stepsEl.innerHTML = ''
+      if (useSaved) {
+        const div = document.createElement('div')
+        div.className = 'step done'
+        div.innerHTML = '<span>Using saved ground calibration</span><span>✓</span>'
+        stepsEl.appendChild(div)
+      }
+      ;(useSaved ? [] : LANDMARKS).forEach((landmark, i) => {
+        const div = document.createElement('div')
+        const state = i < clicks.length ? 'done' : i === clicks.length ? 'active' : 'todo'
+        div.className = `step ${state}`
+        div.innerHTML = `<span>${i + 1}. ${landmark.label}${
+          landmark.outfield ? ' <em style="color:#7dd3fc">(anchors the outfield)</em>' : ''
+        }</span><span>${
+          i < clicks.length ? '✓' : i === clicks.length ? '← click' : ''}</span>`
+        stepsEl.appendChild(div)
+      })
+      const balls = trackedBalls()
+      if ((useSaved || clicks.length >= LANDMARKS.length) && ballClicks.length < balls.length) {
+        const div = document.createElement('div')
+        div.className = 'step active'
+        const ball = balls[ballClicks.length]
+        div.innerHTML = `<span>Ball ${ballClicks.length + 1}/${balls.length} — height `
+          + `${ball.y.toFixed(1)}u (${(ball.y * FEET_PER_UNIT).toFixed(0)} ft up)</span>`
+          + `<span>← click where it landed</span>`
+        stepsEl.appendChild(div)
+      }
+      if ((useSaved || clicks.length >= LANDMARKS.length) && ballClicks.length >= balls.length) {
+        const div = document.createElement('div')
+        div.className = 'step active'
+        const next = wallClicks.length % 2 === 0 ? 'wall BASE' : 'wall TOP above it'
+        div.innerHTML = `<span>6. Wall base+top pairs (${Math.floor(wallClicks.length / 2)})</span><span>← ${next}</span>`
+        stepsEl.appendChild(div)
+      }
+
+      overlay.innerHTML = ''
+      clicks.forEach((point, i) => {
+        overlay.appendChild(svg('circle', {
+          cx: point.x, cy: point.y, r: 0.8, fill: '#fde047',
+          stroke: '#0f172a', 'stroke-width': 0.25,
+        }))
+      })
+
+      const fit = currentFit()
+      if (!fit) {
+        metricsEl.style.color = '#64748b'
+        metricsEl.textContent = `Waiting for four points… (${clicks.length}/4)`
+        outputEl.value = ''
+        return
+      }
+
+      // The fence is the check: it was measured in the game and had no part in
+      // the fit, so where it lands on the artwork is independent evidence.
+      const fence = PARK_FENCES[park] || []
+      const projected = fence
+        .map(([angle, radius]) => {
+          const rad = (angle * Math.PI) / 180
+          return applyHomography(
+            fit.matrix,
+            HOME_PLATE.x + radius * Math.sin(rad),
+            HOME_PLATE.z - radius * Math.cos(rad),
+          )
+        })
+        .filter(Boolean)
+      if (projected.length > 1) {
+        overlay.appendChild(svg('polyline', {
+          points: projected.map((p) => `${p.x},${p.y}`).join(' '),
+          fill: 'none', stroke: '#4ade80', 'stroke-width': 0.6,
+        }))
+      }
+
+      // Foul lines and the diamond, also projected rather than drawn by eye.
+      for (const angle of [-45, 45]) {
+        const radius = fenceRadiusAt(park, angle)
+        if (radius == null) continue
+        const rad = (angle * Math.PI) / 180
+        const home = applyHomography(fit.matrix, HOME_PLATE.x, HOME_PLATE.z)
+        const end = applyHomography(
+          fit.matrix,
+          HOME_PLATE.x + radius * Math.sin(rad),
+          HOME_PLATE.z - radius * Math.cos(rad),
+        )
+        if (home && end) {
+          overlay.appendChild(svg('line', {
+            x1: home.x, y1: home.y, x2: end.x, y2: end.y,
+            stroke: 'rgba(148,163,184,0.7)', 'stroke-width': 0.3, 'stroke-dasharray': '1.5 1.5',
+          }))
+        }
+      }
+      const diamond = ['home', 'first', 'second', 'third']
+        .map((k) => applyHomography(fit.matrix, corners[k].x, corners[k].z))
+        .filter(Boolean)
+      if (diamond.length === 4) {
+        overlay.appendChild(svg('polygon', {
+          points: diamond.map((p) => `${p.x},${p.y}`).join(' '),
+          fill: 'rgba(96,165,250,0.12)', stroke: '#60a5fa', 'stroke-width': 0.35,
+        }))
+      }
+
+      const rms = fit.rmsPercent
+      if (fit.saved) {
+        metricsEl.className = 'metric good'
+        metricsEl.innerHTML = 'Ground calibration loaded from parkGeometry.js.<br />'
+          + '<span style="color:#94a3b8">Only the height fit is being recomputed.</span>'
+      }
+      const quality = rms == null ? 'good' : rms < 0.6 ? 'good' : rms < 1.5 ? 'warn' : 'bad'
+      if (!fit.saved) metricsEl.className = `metric ${quality}`
+      if (!fit.saved) metricsEl.innerHTML = `
+        RMS residual: <strong>${rms.toFixed(3)}%</strong> of image size<br />
+        ${clicks.length} point${clicks.length === 1 ? '' : 's'} ·
+        ${quality === 'good' ? 'clean fit' : quality === 'warn' ? 'usable — re-click for better' : 'too loose, re-click'}
+        <br /><span style="color:#94a3b8">Check the green fence against the drawn wall.</span>
+      `
+
+      // Tracked-ball landings, in orange, with a yellow cross showing where
+      // the fitted model puts each one. Cross on dot means the model
+      // reproduces a real measured ball at a real measured height.
+      ballClicks.forEach((point) => {
+        overlay.appendChild(svg('circle', {
+          cx: point.x, cy: point.y, r: 0.7, fill: '#fb923c',
+          stroke: '#0f172a', 'stroke-width': 0.2,
+        }))
+      })
+
+      // Wall clicks, and the height fit they support. Base clicks are blue,
+      // tops pink, so a half-finished pair is obvious at a glance.
+      wallClicks.forEach((point, i) => {
+        overlay.appendChild(svg('circle', {
+          cx: point.x, cy: point.y, r: 0.6,
+          fill: i % 2 === 0 ? '#38bdf8' : '#f472b6',
+          stroke: '#0f172a', 'stroke-width': 0.2,
+        }))
+      })
+
+      // Two DIFFERENT checks, easily confused:
+      //
+      //   1. Does the height fit reproduce the clicks? Drawn as a cross at the
+      //      projected top of each clicked base. These must land on the pink
+      //      dots -- if they do, the height model is right.
+      //
+      //   2. Does the measured fence agree with the artwork's wall? That is the
+      //      pink LINE, drawn along the fence curve rather than through the
+      //      clicks. It can sit away from the dots even with a perfect height
+      //      fit, and when it does, the disagreement is between the fence
+      //      measurement and the painted wall -- not a fitting problem.
+      const vertical = ballVerticalFit(fit.matrix) || verticalFit(fit.matrix)
+      if (vertical) {
+        for (const ball of trackedBalls()) {
+          const predicted = applyHomographyWithHeight(
+            fit.matrix, vertical.vertical, ball.x, ball.z, ball.y,
+          )
+          if (!predicted) continue
+          overlay.appendChild(svg('path', {
+            d: `M ${predicted.x - 1.1} ${predicted.y} L ${predicted.x + 1.1} ${predicted.y}`
+              + ` M ${predicted.x} ${predicted.y - 1.1} L ${predicted.x} ${predicted.y + 1.1}`,
+            stroke: '#fde047', 'stroke-width': 0.3, fill: 'none',
+          }))
+        }
+        for (let i = 0; i + 1 < wallClicks.length; i += 2) {
+          const world = invertHomography(fit.matrix, wallClicks[i].x, wallClicks[i].y)
+          if (!world) continue
+          const predicted = applyHomographyWithHeight(
+            fit.matrix, vertical.vertical, world.x, world.z, WALL_HEIGHT_UNITS,
+          )
+          if (!predicted) continue
+          overlay.appendChild(svg('path', {
+            d: `M ${predicted.x - 0.8} ${predicted.y} L ${predicted.x + 0.8} ${predicted.y}`
+              + ` M ${predicted.x} ${predicted.y - 0.8} L ${predicted.x} ${predicted.y + 0.8}`,
+            stroke: '#fde047', 'stroke-width': 0.25, fill: 'none',
+          }))
+        }
+      }
+      if (vertical) {
+        // The check for height, mirroring the green ground line: project the
+        // fence AT WALL HEIGHT and it should trace the TOP edge of the wall.
+        // Neither curve took part in the height fit.
+        const tops = fence
+          .map(([angle, radius]) => {
+            const rad = (angle * Math.PI) / 180
+            return applyHomographyWithHeight(
+              fit.matrix, vertical.vertical,
+              HOME_PLATE.x + radius * Math.sin(rad),
+              HOME_PLATE.z - radius * Math.cos(rad),
+              WALL_HEIGHT_UNITS,
+            )
+          })
+          .filter(Boolean)
+        if (tops.length > 1) {
+          overlay.appendChild(svg('polyline', {
+            points: tops.map((p) => `${p.x},${p.y}`).join(' '),
+            fill: 'none', stroke: '#f472b6', 'stroke-width': 0.6,
+          }))
+        }
+      }
+
+      const pairs = Math.floor(wallClicks.length / 2)
+      const halfPair = wallClicks.length % 2 === 1
+      // Per-pair residual, and the SPREAD OF DEPTHS the pairs cover. The
+      // vertical has three unknowns, and pairs bunched at one distance from
+      // the camera leave it badly conditioned: it can fit those clicks and
+      // still misbehave everywhere else, which looks exactly like a line
+      // floating above the wall. Depth spread is the thing to fix, not care.
+      let depthNote = ''
+      if (vertical) {
+        const depths = []
+        for (let i = 0; i + 1 < wallClicks.length; i += 2) {
+          const world = invertHomography(fit.matrix, wallClicks[i].x, wallClicks[i].y)
+          if (world) depths.push(Math.hypot(world.x - HOME_PLATE.x, world.z - HOME_PLATE.z))
+        }
+        const spread = depths.length > 1 ? Math.max(...depths) - Math.min(...depths) : 0
+        const worst = Math.max(...vertical.residuals)
+
+        // How far each clicked wall BASE sits from the measured fence, along
+        // the ground. This is the number that explains a pink line running
+        // parallel to the wall but offset from it: the line follows the fence,
+        // so any disagreement between the fence and the painted wall shows up
+        // here rather than as a fitting error.
+        const offsets = depths.map((depth, index) => {
+          const world = invertHomography(
+            fit.matrix, wallClicks[index * 2].x, wallClicks[index * 2].y,
+          )
+          if (!world) return null
+          const angle = Math.atan2(world.x - HOME_PLATE.x, -(world.z - HOME_PLATE.z)) * 180 / Math.PI
+          const fenceHere = fenceRadiusAt(park, angle)
+          return fenceHere == null ? null : depth - fenceHere
+        }).filter((value) => value != null)
+        if (offsets.length) {
+          const mean = offsets.reduce((sum, value) => sum + value, 0) / offsets.length
+          const worstOffset = offsets.reduce((max, v) => (Math.abs(v) > Math.abs(max) ? v : max), 0)
+          const ok = Math.abs(mean) < 2
+          depthNote += `<br /><span style="color:${ok ? '#86efac' : '#f87171'}">`
+            + `clicked wall base vs measured fence: ${mean >= 0 ? '+' : ''}${mean.toFixed(1)}u `
+            + `(${(mean * FEET_PER_UNIT).toFixed(1)} ft) avg, worst ${worstOffset.toFixed(1)}u`
+            + `${ok ? '' : ' — the fence and the painted wall disagree; the pink LINE follows the fence, not your clicks'}`
+            + '</span>'
+        }
+        depthNote = `<br /><span style="color:${worst < 0.5 ? '#86efac' : '#f87171'}">`
+          + `worst pair off by ${worst.toFixed(2)}%</span>`
+          + `<br /><span style="color:${spread > 25 ? '#86efac' : '#fbbf24'}">`
+          + `depth spread ${spread.toFixed(0)}u ${spread > 25
+            ? '(good)' : '— pairs are too close together; click one near a foul pole AND one at dead centre'}</span>`
+      }
+      const usingBalls = Boolean(ballVerticalFit(fit.matrix))
+      if (usingBalls) {
+        metricsEl.innerHTML += `<br /><span style="color:#fb923c">height from `
+          + `${trackedBalls().length} tracked balls — no assumed wall height</span>`
+      }
+      metricsEl.innerHTML += `<br /><span style="color:#94a3b8">Wall pairs: ${pairs}${
+        halfPair ? ' (+1 base, needs its top)' : ''
+      }${
+        vertical
+          ? ` · height fit ${vertical.rmsPercent.toFixed(3)}%`
+          : ' · need 2 complete pairs for the height fit'
+      }</span>${depthNote}`
+
+      outputEl.value = [
+        `  // parkGeometry.js -> PARK_IMAGE_HOMOGRAPHY`,
+        `  ${park}: [`,
+        `    ${fit.matrix.map((v) => v.toPrecision(10)).join(', ')},`,
+        `  ],`,
+        '',
+        vertical
+          ? `  // parkGeometry.js -> PARK_IMAGE_VERTICAL\n  ${park}: [${
+              vertical.vertical.map((v) => v.toPrecision(10)).join(', ')}],`
+          : `  // PARK_IMAGE_VERTICAL: click ${Math.max(0, 2 - pairs)} more wall base+top pair(s)`,
+      ].join('\n')
+    }
+
+    img.addEventListener('load', render)
+    selectPark(parkSelect.value)
+  </script>
+</body>
+</html>

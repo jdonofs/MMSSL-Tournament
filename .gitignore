@@ -6,3 +6,8 @@ dist
 .env.tracker-bridge
 .claude
 supabase/.temp
+sluggers-stat-tracker-advanced-stats-dev/preview-session.log
+
+# Raw fence-calibration coordinate dumps (large, regenerable by replaying a
+# session). The derived geometry is what gets committed, not the samples.
+scripts/fence_samples/
