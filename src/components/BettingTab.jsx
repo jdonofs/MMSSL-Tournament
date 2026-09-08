@@ -12,6 +12,11 @@ import SettleUp from './SettleUp'
 import SipPriceSparkline from './SipPriceSparkline'
 import TeamLogo from './TeamLogo'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
+import useOddsHistory from '../hooks/useOddsHistory'
+import BetProgressMeter from './betting/BetProgressMeter'
+import MyBetsPanel from './betting/MyBetsPanel'
+import OddsHistoryPanel, { selectMarketObservations } from './betting/OddsHistoryPanel'
+import PropResearchCard from './betting/PropResearchCard'
 import {
   americanOddsFromProbability,
   buildBettingEntityLabel,
@@ -23,6 +28,20 @@ import {
   recalculateOdds,
 } from '../utils/oddsEngine'
 import { parseDollarWager, sanitizeDollarWagerInput, summarizeSlipWagers } from '../utils/bettingSlip'
+import {
+  COUNT_PROP_TYPES,
+  buildGameResolutionTotals,
+  formatBetDescription,
+  formatBetSubtitle,
+  formatBetTitle,
+  formatBettingGameMatchup,
+  formatMyBetContext,
+  formatOdds,
+  getBetProgress,
+  getTargetPortraitName,
+  getTeamLabels,
+  isCountPropType,
+} from '../utils/bettingMarkets'
 import { isCreditedHit } from '../utils/creditedHit'
 import { buildPlacedBetLedgerEntries, resolveGameBets } from '../utils/betResolution'
 import { buildOddsGenerationContext } from '../utils/oddsContext'
@@ -57,20 +76,12 @@ const ACTIVE_STATUSES = new Set(['pending', 'active', 'scheduled', 'in_progress'
 const BOARD_COLUMN_HEADERS = ['Run Line', 'Total', 'Moneyline']
 const ODDS_FLASH_FIELDS = ['odds_home', 'odds_away', 'odds_over', 'odds_under', 'odds_yes', 'odds_no']
 const ODDS_FLASH_DURATION_MS = 700
-const COUNT_PROP_TYPES = new Set(['hr_prop', 'hit_prop', 'k_prop'])
 const ODDS_MODEL_VERSION = 'tracker-live-v3'
 const DETAIL_TABS = [
   { id: 'game-odds', label: 'Game Odds' },
   { id: 'batter-props', label: 'Batter Props' },
   { id: 'pitcher-props', label: 'Pitcher Props' },
 ]
-
-const STATUS_COLORS = {
-  open: '#EAB308',
-  won: '#22C55E',
-  lost: '#EF4444',
-  void: '#94A3B8',
-}
 
 function StadiumLogo({ name, width = 76, height = 30, borderRadius = 8 }) {
   return (
@@ -88,12 +99,6 @@ function StadiumLogo({ name, width = 76, height = 30, borderRadius = 8 }) {
       }}
     />
   )
-}
-
-function formatOdds(value) {
-  if (value == null) return '--'
-  const num = Number(value)
-  return num > 0 ? `+${num}` : `${num}`
 }
 
 function isOddsOffBoard(odds) {
@@ -116,13 +121,6 @@ function isGameReadyForBetting(game, playersById) {
     playersById[game.team_b_player_id]?.name &&
     game.team_a_player_id !== game.team_b_player_id,
   )
-}
-
-function getTeamLabels(game, playersById, identitiesByPlayerId = {}) {
-  return {
-    home: getTeamShortName(identitiesByPlayerId[game?.team_b_player_id]) || playersById[game?.team_b_player_id]?.name || 'Home',
-    away: getTeamShortName(identitiesByPlayerId[game?.team_a_player_id]) || playersById[game?.team_a_player_id]?.name || 'Away',
-  }
 }
 
 function getGameStatusLabel(game, regulationInnings = DEFAULT_REGULATION_INNINGS) {
@@ -167,11 +165,6 @@ function buildStadiumDisplayModel(game, stadiumsById, stadiumGameLog) {
     log: scopedLog,
     model: buildAppliedStadiumModel(stadium, Boolean(game?.is_night), scopedLog),
   }
-}
-
-function getTargetPortraitName(targetEntity = '') {
-  const match = String(targetEntity || '').match(/^(.*?)\s+\(/)
-  return match ? match[1] : null
 }
 
 function buildLeaderboard(players, games, bets, sourceId, options = {}) {
@@ -265,21 +258,6 @@ function getSideOptions(row, game, playersById, identitiesByPlayerId = {}) {
   ]
 }
 
-function formatBetDescription(row, game, playersById, identitiesByPlayerId = {}) {
-  const labels = getTeamLabels(game, playersById, identitiesByPlayerId)
-  if (row.bet_type === 'moneyline') return `${labels.home} vs ${labels.away}`
-  if (row.bet_type === 'over_under') return `Game total ${Number(row.line || 0).toFixed(1)}`
-  if (row.bet_type === 'first_inning_run') return 'Run scored in 1st inning'
-  if (row.bet_type === 'k_prop') return `${row.target_entity} strikeouts ${Number(row.line || 0).toFixed(1)}`
-  if (row.bet_type === 'hr_prop') return `${row.target_entity} home runs ${Number(row.line || 0).toFixed(1)}`
-  if (row.bet_type === 'hit_prop') return `${row.target_entity} hits ${Number(row.line || 0).toFixed(1)}`
-  return row.target_entity
-}
-
-function isCountPropType(betType = '') {
-  return COUNT_PROP_TYPES.has(betType)
-}
-
 function formatBaseballAverageValue(avg = 0, atBats = 0) {
   const safeAvg = Number(atBats || 0) > 0 ? Number(avg || 0) : 0
   const formatted = safeAvg.toFixed(3)
@@ -298,138 +276,6 @@ function getCountPropSeasonStat(row, statsByEntity = {}) {
   if (row?.bet_type === 'hit_prop') return `AVG: ${formatBaseballAverageValue(entityStats.batting?.avg, entityStats.batting?.atBats)}`
   if (row?.bet_type === 'k_prop') return `K/3: ${Number(entityStats.pitching?.kPer3 || 0).toFixed(2)}`
   return ''
-}
-
-const HR_RESULTS = new Set(['HR', 'IPHR'])
-
-function formatBetTitle(bet, game, playersById, identitiesByPlayerId = {}) {
-  const labels = getTeamLabels(game, playersById, identitiesByPlayerId)
-  const line = bet.line != null ? Number(bet.line) : null
-  switch (bet.bet_type) {
-    case 'moneyline':
-      return `${bet.chosen_side === 'home' ? labels.home : labels.away} ML`
-    case 'run_line':
-      return `${bet.chosen_side === 'home' ? labels.home : labels.away} ${line >= 0 ? '+' : ''}${line?.toFixed(1)}`
-    case 'over_under':
-      return `${bet.chosen_side === 'over' ? 'Over' : 'Under'} ${line?.toFixed(1)}`
-    case 'k_prop':
-      return `${bet.chosen_side === 'over' ? 'Over' : 'Under'} ${line?.toFixed(1)} K`
-    case 'hr_prop':
-      return `${bet.chosen_side === 'over' ? 'Over' : 'Under'} ${line?.toFixed(1)} HR`
-    case 'hit_prop':
-      return `${bet.chosen_side === 'over' ? 'Over' : 'Under'} ${line?.toFixed(1)} Hits`
-    case 'first_inning_run':
-      return `${bet.chosen_side === 'yes' ? 'Yes' : 'No'} - Run in 1st`
-    default:
-      return bet.target_entity || bet.bet_type
-  }
-}
-
-function formatBetSubtitle(bet, game, playersById, identitiesByPlayerId = {}) {
-  const labels = getTeamLabels(game, playersById, identitiesByPlayerId)
-  if (bet.bet_type === 'moneyline' || bet.bet_type === 'run_line' || bet.bet_type === 'over_under' || bet.bet_type === 'first_inning_run') {
-    return `${labels.away} @ ${labels.home}`
-  }
-  return bet.target_entity || ''
-}
-
-function formatBettingGameMatchup(game, playersById, identitiesByPlayerId = {}) {
-  const labels = getTeamLabels(game, playersById, identitiesByPlayerId)
-  return `${labels.away} @ ${labels.home}`
-}
-
-function formatMyBetContext(bet, game, playersById, identitiesByPlayerId = {}) {
-  if (!game) return ''
-
-  const matchup = String(formatBettingGameMatchup(game, playersById, identitiesByPlayerId) || '').trim()
-  const gameCode = matchup
-  const subtitle = String(formatBetSubtitle(bet, game, playersById, identitiesByPlayerId) || '').trim()
-
-  if (!matchup) return subtitle
-  if (!subtitle || subtitle === matchup) return matchup
-
-  return `${gameCode} · ${subtitle}`
-}
-
-function getBetProgress(bet, game, plateAppearances, pitchingStints, charactersById, playersById) {
-  const line = bet.line != null ? Number(bet.line) : null
-  if (line == null || Number.isNaN(line)) return null
-
-  const gamePAs = plateAppearances.filter((pa) => String(pa.game_id) === String(bet.game_id))
-  const gamePitching = pitchingStints.filter((entry) => String(entry.game_id) === String(bet.game_id))
-
-  if (bet.bet_type === 'over_under') {
-    const current = Number(game?.team_a_runs || 0) + Number(game?.team_b_runs || 0)
-    return { current, line, unit: 'runs', wantsOver: bet.chosen_side === 'over' }
-  }
-
-  if (bet.bet_type === 'k_prop') {
-    const current = gamePitching
-      .filter((entry) => buildBettingEntityLabel(charactersById[entry.character_id], playersById[entry.player_id]) === bet.target_entity)
-      .reduce((sum, entry) => sum + Number(entry.strikeouts || 0), 0)
-    return { current, line, unit: 'K', wantsOver: bet.chosen_side === 'over' }
-  }
-
-  if (bet.bet_type === 'hr_prop' || bet.bet_type === 'hit_prop') {
-    const current = gamePAs.filter((pa) =>
-      buildBettingEntityLabel(charactersById[pa.character_id], playersById[pa.player_id]) === bet.target_entity &&
-      isCreditedHit(pa) && (bet.bet_type !== 'hr_prop' || HR_RESULTS.has(pa.result)),
-    ).length
-    return { current, line, unit: bet.bet_type === 'hr_prop' ? 'HR' : 'hits', wantsOver: bet.chosen_side === 'over' }
-  }
-
-  return null
-}
-
-function buildGameResolutionTotals(gameId, plateAppearances, pitchingStints, charactersById, playersById) {
-  const scopedGameId = String(gameId)
-  const pitcherKTotals = {}
-  const hrTotals = {}
-  const hitTotals = {}
-
-  pitchingStints.forEach((entry) => {
-    if (String(entry.game_id) !== scopedGameId) return
-    const key = buildBettingEntityLabel(charactersById[entry.character_id], playersById[entry.player_id])
-    pitcherKTotals[key] = Number(pitcherKTotals[key] || 0) + Number(entry.strikeouts || 0)
-  })
-
-  plateAppearances.forEach((entry) => {
-    if (String(entry.game_id) !== scopedGameId) return
-    const key = buildBettingEntityLabel(charactersById[entry.character_id], playersById[entry.player_id])
-    if (isCreditedHit(entry) && (entry.result === 'HR' || entry.result === 'IPHR')) hrTotals[key] = Number(hrTotals[key] || 0) + 1
-    if (isCreditedHit(entry)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
-  })
-
-  return {
-    pitcherKTotals,
-    hrTotals,
-    hitTotals,
-  }
-}
-
-function BetProgressMeter({ progress, status }) {
-  const { current, line, unit, wantsOver } = progress
-  const max = Math.max(line * 2, current, 1)
-  const fillPct = Math.min(100, (current / max) * 100)
-  const markerPct = Math.min(100, (line / max) * 100)
-  const hit = wantsOver ? current > line : current < line
-  let fillColor = '#94A3B8'
-  if (status === 'won') fillColor = '#22C55E'
-  else if (status === 'lost') fillColor = '#EF4444'
-  else if (status === 'open') fillColor = hit ? '#22C55E' : '#EAB308'
-
-  return (
-    <div className="bet-progress-meter">
-      <div className="bet-progress-meter-track">
-        <div className="bet-progress-meter-fill" style={{ width: `${fillPct}%`, background: fillColor }} />
-        <div className="bet-progress-meter-marker" style={{ left: `${markerPct}%` }} />
-      </div>
-      <div className="bet-progress-meter-labels">
-        <span>{current} {unit}</span>
-        <span className="muted">Line: {line}</span>
-      </div>
-    </div>
-  )
 }
 
 function MarketTitle({ row, game, playersById, identitiesByPlayerId }) {
@@ -1206,8 +1052,8 @@ const BoardGameCard = memo(function BoardGameCard({
 
 export default function BettingTab({ mode = 'tournament' }) {
   const { player, isScorekeeper, is_logged_in } = useAuth()
-  const { currentTournament } = useTournament()
-  const { currentSeason, seasonTeams } = useSeason()
+  const { currentTournament, tournaments } = useTournament()
+  const { currentSeason, seasonTeams, allSeasons } = useSeason()
   const { pushToast } = useToast()
   const isSeasonMode = mode === 'season'
   const sourceContext = isSeasonMode ? currentSeason : currentTournament
@@ -1299,7 +1145,7 @@ export default function BettingTab({ mode = 'tournament' }) {
   const [slipCollapsed, setSlipCollapsed] = useState(false)
   const [activeWagerKey, setActiveWagerKey] = useState(null)
   const [stadiumModalGameId, setStadiumModalGameId] = useState(null)
-  const [myBetsFilter, setMyBetsFilter] = useState('all')
+  const [openOddsHistoryKeys, setOpenOddsHistoryKeys] = useState(() => new Set())
   const hasLoadedOnceRef = useRef(false)
   const autoSyncRef = useRef({})
   const oddsRequestRef = useRef(0)
@@ -1939,6 +1785,52 @@ export default function BettingTab({ mode = 'tournament' }) {
     [bets, player?.id, gamesById],
   )
 
+  // Every game loaded for this competition TYPE, not just the selected
+  // competition. Tournament tickets load unscoped, so a player's history can
+  // span several tournaments; season tickets are query-scoped to the selected
+  // season and so resolve to exactly one. Numeric game ids are unique within a
+  // table, so a single string key is safe here — the two competition types are
+  // never mixed in one mount.
+  const allLoadedGamesById = useMemo(
+    () => Object.fromEntries(games.map((entry) => [String(entry.id), entry])),
+    [games],
+  )
+  const competitionLabelsById = useMemo(() => {
+    if (isSeasonMode) {
+      return Object.fromEntries((allSeasons || []).map((season) => [
+        String(season.id),
+        season.name || `Season ${season.id}`,
+      ]))
+    }
+    return Object.fromEntries((tournaments || []).map((tournament) => [
+      String(tournament.id),
+      tournament.name || `Tournament ${tournament.tournament_number ?? tournament.id}`,
+    ]))
+  }, [isSeasonMode, allSeasons, tournaments])
+  const characterIdByName = useMemo(
+    () => Object.fromEntries(characters.map((entry) => [entry.name, entry.id])),
+    [characters],
+  )
+  // Tickets for the dashboard, each tagged with the competition that owns its
+  // game so the competition filter has a real identity to work with.
+  const myTickets = useMemo(
+    () => bets
+      .filter((entry) => entry.player_id === player?.id)
+      .map((entry) => {
+        const game = allLoadedGamesById[String(entry.game_id)]
+        if (!game) return null
+        const competitionId = game.tournament_id ?? null
+        return {
+          ...entry,
+          competitionId,
+          competitionLabel: competitionLabelsById[String(competitionId)] || '',
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.placed_at || 0) - new Date(a.placed_at || 0)),
+    [bets, player?.id, allLoadedGamesById, competitionLabelsById],
+  )
+
   useEffect(() => {
     if (!hasLoadedOnceRef.current || !sourceContext?.id) return
 
@@ -2051,6 +1943,54 @@ export default function BettingTab({ mode = 'tournament' }) {
     })
     return groups
   }, [gameOdds])
+
+  const toggleOddsHistory = useCallback((marketKey) => {
+    setOpenOddsHistoryKeys((current) => {
+      const next = new Set(current)
+      if (next.has(marketKey)) next.delete(marketKey)
+      else next.add(marketKey)
+      return next
+    })
+  }, [])
+  // A market's history belongs to one game; switching games starts over rather
+  // than showing the previous game's rows under the new one's markets.
+  useEffect(() => { setOpenOddsHistoryKeys(new Set()) }, [detailGameId, viewMode])
+
+  const labelForPlayer = useCallback(
+    (playerId) => getTeamShortName(identitiesByPlayerId[playerId]) || playersById[playerId]?.name || null,
+    [identitiesByPlayerId, playersById],
+  )
+  // Matchup context for a prop card: who the target is playing, and — for a
+  // batter — the pitcher the board has a strikeout market on for the other
+  // side, which is the expected starter the pricing already used.
+  const buildPropMatchupNote = useCallback((row) => {
+    if (!detailGame) return ''
+    const targetPlayerId = propEntityMetaByLabel[row.target_entity]?.playerId ?? null
+    if (targetPlayerId == null) return ''
+    const opponentPlayerId = String(targetPlayerId) === String(detailGame.team_a_player_id)
+      ? detailGame.team_b_player_id
+      : detailGame.team_a_player_id
+    const opponentLabel = labelForPlayer(opponentPlayerId)
+    if (row.bet_type === 'k_prop') return opponentLabel ? `vs ${opponentLabel}` : ''
+    const opposingPitcher = (oddsByGameId[String(detailGame.id)] || []).find((entry) => (
+      entry.bet_type === 'k_prop'
+      && String(propEntityMetaByLabel[entry.target_entity]?.playerId ?? '') === String(opponentPlayerId)
+    ))
+    const pitcherName = opposingPitcher ? getTargetPortraitName(opposingPitcher.target_entity) : null
+    return [opponentLabel ? `vs ${opponentLabel}` : '', pitcherName ? `facing ${pitcherName}` : '']
+      .filter(Boolean)
+      .join(' · ')
+  }, [detailGame, propEntityMetaByLabel, labelForPlayer, oddsByGameId])
+
+  // Loaded only once a market's history is actually expanded, and only for the
+  // game on screen. The tables are an optional schema addition, so the hook
+  // reports `unavailable` rather than failing when they are absent.
+  const detailOddsHistory = useOddsHistory({
+    sourceType: isSeasonMode ? 'season' : 'tournament',
+    gameId: detailGame?.id ?? null,
+    enabled: viewMode === 'detail' && openOddsHistoryKeys.size > 0,
+  })
+
 
   const [flashKeys, setFlashKeys] = useState(() => new Set())
   const prevOddsValuesRef = useRef(null)
@@ -2945,19 +2885,24 @@ export default function BettingTab({ mode = 'tournament' }) {
       </div>
 
       {viewMode === 'my-bets' ? (
-        <MyBetsView
-          key={viewMode}
-          bets={myAllBets}
+        <MyBetsPanel
+          characterIdByName={characterIdByName}
           charactersById={charactersById}
-          filter={myBetsFilter}
-          gamesById={gamesById}
+          competitionId={sourceContext?.id ?? null}
+          competitionLabelsById={competitionLabelsById}
+          gamesById={allLoadedGamesById}
           identitiesByPlayerId={identitiesByPlayerId}
-          isSeasonMode={isSeasonMode}
-          onFilterChange={setMyBetsFilter}
+          key={viewMode}
+          ledgerChangeField={sourceTables.ledgerChangeField}
+          ledgerCompetitionId={sourceContext?.id ?? null}
+          ledgerEntries={ledgerEntries}
+          oddsByGameId={oddsByGameId}
           payoutFormatter={payoutFormatter}
-          plateAppearances={plateAppearances}
           pitchingStints={pitchingStints}
+          plateAppearances={plateAppearances}
           playersById={playersById}
+          sourceType={isSeasonMode ? 'season' : 'tournament'}
+          tickets={myTickets}
         />
       ) : viewMode === 'leaderboard' ? (
         <div className="panel" key={viewMode}>
@@ -3591,6 +3536,48 @@ export default function BettingTab({ mode = 'tournament' }) {
                                       )}
                                     </div>
                                   </div>
+
+                                  <div className="sportsbook-market-footer">
+                                    {isCountProp ? (
+                                      <PropResearchCard
+                                        betType={row.bet_type}
+                                        characterId={characterIdByName[getTargetPortraitName(row.target_entity)] ?? null}
+                                        charactersById={charactersById}
+                                        competitionId={sourceContext?.id ?? null}
+                                        competitionLabel={competitionLabelsById[String(sourceContext?.id)] || ''}
+                                        currentGameId={detailGame.id}
+                                        games={tournamentGames}
+                                        labelForPlayer={labelForPlayer}
+                                        matchupNote={buildPropMatchupNote(row)}
+                                        pitchingStints={pitchingStints}
+                                        plateAppearances={plateAppearances}
+                                        playersById={playersById}
+                                        sourceType={isSeasonMode ? 'season' : 'tournament'}
+                                        targetEntity={row.target_entity}
+                                      />
+                                    ) : null}
+
+                                    <button
+                                      aria-expanded={openOddsHistoryKeys.has(buildOddsRowKey(row))}
+                                      className="link-button sportsbook-market-history-toggle"
+                                      onClick={() => toggleOddsHistory(buildOddsRowKey(row))}
+                                      type="button"
+                                    >
+                                      {openOddsHistoryKeys.has(buildOddsRowKey(row)) ? 'Hide odds history' : 'Odds history'}
+                                    </button>
+
+                                    {openOddsHistoryKeys.has(buildOddsRowKey(row)) ? (
+                                      <OddsHistoryPanel
+                                        betType={row.bet_type}
+                                        labels={teamLabels}
+                                        observations={selectMarketObservations(detailOddsHistory.rows, {
+                                          betType: row.bet_type,
+                                          targetEntity: row.target_entity || null,
+                                        })}
+                                        status={detailOddsHistory.status === 'refreshing' ? 'ready' : detailOddsHistory.status}
+                                      />
+                                    ) : null}
+                                  </div>
                                 </div>
                               )
                             })}
@@ -3760,97 +3747,6 @@ export default function BettingTab({ mode = 'tournament' }) {
         </Fragment>
       )}
     </div>
-  )
-}
-
-const MY_BETS_FILTERS = [
-  { id: 'all', label: 'All' },
-  { id: 'open', label: 'Open' },
-  { id: 'settled', label: 'Settled' },
-  { id: 'won', label: 'Won' },
-  { id: 'lost', label: 'Lost' },
-]
-
-function MyBetsView({
-  bets,
-  gamesById,
-  playersById,
-  identitiesByPlayerId,
-  charactersById,
-  plateAppearances,
-  pitchingStints,
-  isSeasonMode,
-  payoutFormatter,
-  filter,
-  onFilterChange,
-}) {
-  const filteredBets = bets.filter((bet) => {
-    if (filter === 'all') return true
-    if (filter === 'open') return bet.status === 'open'
-    if (filter === 'settled') return ['won', 'lost', 'void'].includes(bet.status)
-    return bet.status === filter
-  })
-
-  return (
-    <section className="panel sportsbook-my-bets">
-      <div className="sportsbook-board-head">
-        <div>
-          <h2>My Bets</h2>
-        </div>
-        <span className="muted">{bets.length} bet{bets.length === 1 ? '' : 's'}</span>
-      </div>
-
-      <div className="tab-row">
-        {MY_BETS_FILTERS.map((entry) => (
-          <button
-            className={`tab-button ${filter === entry.id ? 'tab-button-active' : ''}`}
-            key={entry.id}
-            onClick={() => onFilterChange(entry.id)}
-            type="button"
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
-
-      {filteredBets.length ? (
-        <div className="feed-list">
-          {filteredBets.map((bet) => {
-            const game = gamesById[String(bet.game_id)]
-            const progress = game ? getBetProgress(bet, game, plateAppearances, pitchingStints, charactersById, playersById) : null
-            const wager = Number(bet.wager_dollars || 0)
-            const payout = Number(bet.potential_payout_dollars || 0)
-            return (
-              <div className="betting-ticket my-bet-ticket" key={bet.id}>
-                <div className="bet-card-head">
-                  <strong>{game ? formatBetTitle(bet, game, playersById, identitiesByPlayerId) : bet.bet_type}</strong>
-                  <span
-                    className="status-pill"
-                    style={{ background: `${STATUS_COLORS[bet.status] || '#94A3B8'}22`, color: STATUS_COLORS[bet.status] || '#94A3B8' }}
-                  >
-                    {bet.status}
-                  </span>
-                </div>
-                <div className="muted">{game ? formatMyBetContext(bet, game, playersById, identitiesByPlayerId) : ''}</div>
-
-                {progress ? <BetProgressMeter progress={progress} status={bet.status} /> : null}
-
-                <div className="betting-ticket-meta">
-                  <span className="muted">Odds: <strong>{formatOdds(bet.odds)}</strong></span>
-                  <span className="muted">Wager: {payoutFormatter(wager)}</span>
-                  <span className="muted">To Pay: {payoutFormatter(payout)}</span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <strong>No bets here</strong>
-          <span className="muted">Place a bet from the board to see it here.</span>
-        </div>
-      )}
-    </section>
   )
 }
 

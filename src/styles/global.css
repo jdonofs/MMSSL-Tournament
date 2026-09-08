@@ -967,6 +967,28 @@ body.drawer-open {
   align-items: start;
 }
 
+/* Scouting Report: Baseball-Savant's three columns -- identity card, percentile rankings,
+   charts. The percentile column is the widest because its bars carry a label and a value on
+   one line and wrapping them makes the whole column unreadable. */
+.scouting-columns {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 1200px) {
+  .scouting-columns {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 820px) {
+  .scouting-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 .entity-sidebar {
   position: sticky;
   top: 12px;
@@ -5150,4 +5172,536 @@ button, a, select, input, textarea, label, [role="button"] {
     grid-template-columns: 1fr;
   }
 
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Betting: personal dashboard, ticket receipts, odds history, prop research.
+   Scoped to the classes these components own; nothing above is redefined.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.betting-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+}
+
+.betting-stat-tile {
+  display: grid;
+  gap: 0.2rem;
+  align-content: start;
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.betting-stat-tile strong {
+  font-size: 1.28rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.betting-stat-tile-positive strong { color: #4ade80; }
+.betting-stat-tile-negative strong { color: #fb7185; }
+
+.betting-stat-sub,
+.betting-basis-note {
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.betting-basis-note {
+  margin: 0.85rem 0 0;
+}
+
+.betting-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.betting-filter-row label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  min-width: 140px;
+  flex: 1 1 150px;
+}
+
+.betting-filter-row select,
+.betting-filter-row input {
+  min-height: 42px;
+  padding: 0.5rem 0.65rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.betting-filter-row .ghost-button {
+  flex: 0 0 auto;
+  min-height: 42px;
+}
+
+.betting-chart {
+  margin-top: 1rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  gap: 0.55rem;
+}
+
+.betting-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.betting-chart-head > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.betting-chart-head span {
+  font-size: 0.78rem;
+  max-width: 62ch;
+}
+
+.betting-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 12px;
+  outline-offset: 3px;
+}
+
+.betting-chart-readout,
+.betting-chart-note {
+  font-size: 0.8rem;
+  margin: 0;
+  min-height: 1.2em;
+}
+
+.betting-chart-empty {
+  margin-top: 1rem;
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+}
+
+.betting-chart-table-scroll,
+.betting-table-scroll,
+.odds-history-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.betting-market-breakdown {
+  margin-top: 1.1rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.betting-market-breakdown h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* A narrow screen scrolls these tables rather than stacking every cell into a
+   column of single characters. */
+.betting-market-breakdown .data-table,
+.betting-chart-table-scroll .data-table { min-width: 620px; }
+.odds-history-table { min-width: 520px; }
+
+.betting-market-breakdown th,
+.betting-market-breakdown td,
+.odds-history-table td { white-space: nowrap; }
+
+.betting-positive { color: #4ade80; font-weight: 700; }
+.betting-negative { color: #fb7185; font-weight: 700; }
+
+.betting-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.my-bet-ticket-button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  border-radius: 18px;
+  padding: 0.85rem 0.95rem;
+  transition: 160ms ease;
+}
+
+.my-bet-ticket-button:hover,
+.my-bet-ticket-button:focus-visible {
+  border-color: rgba(234, 179, 8, 0.45);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.my-bet-ticket-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 700;
+  color: var(--gold);
+  font-size: 0.8rem;
+}
+
+/* ── Receipt ─────────────────────────────────────────────────────────────── */
+
+.bet-receipt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  background: rgba(2, 6, 23, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.bet-receipt-dialog {
+  width: min(660px, 100%);
+  max-height: min(90vh, 900px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #1f2d46, #131d31);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.bet-receipt-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.bet-receipt-head-copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.bet-receipt-head-copy h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  overflow-wrap: anywhere;
+}
+
+.bet-receipt-kicker {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.bet-receipt-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+
+.bet-receipt-body {
+  overflow-y: auto;
+  padding: 0.9rem 1.1rem 1.2rem;
+  display: grid;
+  gap: 0.95rem;
+}
+
+.bet-receipt-section {
+  display: grid;
+  gap: 0.5rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.bet-receipt-section:last-of-type { border-bottom: none; padding-bottom: 0; }
+
+.bet-receipt-section h3 {
+  margin: 0;
+  font-size: 0.86rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.bet-receipt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.bet-receipt-grid > div { display: grid; gap: 0.15rem; min-width: 0; }
+.bet-receipt-grid dt { font-size: 0.75rem; color: var(--muted); }
+.bet-receipt-grid dd { margin: 0; font-size: 0.95rem; overflow-wrap: anywhere; }
+.bet-receipt-money dd strong { font-size: 1.05rem; }
+
+.bet-receipt-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bet-receipt-note {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.bet-receipt-warning {
+  color: #fbbf24;
+}
+
+.bet-receipt-conditions,
+.bet-receipt-outcome {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.bet-receipt-credit-pill {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+  vertical-align: middle;
+}
+
+.bet-receipt-credit-credited { background: rgba(34, 197, 94, 0.18); color: #4ade80; }
+.bet-receipt-credit-pending,
+.bet-receipt-credit-mismatch { background: rgba(234, 179, 8, 0.2); color: #facc15; }
+
+.bet-receipt-timeline {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.bet-receipt-timeline li { display: grid; gap: 0.1rem; }
+
+.bet-receipt-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.bet-receipt-history-toggle { justify-self: start; }
+
+/* ── Odds history ────────────────────────────────────────────────────────── */
+
+.odds-history-panel {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.odds-history-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.6rem;
+}
+
+.odds-history-summary > div { display: grid; gap: 0.12rem; font-size: 0.8rem; }
+.odds-history-summary strong { font-size: 0.95rem; }
+
+.odds-history-accepted {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 12px;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  background: var(--gold-soft);
+  font-size: 0.8rem;
+}
+
+.odds-history-caveat {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.odds-history-table { font-size: 0.8rem; }
+.odds-history-table th[scope='row'] { display: grid; gap: 0.15rem; justify-items: start; white-space: nowrap; }
+
+.odds-history-delta {
+  margin-left: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.odds-history-delta-up { color: #4ade80; }
+.odds-history-delta-down { color: #fb7185; }
+
+.odds-history-first-pill,
+.odds-history-lock-pill,
+.odds-history-line-move {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+}
+
+.odds-history-lock-pill { background: rgba(251, 113, 133, 0.18); color: #fda4af; }
+.odds-history-line-move {
+  margin-left: 0.35rem;
+  background: rgba(234, 179, 8, 0.18);
+  color: #facc15;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.odds-history-note {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 14px;
+  border: 1px dashed var(--line);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+/* ── Prop research ───────────────────────────────────────────────────────── */
+
+.sportsbook-market-footer {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--line);
+}
+
+.sportsbook-market-history-toggle,
+.prop-research-toggle {
+  justify-self: start;
+  font-size: 0.78rem;
+}
+
+.prop-research { display: grid; gap: 0.35rem; }
+
+.prop-research-body {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.prop-research-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.prop-research-head > div { display: grid; gap: 0.1rem; min-width: 0; }
+.prop-research-head span { font-size: 0.76rem; }
+
+.prop-research-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+
+.prop-research-stats > div { display: grid; gap: 0.1rem; font-size: 0.74rem; }
+.prop-research-stats strong { font-size: 1.1rem; font-weight: 800; }
+
+.prop-research-label { font-size: 0.74rem; }
+
+.prop-research-strip {
+  list-style: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+}
+
+.prop-research-strip-link {
+  display: grid;
+  justify-items: center;
+  gap: 0.15rem;
+  min-width: 54px;
+  padding: 0.3rem 0.2rem;
+  border-radius: 10px;
+}
+
+.prop-research-strip-link:hover,
+.prop-research-strip-link:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.prop-research-strip-bar {
+  display: block;
+  width: 16px;
+  border-radius: 4px 4px 0 0;
+  background: #3987e5;
+}
+
+.prop-research-strip span.muted { font-size: 0.68rem; text-align: center; }
+.prop-research-strip-unit { align-self: center; font-size: 0.7rem; }
+
+.prop-research-live,
+.prop-research-coverage,
+.prop-research-disclaimer {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.prop-research-disclaimer { font-style: italic; }
+
+@media (max-width: 720px) {
+  .betting-stat-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .betting-filter-row label { flex-basis: 100%; min-width: 0; }
+  .bet-receipt-backdrop { padding: 0; align-items: stretch; }
+  .bet-receipt-dialog {
+    width: 100%;
+    max-height: 100vh;
+    height: 100%;
+    border-radius: 0;
+    border: none;
+  }
+  .bet-receipt-grid { grid-template-columns: 1fr 1fr; }
+  .betting-chart-head { flex-direction: column; align-items: stretch; }
 }
