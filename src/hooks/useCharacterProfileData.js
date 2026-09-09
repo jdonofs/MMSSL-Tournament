@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
 import {
@@ -18,6 +18,7 @@ import { buildExpectedOutcomeModel } from '../utils/expectedStats'
 import { buildStadiumKeyByGameId, STADIUM_GAME_LOG_SELECT, SEASON_STADIUM_GAME_LOG_SELECT } from '../utils/stadiums'
 import { resolveSeasonPitchingDecisions, resolveTournamentPitchingDecisions, groupRunsByPaId } from '../utils/pitchingDecisions'
 import { normalizeSeasonRowsByGameId, normalizeSeasonScheduleRows } from '../utils/seasonGameIds'
+import { dedupeStatRows, reconcileStatSource } from '../utils/statReconciliation'
 
 const EMPTY_BATTING = {
   games: 0, plateAppearances: 0, atBats: 0, hits: 0, singles: 0, doubles: 0, triples: 0,
@@ -51,16 +52,6 @@ function getCacheKey(characterId, scope) {
   const scopeType = scope?.type || 'none'
   const scopeId = scope?.id || 'none'
   return `${characterId}:${scopeType}:${scopeId}`
-}
-
-function dedupeRows(rows = []) {
-  const byId = new Map()
-  rows.forEach((row) => {
-    const sourceKey = row?.season_id != null ? 'season' : 'tournament'
-    const key = row?.id != null ? `${sourceKey}:${String(row.id)}` : JSON.stringify(row)
-    if (!byId.has(key)) byId.set(key, row)
-  })
-  return [...byId.values()]
 }
 
 function buildPitchingHistory({
@@ -227,6 +218,7 @@ export default function useCharacterProfileData(character, scope, options = {}) 
   const { fullPreset = null, gameHistory: gameHistoryOverride = null, pitchingGameHistory: pitchingGameHistoryOverride = null, fieldingGameHistory: fieldingGameHistoryOverride = null } = options
   const cacheKey = getCacheKey(character?.id, scope)
   const [profileData, setProfileData] = useState(() => createInitialProfileData(cacheKey, fullPreset))
+  const loadGenerationRef = useRef(0)
 
   useEffect(() => {
     setProfileData(createInitialProfileData(cacheKey, fullPreset))
@@ -243,6 +235,8 @@ export default function useCharacterProfileData(character, scope, options = {}) 
     let cancelled = false
 
     const load = async () => {
+      const generation = loadGenerationRef.current + 1
+      loadGenerationRef.current = generation
       setProfileData((current) => ({ ...current, loading: true, errorMessage: '' }))
 
       const [
@@ -273,10 +267,10 @@ export default function useCharacterProfileData(character, scope, options = {}) 
         fetchAllRows(() => supabase.from('pitches').select('*').eq('pitcher_id', character.name)),
         fetchAllRows(() => supabase.from('season_pitches').select('*').eq('batter_id', character.name)),
         fetchAllRows(() => supabase.from('season_pitches').select('*').eq('pitcher_id', character.name)),
-        fetchAllRows(() => supabase.from('plate_appearances').select('result,exit_velocity_mph,launch_angle_deg,star_hit_used,hit_distance_ft,hit_stadium_key,game_id')),
-        fetchAllRows(() => supabase.from('season_plate_appearances').select('result,exit_velocity_mph,launch_angle_deg,star_hit_used,hit_distance_ft,hit_stadium_key,game_id,season_id')),
-        fetchAllRows(() => supabase.from('pitching_stints').select('innings_pitched,earned_runs,hits_allowed,walks,strikeouts,hr_allowed')),
-        fetchAllRows(() => supabase.from('season_pitching_stints').select('innings_pitched,earned_runs,hits_allowed,walks,strikeouts,hr_allowed')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('id,result,exit_velocity_mph,launch_angle_deg,star_hit_used,star_hit_connected,hit_distance_ft,hit_stadium_key,game_id')),
+        fetchAllRows(() => supabase.from('season_plate_appearances').select('id,result,exit_velocity_mph,launch_angle_deg,star_hit_used,star_hit_connected,hit_distance_ft,hit_stadium_key,game_id,season_id')),
+        fetchAllRows(() => supabase.from('pitching_stints').select('id,game_id,innings_pitched,earned_runs,runs_allowed,hits_allowed,walks,strikeouts,hr_allowed')),
+        fetchAllRows(() => supabase.from('season_pitching_stints').select('id,game_id,season_id,innings_pitched,earned_runs,runs_allowed,hits_allowed,walks,strikeouts,hr_allowed')),
         fetchAllRows(() => supabase.from('season_schedule').select('*')),
         fetchAllRows(() => supabase.from('stadiums').select('id,name')),
         fetchAllRows(() => supabase.from('stadium_game_log').select(STADIUM_GAME_LOG_SELECT)),
@@ -307,7 +301,7 @@ export default function useCharacterProfileData(character, scope, options = {}) 
       const failedResult = results.find((result) => result.error)
 
       if (failedResult?.error) {
-        if (!cancelled) {
+        if (!cancelled && generation === loadGenerationRef.current) {
           setProfileData((current) => ({
             ...current, loading: false, errorMessage: failedResult.error.message || 'Failed to load character stats.',
           }))
@@ -333,8 +327,9 @@ export default function useCharacterProfileData(character, scope, options = {}) 
       const seasonTeamPlayerIdByTeamId = Object.fromEntries(seasonTeams.map((team) => [String(team.id), team.player_id]))
       const gamesById = Object.fromEntries(games.map((g) => [g.id, g]))
       const tournamentIdByGameId = Object.fromEntries(games.map((g) => [String(g.id), g.tournament_id]))
+      const normalizedSeasonSchedule = normalizeSeasonScheduleRows(seasonSchedule)
       const seasonScheduleByGameId = Object.fromEntries(
-        normalizeSeasonScheduleRows(seasonSchedule).map((scheduleRow) => [scheduleRow.id, scheduleRow]),
+        normalizedSeasonSchedule.map((scheduleRow) => [scheduleRow.id, scheduleRow]),
       )
       const gameContext = { gamesById, seasonScheduleByGameId }
       const tournamentStadiumKeyByGameId = buildStadiumKeyByGameId(games, stadiums, tournamentStadiumLog)
@@ -356,9 +351,9 @@ export default function useCharacterProfileData(character, scope, options = {}) 
       // Tagged with isHome/isPostseason/pitcherHandedness/batterHandedness so downstream summaries
       // (rawPas on every batting/pitching line) can feed straight into summarizeBattingSplits/
       // summarizePitchingSplits without a separate fetch — see statsCalculator.js.
-      const tournamentBattingPas = tagPasWithHandedness(tagPasWithGameContext(normalizedTournamentBattingPas, [], gameContext), nameById)
-      const seasonBattingPas = tagPasWithHandedness(tagPasWithGameContext([], normalizedSeasonBattingPas, gameContext), nameById)
-      const tournamentPitchingPas = tagPasWithHandedness(tagPasWithGameContext(
+      const taggedTournamentBattingPas = tagPasWithHandedness(tagPasWithGameContext(normalizedTournamentBattingPas, [], gameContext), nameById)
+      const taggedSeasonBattingPas = tagPasWithHandedness(tagPasWithGameContext([], normalizedSeasonBattingPas, gameContext), nameById)
+      const taggedTournamentPitchingPas = tagPasWithHandedness(tagPasWithGameContext(
         enrichPasWithPitchingContext(tournamentPitchingPasResult.data || [], {
           pitches: pitcherPitchesResult.data || [],
           charactersByName,
@@ -373,7 +368,7 @@ export default function useCharacterProfileData(character, scope, options = {}) 
         seasonTeamPlayerById: {},
         stadiumKeyByGameId: seasonStadiumKeyByGameId,
       })
-      const seasonPitchingPas = tagPasWithHandedness(tagPasWithGameContext(
+      const taggedSeasonPitchingPas = tagPasWithHandedness(tagPasWithGameContext(
         [],
         normalizeSeasonRowsByGameId(seasonPitchingPasWithContext),
         gameContext,
@@ -392,14 +387,33 @@ export default function useCharacterProfileData(character, scope, options = {}) 
       // this character's own stints — the decision for a game depends on every pitcher and every
       // run in that game, not just this character's rows, and most games never had these flags
       // stamped onto the DB row at all (only games completed live through Scorebook did).
-      const tournamentRunsByPaId = groupRunsByPaId(allTournamentRunsResult.data || [])
-      const seasonRunsByPaId = groupRunsByPaId(allSeasonRunsResult.data || [])
+      const officialTournamentLeague = reconcileStatSource({
+        games,
+        plateAppearances: allTournamentPasResult.data || [],
+        pitchingStints: allTournamentStintsResult.data || [],
+        runs: allTournamentRunsResult.data || [],
+      })
+      const officialSeasonLeague = reconcileStatSource({
+        games: seasonSchedule,
+        plateAppearances: allSeasonPasResult.data || [],
+        pitchingStints: allSeasonStintsResult.data || [],
+        runs: allSeasonRunsResult.data || [],
+      })
+      const tournamentRunsByPaId = groupRunsByPaId(officialTournamentLeague.runs)
+      const seasonRunsByPaId = groupRunsByPaId(officialSeasonLeague.runs)
       const resolvedTournamentStints = resolveTournamentPitchingDecisions(
-        allTournamentStintsResult.data || [], games, allTournamentPasResult.data || [], tournamentRunsByPaId,
+        officialTournamentLeague.pitchingStints, officialTournamentLeague.games,
+        officialTournamentLeague.plateAppearances, tournamentRunsByPaId,
       )
       const resolvedSeasonStints = normalizeSeasonRowsByGameId(resolveSeasonPitchingDecisions(
-        allSeasonStintsResult.data || [], seasonSchedule, allSeasonPasResult.data || [], seasonRunsByPaId, seasonTeamPlayerIdByTeamId,
+        officialSeasonLeague.pitchingStints, officialSeasonLeague.games,
+        officialSeasonLeague.plateAppearances, seasonRunsByPaId, seasonTeamPlayerIdByTeamId,
       ))
+
+      const tournamentBattingPas = reconcileStatSource({ games, plateAppearances: taggedTournamentBattingPas }).plateAppearances
+      const seasonBattingPas = reconcileStatSource({ games: normalizedSeasonSchedule, plateAppearances: taggedSeasonBattingPas }).plateAppearances
+      const tournamentPitchingPas = reconcileStatSource({ games, plateAppearances: taggedTournamentPitchingPas }).plateAppearances
+      const seasonPitchingPas = reconcileStatSource({ games: normalizedSeasonSchedule, plateAppearances: taggedSeasonPitchingPas }).plateAppearances
 
       const tournamentStints = tagStintsWithPostseason(
         resolvedTournamentStints.filter((s) => String(s.character_id) === String(character.id)
@@ -429,8 +443,13 @@ export default function useCharacterProfileData(character, scope, options = {}) 
         tournamentStints, seasonStints, games, tournaments, seasons,
       })
 
-      const tournamentRunEvents = tournamentRunEventsResult.data || []
-      const seasonRunEvents = normalizeSeasonRowsByGameId(seasonRunEventsResult.data || [])
+      const tournamentRunEvents = reconcileStatSource({
+        games, runs: tournamentRunEventsResult.data || [],
+      }).runs
+      const seasonRunEvents = reconcileStatSource({
+        games: normalizedSeasonSchedule,
+        runs: normalizeSeasonRowsByGameId(seasonRunEventsResult.data || []),
+      }).runs
 
       const currentTournamentBatting = buildCurrentBattingSummary({
         scope, tournamentPlateAppearances: tournamentBattingPas, seasonPlateAppearances: seasonBattingPas, games,
@@ -440,14 +459,22 @@ export default function useCharacterProfileData(character, scope, options = {}) 
 
       const allTimeBatting = buildBattingSummary([...tournamentBattingPas, ...seasonBattingPas], [...tournamentRunEvents, ...seasonRunEvents])
       const allTimePitching = buildPitchingSummary([...tournamentStints, ...seasonStints], [...tournamentPitchingPas, ...seasonPitchingPas])
-      const allPitches = dedupeRows([
-        ...(batterPitchesResult.data || []), ...(pitcherPitchesResult.data || []),
-        ...normalizedSeasonBatterPitches, ...normalizedSeasonPitcherPitches,
-      ])
+      const allPitches = dedupeStatRows([
+        ...reconcileStatSource({ games, pitches: [...(batterPitchesResult.data || []), ...(pitcherPitchesResult.data || [])] }).pitches,
+        ...reconcileStatSource({ games: normalizedSeasonSchedule, pitches: [...normalizedSeasonBatterPitches, ...normalizedSeasonPitcherPitches] }).pitches,
+      ], 'pitches')
 
-      const leagueBattedBalls = [...(leagueTournamentPasResult.data || []), ...normalizeSeasonRowsByGameId(leagueSeasonPasResult.data || [])]
+      const leagueTournamentPas = reconcileStatSource({ games, plateAppearances: leagueTournamentPasResult.data || [] }).plateAppearances
+      const leagueSeasonPas = reconcileStatSource({
+        games: normalizedSeasonSchedule,
+        plateAppearances: normalizeSeasonRowsByGameId(leagueSeasonPasResult.data || []),
+      }).plateAppearances
+      const leagueBattedBalls = [...leagueTournamentPas, ...leagueSeasonPas]
       const expectedOutcomeModel = buildExpectedOutcomeModel(leagueBattedBalls)
-      const leagueStints = [...(leagueTournamentStintsResult.data || []), ...(leagueSeasonStintsResult.data || [])]
+      const leagueStints = [
+        ...reconcileStatSource({ games, pitchingStints: leagueTournamentStintsResult.data || [] }).pitchingStints,
+        ...reconcileStatSource({ games: seasonSchedule, pitchingStints: leagueSeasonStintsResult.data || [] }).pitchingStints,
+      ]
       const leagueConstants = computeLeagueConstants(leagueBattedBalls, leagueStints)
 
       const nextData = {
@@ -458,9 +485,9 @@ export default function useCharacterProfileData(character, scope, options = {}) 
         tournamentIdByGameId,
         playersById, seasonTeamsById,
       }
+      if (cancelled || generation !== loadGenerationRef.current) return
       profileDataCache.set(cacheKey, nextData)
-
-      if (!cancelled) setProfileData({ loading: false, errorMessage: '', ...nextData })
+      setProfileData({ loading: false, errorMessage: '', ...nextData })
     }
 
     // Even when seeded from a preset (Stats.jsx's fast nav-state path skips
@@ -484,7 +511,11 @@ export default function useCharacterProfileData(character, scope, options = {}) 
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, load)
       .subscribe()
 
-    return () => { cancelled = true; supabase.removeChannel(channel) }
+    return () => {
+      cancelled = true
+      loadGenerationRef.current += 1
+      supabase.removeChannel(channel)
+    }
   }, [character?.id, character?.name, scope?.id, scope?.type, fullPreset, gameHistoryOverride, pitchingGameHistoryOverride, fieldingGameHistoryOverride])
 
   return profileData

@@ -2,7 +2,7 @@
 
 Reads the CSVs written by collect_fence_samples.py and reports, per spray-angle
 bin, how far the outfield wall actually is -- in game units, and in feet under
-the locked 3-feet-per-unit convention.
+the canonical 1-metre-per-unit convention.
 
 Two independent signals are used, and they are reported separately because they
 are not equally trustworthy:
@@ -25,9 +25,10 @@ vertical axis and leave horizontal travel alone.
     python scripts/derive_fence_geometry.py --park mario_stadium
     python scripts/derive_fence_geometry.py --park mario_stadium --emit-js
 
-The comparison table at the end is the interesting part on a first run: it puts
-the measured fence next to the hand-entered wallRefs `dist` values, which is
-the first real check on whether those numbers were ever right.
+The comparison table at the end is useful on a first run: it puts the measured
+fence next to the current LF/CF/RF artwork references. On an unmeasured park
+those are still timing-derived; once the measured curve is adopted, they are
+regenerated from it and become a consistency check.
 """
 from __future__ import annotations
 
@@ -39,12 +40,12 @@ import statistics
 from pathlib import Path
 
 # Fence geometry is measured and stored in UNITS; feet are only ever a label
-# applied at the end. The conversion comes from the measured infield -- see
-# FEET_PER_UNIT in patch_tracker_advanced_stats.py and fit_infield_scale.py --
-# and rests on one stated assumption, that the base path is regulation size.
-BASE_PATH_UNITS = 26.840  # measured
-BASE_PATH_FEET = 90.0     # assumed (regulation)
-FEET_PER_UNIT = BASE_PATH_FEET / BASE_PATH_UNITS
+# applied at the end. World coordinates use metres -- see FEET_PER_UNIT in
+# patch_tracker_advanced_stats.py and the independent infield/gravity checks in
+# fit_infield_scale.py and backtest_hr_projection.mjs.
+METERS_PER_UNIT = 1.0
+FEET_PER_METER = 3.280839895013123
+FEET_PER_UNIT = METERS_PER_UNIT * FEET_PER_METER
 
 SAMPLES_DIR = Path(__file__).resolve().parent / "fence_samples"
 GEOMETRY_FILE = Path(__file__).resolve().parent / "tracker_field_projection.mjs"

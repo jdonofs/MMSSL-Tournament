@@ -4,7 +4,6 @@ import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
 import { GameSessionProvider } from '../context/GameSessionContext'
 import { useSeason } from '../context/SeasonContext'
-import { buildSeasonStandings } from '../utils/competitionStandings'
 import {
   DEFAULT_MERCY_RULE_DIFFERENTIAL,
   DEFAULT_REGULATION_INNINGS,
@@ -12,10 +11,9 @@ import {
   normalizeRegulationInnings,
 } from '../utils/gameRules'
 import {
-  advanceSeasonPlayoffs,
-  clearSeasonPlayoffsAfterRegularGameReopen,
-  reopenSeasonPlayoffs,
-  seedSeasonPlayoffs,
+  completeSeasonGameLifecycle,
+  reopenSeasonGameLifecycle,
+  resolveSeasonScorebookGameId,
 } from '../utils/seasonPlayoffs'
 
 const SEASON_TABLES = {
@@ -39,11 +37,19 @@ const SEASON_TABLES = {
 export default function SeasonGameSessionProvider({ children }) {
   const [searchParams] = useSearchParams()
   const { currentSeason, refreshSeasons, schedule, seasonTeams } = useSeason()
-  const gameId = Number(searchParams.get('game') || 0)
-  const selectedScheduleGame = useMemo(
-    () => (schedule || []).find((entry) => Number(entry.id) === gameId) || null,
-    [gameId, schedule],
+  const requestedGameId = Number(searchParams.get('game') || 0)
+  const requestedScheduleGame = useMemo(
+    () => (schedule || []).find((entry) => Number(entry.id) === requestedGameId) || null,
+    [requestedGameId, schedule],
   )
+  const gameId = resolveSeasonScorebookGameId({
+    requestedGameId,
+    schedule,
+    playoffFormat: currentSeason?.playoff_format,
+    teamCount: seasonTeams.length,
+    seasonStatus: currentSeason?.status,
+  })
+  const selectedScheduleGame = gameId ? requestedScheduleGame : null
   const teamIdByPlayerId = useMemo(
     () => Object.fromEntries((seasonTeams || []).map((entry) => [entry.player_id, entry.id])),
     [seasonTeams],
@@ -83,6 +89,7 @@ export default function SeasonGameSessionProvider({ children }) {
           inningScores: [],
           stadiums: [],
           stadiumGameLog: [],
+          savedTeamLineups: [],
         }
       }
 
@@ -101,6 +108,7 @@ export default function SeasonGameSessionProvider({ children }) {
         { data: teamsData, error: teamsError },
         { data: stadiumsData },
         { data: stadiumLogData },
+        { data: savedTeamLineupsData },
       ] = await Promise.all([
         fetchAllRows(() => supabase.from(SEASON_TABLES.games).select('*').eq('season_id', currentSeason.id).order('round_number')),
         fetchAllRows(() => supabase.from('players').select('*')),
@@ -119,6 +127,7 @@ export default function SeasonGameSessionProvider({ children }) {
         fetchAllRows(() => supabase.from('season_teams').select('*').eq('season_id', currentSeason.id).order('created_at')),
         fetchAllRows(() => supabase.from('stadiums').select('*')),
         fetchAllRows(() => supabase.from(SEASON_TABLES.stadiumGameLog).select('*').eq('season_id', currentSeason.id).order('created_at')),
+        supabase.from('season_team_lineups').select('player_id, lineup_order, fielding_positions').eq('season_id', currentSeason.id),
       ])
 
       const charactersByName = Object.fromEntries((charsData || []).map((entry) => [entry.name, entry]))
@@ -187,6 +196,7 @@ export default function SeasonGameSessionProvider({ children }) {
           ...entry,
           stadium_id: stadiumByName[entry.stadium]?.id || null,
         })),
+        savedTeamLineups: savedTeamLineupsData || [],
       }
     },
     teamIdByPlayerId,
@@ -208,212 +218,25 @@ export default function SeasonGameSessionProvider({ children }) {
     getLineupKey: (playerId) => `season-lineup-${currentSeason?.id}-${playerId}`,
     async onGameComplete({ selectedGame, scores }) {
       if (!selectedGame || !currentSeason?.id) return
-
-      const winnerTeamId =
-        scores.a === scores.b
-          ? null
-          : scores.a > scores.b
-            ? selectedGame.away_team_id
-            : selectedGame.home_team_id
-
-      const { error } = await supabase
-        .from(SEASON_TABLES.games)
-        .update({
-          status: 'completed',
-          winner_team_id: winnerTeamId,
-          away_score: scores.a,
-          home_score: scores.b,
-        })
-        .eq('id', selectedGame.id)
-
-      if (error) throw error
-
-      const { data: allGames } = await supabase.from(SEASON_TABLES.games).select('*').eq('season_id', currentSeason.id)
-      const { data: allTeams } = await supabase.from('season_teams').select('*').eq('season_id', currentSeason.id)
-      const { data: bettingLedgerData } = await supabase.from(SEASON_TABLES.bettingLedger).select('*').eq('season_id', currentSeason.id)
-      const regularSeasonGames = (allGames || []).filter((game) => !game.stage)
-
-      const nextTeams = (allTeams || []).map((team) => {
-        const teamGames = regularSeasonGames.filter((game) => game.home_team_id === team.id || game.away_team_id === team.id)
-        let wins = 0
-        let losses = 0
-        let runDiff = 0
-        let homeWins = 0
-        let homeLosses = 0
-        let awayWins = 0
-        let awayLosses = 0
-
-        teamGames.forEach((game) => {
-          if (game.status !== 'completed') return
-          const isHome = game.home_team_id === team.id
-          const scored = Number(isHome ? game.home_score : game.away_score || 0)
-          const allowed = Number(isHome ? game.away_score : game.home_score || 0)
-          runDiff += scored - allowed
-          if (game.winner_team_id === team.id) {
-            wins += 1
-            if (isHome) homeWins += 1
-            else awayWins += 1
-          } else if (game.winner_team_id) {
-            losses += 1
-            if (isHome) homeLosses += 1
-            else awayLosses += 1
-          }
-        })
-
-        return {
-          ...team,
-          wins,
-          losses,
-          run_differential: runDiff,
-          home_wins: homeWins,
-          home_losses: homeLosses,
-          away_wins: awayWins,
-          away_losses: awayLosses,
-        }
-      })
-
-      await Promise.all(nextTeams.map((team) => (
-        supabase
-          .from('season_teams')
-          .update({
-            wins: team.wins,
-            losses: team.losses,
-            run_differential: team.run_differential,
-            home_wins: team.home_wins,
-            home_losses: team.home_losses,
-            away_wins: team.away_wins,
-            away_losses: team.away_losses,
-          })
-          .eq('id', team.id)
-      )))
-
-      const allRegularSeasonComplete = regularSeasonGames.length > 0
-        && regularSeasonGames.every((game) => game.status === 'completed')
-      const hasPlayoffGames = (allGames || []).some((game) => Boolean(game.stage))
-      const updatedStandings = buildSeasonStandings(nextTeams, allGames || [], bettingLedgerData || [])
-
-      if (selectedGame.stage) {
-        await advanceSeasonPlayoffs({
-          supabase,
-          season: currentSeason,
-          standings: updatedStandings,
-          schedule: allGames || [],
-          seasonTeams: allTeams || [],
-        })
-      } else if (allRegularSeasonComplete) {
-        if (!hasPlayoffGames) {
-          await seedSeasonPlayoffs({
-            supabase,
-            season: currentSeason,
-            standings: updatedStandings,
-            schedule: allGames || [],
-          })
-        }
-        await supabase
-          .from('seasons')
-          .update({ champion_player_id: null, status: 'playoffs' })
-          .eq('id', currentSeason.id)
+      try {
+        await completeSeasonGameLifecycle({ supabase, season: currentSeason, selectedGame, scores })
+      } finally {
+        await refreshSeasons(currentSeason.id).catch(() => {})
       }
-
-      await refreshSeasons(currentSeason.id)
     },
     async onGameReopen({ selectedGame }) {
       if (!selectedGame || !currentSeason?.id) return
-
-      const { data: allGames } = await supabase.from(SEASON_TABLES.games).select('*').eq('season_id', currentSeason.id)
-      const { data: allTeams } = await supabase.from('season_teams').select('*').eq('season_id', currentSeason.id)
-      const { data: bettingLedgerData } = await supabase.from(SEASON_TABLES.bettingLedger).select('*').eq('season_id', currentSeason.id)
-      const regularSeasonGames = (allGames || []).filter((game) => !game.stage)
-
-      const nextTeams = (allTeams || []).map((team) => {
-        const teamGames = regularSeasonGames.filter((game) => game.home_team_id === team.id || game.away_team_id === team.id)
-        let wins = 0
-        let losses = 0
-        let runDiff = 0
-        let homeWins = 0
-        let homeLosses = 0
-        let awayWins = 0
-        let awayLosses = 0
-
-        teamGames.forEach((game) => {
-          if (game.status !== 'completed') return
-          const isHome = game.home_team_id === team.id
-          const scored = Number(isHome ? game.home_score : game.away_score || 0)
-          const allowed = Number(isHome ? game.away_score : game.home_score || 0)
-          runDiff += scored - allowed
-          if (game.winner_team_id === team.id) {
-            wins += 1
-            if (isHome) homeWins += 1
-            else awayWins += 1
-          } else if (game.winner_team_id) {
-            losses += 1
-            if (isHome) homeLosses += 1
-            else awayLosses += 1
-          }
-        })
-
-        return {
-          ...team,
-          wins,
-          losses,
-          run_differential: runDiff,
-          home_wins: homeWins,
-          home_losses: homeLosses,
-          away_wins: awayWins,
-          away_losses: awayLosses,
-        }
-      })
-
-      await Promise.all(nextTeams.map((team) => (
-        supabase
-          .from('season_teams')
-          .update({
-            wins: team.wins,
-            losses: team.losses,
-            run_differential: team.run_differential,
-            home_wins: team.home_wins,
-            home_losses: team.home_losses,
-            away_wins: team.away_wins,
-            away_losses: team.away_losses,
-          })
-          .eq('id', team.id)
-      )))
-
-      const allRegularSeasonComplete = regularSeasonGames.length > 0
-        && regularSeasonGames.every((game) => game.status === 'completed')
-      const hasPlayoffGames = (allGames || []).some((game) => Boolean(game.stage))
-      const updatedStandings = buildSeasonStandings(nextTeams, allGames || [], bettingLedgerData || [])
-
-      if (selectedGame.stage) {
-        await reopenSeasonPlayoffs({
-          supabase,
-          season: currentSeason,
-          standings: updatedStandings,
-          schedule: allGames || [],
-          seasonTeams: allTeams || [],
-        })
-      } else {
-        if (hasPlayoffGames) {
-          await clearSeasonPlayoffsAfterRegularGameReopen({
-            supabase,
-            season: currentSeason,
-            schedule: allGames || [],
-          })
-        }
-        await supabase
-          .from('seasons')
-          .update({
-            champion_player_id: null,
-            status: allRegularSeasonComplete ? 'playoffs' : 'active',
-          })
-          .eq('id', currentSeason.id)
+      try {
+        await reopenSeasonGameLifecycle({ supabase, season: currentSeason, selectedGame })
+      } finally {
+        await refreshSeasons(currentSeason.id).catch(() => {})
       }
-
-      await refreshSeasons(currentSeason.id)
     },
   }), [
     gameId,
     currentSeason?.id,
+    currentSeason?.status,
+    currentSeason?.playoff_format,
     currentSeason?.innings,
     currentSeason?.mercy_rule,
     currentSeason?.mercy_rule_differential,

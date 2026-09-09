@@ -8,6 +8,54 @@ dist
 supabase/.temp
 sluggers-stat-tracker-advanced-stats-dev/preview-session.log
 
+# Raw tracker session logs, now one file per session and written by BOTH the
+# standalone preview and the live bridge. 93 MB and growing; distilled into
+# data/flight_archive.jsonl.gz (about 4% of the bytes), which is what gets
+# committed. The line above is the old single-file name, kept so an existing
+# checkout does not suddenly start offering it.
+sluggers-stat-tracker-advanced-stats-dev/preview-sessions/
+
 # Raw fence-calibration coordinate dumps (large, regenerable by replaying a
 # session). The derived geometry is what gets committed, not the samples.
 scripts/fence_samples/
+
+# Local safety snapshots written by the one-time world-scale migration.
+scripts/.world_scale_backfill.json*
+
+# Lineup payloads exported from the site for MSS-AutoTeam. Regenerated on
+# demand from Supabase, so there is nothing to keep.
+scripts/.mss_lineup.json
+lineup.json
+
+# Raw player-tracking captures. Whole-game-state frames at 60 Hz -- tens of
+# megabytes per session and regenerable only by playing the innings again, so
+# they are kept locally rather than committed. The derived per-play metrics
+# (.plays.jsonl) and the session headers are small and are left tracked.
+data/player_tracking/*.bin
+
+# Raw stadium memory-probe dumps. Per-frame object/signal captures written by
+# probe_stadium_objects.py and probe_stadium_signals.py -- dk_objects.jsonl
+# alone is 1.1 GB. Regenerable by re-running the probe against Dolphin, and
+# read by nothing; the findings live in docs/tracker-validation-console.md.
+data/calibration/dk_*.jsonl
+data/calibration/stadium_objects.jsonl
+data/calibration/stadium_signals.jsonl
+
+# Built tracker binaries. ~10 MB per release; v1-v25 are already in history so
+# they stay, but new builds are local. Force-add (git add -f) to ship one.
+sluggers-stat-tracker-advanced-stats-dev/*.exe
+
+# Raw per-game logs from that tracker -- 58 MB across the folder and read by
+# nothing in this repo. The .xlsx sitting next to each one is the actual
+# output and stays tracked.
+sluggers-stat-tracker-advanced-stats-dev/output/*.log
+
+# Scratch: review logs, screenshots, one-off repro scripts and fixtures.
+/tmp/
+
+# Python bytecode.
+__pycache__/
+*.pyc
+
+# Chromium/Electron stderr noise from the desktop shell.
+/debug.log

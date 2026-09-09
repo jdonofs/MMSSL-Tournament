@@ -1,0 +1,87 @@
+{
+  "session": "bowser_jr_playroom-20260828T144924Z",
+  "position_offset": 4,
+  "ball_frame": {
+    "sign_x": 1.0,
+    "sign_z": -1.0,
+    "swap_xz": false,
+    "lock_frames": 8780,
+    "lock_units": 0.05
+  },
+  "movement_units": 14467.0,
+  "teleports": 1161,
+  "candidates": [
+    {
+      "offset": 4,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 8780,
+      "path": 14467.0,
+      "teleports": 1161
+    },
+    {
+      "offset": 56,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 3727,
+      "path": 5859.4,
+      "teleports": 4329
+    },
+    {
+      "offset": 428,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 450,
+      "path": 37.1,
+      "teleports": 0
+    },
+    {
+      "offset": 428,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 450,
+      "path": 37.1,
+      "teleports": 0
+    },
+    {
+      "offset": 68,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 376,
+      "path": 281.6,
+      "teleports": 67
+    },
+    {
+      "offset": 128,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 196,
+      "path": 193.0,
+      "teleports": 553
+    },
+    {
+      "offset": 128,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 196,
+      "path": 193.0,
+      "teleports": 553
+    },
+    {
+      "offset": 132,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 195,
+      "path": 534.1,
+      "teleports": 562
+    }
+  ]
+}

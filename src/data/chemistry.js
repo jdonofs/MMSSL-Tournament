@@ -1,3 +1,5 @@
+import { characterNameKey, sameCharacterName } from '../utils/characterNames.js'
+
 // Mario Super Sluggers chemistry table
 // Source: https://www.mariowiki.com/Chemistry
 
@@ -157,11 +159,27 @@ export const CHEMISTRY = {
 // Color variants share chemistry with their base character, so a name from a
 // chemistry list (e.g. 'Magikoopa') should match a variant on the roster
 // (e.g. 'Blue Magikoopa') and vice versa.
+// CHARACTER_VARIANTS groups a colour variant with the base character it shares
+// chemistry with -- a different question from "are these two strings the same
+// character", which is what characterNames answers. Both matter here: Red Yoshi
+// and Yoshi are DIFFERENT characters that share chemistry, while "Koopa Troopa"
+// and "Koopa" are one character spelled two ways. Comparing the raw strings
+// handled neither reliably, so each side is resolved by key first.
+function variantBase(name) {
+  const direct = CHARACTER_VARIANTS[name]
+  if (direct) return direct
+  const key = characterNameKey(name)
+  for (const [variant, base] of Object.entries(CHARACTER_VARIANTS)) {
+    if (characterNameKey(variant) === key) return base
+  }
+  return name
+}
+
 export function chemistryNamesMatch(a, b) {
-  if (a === b) return true
-  const baseA = CHARACTER_VARIANTS[a] || a
-  const baseB = CHARACTER_VARIANTS[b] || b
-  return baseA === b || baseB === a || baseA === baseB
+  if (sameCharacterName(a, b)) return true
+  return sameCharacterName(variantBase(a), b)
+    || sameCharacterName(variantBase(b), a)
+    || sameCharacterName(variantBase(a), variantBase(b))
 }
 
 export function isChemistryNameOnRoster(name, rosterNames = []) {

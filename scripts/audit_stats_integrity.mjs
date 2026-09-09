@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { isCreditedHit } from '../src/utils/creditedHit.js'
+import { reconcileStatSource } from '../src/utils/statReconciliation.js'
 
 const VALID_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'BB', 'HBP', 'K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
 const ZERO_RBI_RESULTS = new Set(['FC', 'ROE', 'DP', 'TP'])
@@ -21,18 +22,14 @@ function loadEnvFile(filePath) {
   return env
 }
 
-const envPath = path.resolve('.env')
-if (!fs.existsSync(envPath)) {
-  throw new Error('Missing .env file; cannot load Supabase credentials.')
-}
-
-const env = loadEnvFile(envPath)
-const SUPABASE_URL = env.VITE_SUPABASE_URL
-const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY
-const SUPABASE_BEARER_TOKEN = process.env.SUPABASE_ACCESS_TOKEN || SUPABASE_ANON_KEY
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env.')
+function parseArgs(argv = process.argv.slice(2)) {
+  const options = { input: null, output: path.resolve('tmp', 'stats_audit_report.json') }
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === '--input') options.input = path.resolve(argv[++index])
+    else if (argv[index] === '--output') options.output = path.resolve(argv[++index])
+    else throw new Error(`Unknown argument: ${argv[index]}`)
+  }
+  return options
 }
 
 function toNumber(value, fallback = 0) {
@@ -140,7 +137,8 @@ function pushSample(collection, value, limit = 20) {
   if (collection.length < limit) collection.push(value)
 }
 
-async function fetchAllRows(table, { select = '*', order = null } = {}) {
+async function fetchAllRows(table, credentials, { select = '*', order = null } = {}) {
+  const { url, anonKey, bearerToken } = credentials
   const pageSize = 1000
   const allRows = []
   let start = 0
@@ -149,10 +147,10 @@ async function fetchAllRows(table, { select = '*', order = null } = {}) {
     const params = new URLSearchParams({ select })
     if (order) params.set('order', order)
 
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params.toString()}`, {
+    const response = await fetch(`${url}/rest/v1/${table}?${params.toString()}`, {
       headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_BEARER_TOKEN}`,
+        apikey: anonKey,
+        Authorization: `Bearer ${bearerToken}`,
         Accept: 'application/json',
         'Range-Unit': 'items',
         Range: `${start}-${start + pageSize - 1}`,
@@ -360,6 +358,7 @@ function recomputePitchingByGame({ games, pas, stints, runs }) {
         strikeouts: 0,
         hr_allowed: 0,
         _outs: 0,
+        _earnedKnown: true,
       }]),
     )
 
@@ -420,13 +419,15 @@ function recomputePitchingByGame({ games, pas, stints, runs }) {
               if (chargedStint) chargedTarget = nextStatsByStintId[String(chargedStint.id)]
             }
             chargedTarget.runs_allowed += 1
-            if (run.is_earned_run !== false) chargedTarget.earned_runs += 1
+            if (run.is_earned_run === true) chargedTarget.earned_runs += 1
+            else if (run.is_earned_run !== false) chargedTarget._earnedKnown = false
           }
         } else {
           const fallbackRuns = getPaScoringRuns(pa)
           if (fallbackRuns > 0) {
             targetStats.runs_allowed += fallbackRuns
-            if (pa.is_earned_run !== false) targetStats.earned_runs += fallbackRuns
+            if (pa.is_earned_run === true) targetStats.earned_runs += fallbackRuns
+            else if (pa.is_earned_run !== false) targetStats._earnedKnown = false
           }
         }
       }
@@ -436,7 +437,9 @@ function recomputePitchingByGame({ games, pas, stints, runs }) {
 
     for (const [stintId, stats] of Object.entries(nextStatsByStintId)) {
       stats.innings_pitched = inningsPitchedFromOuts(stats._outs)
+      if (!stats._earnedKnown) stats.earned_runs = null
       delete stats._outs
+      delete stats._earnedKnown
       recomputedByStintId[stintId] = stats
     }
   }
@@ -498,14 +501,16 @@ function auditPitching({ scope, games, pas, stints, runs, pitches }) {
     }
 
     for (const field of ['hits_allowed', 'runs_allowed', 'earned_runs', 'walks', 'strikeouts', 'hr_allowed']) {
-      if (toNumber(stint[field]) !== toNumber(expected[field])) {
+      const storedValue = stint[field] == null ? null : toNumber(stint[field])
+      const expectedValue = expected[field] == null ? null : toNumber(expected[field])
+      if (storedValue !== expectedValue) {
         compareStat(field, {
           id: stint.id,
           game_id: stint.game_id,
           player_id: stint.player_id,
           character_id: stint.character_id,
-          stored: toNumber(stint[field]),
-          expected: toNumber(expected[field]),
+          stored: storedValue,
+          expected: expectedValue,
         })
       }
     }
@@ -698,41 +703,70 @@ function buildSummary(report) {
 }
 
 async function main() {
-  const [
-    players,
-    seasonTeams,
-    games,
-    seasonSchedule,
-    plateAppearances,
-    seasonPlateAppearances,
-    pitchingStints,
-    seasonPitchingStints,
-    runsScored,
-    seasonRunsScored,
-    gameFielders,
-    seasonGameFielders,
-    pitches,
-    seasonPitches,
-  ] = await Promise.all([
-    fetchAllRows('players', { select: 'id,name', order: 'id.asc' }),
-    fetchAllRows('season_teams', { select: 'id,player_id,season_id', order: 'id.asc' }),
-    fetchAllRows('games', { select: '*', order: 'id.asc' }),
-    fetchAllRows('season_schedule', { select: '*', order: 'id.asc' }),
-    fetchAllRows('plate_appearances', { select: '*', order: 'id.asc' }),
-    fetchAllRows('season_plate_appearances', { select: '*', order: 'id.asc' }),
-    fetchAllRows('pitching_stints', { select: '*', order: 'id.asc' }),
-    fetchAllRows('season_pitching_stints', { select: '*', order: 'id.asc' }),
-    fetchAllRows('runs_scored', { select: '*', order: 'id.asc' }),
-    fetchAllRows('season_runs_scored', { select: '*', order: 'id.asc' }),
-    fetchAllRows('game_fielders', { select: '*', order: 'id.asc' }),
-    fetchAllRows('season_game_fielders', { select: '*', order: 'id.asc' }),
-    fetchAllRows('pitches', { select: '*', order: 'created_at.asc' }),
-    fetchAllRows('season_pitches', { select: '*', order: 'created_at.asc' }),
-  ])
+  const options = parseArgs()
+  let snapshot
+  if (options.input) {
+    if (!fs.existsSync(options.input)) throw new Error(`Input snapshot not found: ${options.input}`)
+    snapshot = JSON.parse(fs.readFileSync(options.input, 'utf8'))
+  } else {
+    const envPath = path.resolve('.env')
+    if (!fs.existsSync(envPath)) throw new Error('Missing .env file; pass --input for an offline audit.')
+    const env = loadEnvFile(envPath)
+    const url = env.VITE_SUPABASE_URL
+    const anonKey = env.VITE_SUPABASE_ANON_KEY
+    const bearerToken = process.env.SUPABASE_ACCESS_TOKEN || anonKey
+    if (!url || !anonKey) throw new Error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env.')
+    const credentials = { url, anonKey, bearerToken }
+    const tableSpecs = [
+      ['players', { select: 'id,name', order: 'id.asc' }],
+      ['season_teams', { select: 'id,player_id,season_id', order: 'id.asc' }],
+      ['games', { select: '*', order: 'id.asc' }],
+      ['season_schedule', { select: '*', order: 'id.asc' }],
+      ['plate_appearances', { select: '*', order: 'id.asc' }],
+      ['season_plate_appearances', { select: '*', order: 'id.asc' }],
+      ['pitching_stints', { select: '*', order: 'id.asc' }],
+      ['season_pitching_stints', { select: '*', order: 'id.asc' }],
+      ['runs_scored', { select: '*', order: 'id.asc' }],
+      ['season_runs_scored', { select: '*', order: 'id.asc' }],
+      ['game_fielders', { select: '*', order: 'id.asc' }],
+      ['season_game_fielders', { select: '*', order: 'id.asc' }],
+      ['pitches', { select: '*', order: 'created_at.asc' }],
+      ['season_pitches', { select: '*', order: 'created_at.asc' }],
+    ]
+    const rows = await Promise.all(tableSpecs.map(([table, spec]) => fetchAllRows(table, credentials, spec)))
+    snapshot = Object.fromEntries(tableSpecs.map(([table], index) => [table, rows[index]]))
+  }
+
+  const players = snapshot.players || []
+  const seasonTeams = snapshot.season_teams || []
+  const games = snapshot.games || []
+  const seasonSchedule = snapshot.season_schedule || []
+  const plateAppearances = snapshot.plate_appearances || []
+  const seasonPlateAppearances = snapshot.season_plate_appearances || []
+  const pitchingStints = snapshot.pitching_stints || []
+  const seasonPitchingStints = snapshot.season_pitching_stints || []
+  const runsScored = snapshot.runs_scored || []
+  const seasonRunsScored = snapshot.season_runs_scored || []
+  const gameFielders = snapshot.game_fielders || []
+  const seasonGameFielders = snapshot.season_game_fielders || []
+  const pitches = snapshot.pitches || []
+  const seasonPitches = snapshot.season_pitches || []
 
   const normalizedSeasonGames = normalizeSeasonGames(seasonSchedule, seasonTeams)
+  const officialTournament = reconcileStatSource({
+    games, plateAppearances, pitchingStints, runs: runsScored, gameFielders, pitches,
+  })
+  const officialSeason = reconcileStatSource({
+    games: normalizedSeasonGames,
+    plateAppearances: seasonPlateAppearances,
+    pitchingStints: seasonPitchingStints,
+    runs: seasonRunsScored,
+    gameFielders: seasonGameFielders,
+    pitches: seasonPitches,
+  })
   const report = {
     generatedAt: new Date().toISOString(),
+    input: options.input ? path.relative(process.cwd(), options.input) : 'supabase',
     counts: {
       players: players.length,
       season_teams: seasonTeams.length,
@@ -749,21 +783,25 @@ async function main() {
       pitches: pitches.length,
       season_pitches: seasonPitches.length,
     },
+    selection: {
+      tournament: officialTournament.coverage,
+      season: officialSeason.coverage,
+    },
     tournament: {
-      pa: auditPlateAppearances({ scope: 'tournament', pas: plateAppearances, runs: runsScored }),
-      pitching: auditPitching({ scope: 'tournament', games, pas: plateAppearances, stints: pitchingStints, runs: runsScored, pitches }),
-      fielding: auditFielding({ scope: 'tournament', pas: plateAppearances, fielders: gameFielders }),
+      pa: auditPlateAppearances({ scope: 'tournament', pas: officialTournament.plateAppearances, runs: officialTournament.runs }),
+      pitching: auditPitching({ scope: 'tournament', games: officialTournament.games, pas: officialTournament.plateAppearances, stints: officialTournament.pitchingStints, runs: officialTournament.runs, pitches: officialTournament.pitches }),
+      fielding: auditFielding({ scope: 'tournament', pas: officialTournament.plateAppearances, fielders: officialTournament.gameFielders }),
     },
     season: {
-      pa: auditPlateAppearances({ scope: 'season', pas: seasonPlateAppearances, runs: seasonRunsScored }),
-      pitching: auditPitching({ scope: 'season', games: normalizedSeasonGames, pas: seasonPlateAppearances, stints: seasonPitchingStints, runs: seasonRunsScored, pitches: seasonPitches }),
-      fielding: auditFielding({ scope: 'season', pas: seasonPlateAppearances, fielders: seasonGameFielders }),
+      pa: auditPlateAppearances({ scope: 'season', pas: officialSeason.plateAppearances, runs: officialSeason.runs }),
+      pitching: auditPitching({ scope: 'season', games: officialSeason.games, pas: officialSeason.plateAppearances, stints: officialSeason.pitchingStints, runs: officialSeason.runs, pitches: officialSeason.pitches }),
+      fielding: auditFielding({ scope: 'season', pas: officialSeason.plateAppearances, fielders: officialSeason.gameFielders }),
     },
   }
 
   report.summary = buildSummary(report)
 
-  const outputPath = path.resolve('tmp', 'stats_audit_report.json')
+  const outputPath = options.output
   fs.mkdirSync(path.dirname(outputPath), { recursive: true })
   fs.writeFileSync(outputPath, JSON.stringify(report, null, 2))
 

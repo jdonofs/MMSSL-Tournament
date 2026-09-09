@@ -1,0 +1,31 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\yoshi_park-20260831T140742Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\yoshi_park-20260831T140742Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\yoshi_park-20260831T140742Z.bin",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "recorded_utc": "20260831T140742Z",
+  "frames": 62759,
+  "missed_frames": 0,
+  "duration_seconds": 1842.117,
+  "checksum_sha256": "1b78220bc853590586077405bc31be1bb0d83e91720d89990f9387ac7b3ba029",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 60,
+    "plays_seen": 84,
+    "plays_emitted": 84,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\yoshi_park-20260831T140742Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\yoshi_park-20260831T140742Z.pitches.jsonl",
+    "mean_feed_ms": 0.0649,
+    "max_feed_ms": 3.068,
+    "max_play_build_ms": 58.9,
+    "replay_duplicates": 1,
+    "pitches_emitted": 115,
+    "pitch_replay_increments": 7
+  }
+}

@@ -8,6 +8,8 @@ import {
   recalculateOdds,
 } from '../src/utils/oddsEngine.js'
 import { persistOddsRowsWithFallback } from '../src/utils/oddsPersistence.js'
+import { buildObservationGameContext } from '../src/utils/oddsHistory.js'
+import { ODDS_HISTORY_STATUS, recordOddsObservations } from '../src/utils/oddsHistoryPersistence.js'
 import { buildLiveMarketState } from '../src/utils/trackerLiveFeed.js'
 import { resolveGameBets } from '../src/utils/betResolution.js'
 import { isCreditedHit } from '../src/utils/creditedHit.js'
@@ -77,6 +79,46 @@ function normalizeSeasonGame(game, teamsById, stadiumsByName) {
   }
 }
 
+// Every betting market is keyed by `Character (Player)`. An identity that fails
+// to resolve does not raise an error on its own — it silently becomes a
+// different key, or no roster entry at all, and the damage only shows up later:
+// a prop priced for the wrong pitcher, or a settlement that grades a real
+// player's home-run prop against a total of 0. These checks turn each of those
+// into a named, recoverable failure. Betting is derived work, so the bridge
+// logs the failure and the durable scoring facts are untouched.
+function assertGameIdentitiesResolved({ isSeason, rawGame, game, rawPicks, charactersById, charactersByName, teamsById }) {
+  const picks = rawPicks || []
+  if (isSeason) {
+    const missingTeams = [rawGame.away_team_id, rawGame.home_team_id]
+      .filter((teamId) => teamsById[teamId]?.player_id == null)
+    if (missingTeams.length) {
+      throw new Error(`betting sync cannot resolve a player for season team(s) ${missingTeams.join(', ')} on game ${game.id}`)
+    }
+  }
+  if (game.team_a_player_id == null || game.team_b_player_id == null) {
+    throw new Error(`betting sync cannot resolve both teams for game ${game.id} (away=${game.team_a_player_id}, home=${game.team_b_player_id})`)
+  }
+
+  if (isSeason) {
+    const gameTeamIds = new Set([rawGame.away_team_id, rawGame.home_team_id].map(String))
+    const unresolved = picks
+      .filter((pick) => gameTeamIds.has(String(pick.team_id)) && !charactersByName[pick.character_name])
+      .map((pick) => pick.character_name)
+    if (unresolved.length) {
+      throw new Error(`betting sync cannot resolve roster character name(s) for game ${game.id}: ${[...new Set(unresolved)].join(', ')}`)
+    }
+    return
+  }
+
+  const gamePlayerIds = new Set([game.team_a_player_id, game.team_b_player_id].map(String))
+  const unresolved = picks
+    .filter((pick) => gamePlayerIds.has(String(pick.player_id)) && pick.character_id != null && !charactersById[pick.character_id])
+    .map((pick) => pick.character_id)
+  if (unresolved.length) {
+    throw new Error(`betting sync cannot resolve roster character id(s) for game ${game.id}: ${[...new Set(unresolved)].join(', ')}`)
+  }
+}
+
 function mergeLiveChanges(rows, changes) {
   const changesByKey = Object.fromEntries((changes || []).map((row) => [buildOddsRowKey(row), row]))
   return rows.map((row) => changesByKey[buildOddsRowKey(row)] || row)
@@ -137,6 +179,10 @@ async function loadTrackerBettingData({ supabase, sourceType, sourceId, gameId }
 
   return {
     tables, game, games, playersById, charactersById, draftPicks,
+    isSeason,
+    rawGame: rawGames.find((entry) => String(entry.id) === String(gameId)),
+    rawPicks: picksResult.data || [],
+    charactersByName, teamsById,
     allPAs: pasResult.data || [], allPitching: pitchingResult.data || [],
     existingOdds: oddsResult.data || [], bets: betsResult.data || [],
     stadiumsById, stadiumGameLog, weights: weightsResult.data || {},
@@ -154,8 +200,12 @@ export async function syncTrackerLiveOdds({
   expectedPitcherByPlayer = {},
   regulationInnings = null,
   shouldPersist = null,
+  logOddsHistory = null,
 }) {
   const data = await loadTrackerBettingData({ supabase, sourceType, sourceId, gameId })
+  // Odds generation is driven entirely by the roster, so an unresolvable roster
+  // identity must stop here rather than quietly price a short lineup.
+  assertGameIdentitiesResolved(data)
   const gamePAs = data.allPAs.filter((row) => String(row.game_id) === String(gameId))
   const gamePitching = data.allPitching.filter((row) => String(row.game_id) === String(gameId))
   const game = {
@@ -210,9 +260,36 @@ export async function syncTrackerLiveOdds({
     row.id != null && !oddsValuesMatch(existingById[String(row.id)] || {}, row)
   ))
   const inserts = payload.filter((row) => row.id == null)
-  if (!updates.length && !inserts.length) return []
   if (shouldPersist && !shouldPersist()) return []
-  return persistOddsRowsWithFallback({ supabase, table: data.tables.odds, updates, inserts })
+
+  const persisted = (updates.length || inserts.length)
+    ? await persistOddsRowsWithFallback({ supabase, table: data.tables.odds, updates, inserts })
+    : []
+
+  // Odds history is recorded here rather than in the browser: this is the
+  // writer the tracker bridge drives, it already knows which markets moved, and
+  // it runs once per game instead of once per open tab. A market that has not
+  // moved writes nothing, so a repeated sync or a retry after a timeout cannot
+  // append a second identical observation. History is derived work — a missing
+  // table or a failed append is reported, never allowed to break pricing.
+  const persistedByKey = Object.fromEntries(
+    persisted.filter((row) => row?.bet_type).map((row) => [buildOddsRowKey(row), row]),
+  )
+  const observationRows = payload.map((row) => persistedByKey[buildOddsRowKey(row)] || row)
+  const historyResult = await recordOddsObservations({
+    supabase,
+    sourceType,
+    gameId,
+    rows: observationRows,
+    gameContext: buildObservationGameContext(game, { isSeason: data.isSeason }),
+  })
+  if (historyResult.status !== ODDS_HISTORY_STATUS.ok && logOddsHistory) {
+    logOddsHistory(historyResult.status === ODDS_HISTORY_STATUS.unavailable
+      ? `odds history table is not present; skipping snapshots for game ${gameId}`
+      : `odds history append returned ${historyResult.status} for game ${gameId}${historyResult.error ? `: ${historyResult.error.message}` : ''}`)
+  }
+
+  return persisted
 }
 
 export async function settleCompletedTrackerGame({
@@ -231,15 +308,39 @@ export async function settleCompletedTrackerGame({
   const pitcherKTotals = {}
   const hrTotals = {}
   const hitTotals = {}
+  const unresolvedPitchingRows = []
+  const unresolvedPARows = []
   gamePitching.forEach((stint) => {
-    const key = buildBettingEntityLabel(data.charactersById[stint.character_id], data.playersById[stint.player_id])
+    const character = data.charactersById[stint.character_id]
+    const player = data.playersById[stint.player_id]
+    if (!character || !player) unresolvedPitchingRows.push(`stint ${stint.id} (character ${stint.character_id}, player ${stint.player_id})`)
+    const key = buildBettingEntityLabel(character, player)
     pitcherKTotals[key] = Number(pitcherKTotals[key] || 0) + Number(stint.strikeouts || 0)
   })
   gamePAs.forEach((pa) => {
-    const key = buildBettingEntityLabel(data.charactersById[pa.character_id], data.playersById[pa.player_id])
+    const character = data.charactersById[pa.character_id]
+    const player = data.playersById[pa.player_id]
+    if (!character || !player) unresolvedPARows.push(`PA ${pa.id} (character ${pa.character_id}, player ${pa.player_id})`)
+    const key = buildBettingEntityLabel(character, player)
     if (isCreditedHit(pa) && (pa.result === 'HR' || pa.result === 'IPHR')) hrTotals[key] = Number(hrTotals[key] || 0) + 1
     if (isCreditedHit(pa)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
   })
+
+  // A row whose identity does not resolve is counted under a label no market
+  // uses, so the real entity's total silently reads as 0 and every "over"
+  // ticket on them grades as a loss. Refuse to settle the affected prop family
+  // instead: the identity can be repaired and settlement re-run, which the
+  // ledger reconciliation makes safe. Markets with no exposure are unaffected.
+  const openPropBets = data.bets.filter((bet) => (
+    String(bet.game_id) === String(gameId) && (bet.status === 'open' || bet.status === 'pending')
+  ))
+  const exposedTypes = new Set(openPropBets.map((bet) => bet.bet_type))
+  if (unresolvedPARows.length && (exposedTypes.has('hr_prop') || exposedTypes.has('hit_prop'))) {
+    throw new Error(`betting settlement blocked: unresolved batter identities on game ${gameId} with open hit/HR props — ${unresolvedPARows.join('; ')}`)
+  }
+  if (unresolvedPitchingRows.length && exposedTypes.has('k_prop')) {
+    throw new Error(`betting settlement blocked: unresolved pitcher identities on game ${gameId} with open strikeout props — ${unresolvedPitchingRows.join('; ')}`)
+  }
   const winningSide = winnerPlayerId == null ? null : String(winnerPlayerId) === String(teamBPlayerId) ? 'home' : 'away'
   return resolveGameBets(
     gameId,

@@ -1,0 +1,38 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\dk_jungle-20260904T161731Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\dk_jungle-20260904T161731Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\dk_jungle-20260904T161731Z.bin",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "recorded_utc": "20260904T161731Z",
+  "park": "dk_jungle",
+  "stadium_byte": 5,
+  "day_night_bytes": [
+    0,
+    0
+  ],
+  "is_night": false,
+  "frames": 77581,
+  "missed_frames": 0,
+  "duration_seconds": 1381.98,
+  "checksum_sha256": "ad729030ad86939a1908ef3fcbed733d620a9132877f2169bcf391f68dfc8813",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 60,
+    "plays_seen": 101,
+    "plays_emitted": 101,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\dk_jungle-20260904T161731Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\dk_jungle-20260904T161731Z.pitches.jsonl",
+    "mean_feed_ms": 0.0754,
+    "max_feed_ms": 2.777,
+    "max_play_build_ms": 75.5,
+    "replay_duplicates": 4,
+    "pitches_emitted": 119,
+    "pitch_replay_increments": 26
+  }
+}

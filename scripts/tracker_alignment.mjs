@@ -10,10 +10,15 @@ export const TRACKER_POSITION_NUMBERS = Object.freeze({
   RF: 9,
 })
 
+export const TRACKER_POSITIONS_BY_NUMBER = Object.freeze(Object.fromEntries(
+  Object.entries(TRACKER_POSITION_NUMBERS).map(([position, number]) => [number, position]),
+))
+
 const POSITION_ORDER = Object.keys(TRACKER_POSITION_NUMBERS)
 const BATTING_MESSAGE_RE = /^\[TRACKER_BATTING\]\s+team=([^|]*)\|batting=(.*)$/
 const LINEUP_MESSAGE_RE = /^\[TRACKER_LINEUP\]\s+team=([^|]*)\|batting=([^|]*)\|fielding=(.*)$/
 const RUNNER_MESSAGE_RE = /^(.+?)\s+is on (first|second|third)\.$/i
+const POSITION_CHANGE_MESSAGE_RE = /^(.+?)\s+was moved to (P|C|1B|2B|3B|SS|LF|CF|RF)\.$/i
 
 function clean(value) {
   return String(value ?? '').trim()
@@ -58,6 +63,64 @@ export function parseTrackerRunnerMessage(message) {
   return {
     characterName: clean(match[1]),
     base: match[2].toLowerCase(),
+  }
+}
+
+export function parseTrackerPositionChangeMessage(message) {
+  const match = clean(message).match(POSITION_CHANGE_MESSAGE_RE)
+  if (!match) return null
+  const position = clean(match[2]).toUpperCase()
+  return {
+    characterName: clean(match[1]),
+    position,
+    positionNumber: TRACKER_POSITION_NUMBERS[position],
+  }
+}
+
+// The game emits a position swap as two consecutive messages, one for each
+// fielder. Applying the first message by deleting both occupied rows but only
+// inserting the moved fielder leaves a temporary eight-player defense. Treat
+// an occupied destination as a swap immediately; the second tracker message
+// then describes state that is already present and is safely ignored.
+export function planTrackerPositionChange(openRows = [], {
+  characterId,
+  characterName,
+  positionNumber,
+} = {}) {
+  const wantedCharacter = String(characterId)
+  const wantedPosition = Number(positionNumber)
+  const rows = openRows.filter(Boolean)
+  const movingRow = rows.find((row) => String(row.character_id) === wantedCharacter) || null
+  const destinationRow = rows.find((row) => Number(row.position) === wantedPosition) || null
+
+  if (movingRow && Number(movingRow.position) === wantedPosition) {
+    return {
+      alreadyApplied: true,
+      affectedRows: [],
+      assignments: [{ characterId, characterName, positionNumber: wantedPosition }],
+    }
+  }
+
+  const assignments = [{ characterId, characterName, positionNumber: wantedPosition }]
+  if (movingRow && destinationRow
+      && String(destinationRow.character_id) !== wantedCharacter
+      && Number(movingRow.position) !== wantedPosition) {
+    assignments.push({
+      characterId: destinationRow.character_id,
+      characterName: destinationRow.character,
+      positionNumber: Number(movingRow.position),
+    })
+  }
+
+  const assignedCharacters = new Set(assignments.map((entry) => String(entry.characterId)))
+  const assignedPositions = new Set(assignments.map((entry) => Number(entry.positionNumber)))
+  return {
+    alreadyApplied: false,
+    assignments,
+    affectedRows: rows.filter((row) => (
+      assignedCharacters.has(String(row.character_id))
+      || assignedPositions.has(Number(row.position))
+    )),
   }
 }
 

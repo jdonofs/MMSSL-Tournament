@@ -1,0 +1,87 @@
+{
+  "session": "yoshi_park-20260831T031212Z",
+  "position_offset": 4,
+  "ball_frame": {
+    "sign_x": 1.0,
+    "sign_z": -1.0,
+    "swap_xz": false,
+    "lock_frames": 7693,
+    "lock_units": 0.05
+  },
+  "movement_units": 10164.5,
+  "teleports": 901,
+  "candidates": [
+    {
+      "offset": 4,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 7693,
+      "path": 10164.5,
+      "teleports": 901
+    },
+    {
+      "offset": 56,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 3098,
+      "path": 4014.2,
+      "teleports": 3464
+    },
+    {
+      "offset": 68,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 658,
+      "path": 187.6,
+      "teleports": 60
+    },
+    {
+      "offset": 424,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 464,
+      "path": 2651.4,
+      "teleports": 2742
+    },
+    {
+      "offset": 424,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 401,
+      "path": 2651.4,
+      "teleports": 2742
+    },
+    {
+      "offset": 432,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 273,
+      "path": 2601.0,
+      "teleports": 2742
+    },
+    {
+      "offset": 432,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 273,
+      "path": 2601.0,
+      "teleports": 2742
+    },
+    {
+      "offset": 432,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 265,
+      "path": 2601.0,
+      "teleports": 2742
+    }
+  ]
+}

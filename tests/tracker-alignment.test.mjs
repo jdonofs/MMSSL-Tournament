@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  parseTrackerPositionChangeMessage,
   parseTrackerBattingMessage,
   parseTrackerLineupMessage,
   parseTrackerRunnerMessage,
   parseWorkbookStartingLineups,
+  planTrackerPositionChange,
   validateTrackerAlignment,
   validateTrackerBattingOrder,
 } from '../scripts/tracker_alignment.mjs'
@@ -84,6 +86,50 @@ test('parses authoritative tracker baserunner locations', () => {
     base: 'third',
   })
   assert.equal(parseTrackerRunnerMessage('Bowser recorded a single!'), null)
+})
+
+test('parses the ordinary fielding-position messages emitted by the live tracker', () => {
+  assert.deepEqual(parseTrackerPositionChangeMessage('Dark Bones was moved to C.'), {
+    characterName: 'Dark Bones',
+    position: 'C',
+    positionNumber: 2,
+  })
+  assert.deepEqual(parseTrackerPositionChangeMessage('Blue Dry Bones was moved to P.'), {
+    characterName: 'Blue Dry Bones',
+    position: 'P',
+    positionNumber: 1,
+  })
+  assert.equal(parseTrackerPositionChangeMessage('Blue Dry Bones vs. Blue Kritter'), null)
+})
+
+test('plans an occupied position change as a complete swap', () => {
+  const openRows = [
+    { id: 10, character: 'Dark Bones', character_id: 4, position: 1 },
+    { id: 11, character: 'Blue Dry Bones', character_id: 9, position: 2 },
+    { id: 12, character: 'Yoshi', character_id: 2, position: 8 },
+  ]
+
+  assert.deepEqual(planTrackerPositionChange(openRows, {
+    characterId: 4,
+    characterName: 'Dark Bones',
+    positionNumber: 2,
+  }), {
+    alreadyApplied: false,
+    affectedRows: openRows.slice(0, 2),
+    assignments: [
+      { characterId: 4, characterName: 'Dark Bones', positionNumber: 2 },
+      { characterId: 9, characterName: 'Blue Dry Bones', positionNumber: 1 },
+    ],
+  })
+
+  assert.equal(planTrackerPositionChange([
+    { id: 20, character: 'Dark Bones', character_id: 4, position: 2 },
+    { id: 21, character: 'Blue Dry Bones', character_id: 9, position: 1 },
+  ], {
+    characterId: 9,
+    characterName: 'Blue Dry Bones',
+    positionNumber: 1,
+  }).alreadyApplied, true)
 })
 
 test('extracts both ordered lineups and defensive maps from a completed workbook', () => {

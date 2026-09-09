@@ -1,9 +1,10 @@
-import { reopenGameBets } from './betResolution'
+import { reopenGameBets } from './betResolution.js'
+import { buildSeasonStandings } from './competitionStandings.js'
 import {
   getDoubleElimTemplate,
   getSingleElimTemplate,
   normalizeStage,
-} from './bracketTemplates'
+} from './bracketTemplates.js'
 
 const SEASON_BET_RESOLUTION_CONFIG = {
   betsTable: 'season_bets',
@@ -22,7 +23,7 @@ function parseSeedRef(ref = '') {
   return match ? Number(match[1]) : null
 }
 
-function normalizePlayoffFormat(value = '') {
+export function normalizePlayoffFormat(value = '') {
   return value === 'single' ? 'single_elimination' : (value || 'double_elimination')
 }
 
@@ -44,6 +45,104 @@ function buildStageOrderMap(teamCount, playoffFormat) {
     order.push('Championship Reset')
   }
   return new Map(order.map((stage, index) => [normalizeStage(stage), index]))
+}
+
+function gameStatusPriority(status) {
+  if (status === 'completed') return 3
+  if (status === 'in_progress') return 2
+  return 1
+}
+
+function compareStableGameIds(a, b) {
+  const numericA = Number(a?.id)
+  const numericB = Number(b?.id)
+  if (Number.isFinite(numericA) && Number.isFinite(numericB)) return numericA - numericB
+  return String(a?.id || '').localeCompare(String(b?.id || ''))
+}
+
+// A stage is the stable identity of a playoff game. Older clients could race
+// while creating a bracket and leave duplicate rows behind; UI consumers use
+// the most-progressed row (then the lowest id) so row arrival order cannot
+// change the displayed bracket or its sequential lock state.
+function getCanonicalSeasonPlayoffGames(games = []) {
+  const byStage = new Map()
+  games.filter((game) => Boolean(game?.stage)).forEach((game) => {
+    const stage = normalizeStage(game.stage)
+    const current = byStage.get(stage)
+    if (!current) {
+      byStage.set(stage, game)
+      return
+    }
+    const priorityDelta = gameStatusPriority(game.status) - gameStatusPriority(current.status)
+    if (priorityDelta > 0 || (priorityDelta === 0 && compareStableGameIds(game, current) < 0)) {
+      byStage.set(stage, game)
+    }
+  })
+  return Array.from(byStage.values())
+}
+
+export function deriveSeasonPlayoffUiState({
+  schedule = [],
+  playoffFormat = 'double_elimination',
+  teamCount = 0,
+  seasonStatus = 'active',
+} = {}) {
+  const orderedGames = sortSeasonPlayoffGames(schedule, playoffFormat, teamCount)
+  const visibleGames = orderedGames.filter((game) => game.home_team_id || game.away_team_id)
+  const metaByGameId = {}
+
+  orderedGames.forEach((game, index) => {
+    const blockingPreviousGame = orderedGames
+      .slice(0, index)
+      .find((previousGame) => previousGame.status !== 'completed') || null
+    const previousComplete = !blockingPreviousGame
+    const missingHome = !game.home_team_id
+    const missingAway = !game.away_team_id
+    const seasonComplete = seasonStatus === 'completed'
+    const gameComplete = game.status === 'completed'
+
+    let lockReason = ''
+    if (seasonComplete && !gameComplete) {
+      lockReason = 'This season is complete.'
+    } else if (!previousComplete) {
+      lockReason = `Complete ${blockingPreviousGame.stage} first.`
+    } else if (missingHome && missingAway) {
+      lockReason = 'Waiting for both teams to be determined.'
+    } else if (missingHome) {
+      lockReason = 'Waiting for the home team slot to be determined.'
+    } else if (missingAway) {
+      lockReason = 'Waiting for the away team slot to be determined.'
+    }
+
+    const canStartGame = !seasonComplete && previousComplete && !missingHome && !missingAway
+    metaByGameId[String(game.id)] = {
+      canStartGame,
+      canOpenGame: gameComplete || canStartGame,
+      canSelectStadium: !seasonComplete && !gameComplete && Boolean(game.home_team_id),
+      isVisible: Boolean(game.home_team_id || game.away_team_id),
+      lockReason,
+    }
+  })
+
+  return { orderedGames, visibleGames, metaByGameId }
+}
+
+export function resolveSeasonScorebookGameId({
+  requestedGameId,
+  schedule = [],
+  playoffFormat = 'double_elimination',
+  teamCount = 0,
+  seasonStatus = 'active',
+} = {}) {
+  const requestedGame = schedule.find((game) => String(game.id) === String(requestedGameId))
+  if (!requestedGame?.stage) return requestedGame ? requestedGameId : 0
+  const { metaByGameId } = deriveSeasonPlayoffUiState({
+    schedule,
+    playoffFormat,
+    teamCount,
+    seasonStatus,
+  })
+  return metaByGameId[String(requestedGame.id)]?.canOpenGame ? requestedGameId : 0
 }
 
 function getLoserTeamId(game) {
@@ -98,14 +197,6 @@ function resolveSeasonTemplateStages(template, seeding, games) {
   })
 }
 
-function mergeGames(games = [], changedGames = []) {
-  const byId = new Map(games.map((game) => [game.id, game]))
-  changedGames.forEach((game) => {
-    byId.set(game.id, game)
-  })
-  return Array.from(byId.values())
-}
-
 function homeTeamChanged(game, nextHomeTeamId) {
   return String(game.home_team_id || '') !== String(nextHomeTeamId || '')
 }
@@ -142,6 +233,7 @@ async function clearSeasonGameArtifacts(supabase, gameId, seasonId) {
   await reopenGameBets(gameId, {
     ...SEASON_BET_RESOLUTION_CONFIG,
     sourceIdValue: seasonId,
+    supabaseClient: supabase,
   })
 
   const results = await Promise.all([
@@ -227,6 +319,15 @@ async function updateSeasonPlayoffGame(supabase, game, nextHomeTeamId, nextAwayT
   return data
 }
 
+async function loadSeasonSchedule(supabase, seasonId) {
+  const { data, error } = await supabase
+    .from('season_schedule')
+    .select('*')
+    .eq('season_id', seasonId)
+  if (error) throw error
+  return data || []
+}
+
 async function syncSeasonPlayoffTemplate({
   supabase,
   season,
@@ -245,7 +346,10 @@ async function syncSeasonPlayoffTemplate({
       .map((game) => Number(game.round_number || 0)),
   )
   const changedGames = []
-  const workingGames = (schedule || []).filter((game) => Boolean(game.stage))
+  // Do not trust a caller's schedule snapshot while creating stages. Completion
+  // callbacks can overlap and retries commonly arrive with pre-failure state.
+  const persistedSchedule = await loadSeasonSchedule(supabase, season.id)
+  const workingGames = getCanonicalSeasonPlayoffGames(persistedSchedule)
 
   for (let index = 0; index < template.length; index += 1) {
     const spec = resolveSeasonTemplateStages(template, seeding, workingGames)[index]
@@ -278,6 +382,13 @@ async function syncSeasonPlayoffTemplate({
       continue
     }
 
+    if (needsReset) {
+      // Keep the completed row authoritative until cleanup succeeds. Cleanup
+      // is idempotent, so a partial failure can be retried without exposing a
+      // scheduled game whose old scorebook artifacts are still present.
+      await clearSeasonGameArtifacts(supabase, existing.id, season.id)
+    }
+
     const updated = await updateSeasonPlayoffGame(
       supabase,
       existing,
@@ -285,15 +396,6 @@ async function syncSeasonPlayoffTemplate({
       nextAwayTeamId,
       needsReset,
     )
-
-    if (needsReset) {
-      try {
-        await clearSeasonGameArtifacts(supabase, existing.id, season.id)
-      } catch (err) {
-        await updateSeasonPlayoffGame(supabase, updated, existing.home_team_id, existing.away_team_id, false)
-        throw err
-      }
-    }
 
     const workingIndex = workingGames.findIndex((game) => game.id === existing.id)
     if (workingIndex >= 0) workingGames[workingIndex] = updated
@@ -335,15 +437,10 @@ async function syncSeasonChampionshipResetState({
       // depended on) — clear its result/artifacts, not just its participants,
       // so a stale winner can't keep the season "completed".
       const needsReset = resetGame.status !== 'scheduled'
-      const cleared = await updateSeasonPlayoffGame(supabase, resetGame, null, null, needsReset)
       if (needsReset) {
-        try {
-          await clearSeasonGameArtifacts(supabase, resetGame.id, season.id)
-        } catch (err) {
-          await updateSeasonPlayoffGame(supabase, cleared, resetGame.home_team_id, resetGame.away_team_id, false)
-          throw err
-        }
+        await clearSeasonGameArtifacts(supabase, resetGame.id, season.id)
       }
+      const cleared = await updateSeasonPlayoffGame(supabase, resetGame, null, null, needsReset)
       return [cleared]
     }
     return []
@@ -356,6 +453,10 @@ async function syncSeasonChampionshipResetState({
     if (participantsMatch) return []
 
     const needsReset = resetGame.status !== 'scheduled'
+    if (needsReset) {
+      await clearSeasonGameArtifacts(supabase, resetGame.id, season.id)
+    }
+
     const updated = await updateSeasonPlayoffGame(
       supabase,
       resetGame,
@@ -363,15 +464,6 @@ async function syncSeasonChampionshipResetState({
       championship.away_team_id,
       needsReset,
     )
-
-    if (needsReset) {
-      try {
-        await clearSeasonGameArtifacts(supabase, resetGame.id, season.id)
-      } catch (err) {
-        await updateSeasonPlayoffGame(supabase, updated, resetGame.home_team_id, resetGame.away_team_id, false)
-        throw err
-      }
-    }
 
     return [updated]
   }
@@ -429,11 +521,11 @@ function getSeasonChampionTeamId(season, standings, schedule) {
 
 export function sortSeasonPlayoffGames(games = [], playoffFormat = 'double_elimination', teamCount = 0) {
   const orderMap = buildStageOrderMap(teamCount, playoffFormat)
-  return [...games].sort((a, b) => {
+  return getCanonicalSeasonPlayoffGames(games).sort((a, b) => {
     const aOrder = orderMap.has(normalizeStage(a.stage)) ? orderMap.get(normalizeStage(a.stage)) : Number.MAX_SAFE_INTEGER
     const bOrder = orderMap.has(normalizeStage(b.stage)) ? orderMap.get(normalizeStage(b.stage)) : Number.MAX_SAFE_INTEGER
     if (aOrder !== bOrder) return aOrder - bOrder
-    return Number(a.id || 0) - Number(b.id || 0)
+    return compareStableGameIds(a, b)
   })
 }
 
@@ -453,6 +545,158 @@ export async function seedSeasonPlayoffs({
   })
 }
 
+async function loadSeasonLifecycleState(supabase, seasonId) {
+  const [gamesResult, teamsResult, ledgerResult] = await Promise.all([
+    supabase.from('season_schedule').select('*').eq('season_id', seasonId),
+    supabase.from('season_teams').select('*').eq('season_id', seasonId),
+    supabase.from('season_betting_ledger').select('*').eq('season_id', seasonId),
+  ])
+  const failed = [gamesResult, teamsResult, ledgerResult].find((result) => result.error)
+  if (failed?.error) throw failed.error
+  return {
+    schedule: gamesResult.data || [],
+    seasonTeams: teamsResult.data || [],
+    bettingLedger: ledgerResult.data || [],
+  }
+}
+
+async function persistSeasonStandings(supabase, standings = []) {
+  const results = await Promise.all(standings.map((team) => (
+    supabase
+      .from('season_teams')
+      .update({
+        wins: team.wins,
+        losses: team.losses,
+        run_differential: team.run_differential,
+        home_wins: team.home_wins,
+        home_losses: team.home_losses,
+        away_wins: team.away_wins,
+        away_losses: team.away_losses,
+      })
+      .eq('id', team.id)
+  )))
+  const failed = results.find((result) => result.error)
+  if (failed?.error) throw failed.error
+}
+
+async function claimPlayoffTransition(supabase, seasonId) {
+  const { data, error } = await supabase
+    .from('seasons')
+    .update({ champion_player_id: null, status: 'playoffs' })
+    .eq('id', seasonId)
+    .eq('status', 'active')
+    .select('id')
+  if (error) throw error
+  return Array.isArray(data) && data.length > 0
+}
+
+// Shared by the scorebook provider and the isolated lifecycle suite. The
+// conditional season update is the exactly-once claim for two clients that
+// finish the same last regular-season game. If seeding then fails partway, a
+// later callback with the refreshed `playoffs` season repairs missing stages.
+export async function completeSeasonGameLifecycle({
+  supabase,
+  season,
+  selectedGame,
+  scores,
+} = {}) {
+  if (!season?.id || !selectedGame?.id) return null
+
+  const awayScore = Number(scores?.a || 0)
+  const homeScore = Number(scores?.b || 0)
+  const winnerTeamId = awayScore === homeScore
+    ? null
+    : (awayScore > homeScore ? selectedGame.away_team_id : selectedGame.home_team_id)
+  const { error: completionError } = await supabase
+    .from('season_schedule')
+    .update({
+      status: 'completed',
+      winner_team_id: winnerTeamId,
+      away_score: awayScore,
+      home_score: homeScore,
+    })
+    .eq('id', selectedGame.id)
+  if (completionError) throw completionError
+
+  const state = await loadSeasonLifecycleState(supabase, season.id)
+  const standings = buildSeasonStandings(state.seasonTeams, state.schedule, state.bettingLedger)
+  await persistSeasonStandings(supabase, standings)
+
+  if (selectedGame.stage) {
+    await advanceSeasonPlayoffs({
+      supabase,
+      season,
+      standings,
+      schedule: state.schedule,
+      seasonTeams: state.seasonTeams,
+    })
+    return { ...state, standings }
+  }
+
+  const regularSeasonGames = state.schedule.filter((game) => !game.stage)
+  const allRegularSeasonComplete = regularSeasonGames.length > 0
+    && regularSeasonGames.every((game) => game.status === 'completed')
+  if (!allRegularSeasonComplete) return { ...state, standings }
+
+  const claimedTransition = await claimPlayoffTransition(supabase, season.id)
+  if (claimedTransition || season.status === 'playoffs') {
+    await seedSeasonPlayoffs({
+      supabase,
+      season: { ...season, status: 'playoffs' },
+      standings,
+      schedule: state.schedule,
+    })
+  }
+
+  return { ...state, standings, claimedTransition }
+}
+
+export async function reopenSeasonGameLifecycle({
+  supabase,
+  season,
+  selectedGame,
+} = {}) {
+  if (!season?.id || !selectedGame?.id) return null
+
+  const state = await loadSeasonLifecycleState(supabase, season.id)
+  const standings = buildSeasonStandings(state.seasonTeams, state.schedule, state.bettingLedger)
+  await persistSeasonStandings(supabase, standings)
+
+  if (selectedGame.stage) {
+    await reopenSeasonPlayoffs({
+      supabase,
+      season,
+      standings,
+      schedule: state.schedule,
+      seasonTeams: state.seasonTeams,
+    })
+    return { ...state, standings }
+  }
+
+  const hasPlayoffGames = state.schedule.some((game) => Boolean(game.stage))
+  if (hasPlayoffGames) {
+    await clearSeasonPlayoffsAfterRegularGameReopen({
+      supabase,
+      season,
+      schedule: state.schedule,
+    })
+  }
+
+  const regularSeasonGames = state.schedule.filter((game) => !game.stage)
+  const allRegularSeasonComplete = regularSeasonGames.length > 0
+    && regularSeasonGames.every((game) => game.status === 'completed')
+  const { error } = await supabase
+    .from('seasons')
+    .update({
+      champion_player_id: null,
+      status: allRegularSeasonComplete ? 'playoffs' : 'active',
+    })
+    .eq('id', season.id)
+  if (error) throw error
+
+  return { ...state, standings }
+}
+
 export async function advanceSeasonPlayoffs({
   supabase,
   season,
@@ -469,23 +713,27 @@ export async function advanceSeasonPlayoffs({
     schedule,
     createMissing: true,
   })
+  const scheduleAfterSync = await loadSeasonSchedule(supabase, season.id)
   const resetGames = await syncSeasonChampionshipResetState({
     supabase,
     season,
     standings,
-    schedule: mergeGames(schedule, syncedGames),
+    schedule: scheduleAfterSync,
   })
-  const mergedSchedule = mergeGames(schedule, [...syncedGames, ...resetGames])
-  const championTeamId = getSeasonChampionTeamId(season, standings, mergedSchedule)
+  const scheduleAfterReset = resetGames.length
+    ? await loadSeasonSchedule(supabase, season.id)
+    : scheduleAfterSync
+  const championTeamId = getSeasonChampionTeamId(season, standings, scheduleAfterReset)
   const teamById = Object.fromEntries((seasonTeams || []).map((team) => [String(team.id), team]))
 
-  await supabase
+  const { error } = await supabase
     .from('seasons')
     .update({
       champion_player_id: championTeamId ? teamById[String(championTeamId)]?.player_id || null : null,
       status: championTeamId ? 'completed' : 'playoffs',
     })
     .eq('id', season.id)
+  if (error) throw error
 
   return [...syncedGames, ...resetGames]
 }
@@ -506,26 +754,30 @@ export async function reopenSeasonPlayoffs({
     schedule,
     createMissing: true,
   })
+  const scheduleAfterSync = await loadSeasonSchedule(supabase, season.id)
   const resetGames = await syncSeasonChampionshipResetState({
     supabase,
     season,
     standings,
-    schedule: mergeGames(schedule, syncedGames),
+    schedule: scheduleAfterSync,
   })
-  const mergedSchedule = mergeGames(schedule, [...syncedGames, ...resetGames])
-  const championTeamId = getSeasonChampionTeamId(season, standings, mergedSchedule)
+  const scheduleAfterReset = resetGames.length
+    ? await loadSeasonSchedule(supabase, season.id)
+    : scheduleAfterSync
+  const championTeamId = getSeasonChampionTeamId(season, standings, scheduleAfterReset)
   const teamById = Object.fromEntries((seasonTeams || []).map((team) => [String(team.id), team]))
-  const allRegularSeasonComplete = mergedSchedule
-    .filter((game) => !game.stage)
-    .every((game) => game.status === 'completed')
+  const regularSeasonGames = scheduleAfterReset.filter((game) => !game.stage)
+  const allRegularSeasonComplete = regularSeasonGames.length > 0
+    && regularSeasonGames.every((game) => game.status === 'completed')
 
-  await supabase
+  const { error } = await supabase
     .from('seasons')
     .update({
       champion_player_id: championTeamId ? teamById[String(championTeamId)]?.player_id || null : null,
       status: championTeamId ? 'completed' : (allRegularSeasonComplete ? 'playoffs' : 'active'),
     })
     .eq('id', season.id)
+  if (error) throw error
 
   return [...syncedGames, ...resetGames]
 }

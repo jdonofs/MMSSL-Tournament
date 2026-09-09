@@ -1,36 +1,36 @@
-﻿import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+﻿import { lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeftRight, Moon, Pencil, RotateCcw, RotateCw, Sun, X } from 'lucide-react'
-import { supabase } from '../supabaseClient'
-import { fetchAllRows } from '../utils/fetchAllRows'
-import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, TOURNAMENT_TEAM_LINEUPS, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
+import { ArrowLeftRight } from 'lucide-react'
+import { isPregameGameStatus } from '../utils/teamLineupDraft'
 import { useGameSession } from '../context/GameSessionContext'
+import { runnerAssignmentsForSave } from '../features/scorebook/domain/plateAppearance'
+import { syncPlateAppearanceRunnerOpportunities } from '../features/scorebook/services/plateAppearanceService'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
 import { useAuth } from '../context/AuthContext'
 import { battedBallResults, calculateOutsForPa, filterRunEventsForCharacter, inningsPitchedFromOuts, isCreditedHit, isOfficialAtBat, normalizeRbiForPaResult, summarizeBatting, summarizePitching } from '../utils/statsCalculator'
 import { estimateExitVelocity, exitVelocityDistanceFt, ROBBED_HR_WALL_MARGIN_FT, ROBBED_HR_CARRY_FT } from '../utils/hitDistanceStats'
-import CharacterPortrait from '../components/CharacterPortrait'
-import MiddleClickLink from '../components/MiddleClickLink'
-import StatIcon from '../components/StatIcon'
-import TeamLogo from '../components/TeamLogo'
-import FieldPlayBuilder, { STADIUM_CONFIGS, estimateHitDistance, estimateHitAngle, estimateWallDistanceAtAngle, getFielderFieldSpot } from '../components/FieldPlayBuilder'
-import BaserunnerField from '../components/BaserunnerField'
-import { DraggableRosterItem, FieldingView, FIELD_ID_TO_SCOREBOOK_POSITION, FIELD_POSITIONS, SCOREBOOK_POSITION_TO_FIELD_ID } from '../components/RosterLineupWidgets'
-import { buildChemistryHighlightSet, charactersHaveGoodChemistry } from '../utils/chemistryHighlights'
+import { STADIUM_CONFIGS, estimateHitDistance, estimateHitAngle, estimateWallDistanceAtAngle, getFielderFieldSpot } from '../components/FieldPlayBuilder'
+import { charactersHaveGoodChemistry } from '../utils/chemistryHighlights'
 import { formatCharacterDisplayName, getCharacterChemistryName } from '../utils/mii'
 import useTournamentTeamIdentity from '../hooks/useTournamentTeamIdentity'
 import usePitchCount from '../hooks/usePitchCount'
+import useScorebookData from '../features/scorebook/hooks/useScorebookData'
+import useScorebookBettingData from '../features/scorebook/hooks/useScorebookBettingData'
+import useRunnerStatePersistence from '../features/scorebook/hooks/useRunnerStatePersistence'
+import useLiveGamePersistence from '../features/scorebook/hooks/useLiveGamePersistence'
+import useActivePaPersistence from '../features/scorebook/hooks/useActivePaPersistence'
+import useLineupEditor from '../features/scorebook/hooks/useLineupEditor'
+import useGameCompletion from '../features/scorebook/hooks/useGameCompletion'
 import { assembleErrorNotation, assembleNotation, parseFielderChainFromNotation } from '../utils/notation'
 import { buildBettingEntityLabel, estimateLiveWinProbability, generateGameOdds, mergeOddsWithExistingRows, recalculateOdds } from '../utils/oddsEngine'
 import { buildOddsGenerationContext as buildSharedOddsGenerationContext } from '../utils/oddsContext'
-import { persistOddsRowsWithFallback } from '../utils/oddsPersistence'
-import { formatPlateAppearanceResult } from '../utils/plateAppearance'
-import { getBettingWinningSide, resolveFirstInningNoRun, reopenGameBets, resolveGameBets, resolveOnPA } from '../utils/betResolution'
-import { derivePitchingDecisions, groupRunsByPaId } from '../utils/pitchingDecisions'
-import { advanceBracketOnGameComplete, reopenBracketAfterGameEdit } from '../utils/bracketProgression'
+import { resolveFirstInningNoRun, resolveOnPA } from '../utils/betResolution'
 import { buildScorebookPath } from '../utils/scorebookRouting'
 const AtBatEditor = lazy(() => import('./AtBatEditor'))
+// Only tracker games can open this tab, and it pulls in the field/spray charts,
+// so it stays out of the scorebook bundle every other game pays for.
+const TrackerLivePreview = lazy(() => import('../components/TrackerLivePreview'))
 import { getTeamAbbreviation, getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
 import { DEFAULT_REGULATION_INNINGS, deriveOffense, getFinalStatusLabel, normalizeRegulationInnings } from '../utils/gameRules'
 import { getHandedness } from '../utils/characterHandedness'
@@ -39,22 +39,17 @@ import { assignAuthoritativePitchNumbers } from '../utils/pitchSequence'
 import {
   HIT_RESULTS,
   NEEDS_RESOLUTION,
-  IN_PLAY_OUT_OPTIONS,
   BASE_COVERING_POSITION,
   BASE_STEP_ORDER,
   buildPendingAssignment,
   computePendingState,
   getRbiFromAssignments,
-  getPreviewRbiFromAssignments,
   didBatterScore,
-  isTrivialPendingResolution,
   extractNextRunners,
   getHomeAssignments,
   getOutAssignments,
   pendingLeavesRunnersOnBase,
-  hasAnyActiveRunners,
   normalizeLiveRunner,
-  normalizeLiveRunners,
   getNextBase,
   getLeadForcedRunnerId,
   mapPositionToForcedBase,
@@ -75,49 +70,95 @@ import {
   derivePendingResult,
   computeImmediateNextRunners,
   getRunsScoredOnPa,
-  requiresInPlayFielderChain,
 } from '../utils/runnerAssignment'
 import {
   buildStadiumKeyByGameId,
-  getOrderedStadiums,
-  getStadiumSpriteStyle,
-  getStadiumTimeLabel,
   normalizeIsNightForStadium,
-  stadiumTimeToggleDisabled,
 } from '../utils/stadiums'
 import { enrichPlateAppearancesWithDerivedHitTracking } from '../utils/hitFieldDerivation'
 import { useConfirmedAction, useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard'
 import { useRegisterUnsavedChanges } from '../context/UnsavedChangesContext'
-import SaveLineupBar from '../components/SaveLineupBar'
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt'
-
-function normalizeBatterHandedness(handedness) {
-  return handedness === 'L' ? 'L' : 'R'
-}
-
-function directionForFielderPosition(position, batterHandedness = 'R') {
-  if (position == null) return null
-  const handedness = normalizeBatterHandedness(batterHandedness)
-  if (['5', '6', '7'].includes(String(position))) return handedness === 'L' ? 'Oppo' : 'Pull'
-  if (['1', '2', '8'].includes(String(position))) return 'Center'
-  if (['3', '4', '9'].includes(String(position))) return handedness === 'L' ? 'Pull' : 'Oppo'
-  return null
-}
-
-function directionForSprayAngle(angleDeg, batterHandedness = 'R') {
-  const angle = Number(angleDeg)
-  if (!Number.isFinite(angle)) return null
-  const handedness = normalizeBatterHandedness(batterHandedness)
-  if (angle <= -15) return handedness === 'L' ? 'Oppo' : 'Pull'
-  if (angle >= 15) return handedness === 'L' ? 'Pull' : 'Oppo'
-  return 'Center'
-}
-
-function resolveBattedBallDirection(position, angleDeg, batterHandedness = 'R') {
-  const fromPosition = directionForFielderPosition(position, batterHandedness)
-  if (fromPosition) return fromPosition
-  return directionForSprayAngle(angleDeg, batterHandedness)
-}
+import { normalizeLiveState } from '../features/scorebook/domain/liveState'
+import {
+  errorsFromPAs,
+  getPaScoringRuns,
+  hitsFromPAs,
+  inningRunsFromPAs,
+  inningRunsFromRows,
+  runsFromPAs,
+  runsThisHalfFromPAs,
+} from '../features/scorebook/domain/scoreboard'
+import {
+  buildScoringPlayDescription,
+  normalizeBatterHandedness,
+  resolveBattedBallDirection,
+} from '../features/scorebook/domain/battedBall'
+import {
+  buildPitchRowsForSave,
+  buildRunRowsForSave,
+  comparePitchOrder,
+  normalizePa,
+  normalizeSavedPaRunScored,
+  stripDbManagedFields,
+} from '../features/scorebook/domain/plateAppearance'
+import { buildDisplayedPitchingStints } from '../features/scorebook/domain/display'
+import { getActivePaStorageKey, sanitizeRunnersForOffense } from '../features/scorebook/domain/runnerState'
+import { canFinalizeInPlaySelection, effectiveErrorPositions } from '../features/scorebook/domain/inPlay'
+import { C } from '../features/scorebook/components/theme'
+import { EditStadiumModal } from '../features/scorebook/components/StadiumControls'
+import {
+  AddGameModal,
+  EndGameConfirmModal,
+  ReopenGameConfirmModal,
+  ResetGameConfirmModal,
+} from '../features/scorebook/components/GameActionModals'
+import { SectionCard } from '../features/scorebook/components/ScorebookPrimitives'
+import Diamond from '../features/scorebook/components/ScorebookDiamond'
+import ScorebookGameView from '../features/scorebook/components/ScorebookGameView'
+import ScorebookLineupsView from '../features/scorebook/components/ScorebookLineupsView'
+import ScorebookAdminView from '../features/scorebook/components/ScorebookAdminView'
+import ScorekeeperGameHeader from '../features/scorebook/components/ScorekeeperGameHeader'
+import ScorekeeperLineupStatus from '../features/scorebook/components/ScorekeeperLineupStatus'
+import ScorekeeperGameEndBanner from '../features/scorebook/components/ScorekeeperGameEndBanner'
+import ScorekeeperPitchControls from '../features/scorebook/components/ScorekeeperPitchControls'
+import ScorekeeperActionBar from '../features/scorebook/components/ScorekeeperActionBar'
+import ScorekeeperInPlayPanel from '../features/scorebook/components/ScorekeeperInPlayPanel'
+import {
+  deletePlateAppearanceBundle,
+  deletePlateAppearanceChildren,
+  fetchCommittedPitchSequence,
+  insertPlateAppearancePitches,
+  insertPlateAppearanceRuns,
+  refreshPlateAppearanceBundle,
+  rollbackRestoredPlateAppearance,
+  restorePlateAppearanceBundle,
+  savePlateAppearanceRecord,
+  undoLatestPlateAppearance,
+} from '../features/scorebook/services/plateAppearanceService'
+import {
+  createTournamentGame,
+  deletePitchingStint,
+  insertPitchingStint,
+  replaceInningScoreRows,
+  updateGameRecord,
+  updatePitchingStint,
+  updatePitchingStintStats,
+} from '../features/scorebook/services/gameService'
+import {
+  deleteGameOddsRow,
+  fetchGameOdds,
+  hasRelatedPitcherPropBets,
+  persistScorebookOddsRows,
+} from '../features/scorebook/services/oddsService'
+import {
+  fetchTrackerLiveStats,
+  updateTrackerTeamMapping,
+} from '../features/scorebook/services/trackerService'
+import {
+  AtBatEditorScorebookView,
+  TrackerScorebookView,
+} from '../features/scorebook/components/ScorebookLazyViews'
 
 function batterHandednessForName(characterName) {
   return normalizeBatterHandedness(getHandedness(characterName).bats)
@@ -129,54 +170,6 @@ function batterHandednessForPa(pa, charactersById = {}) {
 
 function batterHandednessForLineupEntry(entry, charactersById = {}) {
   return batterHandednessForName(charactersById[entry?.character_id]?.name)
-}
-
-// ─── Style constants ──────────────────────────────────────────────────────────
-const C = {
-  bg: '#0F172A', card: '#1E293B', border: '#334155',
-  accent: '#EAB308', green: '#22C55E', red: '#EF4444',
-  blue: '#3B82F6', text: '#FFFFFF', muted: '#94A3B8',
-}
-
-function StadiumLogo({ name, height = 56 }) {
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        ...getStadiumSpriteStyle(name, {
-          width: '100%',
-          height,
-        }),
-      }}
-    />
-  )
-}
-
-function StadiumHeaderPill({ stadium, isNight, onEdit }) {
-  if (!stadium) return null
-  const timeLabel = getStadiumTimeLabel(stadium, isNight)
-  return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '6px 10px', borderRadius: 999, border: `1px solid ${C.border}`, background: `${C.card}CC`, maxWidth: '100%' }}>
-      <div style={{ width: 74, flexShrink: 0 }}>
-        <StadiumLogo name={stadium.name} height={28} />
-      </div>
-      <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{stadium.name}</span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: C.muted, fontSize: 11, fontWeight: 700 }}>
-        {timeLabel === 'Night' ? <Moon size={12} /> : <Sun size={12} />}
-        {timeLabel}
-      </span>
-      {onEdit && (
-        <button
-          type="button"
-          onClick={onEdit}
-          title="Edit stadium for this game"
-          style={{ display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}
-        >
-          <Pencil size={12} />
-        </button>
-      )}
-    </div>
-  )
 }
 
 // The tracker only knows the game's built-in vanilla team skins (whichever
@@ -202,25 +195,7 @@ const CAPTAIN_TO_TRACKER_TEAM_NAME = {
   'Bowser Jr': 'Jr. Rookies',
 }
 
-const WALK_RESULTS = new Set(['BB', 'HBP'])
 const CONTACT_RESULTS = new Set(['foul', 'in_play'])
-const IN_PLAY_HIT_OPTIONS = [
-  { value: '1B', label: '1B' },
-  { value: '2B', label: '2B' },
-  { value: '3B', label: '3B' },
-  { value: 'HR', label: 'HR' },
-  { value: 'IPHR', label: 'IPHR' },
-]
-// Unified "ball in play" outcome grid — every selectable result in one screen,
-// color-coded by outcome family, so the scorer picks the real result in one tap
-// instead of choosing Hit/Out/Error and then drilling into a sub-menu.
-const IN_PLAY_RESULT_OPTIONS = [
-  ...IN_PLAY_HIT_OPTIONS.map((option) => ({ ...option, resultType: 'hit', zone: 'green' })),
-  ...IN_PLAY_OUT_OPTIONS.map((value) => ({ value, label: value, resultType: 'out', zone: 'red' })),
-  { value: 'ROE', label: 'E', resultType: 'error', zone: 'blue' },
-]
-const BUDDY_JUMP_RESULTS = new Set(['FO', 'LO', 'SF'])
-const TWO_OUT_DISABLED_RESULTS = new Set(['SF', 'SH'])
 const POSITION_LABELS = {
   1: 'P',
   2: 'C',
@@ -232,13 +207,6 @@ const POSITION_LABELS = {
   8: 'CF',
   9: 'RF',
 }
-const TRAJECTORY_LABELS = {
-  L: 'Line Drive',
-  G: 'Ground Ball',
-  F: 'Fly Ball',
-  B: 'Fly Ball',
-}
-
 const OUTCOME_BUTTONS = [
   { result: '1B', zone: 'green' }, { result: '2B', zone: 'green' },
   { result: '3B', zone: 'green' }, { result: 'HR',  zone: 'green' }, { result: 'IPHR', zone: 'green' },
@@ -247,265 +215,6 @@ const OUTCOME_BUTTONS = [
   { result: 'BB', zone: 'blue'  }, { result: 'HBP', zone: 'blue'  },
   { result: 'SF',  zone: 'blue'  }, { result: 'SH',  zone: 'blue'  },
 ]
-const ZONE_COLOR = { green: C.green, red: C.red, blue: C.blue }
-
-function normalizePa(pa) {
-  if (!pa || pa.trajectory !== 'B') return pa
-  return { ...pa, trajectory: 'F' }
-}
-
-function stripDbManagedFields(row = {}) {
-  const next = { ...row }
-  delete next.id
-  delete next.created_at
-  // Added only by enrichPlateAppearancesWithDerivedHitTracking for display and
-  // analytics. It is not a column in either plate-appearance source table.
-  delete next.hit_tracking_source
-  return next
-}
-
-function didRunEventsScoreBatter(runEvents = [], batter = null) {
-  if (!batter) return false
-  return runEvents.some((run) => (
-    String(run.playerId) === String(batter.player_id)
-    && String(run.characterId) === String(batter.character_id)
-  ))
-}
-
-function normalizeSavedPaRunScored(result, runScored, runEvents = [], batter = null) {
-  return Boolean(runScored) || result === 'HR' || result === 'IPHR' || didRunEventsScoreBatter(runEvents, batter)
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function normalizeStageLabel(stage = '') {
-  if (stage.includes('CG-2')) return 'Championship Reset'
-  if (stage.includes('CG-1')) return 'Championship'
-  return stage
-}
-
-function getPaScoringRuns(pa = {}, runsByPaId = {}) {
-  const trackedRuns = runsByPaId[String(pa.id)] || []
-  if (trackedRuns.length) return trackedRuns.length
-  // On a home run the batter's own run is already included in rbi (e.g. a solo HR is 1 rbi,
-  // a grand slam is 4), so adding run_scored on top would double-count the batter.
-  const isHomer = pa.result === 'HR' || pa.result === 'IPHR'
-  return Number(pa.rbi || 0) + (pa.run_scored && !isHomer ? 1 : 0)
-}
-
-function runsThisHalfFromPAs(pas, playerId, inning, runs = []) {
-  if (runs.length) {
-    return runs.filter((run) => (
-      String(run.scoring_player_id) === String(playerId)
-      && Number(run.inning || 1) === Number(inning || 1)
-    )).length
-  }
-  return pas
-    .filter((pa) => String(pa.player_id) === String(playerId) && Number(pa.inning || 1) === Number(inning || 1))
-    .reduce((sum, pa) => sum + getPaScoringRuns(pa), 0)
-}
-
-function runsFromPAs(pas, playerId, runs = []) {
-  if (runs.length) {
-    return runs.filter((run) => String(run.scoring_player_id) === String(playerId)).length
-  }
-  return pas.filter(pa => pa.player_id === playerId)
-    .reduce((s, pa) => s + getPaScoringRuns(pa), 0)
-}
-function hitsFromPAs(pas, playerId) {
-  return pas.filter((pa) => String(pa.player_id) === String(playerId) && isCreditedHit(pa)).length
-}
-function errorsFromPAs(pas, playerId, opponentPlayerId) {
-  return pas.filter((pa) => pa.is_error && String(pa.player_id) === String(opponentPlayerId)).length
-}
-function inningRunsFromPAs(pas, playerId, runs = []) {
-  const map = {}
-  if (runs.length) {
-    runs
-      .filter((run) => String(run.scoring_player_id) === String(playerId))
-      .forEach((run) => {
-        const inning = Number(run.inning || 1)
-        map[inning] = (map[inning] || 0) + 1
-      })
-    return map
-  }
-  pas.filter(pa => pa.player_id === playerId).forEach(pa => {
-    map[pa.inning] = (map[pa.inning] || 0) + getPaScoringRuns(pa)
-  })
-  return map
-}
-
-function formatBaseballAverage(summary = {}) {
-  const avg = Number(summary.atBats || 0) > 0 ? Number(summary.avg || 0) : 0
-  const formatted = avg.toFixed(3)
-  return avg < 1 ? formatted.replace(/^0/, '') : formatted
-}
-
-function formatHitsAtBats(summary = {}) {
-  return `${Number(summary.hits || 0)}-${Number(summary.atBats || 0)}`
-}
-
-// Same "no leading zero" convention as AVG — used for OBP/SLG, which
-// summarizeBatting already zeroes out when their own denominator is empty.
-function formatRate(value) {
-  const num = Number(value || 0)
-  const formatted = num.toFixed(3)
-  return num < 1 ? formatted.replace(/^0/, '') : formatted
-}
-
-// Every pitch of a PA is bulk-inserted in a single statement when the PA completes,
-// so their created_at timestamps commonly land identical (or otherwise unreliable
-// for tie-breaking) — sorting pitches by created_at alone can silently reorder pitches
-// within the same PA, which undo relies on to find the *actual* last pitch thrown.
-// pitch_number_game is a real per-pitch sequence number assigned at record time, so
-// it's the only trustworthy order for pitch rows; fall back to created_at only for
-// legacy rows that somehow lack it.
-function comparePitchOrder(a, b) {
-  const diff = Number(a.pitch_number_game || 0) - Number(b.pitch_number_game || 0)
-  if (diff !== 0) return diff
-  return new Date(a.created_at) - new Date(b.created_at)
-}
-
-function getLineScoreCellValue({ inning, side, scoreMap = {}, completedHalfCount = 0 }) {
-  const inningRuns = scoreMap[inning]
-  if (inningRuns != null) return inningRuns
-  const halfIndex = (inning - 1) * 2 + (side === 'home' ? 1 : 0)
-  return halfIndex < completedHalfCount ? 0 : '-'
-}
-
-function formatGameStatusLabel(game, status, halfLabel = '', regulationInnings = DEFAULT_REGULATION_INNINGS) {
-  if (status === 'complete') return getFinalStatusLabel(game, regulationInnings)
-  if (status === 'active') return halfLabel || 'Live'
-  if (status === 'pending') return 'Pregame'
-  return status || 'Game'
-}
-
-function describeHitLocation(pa = {}) {
-  const position = Number(pa.hit_location || pa.error_position || 0)
-  const trajectory = String(pa.trajectory || '').toUpperCase()
-
-  if (!position) return ''
-
-  const infieldSpot = {
-    1: 'pitcher',
-    2: 'catcher',
-    3: 'first',
-    4: 'second',
-    5: 'third',
-    6: 'short',
-  }
-  const outfieldSpot = {
-    7: 'left field',
-    8: 'center field',
-    9: 'right field',
-  }
-
-  if (trajectory === 'G') {
-    if (position >= 7) return `on the ground to ${outfieldSpot[position] || 'the outfield'}`
-    return `to ${infieldSpot[position] || 'the infield'}`
-  }
-  if (trajectory === 'L') {
-    return `to ${outfieldSpot[position] || infieldSpot[position] || 'the field'}`
-  }
-  if (trajectory === 'F' || trajectory === 'B') {
-    return `to ${outfieldSpot[position] || infieldSpot[position] || 'the field'}`
-  }
-
-  return `to ${outfieldSpot[position] || infieldSpot[position] || 'the field'}`
-}
-
-function formatPlayResultText(pa = {}) {
-  const location = describeHitLocation(pa)
-  const suffix = location ? ` ${location}` : ''
-  switch (pa.result) {
-    case '1B': return `singled${suffix}`
-    case '2B': return `doubled${suffix}`
-    case '3B': return `tripled${suffix}`
-    case 'HR': return `homered${suffix}`
-    case 'IPHR': return `hit an inside-the-park homer${suffix}`
-    case 'BB': return 'walked'
-    case 'HBP': return 'was hit by a pitch'
-    case 'SF': return `lifted a sac fly${suffix}`
-    case 'SH': return `dropped a sac bunt${suffix}`
-    case 'FC': return `reached on a fielder's choice${suffix}`
-    case 'ROE': return `reached on an error${suffix}`
-    case 'K':
-      if (pa.strikeout_type === 'KL') return 'struck out looking'
-      if (pa.strikeout_type === 'KS') return 'struck out swinging'
-      return 'struck out'
-    case 'DP': return `grounded into a double play${suffix}`
-    case 'TP': return `grounded into a triple play${suffix}`
-    case 'GO': return `grounded out${suffix}`
-    case 'FO': return `flied out${suffix}`
-    case 'LO': return `lined out${suffix}`
-    default: return pa.result || 'made a play'
-  }
-}
-
-function buildScoringPlayDescription(pa, scoringRuns, runEvents = [], charactersById = {}) {
-  const batterName = charactersById[pa.character_id]?.name || 'Unknown batter'
-  const isHomeRun = pa.result === 'HR' || pa.result === 'IPHR'
-  const scorerNames = runEvents
-    .filter((run) => !isHomeRun || String(run.scoring_character_id) !== String(pa.character_id))
-    .map((run) => charactersById[run.scoring_character_id]?.name || null)
-    .filter(Boolean)
-  if (scorerNames.length) {
-    return `${batterName} ${formatPlayResultText(pa)}; ${scorerNames.join(', ')} scored.`
-  }
-  const runText = scoringRuns === 1 ? '1 run scored' : `${scoringRuns} runs scored`
-  return `${batterName} ${formatPlayResultText(pa)}; ${runText}.`
-}
-
-function isMeaningfulPitchingStint(stint = {}) {
-  return [
-    stint.innings_pitched,
-    stint.hits_allowed,
-    stint.runs_allowed,
-    stint.earned_runs,
-    stint.walks,
-    stint.strikeouts,
-    stint.hr_allowed,
-    stint.pitches_thrown,
-    stint.win,
-    stint.loss,
-    stint.save,
-  ].some((value) => Number(value || 0) > 0 || value === true)
-}
-
-function dedupePitchingStints(stints = []) {
-  const grouped = stints.reduce((acc, stint) => {
-    const key = `${stint.player_id}:${stint.character_id}`
-    acc[key] = acc[key] || []
-    acc[key].push(stint)
-    return acc
-  }, {})
-
-  return Object.values(grouped).flatMap((group) => {
-    if (group.length === 1) return group
-    const meaningful = group.filter(isMeaningfulPitchingStint)
-    if (meaningful.length) return meaningful
-    return [group[group.length - 1]]
-  }).sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-}
-
-// Pitchers with no recorded stats are normally hidden, EXCEPT the pitcher
-// currently assigned to the mound in the lineup (expectedCharacterId) — they
-// should still be listed even at 0 IP, and drop off once someone else takes
-// the mound. Tracks lineup edits live since expectedCharacterId comes from
-// lineupDrafts.
-function buildDisplayedPitchingStints(stints, playerId, expectedCharacterId) {
-  const deduped = dedupePitchingStints(stints)
-  const meaningful = deduped.filter(isMeaningfulPitchingStint)
-  if (expectedCharacterId && !meaningful.some((stint) => Number(stint.character_id) === expectedCharacterId)) {
-    const existingStint = deduped.find((stint) => Number(stint.character_id) === expectedCharacterId)
-    meaningful.push(existingStint || {
-      player_id: playerId,
-      character_id: expectedCharacterId,
-      innings_pitched: 0, hits_allowed: 0, runs_allowed: 0, earned_runs: 0, walks: 0, strikeouts: 0, hr_allowed: 0, pitches_thrown: 0, strikes_thrown: 0,
-    })
-  }
-  return meaningful
-}
-
 // Fallback used until the game-history-calibrated odds_engine_weights row has
 // loaded (or if it has none yet) — equal thirds, same as a freshly-seeded row.
 const DEFAULT_ODDS_WEIGHTS = { char_stats_weight: 0.333, historical_weight: 0.333, live_weight: 0.334 }
@@ -547,1178 +256,7 @@ function estimateHomeWinProbability({
   })
 }
 
-function inningRunsFromRows(rows, playerId) {
-  const map = {}
-  rows
-    .filter((row) => String(row.player_id) === String(playerId))
-    .forEach((row) => {
-      const inning = Number(row.inning || 1)
-      map[inning] = (map[inning] || 0) + Number(row.runs || 0)
-    })
-  return map
-}
-
-// ─── Live-state persistence ───────────────────────────────────────────────────
-// live_state (games.live_state / season_schedule.live_state) is the jsonb
-// snapshot of in-progress game state (inning/outs/count/current batter-pitcher/
-// runners) that survives a reload or a second scorekeeper opening the same
-// game — see normalizeLiveRunner(s) in runnerAssignment.js for the runner
-// shape this wraps.
-function hasMeaningfulLiveStatePayload(liveState = null) {
-  if (!liveState || typeof liveState !== 'object' || Array.isArray(liveState)) return false
-  const hasTrackedValue = [
-    'inning',
-    'isTop',
-    'is_top',
-    'outsInHalf',
-    'outs_in_half',
-    'balls',
-    'strikes',
-    'pitchNumber',
-    'pitch_number',
-    'pitcherStintId',
-    'pitcher_stint_id',
-    'paNumber',
-    'pa_number',
-    'batterCharacterId',
-    'batter_character_id',
-    'batterPlayerId',
-    'batter_player_id',
-    'onDeckCharacterId',
-    'on_deck_character_id',
-    'onDeckPlayerId',
-    'on_deck_player_id',
-    'pitcherCharacterId',
-    'pitcher_character_id',
-    'pitcherPlayerId',
-    'pitcher_player_id',
-    'updatedAt',
-    'updated_at',
-  ].some((key) => liveState[key] != null)
-
-  return hasTrackedValue || hasAnyActiveRunners(normalizeLiveRunners(liveState.runners))
-}
-
-function normalizeLiveState(liveState = null) {
-  if (!hasMeaningfulLiveStatePayload(liveState)) return null
-  return {
-    inning: Number(liveState.inning || 1),
-    isTop: Boolean(liveState.isTop ?? liveState.is_top),
-    outsInHalf: Number((liveState.outsInHalf ?? liveState.outs_in_half) || 0),
-    balls: Number(liveState.balls || 0),
-    strikes: Number(liveState.strikes || 0),
-    pitchNumber: Number((liveState.pitchNumber ?? liveState.pitch_number) || 0),
-    pitcherStintId: liveState.pitcherStintId ?? liveState.pitcher_stint_id ?? null,
-    paNumber: Number((liveState.paNumber ?? liveState.pa_number) || 0),
-    batterCharacterId: liveState.batterCharacterId ?? liveState.batter_character_id ?? null,
-    batterPlayerId: liveState.batterPlayerId ?? liveState.batter_player_id ?? null,
-    onDeckCharacterId: liveState.onDeckCharacterId ?? liveState.on_deck_character_id ?? null,
-    onDeckPlayerId: liveState.onDeckPlayerId ?? liveState.on_deck_player_id ?? null,
-    // Only ever populated by the tracker bridge — manual scoring tracks the
-    // current pitcher via a real pitching_stints row instead.
-    pitcherCharacterId: liveState.pitcherCharacterId ?? liveState.pitcher_character_id ?? null,
-    pitcherPlayerId: liveState.pitcherPlayerId ?? liveState.pitcher_player_id ?? null,
-    runners: normalizeLiveRunners(liveState.runners),
-    // The baserunner undo stack (runnersHistory) only ever lived in this component's
-    // in-memory state — a fresh page load/session started it at [], so the very first
-    // Undo after any reload had nothing to pop back to and silently left a just-undone
-    // PA's runner still parked on base even though the PA itself was deleted. Persisting
-    // it here (mirroring `runners` above) lets a fresh session restore the real stack.
-    runnersHistory: Array.isArray(liveState.runnersHistory) ? liveState.runnersHistory.map(normalizeLiveRunners) : [],
-    // Active pitches are not database rows until the PA completes. Keeping the
-    // serializable in-progress sequence in live_state lets a fresh browser (or
-    // a second scorekeeper) resume the count without silently losing the pitch
-    // events that produced it.
-    paPitchRows: Array.isArray(liveState.paPitchRows) ? liveState.paPitchRows : [],
-    starHitUsed: Boolean(liveState.starHitUsed),
-    starHitPending: Boolean(liveState.starHitPending),
-    starHitConnected: Boolean(liveState.starHitConnected),
-    starPitchActive: Boolean(liveState.starPitchActive),
-    updatedAt: liveState.updatedAt ?? liveState.updated_at ?? null,
-  }
-}
-
-function getPersistedLiveStateValue(liveState = null, requireNonNullObject = false) {
-  if (liveState && typeof liveState === 'object') return liveState
-  return requireNonNullObject ? {} : null
-}
-
-function serializeLiveStateForComparison(liveState = null) {
-  const normalized = normalizeLiveState(liveState)
-  if (!normalized) return ''
-  return JSON.stringify({
-    ...normalized,
-    updatedAt: null,
-  })
-}
-
-// Positions actually charged with an error for notation/scoring purposes.
-// Uses whatever the scorekeeper explicitly marked with the ERROR toggle; a
-// ROE result with nothing explicitly marked (the scorekeeper never touched
-// the toggle) still defaults to the first fielder in the chain, since ROE is
-// an error by definition and shouldn't require an extra tap to record one.
-function effectiveErrorPositions(state) {
-  if (state?.errorFielderPositions?.length) return state.errorFielderPositions
-  if (state?.resultType === 'error' && state?.fielderChain?.[0]) return [state.fielderChain[0]]
-  return []
-}
-
-function canFinalizeInPlaySelection(state, fieldersByPosition = {}) {
-  if (!state?.result) return false
-  if (state.result === 'HR') return true
-  if (state.isBuddyJump) {
-    const chain = state.fielderChain || []
-    if (chain.length < 2) return false
-    const nameA = fieldersByPosition[chain[0]]?.character
-    const nameB = fieldersByPosition[chain[1]]?.character
-    return charactersHaveGoodChemistry(nameA, nameB)
-  }
-  if (!requiresInPlayFielderChain(state.result)) return true
-  return Boolean(state?.fielderChain?.length)
-}
-
-function isOutcomeDisabledForOuts(result, outsInHalf = 0) {
-  return outsInHalf >= 2 && TWO_OUT_DISABLED_RESULTS.has(result)
-}
-
-function isOutcomeDisabledForRunners(result, runners = {}) {
-  return (result === 'SF' || result === 'SH' || result === 'DP') && !hasAnyActiveRunners(runners)
-}
-
-function getRunnerStateStorageKey(gameId, halfIdx) {
-  return `scorebook-runners:${gameId}:${halfIdx}`
-}
-
-function getRunnerHistoryStorageKey(gameId, halfIdx) {
-  return `scorebook-runners-history:${gameId}:${halfIdx}`
-}
-
-function getActivePaStorageKey(gameId) {
-  return `scorebook-active-pa:${gameId}`
-}
-
-function sanitizeRunnersForOffense(nextRunners, offense) {
-  if (!offense?.battingPlayerId) return nextRunners
-  const isOffensiveRunner = (runner) => (
-    runner
-    && String(runner.playerId) === String(offense.battingPlayerId)
-  )
-  return {
-    first: isOffensiveRunner(nextRunners?.first) ? nextRunners.first : null,
-    second: isOffensiveRunner(nextRunners?.second) ? nextRunners.second : null,
-    third: isOffensiveRunner(nextRunners?.third) ? nextRunners.third : null,
-  }
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-function Avatar({ name, size = 36, style: sx = {} }) {
-  return <CharacterPortrait name={name} size={size} borderRadius={0} objectFit="contain" style={sx} />
-}
-
-function ResultBadge({ result, strikeoutType = null }) {
-  const color = HIT_RESULTS.has(result) ? C.green : WALK_RESULTS.has(result) ? C.blue : C.red
-  return (
-    <span style={{ background: color + '22', color, border: `1px solid ${color}55`, borderRadius: 4, padding: '2px 6px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
-      {formatPlateAppearanceResult(result, strikeoutType)}
-    </span>
-  )
-}
-
-function CountDotRow({ count = 0, total = 3, activeColor = '#22C55E', inactiveColor = '#334155', label }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      {label ? <span style={{ color: '#94A3B8', fontSize: 10, fontWeight: 800, minWidth: 10 }}>{label}</span> : null}
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'nowrap' }}>
-        {Array.from({ length: total }, (_, index) => (
-          <span
-            key={`${label || 'dot'}-${index}`}
-            style={{
-              width: 10,
-              minWidth: 10,
-              height: 10,
-              minHeight: 10,
-              borderRadius: '50%',
-              background: index < count ? activeColor : 'transparent',
-              border: `2px solid ${index < count ? activeColor : inactiveColor}`,
-              display: 'inline-block',
-              flexShrink: 0,
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function FieldStatusCard({ title, children, accent = '#94A3B8' }) {
-  return (
-    <div
-      style={{
-        width: '100%',
-        minHeight: 96,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        gap: 8,
-        padding: '12px 14px',
-        borderRadius: 14,
-        border: `1px solid ${C.border}`,
-        background: `${C.card}DD`,
-        overflow: 'hidden',
-      }}
-    >
-      {title ? (
-        <div style={{ color: accent, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>
-          {title}
-        </div>
-      ) : null}
-      {children}
-    </div>
-  )
-}
-
-function CompactMatchupCard({ align = 'left', kicker, name, subtext, stats = [], accent = '#EAB308' }) {
-  const justify = align === 'right' ? 'flex-end' : 'flex-start'
-  const textAlign = align === 'right' ? 'right' : 'left'
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: align === 'right' ? 'flex-end' : 'flex-start', justifyContent: 'center', minWidth: 0 }}>
-      <div style={{ color: accent, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2 }}>{kicker}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, textAlign, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{name}</div>
-      <div style={{ color: C.muted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', textAlign }}>{subtext}</div>
-      {stats.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, justifyContent: justify, flexWrap: 'wrap', marginTop: 4 }}>
-          {stats.map((stat) => (
-            <span key={stat.label} style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>
-              {stat.label} {stat.value}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function buildInPlaySelectionSummary(state) {
-  if (!state) return []
-  const items = []
-  if (state.resultType) items.push({ label: 'Play', value: state.resultType.toUpperCase() })
-  if (state.result) items.push({ label: 'Result', value: state.result })
-  if (state.trajectory) items.push({ label: 'Shape', value: `${state.trajectory} - ${TRAJECTORY_LABELS[state.trajectory] || state.trajectory}` })
-  if (state.fielderChain?.length) {
-    items.push({
-      label: state.fielderChain.length > 1 ? 'Fielders' : 'Fielded By',
-      value: state.fielderChain.join(' → '),
-    })
-  }
-  return items
-}
-
-function OutcomeBtn({ result, zone, onClick, disabled = false }) {
-  const base = ZONE_COLOR[zone]
-  return (
-    <button
-      onClick={() => onClick(result)} disabled={disabled}
-      style={{ background: `${base}22`, color: disabled ? C.border : base, border: `1.5px solid ${disabled ? C.border : base + '55'}`, borderRadius: 8, minHeight: 54, fontWeight: 800, fontSize: 15, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1 }}
-      onPointerDown={e => { if (!disabled) e.currentTarget.style.background = `${base}44` }}
-      onPointerUp={e => { e.currentTarget.style.background = `${base}22` }}
-      onPointerLeave={e => { e.currentTarget.style.background = `${base}22` }}
-    >
-      {result}
-    </button>
-  )
-}
-
-// ─── Diamond ─────────────────────────────────────────────────────────────────
-function Diamond({
-  runners,
-  pitcherChar,
-  outs,
-  previewHomeRunners = [],
-  previewOuts = 0,
-  onMoundDrop,
-  onMoundDragOver,
-  onMoundDragLeave,
-  isDragOver,
-  isScorekeeper,
-  charactersById,
-  selectedPitcher,
-  onMoundClick,
-  hideOutsRow = false,
-  onRemoveRunner,
-}) {
-  // Actual field geometry and marker sizes. Increasing these changes the visible diamond,
-  // not just the space around it.
-  const bases = [
-    { key: 'second', label: '2B', left: '50%', top: '10%' },
-    { key: 'first',  label: '1B', left: '86%', top: '42%' },
-    { key: 'third',  label: '3B', left: '14%', top: '42%' },
-  ]
-  const committedOuts = Math.min(outs, 3)
-  const pendingOuts = Math.max(0, Math.min(previewOuts, 3 - committedOuts))
-  const overflowOuts = Math.max(0, outs + previewOuts - 3)
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-      <div style={{ position: 'relative', width: '100%', maxWidth: '340px', aspectRatio: '1.12 / 1', margin: '0 auto' }}>
-        {/* Base lines */}
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-          <polygon points="50,10 86,42 50,82 14,42" fill="rgba(148,163,184,0.05)" stroke={C.border} strokeWidth="1.8" />
-          <line x1="50" y1="10" x2="50" y2="82" stroke="rgba(148,163,184,0.22)" strokeWidth="1.2" />
-          <line x1="14" y1="42" x2="86" y2="42" stroke="rgba(148,163,184,0.16)" strokeWidth="1.2" />
-        </svg>
-
-        {/* Runner bases */}
-        {bases.map(b => {
-          const runner = runners[b.key]
-          const showRemove = Boolean(isScorekeeper && runner)
-          return (
-            <div key={b.key} style={{ position: 'absolute', left: b.left, top: b.top, transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-              {runner ? (
-                <div style={{ position: 'relative', width: 44, height: 44 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${C.accent}`, flexShrink: 0 }}>
-                    <Avatar name={charactersById[runner.characterId]?.name} size={44} />
-                  </div>
-                  {showRemove && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onRemoveRunner?.(b.key)
-                      }}
-                      style={{
-                        position: 'absolute',
-                        top: -6,
-                        right: -6,
-                        width: 18,
-                        height: 18,
-                        borderRadius: '50%',
-                        border: `1px solid ${C.red}`,
-                        background: `${C.red}EE`,
-                        color: '#fff',
-                        fontSize: 11,
-                        fontWeight: 900,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-                      }}
-                      aria-label={`Remove runner from ${b.label}`}
-                      title={`Remove runner from ${b.label}`}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div style={{ width: 18, height: 18, background: C.border, transform: 'rotate(45deg)', borderRadius: 2 }} />
-              )}
-            </div>
-          )
-        })}
-
-        {/* Home plate */}
-        <div style={{ position: 'absolute', left: '50%', top: '82%', transform: 'translate(-50%,-50%)' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <div style={{ width: 18, height: 18, background: C.card, border: `2px solid ${previewHomeRunners.length ? C.accent : C.border}`, transform: 'rotate(45deg)', borderRadius: 2 }} />
-            {previewHomeRunners.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {previewHomeRunners.slice(0, 3).map((assignment, index) => (
-                  <div
-                    key={assignment.id}
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: '50%',
-                      overflow: 'hidden',
-                      border: `2px solid ${C.accent}`,
-                      marginLeft: index === 0 ? 0 : -7,
-                      background: C.card,
-                      boxShadow: '0 0 0 2px rgba(15, 23, 42, 0.9)',
-                    }}
-                  >
-                    <Avatar name={charactersById[assignment.runner.characterId]?.name} size={28} />
-                  </div>
-                ))}
-                {previewHomeRunners.length > 3 && (
-                  <div style={{ marginLeft: 4, fontSize: 9, color: C.accent, fontWeight: 800 }}>
-                    +{previewHomeRunners.length - 3}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Pitcher mound — drop target + tap-to-confirm */}
-        <div
-          onDragOver={isScorekeeper ? onMoundDragOver : undefined}
-          onDragLeave={isScorekeeper ? onMoundDragLeave : undefined}
-          onDrop={isScorekeeper ? onMoundDrop : undefined}
-          onClick={isScorekeeper && selectedPitcher ? onMoundClick : undefined}
-          style={{ position: 'absolute', left: '50%', top: '46%', transform: 'translate(-50%,-50%)', cursor: selectedPitcher ? 'pointer' : 'default' }}
-        >
-          <div style={{ width: 60, height: 60, borderRadius: '50%', border: `2px ${isDragOver || selectedPitcher ? 'solid' : 'dashed'} ${isDragOver ? C.accent : selectedPitcher ? '#A78BFA' : C.border}`, background: isDragOver ? `${C.accent}20` : selectedPitcher ? '#A78BFA20' : `${C.bg}cc`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', transition: 'all 0.15s' }}>
-            {pitcherChar
-              ? <Avatar name={pitcherChar.name} size={56} />
-              : <span style={{ fontSize: 22 }}>⚾</span>}
-          </div>
-        </div>
-        {selectedPitcher && isScorekeeper && (
-          <div style={{ position: 'absolute', left: '50%', top: '62%', transform: 'translateX(-50%)', fontSize: 9, color: '#A78BFA', fontWeight: 800, textAlign: 'center', maxWidth: 72 }}>tap to confirm</div>
-        )}
-        {!selectedPitcher && pitcherChar && (
-          <div style={{ position: 'absolute', left: '50%', top: '62%', transform: 'translateX(-50%)', fontSize: 9, color: C.muted, fontWeight: 700, textAlign: 'center', maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {pitcherChar.name.split(' ')[0]}
-          </div>
-        )}
-        {!selectedPitcher && !pitcherChar && isScorekeeper && (
-          <div style={{ position: 'absolute', left: '50%', top: '62%', transform: 'translateX(-50%)', fontSize: 9, color: C.border, textAlign: 'center', maxWidth: 72 }}>drag / tap pitcher</div>
-        )}
-      </div>
-
-      {/* Outs row */}
-      {!hideOutsRow && (
-        <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-          <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: '.04em' }}>OUTS</span>
-          {[0, 1, 2].map(i => (
-            <div
-              key={i}
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: '50%',
-                background: i < committedOuts ? '#F59E0B' : i < committedOuts + pendingOuts ? `${C.red}` : 'transparent',
-                border: `2px solid ${i < committedOuts ? '#F59E0B' : i < committedOuts + pendingOuts ? C.red : C.border}`,
-              }}
-            />
-          ))}
-          {overflowOuts > 0 && (
-            <span style={{ fontSize: 9, color: C.red, fontWeight: 800 }}>+{overflowOuts}</span>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Lineup column ────────────────────────────────────────────────────────────
-function LineupColumn({
-  lineup,
-  currentIdx,
-  teamColor,
-  stat,
-  draggable: isDraggable,
-  currentPitcherCharId,
-  pendingPitcherCharId,
-  onDragStart,
-  onItemClick,
-  onCharacterClick,
-  charactersById,
-  orientation = 'vertical',
-  wrap = false,
-}) {
-  const isHorizontal = orientation === 'horizontal'
-  const isCompact = isHorizontal && wrap
-  const avatarSize = isCompact ? 30 : 36
-  return (
-    <div style={{
-      display: 'flex',
-      flexDirection: isHorizontal ? 'row' : 'column',
-      alignItems: isHorizontal ? 'center' : 'center',
-      gap: isHorizontal ? (isCompact ? 4 : 8) : 2,
-      minWidth: 0,
-      width: '100%',
-    }}>
-      <div style={{
-        marginBottom: isHorizontal ? 0 : 2,
-        flexShrink: 0,
-        width: isHorizontal ? (isCompact ? 20 : 28) : 'auto',
-        display: 'flex',
-        justifyContent: 'center',
-      }}>
-        <StatIcon stat={stat} size={isCompact ? 14 : 16} style={{ opacity: 0.75 }} />
-      </div>
-      <div style={{
-        display: 'flex',
-        flexDirection: isHorizontal ? 'row' : 'column',
-        flexWrap: isHorizontal && wrap ? 'wrap' : 'nowrap',
-        gap: isCompact ? 2 : 3,
-        overflowX: isHorizontal && !wrap ? 'auto' : 'visible',
-        overflowY: isHorizontal ? 'hidden' : 'auto',
-        scrollbarWidth: 'none',
-        maxHeight: isHorizontal ? 'none' : 220,
-        width: '100%',
-        minWidth: 0,
-        alignItems: isHorizontal && wrap ? 'flex-start' : 'center',
-        paddingBottom: isHorizontal ? 2 : 0,
-      }}>
-        {lineup.map((entry, i) => {
-          const char = charactersById[entry.character_id]
-          const isCurrentPitcher = isDraggable && entry.character_id === currentPitcherCharId
-          const isPending = isDraggable && entry.character_id === pendingPitcherCharId
-          const isCurrent = isDraggable ? isCurrentPitcher : i === currentIdx
-          const borderColor = isPending ? '#A78BFA' : isCurrent ? teamColor : C.border
-          const shadow = isPending ? '0 0 8px #A78BFA' : isCurrent ? `0 0 6px ${teamColor}` : 'none'
-          const handleClick = isDraggable && onItemClick
-            ? () => onItemClick(entry.character_id, entry.player_id)
-            : (!isDraggable && onCharacterClick ? () => onCharacterClick(entry.character_id, entry.player_id) : undefined)
-          return (
-            <div
-              key={entry.character_id ?? entry.id ?? i}
-              draggable={isDraggable}
-              onDragStart={isDraggable ? onDragStart(entry.character_id, entry.player_id) : undefined}
-              onClick={handleClick}
-              title={char?.name}
-              style={{ position: 'relative', cursor: handleClick ? 'pointer' : 'default', opacity: (isCurrent || isPending) ? 1 : 0.45, flexShrink: 0 }}
-            >
-              <div style={{ width: avatarSize, height: avatarSize, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${borderColor}`, boxShadow: shadow, transition: 'border-color 0.15s, box-shadow 0.15s' }}>
-                <Avatar name={char?.name} size={avatarSize} />
-              </div>
-              <div style={{ position: 'absolute', bottom: -1, right: -1, width: 13, height: 13, borderRadius: '50%', background: isPending ? '#A78BFA' : isCurrent ? teamColor : C.card, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 900, color: (isCurrent || isPending) ? '#000' : C.muted }}>
-                {i + 1}
-              </div>
-            </div>
-          )
-        })}
-        {lineup.length === 0 && (
-          <div style={{ fontSize: 10, color: C.border, textAlign: 'center', padding: 6 }}>—</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Runner chip (used inside resolution panel) ───────────────────────────────
-function RunnerChip({ slot, label, isHome, onToggle, charactersById }) {
-  if (!slot) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-      <div style={{ width: 34, height: 34, borderRadius: '50%', border: `2px dashed ${C.border}` }} />
-      <div style={{ fontSize: 8, color: C.border, fontWeight: 700 }}>{label}</div>
-      <div style={{ fontSize: 8, color: C.border }}>empty</div>
-    </div>
-  )
-
-  const isOut    = slot.status === 'out'
-  const isScored = slot.status === 'scored'
-  const statusColor = isOut ? C.red : isScored ? C.accent : C.green
-  const statusLabel = isOut ? 'OUT' : isScored ? 'SCORED' : 'SAFE'
-
-  return (
-    <button
-      onClick={onToggle}
-      type="button"
-      style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: 0 }}
-    >
-      <div style={{ width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', border: `2.5px solid ${statusColor}`, opacity: isOut ? 0.5 : 1 }}>
-        <Avatar name={charactersById[slot.runner.characterId]?.name} size={38} />
-      </div>
-      <div style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>{label}</div>
-      <div style={{ fontSize: 9, fontWeight: 800, color: statusColor, background: statusColor + '22', borderRadius: 4, padding: '1px 5px', border: `1px solid ${statusColor}44` }}>
-        {statusLabel}
-      </div>
-    </button>
-  )
-}
-
-// ─── Runner resolution panel ──────────────────────────────────────────────────
-function RunnerResolutionPanel({ pendingPA, onToggleBase, onToggleScored, onConfirm, onCancel, charactersById }) {
-  const { result, first, second, third, scored } = pendingPA
-  const rbi = scored.filter(s => s.status === 'scored').length
-
-  return (
-    <div style={{ background: `${C.accent}10`, border: `1px solid ${C.accent}44`, borderRadius: 12, padding: '12px 10px 10px', marginBottom: 10 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ResultBadge result={result} />
-          <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>Tap to toggle scored / out</span>
-        </div>
-        <button onClick={onCancel} type="button" style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}>
-          <X size={16} />
-        </button>
-      </div>
-
-      {/* Diamond layout for resolution */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 10 }}>
-        {/* Row 1: 3B | 2B | 1B */}
-        <RunnerChip slot={third}  label="3B" onToggle={() => onToggleBase('third')}  charactersById={charactersById} />
-        <RunnerChip slot={second} label="2B" onToggle={() => onToggleBase('second')} charactersById={charactersById} />
-        <RunnerChip slot={first}  label="1B" onToggle={() => onToggleBase('first')}  charactersById={charactersById} />
-      </div>
-
-      {/* Home plate runners */}
-      {scored.length > 0 && (
-        <div>
-          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: 'uppercase', marginBottom: 6, textAlign: 'center', letterSpacing: '.04em' }}>
-            🏠 Home Plate
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
-            {scored.map((s, i) => (
-              <RunnerChip key={i} slot={s} label="HOME" isHome onToggle={() => onToggleScored(i)} charactersById={charactersById} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ flex: 1, fontSize: 13, fontWeight: 700 }}>
-          {rbi > 0
-            ? <span style={{ color: C.accent }}>{rbi} RBI</span>
-            : <span style={{ color: C.muted }}>0 RBI</span>}
-        </div>
-        <button onClick={onCancel} type="button" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 14px', color: C.muted, fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>
-          Cancel
-        </button>
-        <button onClick={onConfirm} type="button" style={{ background: C.accent, color: '#000', border: 'none', borderRadius: 8, padding: '9px 20px', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
-          Save PA →
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function RunnerAssignmentChip({ assignment, onSetDestination, charactersById, readOnly = false }) {
-  const destinationMeta = {
-    first: { color: C.green, label: '1B' },
-    second: { color: C.green, label: '2B' },
-    third: { color: C.green, label: '3B' },
-    home: { color: C.accent, label: 'HOME' },
-    out: { color: C.red, label: 'OUT' },
-  }
-  const current = destinationMeta[assignment.destination] || destinationMeta.out
-  const destinationButtons = [
-    { key: 'first', label: '1B' },
-    { key: 'second', label: '2B' },
-    { key: 'third', label: '3B' },
-    { key: 'home', label: 'HOME' },
-    { key: 'out', label: 'OUT' },
-  ]
-
-  return (
-    <div style={{ display: 'grid', gap: 6, padding: 8, borderRadius: 10, border: `1px solid ${C.border}`, background: `${current.color}12` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', border: `2.5px solid ${current.color}`, opacity: assignment.destination === 'out' ? 0.5 : 1 }}>
-          <Avatar name={charactersById[assignment.runner.characterId]?.name} size={38} />
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, textTransform: 'uppercase' }}>
-            {assignment.isBatter ? 'Batter' : `${assignment.origin.toUpperCase()} Runner`}
-          </div>
-          <div style={{ fontSize: 12, color: current.color, fontWeight: 800 }}>{current.label}</div>
-        </div>
-      </div>
-      {readOnly ? null : (
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {destinationButtons.map((button) => (
-            <button
-              key={button.key}
-              onClick={() => onSetDestination(assignment.id, button.key)}
-              type="button"
-              style={{
-                background: assignment.destination === button.key ? current.color : 'transparent',
-                color: assignment.destination === button.key ? '#000' : C.muted,
-                border: `1px solid ${assignment.destination === button.key ? current.color : C.border}`,
-                borderRadius: 999,
-                padding: '4px 8px',
-                fontSize: 10,
-                fontWeight: 800,
-                cursor: 'pointer',
-              }}
-            >
-              {button.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RunnerAssignmentsPanel({ pendingPA, onSetDestination, onConfirm, onCancel, charactersById }) {
-  const { assignments } = pendingPA
-  const displayResult = derivePendingResult(pendingPA)
-  const rbi = getPreviewRbiFromAssignments(displayResult, assignments)
-  const isTrivial = isTrivialPendingResolution(pendingPA)
-
-  return (
-    <div style={{ background: `${C.accent}10`, border: `1px solid ${C.accent}44`, borderRadius: 12, padding: '12px 10px 10px', marginBottom: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ResultBadge result={displayResult} />
-          <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>
-            {isTrivial ? 'Set where the runner ended up' : 'Assign each runner to a base, home, or out'}
-          </span>
-        </div>
-        <button onClick={onCancel} type="button" style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}>
-          <X size={16} />
-        </button>
-      </div>
-
-      <div style={{ display: 'grid', gap: 8, marginBottom: 10 }}>
-        {assignments.map((assignment) => (
-          <RunnerAssignmentChip
-            key={assignment.id}
-            assignment={assignment}
-            onSetDestination={onSetDestination}
-            charactersById={charactersById}
-          />
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ flex: 1, fontSize: 13, fontWeight: 700 }}>
-          {rbi > 0
-            ? <span style={{ color: C.accent }}>{rbi} RBI</span>
-            : <span style={{ color: C.muted }}>0 RBI</span>}
-        </div>
-        <button onClick={onCancel} type="button" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 14px', color: C.muted, fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>
-          Cancel
-        </button>
-        <button onClick={onConfirm} type="button" style={{ background: C.accent, color: '#000', border: 'none', borderRadius: 8, padding: '9px 20px', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
-          Save PA →
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
-function SectionCard({ title, subtitle = '', right = null, children, hideHeader = false }) {
-  return (
-    <section style={{ background: 'linear-gradient(180deg, rgba(30,41,59,0.98), rgba(15,23,42,0.98))', border: `1px solid ${C.border}`, borderRadius: 18, padding: 16, boxShadow: '0 14px 28px rgba(2,6,23,0.22)' }}>
-      {!hideHeader && (title || subtitle || right) ? (
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 12 }}>
-          <div>
-            {title ? <div style={{ color: '#F8FAFC', fontSize: 15, fontWeight: 800 }}>{title}</div> : null}
-            {subtitle ? <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>{subtitle}</div> : null}
-          </div>
-          {right}
-        </div>
-      ) : null}
-      {children}
-    </section>
-  )
-}
-
-function BaseStateDiamond({ runners, charactersById, size = 88 }) {
-  const baseSize = Math.max(10, Math.round(size * 0.14))
-  const runnerSize = Math.max(20, Math.round(size * 0.28))
-  const baseNode = (runner) => (
-    runner
-      ? (
-          <div style={{ width: runnerSize, height: runnerSize, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}`, boxShadow: '0 0 0 2px rgba(15,23,42,0.88)' }}>
-            <Avatar name={charactersById[runner.characterId]?.name} size={runnerSize} />
-          </div>
-        )
-      : <div style={{ width: baseSize, height: baseSize, background: C.border, transform: 'rotate(45deg)', borderRadius: 2 }} />
-  )
-
-  return (
-    <div style={{ position: 'relative', width: size, height: size }}>
-      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} viewBox="0 0 100 100">
-        <polygon points="50,8 88,46 50,84 12,46" fill="rgba(148,163,184,0.04)" stroke={C.border} strokeWidth="2" />
-      </svg>
-      <div style={{ position: 'absolute', left: '50%', top: 0, transform: 'translate(-50%, 0)' }}>{baseNode(runners.second)}</div>
-      <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translate(0, -50%)' }}>{baseNode(runners.first)}</div>
-      <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translate(0, -50%)' }}>{baseNode(runners.third)}</div>
-      <div style={{ position: 'absolute', left: '50%', bottom: 0, transform: 'translate(-50%, 0)' }}>
-        <div style={{ width: baseSize, height: baseSize, background: C.card, border: `1.5px solid ${C.border}`, transform: 'rotate(45deg)', borderRadius: 2 }} />
-      </div>
-    </div>
-  )
-}
-
-function MiniRunnerDiamond({ runners, charactersById, size = 72 }) {
-  const runnerSize = Math.round(size * 0.3)
-  const baseSize = Math.round(size * 0.14)
-  return (
-    <div style={{ position: 'relative', width: size, height: size }}>
-      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} viewBox="0 0 72 72">
-        <polygon points="36,6 62,32 36,62 10,32" fill="rgba(148,163,184,0.04)" stroke={C.border} strokeWidth="1.5" />
-      </svg>
-      {/* 2B — top */}
-      <div style={{ position: 'absolute', left: '50%', top: 0, transform: 'translate(-50%,0)' }}>
-        {runners.second
-          ? <div style={{ width: runnerSize, height: runnerSize, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}` }}><Avatar name={charactersById[runners.second.characterId]?.name} size={runnerSize} /></div>
-          : <div style={{ width: baseSize, height: baseSize, background: C.border, transform: 'rotate(45deg)', borderRadius: 1 }} />}
-      </div>
-      {/* 1B — right */}
-      <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translate(0,-50%)' }}>
-        {runners.first
-          ? <div style={{ width: runnerSize, height: runnerSize, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}` }}><Avatar name={charactersById[runners.first.characterId]?.name} size={runnerSize} /></div>
-          : <div style={{ width: baseSize, height: baseSize, background: C.border, transform: 'rotate(45deg)', borderRadius: 1 }} />}
-      </div>
-      {/* 3B — left */}
-      <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translate(0,-50%)' }}>
-        {runners.third
-          ? <div style={{ width: runnerSize, height: runnerSize, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.accent}` }}><Avatar name={charactersById[runners.third.characterId]?.name} size={runnerSize} /></div>
-          : <div style={{ width: baseSize, height: baseSize, background: C.border, transform: 'rotate(45deg)', borderRadius: 1 }} />}
-      </div>
-      {/* Home — bottom */}
-      <div style={{ position: 'absolute', left: '50%', bottom: 0, transform: 'translate(-50%,0)' }}>
-        <div style={{ width: baseSize * 0.9, height: baseSize * 0.9, background: C.card, border: `1.5px solid ${C.border}`, transform: 'rotate(45deg)', borderRadius: 1 }} />
-      </div>
-    </div>
-  )
-}
-
-function BoxScoreTable({
-  innings,
-  scores,
-  completedHalfCount,
-  currentInning,
-  teamAAbbreviation,
-  teamBAbbreviation,
-  teamAColor,
-  teamBColor,
-  teamALogoKey,
-  teamALogoUrl,
-  teamBLogoKey,
-  teamBLogoUrl,
-  teamAName,
-  teamBName,
-  compact = false,
-  swapped = false,
-  activeBattingSide = null,
-}) {
-  const cellPad = compact ? '7px 0' : '10px 0'
-  const cellFontSize = compact ? 11 : 13
-  const headerFontSize = compact ? 10 : 11
-  const teamColMinWidth = compact ? 76 : 112
-  // `swapped` reflects the game's `home_away_swapped` flag — it determines which
-  // team actually bats in the top of the inning. The "away" row is always shown
-  // first, "home" second.
-  const teamARow = {
-    key: 'teamA',
-    abbreviation: teamAAbbreviation,
-    color: teamAColor,
-    logoKey: teamALogoKey,
-    logoUrl: teamALogoUrl,
-    teamName: teamAName,
-    scoreMap: scores.aByInning,
-    runs: scores.a,
-    hits: scores.aHits,
-    errors: scores.aErrors,
-    battingSide: swapped ? 'home' : 'away',
-  }
-  const teamBRow = {
-    key: 'teamB',
-    abbreviation: teamBAbbreviation,
-    color: teamBColor,
-    logoKey: teamBLogoKey,
-    logoUrl: teamBLogoUrl,
-    teamName: teamBName,
-    scoreMap: scores.bByInning,
-    runs: scores.b,
-    hits: scores.bHits,
-    errors: scores.bErrors,
-    battingSide: swapped ? 'away' : 'home',
-  }
-  const displayRows = teamARow.battingSide === 'away' ? [teamARow, teamBRow] : [teamBRow, teamARow]
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', minWidth: compact ? 320 : 520, borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={{ textAlign: 'left', padding: `0 0 ${compact ? 6 : 10}px`, color: C.muted, fontSize: headerFontSize, fontWeight: 800 }}>Team</th>
-            {innings.map((inning) => (
-              <th key={inning} style={{ padding: `0 ${compact ? 4 : 0}px ${compact ? 6 : 10}px`, color: inning === currentInning && activeBattingSide ? C.accent : C.muted, fontSize: headerFontSize, fontWeight: 800 }}>{inning}</th>
-            ))}
-            {['R', 'H', 'E'].map((label) => (
-              <th key={label} style={{ padding: `0 ${compact ? 4 : 0}px ${compact ? 6 : 10}px`, color: C.muted, fontSize: headerFontSize, fontWeight: 800 }}>{label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {displayRows.map((team) => (
-            <tr key={team.key}>
-              <td style={{ padding: cellPad, borderTop: `1px solid ${C.border}44` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 6 : 8, minWidth: teamColMinWidth }}>
-                  <TeamLogo logoKey={team.logoKey} logoUrl={team.logoUrl} teamName={team.teamName} height={compact ? 16 : 20} />
-                  <span style={{ color: team.color, fontSize: compact ? 11 : 12, fontWeight: 800 }}>{team.abbreviation}</span>
-                </div>
-              </td>
-              {innings.map((inning) => {
-                const isActiveHalf = inning === currentInning && team.battingSide === activeBattingSide
-                return (
-                  <td key={`${team.key}-${inning}`} style={{ padding: cellPad, borderTop: `1px solid ${C.border}44`, textAlign: 'center', background: isActiveHalf ? `${C.accent}20` : 'transparent', color: isActiveHalf ? '#F8FAFC' : '#CBD5E1', fontSize: cellFontSize, fontWeight: 700 }}>
-                    {getLineScoreCellValue({ inning, side: team.battingSide, scoreMap: team.scoreMap, completedHalfCount })}
-                  </td>
-                )
-              })}
-              <td style={{ padding: cellPad, borderTop: `1px solid ${C.border}44`, textAlign: 'center', color: team.color, fontSize: cellFontSize, fontWeight: 900 }}>{team.runs}</td>
-              <td style={{ padding: cellPad, borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: cellFontSize, fontWeight: 700 }}>{team.hits}</td>
-              <td style={{ padding: cellPad, borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: cellFontSize, fontWeight: 700 }}>{team.errors}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function LineupStatsTable({
-  title,
-  lineup,
-  statsByEntryKey,
-  currentEntryKey = null,
-  teamColor,
-  charactersById,
-  getCharacterLink,
-}) {
-  return (
-    <SectionCard title={title}>
-      {!lineup.length ? (
-        <div style={{ color: C.muted, fontSize: 13 }}>No lineup set.</div>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', minWidth: 320, borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', padding: '0 0 10px', color: C.muted, fontSize: 11, fontWeight: 800 }}>Batter</th>
-                {['AB', 'R', 'H', 'RBI', 'HR', 'BB', 'K', 'AVG', 'OBP', 'SLG'].map((label) => (
-                  <th key={label} style={{ padding: '0 0 10px', textAlign: 'center', color: C.muted, fontSize: 11, fontWeight: 800 }}>{label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {lineup.map((entry, index) => {
-                const key = `${entry.player_id}:${entry.character_id}`
-                const stats = statsByEntryKey[key] || { game: summarizeBatting([]), source: summarizeBatting([]) }
-                const isCurrent = key === currentEntryKey
-                const link = getCharacterLink ? getCharacterLink(entry.character_id, entry.player_id) : null
-                return (
-                  <tr key={key}>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44` }}>
-                      <MiddleClickLink
-                        to={link?.to}
-                        state={link?.state}
-                        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: link ? 'pointer' : 'default', color: 'inherit', textDecoration: 'none' }}
-                      >
-                        <span style={{ width: 18, color: isCurrent ? teamColor : C.muted, fontSize: 11, fontWeight: 800 }}>{index + 1}</span>
-                        <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${isCurrent ? teamColor : C.border}` }}>
-                          <Avatar name={charactersById[entry.character_id]?.name} size={30} />
-                        </div>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ color: isCurrent ? teamColor : '#F8FAFC', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{charactersById[entry.character_id]?.name || 'Unknown'}</div>
-                          {isCurrent ? <div style={{ color: C.muted, fontSize: 11 }}>Current batter</div> : null}
-                        </div>
-                      </MiddleClickLink>
-                    </td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.atBats}</td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.runs}</td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.hits}</td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.rbi}</td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.homeRuns}</td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.walks}</td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stats.game.strikeouts}</td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{formatBaseballAverage(stats.source)}</td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{formatRate(stats.source.obp)}</td>
-                    <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{formatRate(stats.source.slg)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </SectionCard>
-  )
-}
-
-function PitchingStatsTable({ title, stints, decisionLabels, charactersById, getCharacterLink, sourceStatsByCharacterKey = {} }) {
-  return (
-    <SectionCard title={title}>
-      {!stints.length ? (
-        <div style={{ color: C.muted, fontSize: 13 }}>No pitching lines yet.</div>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', minWidth: 320, borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', padding: '0 0 10px', color: C.muted, fontSize: 11, fontWeight: 800 }}>Pitcher</th>
-                {['IP', 'H', 'R', 'ER', 'BB', 'K', 'HR', 'PC-ST', 'ERA'].map((label) => (
-                  <th key={label} style={{ padding: '0 0 10px', textAlign: 'center', color: C.muted, fontSize: 11, fontWeight: 800 }}>{label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {stints.map((stint) => {
-                const link = getCharacterLink ? getCharacterLink(stint.character_id, stint.player_id) : null
-                const sourceStats = sourceStatsByCharacterKey[`${stint.player_id}:${stint.character_id}`]
-                return (
-                <tr key={stint.id}>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44` }}>
-                    <MiddleClickLink
-                      to={link?.to}
-                      state={link?.state}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: link ? 'pointer' : 'default', color: 'inherit', textDecoration: 'none' }}
-                    >
-                      <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', border: `1.5px solid ${C.border}` }}>
-                        <Avatar name={charactersById[stint.character_id]?.name} size={30} />
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{charactersById[stint.character_id]?.name || 'Unknown'}</div>
-                        {decisionLabels[stint.id] ? <div style={{ color: C.accent, fontSize: 11, fontWeight: 800 }}>{decisionLabels[stint.id]}</div> : null}
-                      </div>
-                    </MiddleClickLink>
-                  </td>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stint.innings_pitched ?? 0}</td>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stint.hits_allowed ?? 0}</td>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stint.runs_allowed ?? 0}</td>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stint.earned_runs ?? 0}</td>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stint.walks ?? 0}</td>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stint.strikeouts ?? 0}</td>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stint.hr_allowed ?? 0}</td>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13 }}>{stint.pitches_thrown ?? 0}-{stint.strikes_thrown ?? 0}</td>
-                  <td style={{ padding: '10px 0', borderTop: `1px solid ${C.border}44`, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{Number(sourceStats?.era || 0).toFixed(2)}</td>
-                </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </SectionCard>
-  )
-}
-
-function WinProbabilityCard({ points, currentHomeProbability, homeLabel, awayLabel, homeColor, awayColor }) {
-  const safePoints = points.length ? points : [{ label: 'Start', probability: currentHomeProbability, description: 'Game start' }]
-  const chartUid = useId()
-  const chartWidth = 300
-  const chartHeight = 150
-  const chartPadding = { top: 8, right: 12, bottom: 8, left: 34 }
-  const innerWidth = chartWidth - chartPadding.left - chartPadding.right
-  const innerHeight = chartHeight - chartPadding.top - chartPadding.bottom
-  const midY = chartPadding.top + (innerHeight / 2)
-  const [selectedIndex, setSelectedIndex] = useState(safePoints.length - 1)
-
-  useEffect(() => {
-    setSelectedIndex(safePoints.length - 1)
-  }, [safePoints.length])
-
-  const clampedIndex = Math.min(Math.max(selectedIndex, 0), safePoints.length - 1)
-  const selectedPoint = safePoints[clampedIndex] || safePoints[safePoints.length - 1]
-
-  const getIndexFromClientX = useCallback((clientX, rect) => {
-    if (!rect.width || safePoints.length <= 1) return 0
-    const ratio = Math.min(1, Math.max(0, (clientX - rect.left - ((chartPadding.left / chartWidth) * rect.width)) / ((innerWidth / chartWidth) * rect.width)))
-    return Math.round(ratio * (safePoints.length - 1))
-  }, [safePoints.length, chartPadding.left, chartWidth, innerWidth])
-
-  const handleChartPointer = useCallback((clientX, rect) => {
-    setSelectedIndex(getIndexFromClientX(clientX, rect))
-  }, [getIndexFromClientX])
-
-  const path = safePoints.map((point, index) => {
-    const x = safePoints.length === 1
-      ? chartPadding.left + (innerWidth / 2)
-      : chartPadding.left + ((index / (safePoints.length - 1)) * innerWidth)
-    const y = chartPadding.top + ((1 - point.probability) * innerHeight)
-    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
-  }).join(' ')
-  const fillPath = `${path} L ${chartPadding.left + innerWidth} ${chartPadding.top + innerHeight} L ${chartPadding.left} ${chartPadding.top + innerHeight} Z`
-  const homePct = (currentHomeProbability * 100).toFixed(1)
-  const awayPct = (100 - currentHomeProbability * 100).toFixed(1)
-
-  return (
-    <SectionCard
-      title="Win Probability"
-      subtitle={`${homeLabel} vs ${awayLabel}`}
-    >
-      <div style={{ display: 'grid', gap: 10 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
-          <span style={{ color: awayColor }}>{awayLabel} {awayPct}%</span>
-          <span style={{ color: homeColor }}>{homeLabel} {homePct}%</span>
-        </div>
-        <div style={{ borderRadius: 12, border: `1px solid ${C.border}`, background: `${C.card}AA`, padding: '10px 12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
-            <div style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 800 }}>{selectedPoint.label}</div>
-            <div style={{ color: selectedPoint.probability >= 0.5 ? homeColor : awayColor, fontSize: 14, fontWeight: 900 }}>
-              {selectedPoint.probability >= 0.5 ? (selectedPoint.probability * 100).toFixed(1) : ((1 - selectedPoint.probability) * 100).toFixed(1)}% {selectedPoint.probability >= 0.5 ? homeLabel : awayLabel}
-            </div>
-          </div>
-          <div style={{ color: C.muted, fontSize: 12, marginTop: 4, lineHeight: 1.45 }}>
-            {selectedPoint.description || 'Game state update'}
-          </div>
-          {selectedPoint.score ? (
-            <div style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700, marginTop: 6 }}>{selectedPoint.score}</div>
-          ) : null}
-        </div>
-        <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.72)', padding: 10 }}>
-          <svg
-            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-            preserveAspectRatio="none"
-            style={{ width: '100%', aspectRatio: '2 / 1', display: 'block', touchAction: 'none', cursor: 'pointer' }}
-            onMouseMove={(event) => handleChartPointer(event.clientX, event.currentTarget.getBoundingClientRect())}
-            onClick={(event) => handleChartPointer(event.clientX, event.currentTarget.getBoundingClientRect())}
-            onTouchStart={(event) => handleChartPointer(event.touches[0].clientX, event.currentTarget.getBoundingClientRect())}
-            onTouchMove={(event) => handleChartPointer(event.touches[0].clientX, event.currentTarget.getBoundingClientRect())}
-          >
-            <defs>
-              <clipPath id={`wp-top-${chartUid}`}>
-                <rect x={0} y={0} width={chartWidth} height={midY} />
-              </clipPath>
-              <clipPath id={`wp-bottom-${chartUid}`}>
-                <rect x={0} y={midY} width={chartWidth} height={chartHeight - midY} />
-              </clipPath>
-            </defs>
-            {[0, 0.25, 0.5, 0.75, 1].map((mark) => {
-              const y = chartPadding.top + ((1 - mark) * innerHeight)
-              const isCenter = mark === 0.5
-              return <line key={mark} x1={chartPadding.left} x2={chartPadding.left + innerWidth} y1={y} y2={y} stroke={isCenter ? 'rgba(148,163,184,0.4)' : 'rgba(148,163,184,0.18)'} strokeWidth="1" strokeDasharray={isCenter ? undefined : '4 4'} />
-            })}
-            {[
-              { mark: 1, label: '100', color: homeColor },
-              { mark: 0.75, label: '75', color: homeColor },
-              { mark: 0.5, label: '50', color: C.muted },
-              { mark: 0.25, label: '75', color: awayColor },
-              { mark: 0, label: '100', color: awayColor },
-            ].map(({ mark, label, color }) => {
-              const y = chartPadding.top + ((1 - mark) * innerHeight)
-              return (
-                <text key={`label-${mark}-${label}`} x={chartPadding.left - 6} y={y + 4} textAnchor="end" fill={color} fontSize="9" fontWeight="700">
-                  {label}
-                </text>
-              )
-            })}
-            <g clipPath={`url(#wp-top-${chartUid})`}>
-              <path d={fillPath} fill={`${homeColor}26`} />
-              <path d={path} fill="none" stroke={homeColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </g>
-            <g clipPath={`url(#wp-bottom-${chartUid})`}>
-              <path d={fillPath} fill={`${awayColor}26`} />
-              <path d={path} fill="none" stroke={awayColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </g>
-            {safePoints.map((point, index) => {
-              const x = safePoints.length === 1
-                ? chartPadding.left + (innerWidth / 2)
-                : chartPadding.left + ((index / (safePoints.length - 1)) * innerWidth)
-              const y = chartPadding.top + ((1 - point.probability) * innerHeight)
-              const active = index === clampedIndex
-              const pointColor = point.probability >= 0.5 ? homeColor : awayColor
-              return (
-                <circle
-                  key={`${point.label}-${index}`}
-                  cx={x}
-                  cy={y}
-                  r={active ? 5 : 3}
-                  fill={active ? '#F8FAFC' : pointColor}
-                  stroke={pointColor}
-                  strokeWidth={active ? 2 : 0}
-                />
-              )
-            })}
-          </svg>
-        </div>
-      </div>
-    </SectionCard>
-  )
-}
-
 export default function Scorebook() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -1759,33 +297,52 @@ export default function Scorebook() {
   const isScorekeeper = Boolean(player && (player.is_commissioner || player.scorebook_access))
 
   // ── Data state ─────────────────────────────────────────────────────────────
-  const [games, setGames] = useState([])
-  const [players, setPlayers] = useState([])
-  const [lineups, setLineups] = useState([])
-  const [characters, setCharacters] = useState([])
-  const [draftPicks, setDraftPicks] = useState([])
-  const [plateAppearances, setPlateAppearances] = useState([])
-  const [pitchingStints, setPitchingStints] = useState([])
-  const [pitches, setPitches] = useState([])
-  const [gameFielders, setGameFielders] = useState([])
-  const [runsScored, setRunsScored] = useState([])
-  const [inningScores, setInningScores] = useState([])
-  const [stadiums, setStadiums] = useState([])
-  const [stadiumGameLog, setStadiumGameLog] = useState([])
+  const [selectedGameId, setSelectedGameId] = useState(gameSession?.gameId ? String(gameSession.gameId) : '')
+  const {
+    games,
+    setGames,
+    players,
+    lineups,
+    setLineups,
+    savedTeamLineups,
+    setSavedTeamLineups,
+    characters,
+    draftPicks,
+    plateAppearances,
+    setPlateAppearances,
+    pitchingStints,
+    setPitchingStints,
+    pitches,
+    setPitches,
+    gameFielders,
+    setGameFielders,
+    runsScored,
+    setRunsScored,
+    inningScores,
+    setInningScores,
+    stadiums,
+    stadiumGameLog,
+    pitchHistoryLoadedScope,
+    dataLoaded,
+    scorebookDataScope,
+    fetchGameData,
+    deferRealtimeUntilRef,
+    locallyDeletedPaIdsRef,
+  } = useScorebookData({
+    gameSession,
+    tournamentId: tournament?.id,
+    selectedGameId,
+    pushToast,
+  })
   const [stadiumEditModalOpen, setStadiumEditModalOpen] = useState(false)
   const [stadiumEditForm, setStadiumEditForm] = useState({ stadiumId: '', isNight: false })
   const [stadiumEditSaving, setStadiumEditSaving] = useState(false)
-  const [gameBets, setGameBets] = useState([])
-  const [pitchHistoryLoadedScope, setPitchHistoryLoadedScope] = useState(null)
-  // Calibrated char_stats_weight/historical_weight/live_weight, recomputed by
-  // runPostGameCalibration after every resolved game from actual prediction
-  // accuracy (see betResolution.js). Feeds the win-probability model so it
-  // gets more accurate over time instead of using fixed weights forever.
-  const [oddsEngineWeights, setOddsEngineWeights] = useState(null)
-  const [dataLoaded, setDataLoaded] = useState(false)
+  const { gameBets, oddsEngineWeights } = useScorebookBettingData({
+    selectedGameId,
+    betsTable: scorebookTables.bets,
+  })
 
   // ── UI state ───────────────────────────────────────────────────────────────
-  const [selectedGameId, setSelectedGameId] = useState(gameSession?.gameId ? String(gameSession.gameId) : '')
   // A `?view=` query param (e.g. from a Team page game-log link wanting the read-only recap,
   // not the live scoring UI) overrides the scorekeeper/spectator role-based default below.
   const [viewMode, setViewMode] = useState(() => (
@@ -1837,32 +394,18 @@ export default function Scorebook() {
   }, [])
   const isStackedInPlayLayout = viewportWidth <= 980
   const [showEndGameConfirm, setShowEndGameConfirm] = useState(false)
-  const [showReopenGameConfirm, setShowReopenGameConfirm] = useState(false)
-  const [runnerStateLoadedScope, setRunnerStateLoadedScope] = useState(null)
-  const [activePaLoadedScope, setActivePaLoadedScope] = useState(null)
   const [redoAction, setRedoAction] = useState(null)
   const [isUndoInFlight, setIsUndoInFlight] = useState(false)
   const [queuedUndoCorrection, setQueuedUndoCorrection] = useState(null)
 
   const outsRef = useRef(0)
   const autoPitcherAssignRef = useRef(null)
-  const lastPublishedLiveStateRef = useRef('')
-  const pendingLiveStateRef = useRef(null)
-  const liveStatePublishTimeoutRef = useRef(null)
-  const liveStatePublishSeqRef = useRef(0)
   const isSavingRef = useRef(false)
   const saveWatchdogRef = useRef(null)
   const pitchActionPendingRef = useRef(false)
   const pitchActionUnlockRef = useRef(null)
-  const deferRealtimeUntilRef = useRef(0)
-  const locallyDeletedPaIdsRef = useRef(new Set())
-  const localActivePaRestoreRef = useRef(null)
-  const lastRestoredPitcherStorageKeyRef = useRef(null)
   const undoInFlightRef = useRef(false)
   const queuedUndoCorrectionRef = useRef(null)
-  const pitchHistoryLoadedScopeRef = useRef(null)
-  const isSyncingLineupsRef = useRef(false)
-  const lastSyncedLineupSignatureRef = useRef(null)
   const pitcherChangePendingRef = useRef(false)
   const [isPitchActionPending, setIsPitchActionPending] = useState(false)
 
@@ -1873,7 +416,6 @@ export default function Scorebook() {
   )
   const mercyOn  = gameSession?.mercyRule ?? tournament?.mercy_rule !== false
   const mercyLimit = Math.max(1, Number(gameSession?.mercyRuleDifferential || 10))
-  const scorebookDataScope = `${gameSession?.sourceType || 'unknown'}:${gameSession?.sourceId || 'none'}:${gameSession?.gameId || 'none'}`
 
   const pushRunners = useCallback((next) => {
     setRunnersHistory(prev => [...prev, { ...runners }])
@@ -1927,421 +469,9 @@ export default function Scorebook() {
     setRunners((current) => ({ ...current, [baseKey]: null }))
   }, [])
 
-  // ── Load data ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false
-    // The session provider refreshes after live-state writes. Keep an already
-    // verified snapshot editable while that same game's background refresh is
-    // in flight; clearing this flag here unmounted every scoring control and
-    // made the scorebook visibly flash after each entry.
-    const hasUsableSnapshot = pitchHistoryLoadedScopeRef.current === scorebookDataScope
-    if (!hasUsableSnapshot) {
-      pitchHistoryLoadedScopeRef.current = null
-      setPitchHistoryLoadedScope(null)
-    }
-
-    async function load() {
-      try {
-        const {
-          games: gamesData = [],
-          players: playersData = [],
-          lineups: lineupsData = [],
-          characters: charsData = [],
-          draftPicks: picksData = [],
-          plateAppearances: pasData = [],
-          pitchingStints: pitchData = [],
-          pitches: pitchRowsData,
-          pitchLoadError = null,
-          loadError = null,
-          gameFielders: fieldersData = [],
-          runsScored: runsData = [],
-          inningScores: inningScoresData = [],
-          stadiums: stadiumsData = [],
-          stadiumGameLog: stadiumLogData = [],
-        } = await gameSession.loadScorebookData()
-        if (cancelled) return
-        if (loadError || pitchLoadError || !Array.isArray(pitchRowsData)) {
-          throw loadError || pitchLoadError || new Error('The selected game pitch history could not be loaded.')
-        }
-
-        setGames(gamesData || [])
-        setPlayers(playersData || [])
-        // Lineups/characters are refetched on every season-data refresh (e.g. live_state
-        // pushes during scoring). A transient empty result shouldn't blank out the
-        // already-rendered lineup/batter — keep the previous data in that case. And if
-        // we just saved a lineup/fielding change locally, this refetch may hit a
-        // lagging replica — keep our optimistic rows for the selected game until the
-        // defer window passes so the recording page doesn't revert to stale data.
-        const preserveSelectedGameRows = (prevRows, nextRows) => {
-          if (!selectedGameId) return nextRows
-          if (Date.now() >= deferRealtimeUntilRef.current) return nextRows
-          const currentGameRows = prevRows.filter((row) => String(row.game_id) === String(selectedGameId))
-          if (!currentGameRows.length) return nextRows
-          return [...nextRows.filter((row) => String(row.game_id) !== String(selectedGameId)), ...currentGameRows]
-        }
-        setLineups(prev => preserveSelectedGameRows(prev, (lineupsData && lineupsData.length) ? lineupsData : (prev.length ? prev : lineupsData)))
-        setCharacters(prev => (charsData && charsData.length) ? charsData : (prev.length ? prev : charsData))
-        const visiblePAs = (pasData || [])
-          .map(normalizePa)
-          .filter((pa) => !locallyDeletedPaIdsRef.current.has(String(pa.id)))
-        const visiblePitches = (pitchRowsData || [])
-          .filter((pitch) => !locallyDeletedPaIdsRef.current.has(String(pitch.pa_id)))
-        const visibleRuns = (runsData || [])
-          .filter((run) => !locallyDeletedPaIdsRef.current.has(String(run.pa_id)))
-        setDraftPicks(picksData || [])
-        setPlateAppearances(prev => preserveSelectedGameRows(prev, visiblePAs))
-        setPitchingStints(prev => preserveSelectedGameRows(prev, (pitchData && pitchData.length) ? pitchData : (prev.length ? prev : pitchData)))
-        setPitches(prev => preserveSelectedGameRows(prev, visiblePitches))
-        setGameFielders(prev => preserveSelectedGameRows(prev, (fieldersData && fieldersData.length) ? fieldersData : (prev.length ? prev : fieldersData)))
-        setRunsScored(prev => preserveSelectedGameRows(prev, visibleRuns))
-        setInningScores(inningScoresData || [])
-        setStadiums(getOrderedStadiums(stadiumsData || []))
-        setStadiumGameLog(stadiumLogData || [])
-        pitchHistoryLoadedScopeRef.current = scorebookDataScope
-        setPitchHistoryLoadedScope(scorebookDataScope)
-        setDataLoaded(true)
-      } catch (error) {
-        if (cancelled) return
-        if (hasUsableSnapshot) {
-          console.warn('[scorebook load] refresh failed; preserving the verified local snapshot', error)
-          return
-        }
-        pitchHistoryLoadedScopeRef.current = null
-        setPitchHistoryLoadedScope(null)
-        pushToast({
-          title: 'Pitch history unavailable',
-          message: `${error.message} Scorekeeping is disabled so an incomplete pitch total cannot be saved.`,
-          type: 'error',
-        })
-      }
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [gameSession, tournament?.id, pushToast, scorebookDataScope, selectedGameId])
-
   useEffect(() => {
     setSelectedGameId(gameSession?.gameId ? String(gameSession.gameId) : '')
   }, [gameSession?.gameId])
-
-  // Load the game-history-calibrated weights and keep them live so the win
-  // probability model improves mid-session as other games get resolved.
-  useEffect(() => {
-    let active = true
-    supabase.from('odds_engine_weights').select('*').eq('id', 1).maybeSingle().then(({ data }) => {
-      if (active && data) setOddsEngineWeights(data)
-    })
-    const channel = supabase
-      .channel(`scorebook-odds-weights-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'odds_engine_weights' }, async () => {
-        const { data } = await supabase.from('odds_engine_weights').select('*').eq('id', 1).maybeSingle()
-        if (active && data) setOddsEngineWeights(data)
-      })
-      .subscribe()
-    return () => {
-      active = false
-      supabase.removeChannel(channel)
-    }
-  }, [])
-
-  // PART C — load currently-open bets for this game so live odds recalculation
-  // can apply volume-based line movement/liability caps, same as BettingTab.
-  useEffect(() => {
-    if (!selectedGameId || !scorebookTables.bets) {
-      setGameBets([])
-      return
-    }
-    let cancelled = false
-    async function load() {
-      const { data } = await supabase.from(scorebookTables.bets).select('*').eq('game_id', selectedGameId)
-      if (!cancelled) setGameBets(data || [])
-    }
-    load()
-    const channel = supabase
-      .channel(`sb-bets-${selectedGameId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.bets, filter: `game_id=eq.${selectedGameId}` }, load)
-      .subscribe()
-    return () => {
-      cancelled = true
-      supabase.removeChannel(channel)
-    }
-  }, [selectedGameId, scorebookTables.bets])
-
-  const shouldDeferRealtimeMerge = useCallback((currentRows = [], nextRows = [], getId = (row) => row.id) => {
-    if (Date.now() > deferRealtimeUntilRef.current) return false
-    if (nextRows.length < currentRows.length) return true
-    if (nextRows.length !== currentRows.length) return false
-    const currentIds = currentRows.map((row) => String(getId(row))).sort()
-    const nextIds = nextRows.map((row) => String(getId(row))).sort()
-    return currentIds.length > 0 && currentIds.every((id, index) => id === nextIds[index])
-  }, [])
-
-  const fetchGameData = useCallback(async () => {
-    if (!selectedGameId) return
-    const [lineupResult, paResult, stintResult, pitchResult, fielderResult, runResult, inningResult] = await Promise.all([
-      supabase.from(scorebookTables.lineups).select('*').eq('game_id', selectedGameId).order('batting_order'),
-      supabase.from(scorebookTables.plateAppearances).select('*').eq('game_id', selectedGameId).order('pa_number'),
-      supabase.from(scorebookTables.pitchingStints).select('*').eq('game_id', selectedGameId).order('created_at'),
-      supabase.from(scorebookTables.pitches).select('*').eq('game_id', selectedGameId).order('pitch_number_game'),
-      supabase.from(scorebookTables.gameFielders).select('*').eq('game_id', selectedGameId).order('created_at'),
-      supabase.from(scorebookTables.runsScored).select('*').eq('game_id', selectedGameId).order('created_at'),
-      supabase.from(scorebookTables.inningScores).select('*').eq('game_id', selectedGameId).order('inning'),
-    ])
-
-    const failures = [lineupResult, paResult, stintResult, pitchResult, fielderResult, runResult, inningResult]
-      .map((result) => result.error)
-      .filter(Boolean)
-    if (failures.length) console.warn('[scorebook] authoritative game refresh was partial', failures)
-
-    if (!lineupResult.error) {
-      setLineups((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(lineupResult.data || [])])
-    }
-    if (!paResult.error) {
-      const authoritativePAs = (paResult.data || []).map(normalizePa)
-      setPlateAppearances((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...authoritativePAs])
-    }
-    if (!stintResult.error) {
-      setPitchingStints((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(stintResult.data || [])])
-    }
-    if (!pitchResult.error) {
-      setPitches((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(pitchResult.data || [])])
-    }
-    if (!fielderResult.error) {
-      setGameFielders((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(fielderResult.data || [])])
-    }
-    if (!runResult.error) {
-      setRunsScored((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(runResult.data || [])])
-    }
-    if (!inningResult.error) {
-      const authoritativeInnings = isSeasonGame
-        ? (inningResult.data || []).map((entry) => ({
-            ...entry,
-            player_id: gameSession.playerIdByTeamId?.[entry.team_id] || null,
-          }))
-        : (inningResult.data || [])
-      setInningScores((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...authoritativeInnings])
-    }
-  }, [selectedGameId, scorebookTables, isSeasonGame, gameSession?.playerIdByTeamId])
-
-  // ── Realtime ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selectedGameId) return
-    const channel = supabase
-      .channel(`sb-${selectedGameId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.lineups, filter: `game_id=eq.${selectedGameId}` }, async () => {
-        const { data, error } = await supabase.from(scorebookTables.lineups).select('*').eq('game_id', selectedGameId).order('batting_order')
-        if (error) {
-          console.warn('[scorebook realtime] lineup refresh failed; preserving local rows', error)
-          return
-        }
-        const nextRows = data || []
-        setLineups((current) => {
-          const currentGameRows = current.filter((row) => String(row.game_id) === String(selectedGameId))
-          if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
-          return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
-        })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.plateAppearances, filter: `game_id=eq.${selectedGameId}` }, async () => {
-        const { data, error } = await supabase.from(scorebookTables.plateAppearances).select('*').eq('game_id', selectedGameId).order('created_at')
-        if (error) {
-          console.warn('[scorebook realtime] plate-appearance refresh failed; preserving local rows', error)
-          return
-        }
-        const nextRows = (data || [])
-          .map(normalizePa)
-          .filter((pa) => !locallyDeletedPaIdsRef.current.has(String(pa.id)))
-        setPlateAppearances((current) => {
-          const currentGameRows = current.filter((row) => String(row.game_id) === String(selectedGameId))
-          if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
-          return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
-        })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.pitchingStints, filter: `game_id=eq.${selectedGameId}` }, async () => {
-        const { data, error } = await supabase.from(scorebookTables.pitchingStints).select('*').eq('game_id', selectedGameId).order('created_at')
-        if (error) {
-          console.warn('[scorebook realtime] pitching refresh failed; preserving local rows', error)
-          return
-        }
-        const nextRows = data || []
-        setPitchingStints((current) => {
-          const currentGameRows = current.filter((row) => String(row.game_id) === String(selectedGameId))
-          if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
-          return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
-        })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.pitches, filter: `game_id=eq.${selectedGameId}` }, async () => {
-        const { data, error } = await supabase.from(scorebookTables.pitches).select('*').eq('game_id', selectedGameId).order('created_at')
-        if (error) {
-          console.warn('[scorebook realtime] pitch refresh failed; preserving local rows', error)
-          return
-        }
-        const nextRows = (data || [])
-          .filter((pitch) => !locallyDeletedPaIdsRef.current.has(String(pitch.pa_id)))
-        setPitches((current) => {
-          const currentGameRows = current.filter((row) => String(row.game_id) === String(selectedGameId))
-          if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
-          return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
-        })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.gameFielders, filter: `game_id=eq.${selectedGameId}` }, async () => {
-        const { data, error } = await supabase.from(scorebookTables.gameFielders).select('*').eq('game_id', selectedGameId).order('created_at')
-        if (error) {
-          console.warn('[scorebook realtime] fielder refresh failed; preserving local rows', error)
-          return
-        }
-        const nextRows = data || []
-        setGameFielders((current) => {
-          const currentGameRows = current.filter((row) => String(row.game_id) === String(selectedGameId))
-          if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
-          return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
-        })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.runsScored, filter: `game_id=eq.${selectedGameId}` }, async () => {
-        const { data, error } = await supabase.from(scorebookTables.runsScored).select('*').eq('game_id', selectedGameId).order('created_at')
-        if (error) {
-          console.warn('[scorebook realtime] run refresh failed; preserving local rows', error)
-          return
-        }
-        const nextRows = (data || [])
-          .filter((run) => !locallyDeletedPaIdsRef.current.has(String(run.pa_id)))
-        setRunsScored((current) => {
-          const currentGameRows = current.filter((row) => String(row.game_id) === String(selectedGameId))
-          if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
-          return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
-        })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.inningScores, filter: `game_id=eq.${selectedGameId}` }, async () => {
-        const query = supabase.from(scorebookTables.inningScores).select('*').eq('game_id', selectedGameId).order('inning')
-        const { data, error } = isSeasonGame
-          ? await query.eq('season_id', gameSession?.sourceId)
-          : await query
-        if (error) {
-          console.warn('[scorebook realtime] inning-score refresh failed; preserving local rows', error)
-          return
-        }
-        const normalized = isSeasonGame
-          ? (data || []).map((entry) => ({
-              ...entry,
-              player_id: gameSession.playerIdByTeamId?.[entry.team_id] || null,
-            }))
-          : (data || [])
-        setInningScores((current) => {
-          const currentGameRows = current.filter((row) => String(row.game_id) === String(selectedGameId))
-          if (shouldDeferRealtimeMerge(currentGameRows, normalized, (row) => `${row.inning}:${row.player_id || row.team_id || row.id}`)) {
-            return current
-          }
-          return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...normalized]
-        })
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: scorebookTables.games, filter: `id=eq.${selectedGameId}` }, async () => {
-        const { data } = await supabase.from(scorebookTables.games).select('*').eq('id', selectedGameId).single()
-        if (!data) return
-        const stadiumByName = Object.fromEntries(stadiums.map((stadium) => [stadium.name, stadium]))
-        const normalized = isSeasonGame
-          ? {
-              ...data,
-              source_id: data.season_id,
-              tournament_id: data.season_id,
-              stadium_id: stadiumByName[data.stadium]?.id || null,
-              game_code: data.stage ? `S${data.season_id}-${data.stage}` : `R${data.round_number}-G${data.id}`,
-              team_a_player_id: gameSession.playerIdByTeamId?.[data.away_team_id] || null,
-              team_b_player_id: gameSession.playerIdByTeamId?.[data.home_team_id] || null,
-              winner_player_id: gameSession.playerIdByTeamId?.[data.winner_team_id] || null,
-              team_a_runs: Number(data.away_score || 0),
-              team_b_runs: Number(data.home_score || 0),
-              status: data.status === 'completed' ? 'complete' : data.status === 'in_progress' ? 'active' : data.status === 'scheduled' ? 'pending' : data.status,
-            }
-          : data
-        setGames((current) => current.map((game) => (String(game.id) === String(normalized.id) ? normalized : game)))
-      })
-      .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [selectedGameId, scorebookTables, isSeasonGame, gameSession?.sourceId, gameSession?.playerIdByTeamId, stadiums, shouldDeferRealtimeMerge])
-
-  // Belt-and-suspenders refetch for edits made in another tab (the At-Bat
-  // Data page's "Edit At-Bat" link opens in one) — the realtime subscription
-  // above should already catch these, but resyncs on refocus too in case a
-  // given table isn't in the realtime publication, same pattern already used
-  // for team lineups above. Deliberately does NOT run through
-  // shouldDeferRealtimeMerge — that guard exists to protect the few seconds
-  // right after a local save from a lagging read-replica, which doesn't
-  // apply here (a refocus fires well after any such window, often minutes
-  // later). Applying it here actively defeats the point of a "just trust the
-  // fresh fetch" resync: if local state has drifted for any reason (a stale
-  // extra row, a miscount), the guard's "fewer rows than we already have ->
-  // skip" rule would keep discarding the correct fetch forever.
-  useEffect(() => {
-    if (!selectedGameId) return
-    const resync = async () => {
-      const [pitchResult, paResult, stintResult] = await Promise.all([
-        supabase.from(scorebookTables.pitches).select('*').eq('game_id', selectedGameId).order('created_at'),
-        supabase.from(scorebookTables.plateAppearances).select('*').eq('game_id', selectedGameId).order('created_at'),
-        supabase.from(scorebookTables.pitchingStints).select('*').eq('game_id', selectedGameId).order('created_at'),
-      ])
-      if (!pitchResult.error) {
-        const visiblePitches = (pitchResult.data || [])
-          .filter((pitch) => !locallyDeletedPaIdsRef.current.has(String(pitch.pa_id)))
-        setPitches((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...visiblePitches])
-      } else {
-        console.warn('[scorebook focus] pitch refresh failed; preserving local rows', pitchResult.error)
-      }
-      if (!paResult.error) {
-        const visiblePAs = (paResult.data || [])
-          .map(normalizePa)
-          .filter((pa) => !locallyDeletedPaIdsRef.current.has(String(pa.id)))
-        setPlateAppearances((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...visiblePAs])
-      } else {
-        console.warn('[scorebook focus] plate-appearance refresh failed; preserving local rows', paResult.error)
-      }
-      if (!stintResult.error) {
-        setPitchingStints((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(stintResult.data || [])])
-      } else {
-        console.warn('[scorebook focus] pitching refresh failed; preserving local rows', stintResult.error)
-      }
-    }
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') resync()
-    }
-    document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('focus', resync)
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('focus', resync)
-    }
-  }, [selectedGameId, scorebookTables])
-
-  useEffect(() => {
-    if (!gameSession?.sourceId || !scorebookTables.draftPicks) return
-    const sourceField = isSeasonGame ? 'season_id' : 'tournament_id'
-    const orderField = isSeasonGame ? 'created_at' : 'pick_number'
-    const channel = supabase
-      .channel(`scorebook-roster-${gameSession.sourceId}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.draftPicks, filter: `${sourceField}=eq.${gameSession.sourceId}` }, async () => {
-        const { data } = await supabase.from(scorebookTables.draftPicks).select('*').eq(sourceField, gameSession.sourceId).order(orderField)
-        setDraftPicks(data || [])
-      })
-      .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [gameSession?.sourceId, scorebookTables.draftPicks, isSeasonGame])
-
-  useEffect(() => {
-    const channel = supabase
-      .channel(`scorebook-stadiums-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stadiums' }, async () => {
-        const { data } = await supabase.from('stadiums').select('*')
-        setStadiums(getOrderedStadiums(data || []))
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.stadiumGameLog, filter: isSeasonGame ? `season_id=eq.${gameSession?.sourceId}` : undefined }, async () => {
-        const { data } = await fetchAllRows(() => {
-          const query = supabase.from(scorebookTables.stadiumGameLog).select('*').order('created_at')
-          return isSeasonGame ? query.eq('season_id', gameSession?.sourceId) : query
-        })
-        setStadiumGameLog(data || [])
-      })
-      .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [scorebookTables.stadiumGameLog, isSeasonGame, gameSession?.sourceId])
 
   // ── Derived state ──────────────────────────────────────────────────────────
   const filteredGames = useMemo(
@@ -2350,6 +480,7 @@ export default function Scorebook() {
   )
   const selectedGame  = filteredGames.find(g => String(g.id) === String(selectedGameId))
   const isGameComplete = selectedGame?.status === 'complete' || selectedGame?.status === 'completed'
+  const isGamePregame = isPregameGameStatus(selectedGame?.status)
   const canEditScorebook = Boolean(
     isScorekeeper
     && selectedGame
@@ -2438,7 +569,7 @@ export default function Scorebook() {
 
     setStadiumEditSaving(true)
     try {
-      const { error } = await supabase.from(scorebookTables.games).update(patch).eq('id', selectedGame.id)
+      const { error } = await updateGameRecord({ tables: scorebookTables, gameId: selectedGame.id, patch })
       if (error) throw error
 
       setGames((current) => current.map((game) => (
@@ -2467,7 +598,7 @@ export default function Scorebook() {
     setVideoUrlSaving(true)
     try {
       const patch = { video_url: videoUrlDraft || null }
-      const { error } = await supabase.from(scorebookTables.games).update(patch).eq('id', selectedGame.id)
+      const { error } = await updateGameRecord({ tables: scorebookTables, gameId: selectedGame.id, patch })
       if (error) throw error
 
       setGames((current) => current.map((game) => (
@@ -2491,11 +622,7 @@ export default function Scorebook() {
     }
     let cancelled = false
     const loadTrackerStats = async () => {
-      const { data } = await supabase
-        .from(scorebookTables.trackerLiveStats)
-        .select('*')
-        .eq('game_id', selectedGame.id)
-        .maybeSingle()
+      const { data } = await fetchTrackerLiveStats({ tables: scorebookTables, gameId: selectedGame.id })
       if (!cancelled) setTrackerStats(data || null)
     }
     loadTrackerStats()
@@ -2508,7 +635,7 @@ export default function Scorebook() {
     setTrackerModeSaving(true)
     try {
       const patch = { stats_source: nextSource }
-      const { error } = await supabase.from(scorebookTables.games).update(patch).eq('id', selectedGame.id)
+      const { error } = await updateGameRecord({ tables: scorebookTables, gameId: selectedGame.id, patch })
       if (error) throw error
       setGames((current) => current.map((game) => (
         String(game.id) === String(selectedGame.id) ? { ...game, ...patch } : game
@@ -2533,10 +660,11 @@ export default function Scorebook() {
     const nextMapping = { ...(trackerStats?.team_mapping || {}), [trackerTeamName]: side }
     setTrackerModeSaving(true)
     try {
-      const { error } = await supabase
-        .from(scorebookTables.trackerLiveStats)
-        .update({ team_mapping: nextMapping })
-        .eq('game_id', selectedGame.id)
+      const { error } = await updateTrackerTeamMapping({
+        tables: scorebookTables,
+        gameId: selectedGame.id,
+        teamMapping: nextMapping,
+      })
       if (error) throw error
       setTrackerStats((current) => (current ? { ...current, team_mapping: nextMapping } : current))
     } catch (error) {
@@ -2629,7 +757,11 @@ export default function Scorebook() {
       return
     }
     const next = !selectedGame.home_away_swapped
-    const { error } = await supabase.from(scorebookTables.games).update({ home_away_swapped: next }).eq('id', selectedGame.id)
+    const { error } = await updateGameRecord({
+      tables: scorebookTables,
+      gameId: selectedGame.id,
+      patch: { home_away_swapped: next },
+    })
     if (error) {
       pushToast({ title: 'Swap failed', message: error.message, type: 'error' })
       return
@@ -2773,7 +905,7 @@ export default function Scorebook() {
     setTrackerModeSaving(true)
     try {
       const patch = { status: 'complete', team_a_runs: teamARuns, team_b_runs: teamBRuns, winner_player_id: winnerPlayerId }
-      const { error } = await supabase.from(scorebookTables.games).update(patch).eq('id', selectedGame.id)
+      const { error } = await updateGameRecord({ tables: scorebookTables, gameId: selectedGame.id, patch })
       if (error) throw error
       setGames((current) => current.map((game) => (
         String(game.id) === String(selectedGame.id) ? { ...game, ...patch } : game
@@ -3147,463 +1279,60 @@ export default function Scorebook() {
     [gameLineups, selectedGame?.team_b_player_id],
   )
 
-  // ── Live lineup/fielding editor (commissioner & scorekeepers) ──────────────
-  // Mirrors the Roster tab's lineup ordering + fielding diamond (DraggableRosterItem / FieldingView)
-  const teamAId = isSeasonGame ? gameSession.teamIdByPlayerId?.[selectedGame?.team_a_player_id] : selectedGame?.team_a_player_id
-  const teamBId = isSeasonGame ? gameSession.teamIdByPlayerId?.[selectedGame?.team_b_player_id] : selectedGame?.team_b_player_id
-
-  const [lineupDrafts, setLineupDrafts] = useState({ A: { order: [], fielding: {} }, B: { order: [], fielding: {} } })
-  const [selectedLineupMoveId, setSelectedLineupMoveId] = useState({ A: null, B: null })
-  const [selectedFieldingPlayer, setSelectedFieldingPlayer] = useState({ A: null, B: null })
-  const [lineupSaveStatus, setLineupSaveStatus] = useState({ A: 'idle', B: 'idle' })
-  // Tracks whether each team's draft has unsaved local edits, so realtime-driven
-  // draft rebuilds (from someone else's edits) don't clobber our in-flight edit.
-  // lineupDirtyRef is the source of truth read synchronously inside effects;
-  // lineupDirty mirrors it in state so the Save button / unsaved-changes
-  // guard (which need a reactive value) can read it too.
-  const lineupDirtyRef = useRef({ A: false, B: false })
-  const [lineupDirty, setLineupDirty] = useState({ A: false, B: false })
-  const markLineupDirty = useCallback((team, value) => {
-    lineupDirtyRef.current = { ...lineupDirtyRef.current, [team]: value }
-    setLineupDirty((current) => ({ ...current, [team]: value }))
-  }, [])
-  // Tracks the last saved team_lineups payload seen for each team, so pregame
-  // sync from Roster/SeasonRoster doesn't re-apply the same snapshot forever.
-  const lastSyncedTeamLineupRef = useRef({ A: null, B: null })
-  const changePitcherRef = useRef(null)
-
-  const buildLineupDraft = useCallback((team) => {
-    const lineupRows = team === 'A' ? teamALineup : teamBLineup
-    const teamId = team === 'A' ? teamAId : teamBId
-    const order = lineupRows.map((row) => row.character_id)
-    const fielding = {}
-    lineupRows.forEach((row) => {
-      const charName = charactersById[row.character_id]?.name
-      const activeRow = gameFielderRows.find((r) => (
-        String(r.team_id) === String(teamId)
-        && r.character === charName
-        && Number(r.inning_from || 1) <= Number(currentInning)
-        && (r.inning_to == null || Number(r.inning_to) >= Number(currentInning))
-      ))
-      const fieldId = activeRow ? SCOREBOOK_POSITION_TO_FIELD_ID[Number(activeRow.position)] : null
-      if (fieldId) fielding[fieldId] = row.character_id
-    })
-
-    // There's no bench in Sluggers — every player in the lineup fields a
-    // position. Fill any positions left empty (e.g. no game_fielders rows
-    // yet) with the remaining lineup players in batting order.
-    const placedIds = new Set(Object.values(fielding))
-    const unplaced = order.filter((charId) => !placedIds.has(charId))
-    const emptyFieldIds = FIELD_POSITIONS.map((p) => p.id).filter((fieldId) => !fielding[fieldId])
-    unplaced.forEach((charId, index) => {
-      if (emptyFieldIds[index]) fielding[emptyFieldIds[index]] = charId
-    })
-
-    return { order, fielding }
-  }, [teamALineup, teamBLineup, teamAId, teamBId, charactersById, gameFielderRows, currentInning])
-
-  // Rebuild the draft for a team whenever the underlying lineup/fielder rows
-  // change (including via realtime updates from other editors) — unless that
-  // team's draft has unsaved local edits in flight.
-  useEffect(() => {
-    if (viewMode !== 'lineups' || !selectedGame) return
-    setLineupDrafts((current) => ({
-      A: lineupDirtyRef.current.A ? current.A : buildLineupDraft('A'),
-      B: lineupDirtyRef.current.B ? current.B : buildLineupDraft('B'),
-    }))
-  }, [viewMode, selectedGame?.id, buildLineupDraft])
-
-  useEffect(() => {
-    if (viewMode !== 'lineups' || !selectedGame) return
-    setSelectedLineupMoveId({ A: null, B: null })
-    setSelectedFieldingPlayer({ A: null, B: null })
-    lineupDirtyRef.current = { A: false, B: false }
-    setLineupDirty({ A: false, B: false })
-    setLineupSaveStatus({ A: 'idle', B: 'idle' })
-  }, [viewMode, selectedGame?.id])
-
-
-  // Key-order-independent equality for a lineup draft, so comparing against
-  // the freshly-rebuilt baseline isn't fooled by object insertion order.
-  const lineupDraftKey = (draft) => JSON.stringify({
-    order: draft.order,
-    fielding: Object.keys(draft.fielding).sort().map((key) => [key, draft.fielding[key]]),
+  const {
+    teamAId,
+    teamBId,
+    lineupDrafts,
+    setLineupDrafts,
+    selectedLineupMoveId,
+    selectedFieldingPlayer,
+    lineupSaveStatus,
+    lineupDirty,
+    changePitcherRef,
+    handleLineupDragStart,
+    handleLineupNumberClick,
+    handleDropOnLineupSlot,
+    setFieldingPositionsForTeam,
+    setSelectedFieldingPlayerForTeam,
+    handleSaveLineupTeam,
+    handleSaveAllDirtyLineups,
+    discardLineupChanges,
+  } = useLineupEditor({
+    addSourceFields,
+    canEditScorebook,
+    charactersById,
+    currentInning,
+    currentPitcherStint,
+    deferRealtimeHydration,
+    gameFielderRows,
+    gameLineups,
+    gamePAs,
+    gameSession,
+    isGamePregame,
+    isGameComplete,
+    isSeasonGame,
+    offense,
+    playersById,
+    pushToast,
+    savedTeamLineups,
+    scorebookTables,
+    selectedGame,
+    setGameFielders,
+    setLineups,
+    setSavedTeamLineups,
+    setViewMode,
+    teamALineup,
+    teamBLineup,
+    teamRosters,
+    viewMode,
   })
-
-  const handleLineupDragStart = useCallback((characterId) => (e) => {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('characterId', String(characterId))
-    e.dataTransfer.setData('lineupCharacterId', String(characterId))
-  }, [])
-
-  const reorderLineupDraft = useCallback((team, characterId, targetIndex) => {
-    setLineupDrafts((current) => {
-      const order = swapLineupSlot(current[team].order, characterId, targetIndex)
-      if (order === current[team].order) return current
-      const nextDraft = { ...current[team], order }
-      // Compare against the source-of-truth draft (not just "did this one
-      // edit change something") so moving a slot and then moving it back
-      // clears the dirty flag instead of leaving a false "unsaved changes".
-      const baseline = buildLineupDraft(team)
-      markLineupDirty(team, lineupDraftKey(nextDraft) !== lineupDraftKey(baseline))
-      return { ...current, [team]: nextDraft }
-    })
-  }, [markLineupDirty, buildLineupDraft])
-
-  const handleLineupNumberClick = useCallback((team, charId, index) => {
-    setSelectedLineupMoveId((current) => {
-      const sel = current[team]
-      if (sel === null) return { ...current, [team]: charId }
-      if (sel === charId) return { ...current, [team]: null }
-      reorderLineupDraft(team, sel, index)
-      return { ...current, [team]: null }
-    })
-  }, [reorderLineupDraft])
-
-  const handleDropOnLineupSlot = useCallback((team, index) => (e) => {
-    e.preventDefault()
-    const characterId = parseInt(e.dataTransfer.getData('lineupCharacterId'), 10)
-    if (characterId) reorderLineupDraft(team, characterId, index)
-  }, [reorderLineupDraft])
-
-  const setFieldingPositionsForTeam = useCallback((team) => (updater) => {
-    setLineupDrafts((current) => {
-      const fielding = typeof updater === 'function' ? updater(current[team].fielding) : updater
-      const nextDraft = { ...current[team], fielding }
-      const baseline = buildLineupDraft(team)
-      markLineupDirty(team, lineupDraftKey(nextDraft) !== lineupDraftKey(baseline))
-      return { ...current, [team]: nextDraft }
-    })
-  }, [markLineupDirty, buildLineupDraft])
-
-  const setSelectedFieldingPlayerForTeam = useCallback((team) => (updater) => {
-    setSelectedFieldingPlayer((current) => {
-      const value = typeof updater === 'function' ? updater(current[team]) : updater
-      return { ...current, [team]: value }
-    })
-  }, [])
-
-  // Applies a lineup order + fielding assignment for `team` to the live
-  // lineups/game_fielders projection for this specific game. The saved
-  // team_lineups snapshot only seeds pregame state and is not rewritten here.
-  const applyLineupToGame = useCallback(async (team, order, fielding, { skipMirror = false } = {}) => {
-    if (!selectedGame) return
-    const teamId = team === 'A' ? teamAId : teamBId
-    const playerId = team === 'A' ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
-    const lineupRows = team === 'A' ? teamALineup : teamBLineup
-
-    const lineupUpdates = order
-      .map((characterId, i) => {
-        const row = lineupRows[i]
-        if (!row) return null
-        if (row.character_id === characterId && row.batting_order === i + 1) return null
-        return supabase.from(scorebookTables.lineups).update({ character_id: characterId, batting_order: i + 1 }).eq('id', row.id).select()
-      })
-      .filter(Boolean)
-
-    const results = await Promise.all(lineupUpdates)
-    const failed = results.find((r) => r.error)
-    if (failed) {
-      pushToast({ title: 'Lineup save failed', message: failed.error.message, type: 'error' })
-      return
-    }
-    const noRowsUpdated = results.find((r) => !r.data || r.data.length === 0)
-    if (noRowsUpdated) {
-      pushToast({ title: 'Lineup save failed', message: 'No lineup rows were updated. You may not have permission to edit this lineup.', type: 'error' })
-      return
-    }
-
-    // Only touch rows for positions actually present in this `fielding`
-    // payload — leave every other position's existing row alone. Otherwise a
-    // partial update (e.g. a mid-game pitcher change, which only ever sets
-    // `fielding.pitcher`) would close/delete the *entire* defense down to
-    // just that one position, since a stale/incomplete saved team_lineups
-    // snapshot can legitimately have only one key in `fielding_positions`.
-    const mentionedPositions = new Set(
-      Object.entries(fielding).filter(([, characterId]) => characterId).map(([fieldId]) => FIELD_ID_TO_SCOREBOOK_POSITION[fieldId]),
-    )
-    const openRows = gameFielderRows.filter((r) => String(r.team_id) === String(teamId) && r.inning_to == null && mentionedPositions.has(r.position))
-    const toClose = openRows.filter((r) => Number(r.inning_from || 1) < Number(currentInning))
-    const toDelete = openRows.filter((r) => Number(r.inning_from || 1) >= Number(currentInning))
-
-    if (toClose.length) {
-      const { error } = await supabase.from(scorebookTables.gameFielders).update({ inning_to: Number(currentInning) - 1 }).in('id', toClose.map((r) => r.id)).select()
-      if (error) {
-        pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
-        return
-      }
-    }
-    if (toDelete.length) {
-      const { error } = await supabase.from(scorebookTables.gameFielders).delete().in('id', toDelete.map((r) => r.id)).select()
-      if (error) {
-        pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
-        return
-      }
-    }
-
-    const newFielderRows = Object.entries(fielding)
-      .filter(([, characterId]) => characterId)
-      .map(([fieldId, characterId]) => ({
-        game_id: selectedGame.id,
-        team_id: teamId,
-        player_name: playersById[playerId]?.name || '',
-        character: charactersById[characterId]?.name || '',
-        position: FIELD_ID_TO_SCOREBOOK_POSITION[fieldId],
-        inning_from: currentInning,
-        inning_to: null,
-      }))
-
-    let insertedFielderRows = []
-    if (newFielderRows.length) {
-      const { data, error } = await supabase.from(scorebookTables.gameFielders).insert(newFielderRows.map(addSourceFields)).select()
-      if (error) {
-        pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
-        return
-      }
-      insertedFielderRows = data || newFielderRows.map(addSourceFields)
-    }
-
-    // Hold off on merging the realtime echo of this save — a read against a lagging
-    // replica could otherwise return pre-update rows and clobber the optimistic state below.
-    deferRealtimeHydration()
-
-    const closedIds = new Set(toClose.map((r) => String(r.id)))
-    const deletedIds = new Set(toDelete.map((r) => String(r.id)))
-    // An empty `order` means this snapshot doesn't know the batting order at
-    // all (e.g. a pitcher-only change) — leave the existing lineup rows
-    // alone rather than blanking every character_id to order[idx]===undefined.
-    if (order.length) {
-      setLineups((current) => current.map((row) => {
-        const idx = lineupRows.findIndex((r) => String(r.id) === String(row.id))
-        if (idx === -1) return row
-        return { ...row, character_id: order[idx], batting_order: idx + 1 }
-      }))
-    }
-    setGameFielders((current) => [
-      ...current
-        .filter((row) => !deletedIds.has(String(row.id)))
-        .map((row) => (closedIds.has(String(row.id)) ? { ...row, inning_to: Number(currentInning) - 1 } : row)),
-      ...insertedFielderRows,
-    ])
-
-    if (!skipMirror) {
-      // Mirror this save back into the shared team_lineups/season_team_lineups row so
-      // Roster/SeasonRoster (and any other open Scorebook session) picks up a lineup or
-      // fielding change made mid-game instead of only ever seeing it flow the other way
-      // (team_lineups -> game, via applyIncomingTeamLineup above, and only pre-game at
-      // that). Set the ref before awaiting the upsert so the realtime echo of our own
-      // write can't turn around and re-apply itself as an "incoming" change.
-      lastSyncedTeamLineupRef.current[team] = JSON.stringify({ lineupOrder: order, fieldingPositions: fielding })
-      const sourceId = gameSession?.sourceId
-      if (sourceId && order.length) {
-        const teamLineupsTable = isSeasonGame ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
-        const { error: mirrorError } = await upsertTeamLineup({
-          ...teamLineupsTable,
-          sourceId,
-          playerId,
-          lineupOrder: order,
-          fieldingPositions: fielding,
-        })
-        if (mirrorError) {
-          pushToast({ title: 'Lineup saved, but roster sync failed', message: mirrorError.message, type: 'error' })
-        }
-      }
-    }
-
-    // If this team is currently on defense and the pitcher assignment
-    // changed, record an actual pitching change so the mound, game view,
-    // scorebook field diagram, and bets tab all update.
-    const newPitcherCharId = fielding.pitcher ? Number(fielding.pitcher) : null
-    if (newPitcherCharId && offense?.pitchingPlayerId === playerId && newPitcherCharId !== Number(currentPitcherStint?.character_id)) {
-      await changePitcherRef.current?.(playerId, newPitcherCharId)
-    }
-  }, [selectedGame, teamAId, teamBId, teamALineup, teamBLineup, scorebookTables.lineups, scorebookTables.gameFielders, gameFielderRows, currentInning, playersById, charactersById, addSourceFields, pushToast, teamAName, teamBName, offense, currentPitcherStint, gameSession?.sourceId, isSeasonGame])
-
-  const saveTeamLineup = useCallback((team) => {
-    const { order, fielding } = lineupDrafts[team]
-    return applyLineupToGame(team, order, fielding)
-  }, [lineupDrafts, applyLineupToGame])
-
-  const applyLineupToGameRef = useRef(null)
-  useEffect(() => { applyLineupToGameRef.current = applyLineupToGame }, [applyLineupToGame])
-
-  // Shared handler for an incoming team_lineups/season_team_lineups row
-  // (from realtime or from the polling fallback below): updates this
-  // Scorebook session's draft, and — if this session can write to
-  // lineups/game_fielders — applies it there too.
-  const applyIncomingTeamLineup = useCallback((team, lineupOrder, fieldingPositions) => {
-    const payloadJson = JSON.stringify({ lineupOrder, fieldingPositions })
-    if (payloadJson === lastSyncedTeamLineupRef.current[team]) return
-    lastSyncedTeamLineupRef.current[team] = payloadJson
-
-    // Only let saved team_lineups seed lineupDrafts (and, below, lineups/game_fielders)
-    // before the game has actually started. Once the first PA is recorded,
-    // lineups/game_fielders become the authoritative game-specific state — in
-    // particular, currentPitcherStint reflects the real in-game pitcher, and
-    // lineupDrafts[team].fielding.pitcher is kept aligned with it by changePitcher
-    // itself (see "Keep the in-game lineup draft aligned..." above). Without this
-    // gate, this poll/realtime handler (which fires every 5s regardless of game
-    // state) would keep re-seeding lineupDrafts from the stale pregame snapshot —
-    // which is never updated by an in-game pitching change — and the "just took
-    // the mound" effect would then silently revert a mid-game pitcher change back
-    // to whoever was saved before the game started, inserting a duplicate pitching
-    // stint and corrupting that half's pitching line.
-    if (gamePAs.length === 0 && !lineupDirtyRef.current[team]) {
-      setLineupDrafts((current) => ({ ...current, [team]: { order: lineupOrder, fielding: fieldingPositions } }))
-    }
-    if (canEditScorebook && !isGameComplete && gamePAs.length === 0 && (gameLineups.length === 0 || gameFielderRows.length === 0)) {
-      // Guard against a stale/mismatched team_lineups snapshot (e.g. saved
-      // for a different tournament round or before a trade/roster change)
-      // ever clobbering this game's actual lineup. This poll/realtime sync
-      // fires unconditionally the first time it sees a saved row (and on
-      // every 5s tick after that), so without this check a snapshot whose
-      // character ids aren't part of this team's *current in-game* lineup
-      // gets written straight into lineups/game_fielders — and since those
-      // ids don't resolve via charactersById, the whole fielding team (both
-      // the lineup row and the field diagram, which read the resulting
-      // character_id / character name respectively) renders as "?".
-      const gameRosterIds = new Set((team === 'A' ? teamALineup : teamBLineup).map((row) => String(row.character_id)))
-      const referencedIds = [...lineupOrder, ...Object.values(fieldingPositions)]
-      const isKnownLineup = referencedIds.length > 0 && referencedIds.every((id) => gameRosterIds.has(String(id)))
-      if (isKnownLineup) {
-        applyLineupToGameRef.current?.(team, lineupOrder, fieldingPositions, { skipMirror: true })
-      }
-    }
-  }, [canEditScorebook, gameFielderRows.length, gameLineups.length, gamePAs.length, isGameComplete, teamALineup, teamBLineup])
-
-  // Realtime: pick up lineup/fielding edits made via Roster/SeasonRoster (or
-  // another Scorebook session) for either team in this game, and apply them
-  // to lineups/game_fielders so the Lineups tab, field diagram, game view,
-  // and bets tab all update live.
-  useEffect(() => {
-    const sourceId = gameSession?.sourceId
-    const teamAPlayerId = selectedGame?.team_a_player_id
-    const teamBPlayerId = selectedGame?.team_b_player_id
-    if (!sourceId || (!teamAPlayerId && !teamBPlayerId)) return
-
-    const teamLineupsTable = isSeasonGame ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
-    const channel = supabase
-      .channel(`scorebook-team-lineups-${sourceId}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: teamLineupsTable.table,
-        filter: `${teamLineupsTable.idField}=eq.${sourceId}`,
-      }, (payload) => {
-        const row = payload.new
-        if (!row) return
-        let team = null
-        if (String(row.player_id) === String(teamAPlayerId)) team = 'A'
-        else if (String(row.player_id) === String(teamBPlayerId)) team = 'B'
-        if (!team) return
-
-        const lineupOrder = Array.isArray(row.lineup_order) ? row.lineup_order : []
-        const fieldingPositions = row.fielding_positions && typeof row.fielding_positions === 'object' ? row.fielding_positions : {}
-        applyIncomingTeamLineup(team, lineupOrder, fieldingPositions)
-      })
-      .subscribe()
-
-    // Realtime postgres_changes can silently fail to deliver in some
-    // environments (and browsers throttle websockets on backgrounded tabs),
-    // so poll both teams' saved lineup/fielding as a fallback to guarantee
-    // they stay in sync everywhere — including a pitcher change made while
-    // that team was batting, which gets applied the moment they take the
-    // mound via the offense-change effect below.
-    const pollTeamLineups = () => {
-      const teams = [
-        ['A', teamAPlayerId],
-        ['B', teamBPlayerId],
-      ]
-      teams.forEach(([team, playerId]) => {
-        if (!playerId) return
-        fetchTeamLineup({ ...teamLineupsTable, sourceId, playerId }).then((saved) => {
-          if (!saved) return
-          const lineupOrder = Array.isArray(saved.lineupOrder) ? saved.lineupOrder : []
-          const fieldingPositions = saved.fieldingPositions && typeof saved.fieldingPositions === 'object' ? saved.fieldingPositions : {}
-          applyIncomingTeamLineup(team, lineupOrder, fieldingPositions)
-        })
-      })
-    }
-    // Skip the fallback poll's actual work while backgrounded — a background tab isn't the one
-    // a browser needs to worry about here, and polling every 5s regardless of visibility keeps
-    // the tab constantly "active," which is exactly what makes browsers reclaim it first when
-    // freeing memory from inactive tabs. Resync immediately the moment the tab is shown again.
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') pollTeamLineups()
-    }
-    document.addEventListener('visibilitychange', handleVisibility)
-    const pollInterval = setInterval(() => {
-      if (document.hidden) return
-      pollTeamLineups()
-    }, 5000)
-
-    return () => {
-      supabase.removeChannel(channel)
-      document.removeEventListener('visibilitychange', handleVisibility)
-      clearInterval(pollInterval)
-    }
-  }, [gameSession?.sourceId, isSeasonGame, selectedGame?.team_a_player_id, selectedGame?.team_b_player_id, applyIncomingTeamLineup])
-
-  // A pitcher swap made while a team was batting can't be applied to
-  // pitching_stints right away (they're not the pitching team yet). Once
-  // that team takes the mound, check their saved fielding.pitcher against
-  // the active pitching stint and apply the change then.
-  //
-  // This must only run at the moment a team *transitions onto* defense —
-  // not on every render where lineupDrafts/currentPitcherStint merely
-  // change reference. Otherwise a manual mid-half pitcher change (which
-  // updates currentPitcherStint) gets immediately fought and reverted back
-  // to the saved lineup pitcher the next time lineupDrafts refreshes
-  // (Lineups tab open, the 5s poll, realtime), since that's still the old
-  // saved value.
-  const prevDefensivePlayerIdRef = useRef(null)
-  // Tracks whether we've observed a defensive side at all yet — without this,
-  // the very first run after any remount (tab reload, navigating back to this
-  // game) sees prevDefensivePlayerIdRef.current as null and misreads "the
-  // team already on defense" as having "just taken the mound", which then
-  // force-reverts an already-correct current pitcher back to whatever stale
-  // fielding.pitcher happens to be sitting in lineupDrafts.
-  const hasSeenDefensiveSideRef = useRef(false)
-  useEffect(() => {
-    if (!offense?.pitchingPlayerId || !canEditScorebook) return
-    const justTookMound = hasSeenDefensiveSideRef.current && prevDefensivePlayerIdRef.current !== offense.pitchingPlayerId
-    prevDefensivePlayerIdRef.current = offense.pitchingPlayerId
-    hasSeenDefensiveSideRef.current = true
-    if (!justTookMound) return
-    const team = String(offense.pitchingPlayerId) === String(selectedGame?.team_a_player_id) ? 'A'
-      : String(offense.pitchingPlayerId) === String(selectedGame?.team_b_player_id) ? 'B' : null
-    if (!team) return
-    const desiredPitcherCharId = lineupDrafts[team]?.fielding?.pitcher ? Number(lineupDrafts[team].fielding.pitcher) : null
-    if (desiredPitcherCharId && desiredPitcherCharId !== Number(currentPitcherStint?.character_id)) {
-      changePitcherRef.current?.(offense.pitchingPlayerId, desiredPitcherCharId)
-    }
-  }, [offense?.pitchingPlayerId, canEditScorebook, lineupDrafts, currentPitcherStint, selectedGame?.team_a_player_id, selectedGame?.team_b_player_id])
-
-  // Lineup/fielding edits are saved explicitly via the Save button rather
-  // than autosaved, to avoid races with realtime/poll updates from other
-  // viewers clobbering in-flight edits. Other viewers' Lineups tabs pick
-  // this up via the realtime subscriptions on `lineups`/`game_fielders`
-  // (and rebuild their draft above) once saved.
-  const handleSaveLineupTeam = useCallback(async (team) => {
-    setLineupSaveStatus((current) => ({ ...current, [team]: 'saving' }))
-    try {
-      await saveTeamLineup(team)
-      markLineupDirty(team, false)
-      setLineupSaveStatus((current) => ({ ...current, [team]: 'saved' }))
-    } catch (err) {
-      setLineupSaveStatus((current) => ({ ...current, [team]: 'error' }))
-      throw err
-    }
-  }, [saveTeamLineup, markLineupDirty])
-
-  const handleSaveAllDirtyLineups = useCallback(async () => {
-    const teams = ['A', 'B'].filter((team) => lineupDirtyRef.current[team])
-    await Promise.all(teams.map((team) => handleSaveLineupTeam(team)))
-  }, [handleSaveLineupTeam])
 
   // The At-Bat Editor tab reports its own dirty state here since its draft
   // lives inside AtBatEditor, not Scorebook — folded into the same leave-page
   // guard as lineup edits below. atBatPanelRef lets the "Save & Leave" flow
   // trigger that component's save without lifting its whole draft up into
   // Scorebook.
+
   const atBatPanelRef = useRef(null)
   const inPlayDetailsFooterRef = useRef(null)
   const inPlayStageRef = useRef(null)
@@ -3641,11 +1370,9 @@ export default function Scorebook() {
   // re-triggering the unsaved-changes prompt on every subsequent navigation
   // even though there's nothing left to discard.
   const handleDiscardAllDirtyAndAtBat = useCallback(() => {
-    lineupDirtyRef.current = { A: false, B: false }
-    setLineupDirty({ A: false, B: false })
-    setLineupDrafts({ A: buildLineupDraft('A'), B: buildLineupDraft('B') })
+    discardLineupChanges()
     if (atBatDataDirty) atBatPanelRef.current?.discard?.()
-  }, [buildLineupDraft, atBatDataDirty])
+  }, [discardLineupChanges, atBatDataDirty])
 
   const lineupBlocker = useUnsavedChangesGuard(anyUnsavedChanges)
   useRegisterUnsavedChanges(anyUnsavedChanges, handleSaveAllDirtyAndAtBat)
@@ -3766,11 +1493,16 @@ export default function Scorebook() {
     // otherwise flash the previous half's runners for viewers.
     if (canEditScorebook) return runners
     const nextRunners = selectedGameLiveState?.runners || { first: null, second: null, third: null }
+    // A tracker snapshot writes inning, PA and runners together and its runner
+    // feed is authoritative. The manual anti-flicker heuristic below hid a
+    // genuine first-PA runner when stale inning metadata made currentHalfPaCount
+    // look like zero; never discard an explicit tracker base snapshot.
+    if (selectedGame?.stats_source === 'tracker') return nextRunners
     if (displayOutsInHalf === 0 && currentHalfPaCount === 0) {
       return { first: null, second: null, third: null }
     }
     return nextRunners
-  }, [canEditScorebook, runners, selectedGameLiveState?.runners, displayOutsInHalf, currentHalfPaCount])
+  }, [canEditScorebook, runners, selectedGame?.stats_source, selectedGameLiveState?.runners, displayOutsInHalf, currentHalfPaCount])
   const gameWinProbabilityContext = useMemo(() => {
     if (!selectedGame) return null
     return buildSharedOddsGenerationContext({
@@ -4022,217 +1754,23 @@ export default function Scorebook() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offense?.battingPlayerId])
 
-  useEffect(() => {
-    if (!selectedGameId || !currentActivePaScope) {
-      setActivePaLoadedScope(null)
-      return
-    }
-    const storageKey = getActivePaStorageKey(selectedGameId)
-    try {
-      const localRestore = localActivePaRestoreRef.current
-      const shouldApplyLocalRestore = localRestore
-        && String(localRestore.gameId) === String(selectedGameId)
-        && Number(localRestore.paNumber) === Number(activePaNumber)
-        && String(localRestore.batterPlayerId) === String(currentBatter?.player_id)
-        && String(localRestore.batterCharacterId) === String(currentBatter?.character_id)
-      if (shouldApplyLocalRestore) {
-        const restoredRows = Array.isArray(localRestore.paPitchRows) ? localRestore.paPitchRows : []
-        const storedSnapshot = {
-          scope: currentActivePaScope,
-          pitcherKey: currentPitcherStorageKey,
-          balls: Number(localRestore.balls || 0),
-          strikes: Number(localRestore.strikes || 0),
-          pitchNumber: Number(localRestore.pitchNumber || 0),
-          paPitchRows: restoredRows,
-          starHitUsed: false,
-          starHitPending: false,
-          starHitConnected: false,
-          starPitchActive: false,
-          pitchActionSheet: null,
-          pendingPitchEvent: null,
-          inPlayState: null,
-          rbiOverlay: null,
-        }
-        sessionStorage.setItem(storageKey, JSON.stringify(storedSnapshot))
-        setStarPitchActive(false)
-        setPitchActionSheet(null)
-        setPendingPitchEvent(null)
-        paPitchRowsRef.current = restoredRows
-        setPaPitchRows(restoredRows)
-        setInPlayState(null)
-        setRbiOverlay(null)
-        setStarHitUsed(false)
-        setStarHitPending(false)
-        setStarHitConnected(false)
-        restorePitchState(storedSnapshot)
-        localActivePaRestoreRef.current = null
-        setActivePaLoadedScope(currentActivePaScope)
-        return
-      }
-      // A just-recorded local pitch is already authoritative in the synchronous
-      // count/row refs. Realtime can echo an older live_state snapshot before the
-      // debounced publisher catches up; re-hydrating that echo here rewinds the
-      // count and lets the next tap record a duplicate pitch. Keep the local
-      // active-PA snapshot in charge during the short publish/refresh window.
-      if (
-        activePaLoadedScope === currentActivePaScope
-        && Date.now() < deferRealtimeUntilRef.current
-      ) return
-      const raw = sessionStorage.getItem(storageKey)
-      const parsed = raw ? JSON.parse(raw) : null
-      // A local undo (reopenLastCompletedPA) deletes+refetches this PA's pitches to
-      // reopen it mid-count, which changes currentPitcherPitchRows.length and re-runs
-      // this very effect. The DB's live_state row hasn't caught up to the just-restored
-      // count yet (it publishes on its own debounce), so trusting it here would clobber
-      // the sessionStorage snapshot we just wrote with stale balls/strikes — hold off on
-      // live-state hydration until that window passes.
-      const withinLocalUndoHold = Date.now() < deferRealtimeUntilRef.current
-      const shouldHydrateFromLiveState = !withinLocalUndoHold && selectedGameLiveState
-        && (!selectedGameLiveState.batterPlayerId || String(selectedGameLiveState.batterPlayerId) === String(currentBatter?.player_id))
-        && (!selectedGameLiveState.batterCharacterId || String(selectedGameLiveState.batterCharacterId) === String(currentBatter?.character_id))
-      const committedPitchNumber = Number(currentPitcherPitchRows.length)
-      const liveStateHasActivePitchCount = Number(selectedGameLiveState?.balls || 0) > 0
-        || Number(selectedGameLiveState?.strikes || 0) > 0
-      // The mound just changed pitchers (relative to the last time this effect
-      // resolved a pitch number) — a live_state row published in the same tick
-      // as the change can still be carrying the *previous* pitcher's pitch
-      // count (its own publish effect runs off state that hasn't caught up to
-      // the new pitcherKey yet, and a fresh stint may not have a `pitcherStintId`
-      // to compare against yet either). Refuse to hydrate from live state for
-      // this one resolution — the committed pitch rows for the new pitcher are
-      // the only trustworthy baseline right after a pitching change.
-      const isPitcherChangeTransition = lastRestoredPitcherStorageKeyRef.current !== null
-        && lastRestoredPitcherStorageKeyRef.current !== currentPitcherStorageKey
-      // A pitcher change (even mid-at-bat, via the Lineups tab or mound drag)
-      // doesn't reset balls/strikes — the count belongs to the at-bat — but
-      // it must reset the pitch counter, so this can't just piggyback on
-      // shouldHydrateFromLiveState's batter-only check: the live_state row
-      // being hydrated from may still reflect the *previous* pitcher's pitch
-      // count if it hasn't been re-published since the change.
-      const shouldHydratePitchNumberFromLiveState = shouldHydrateFromLiveState
-        && !isPitcherChangeTransition
-        && (!selectedGameLiveState.pitcherStintId || String(selectedGameLiveState.pitcherStintId) === String(currentPitcherStint?.id))
-        // A clean 0-0 live state only carries inning/runner context; its pitch
-        // number is not needed for PA recovery and can be a stale value written
-        // during a pitcher-change render. The committed pitch rows are the
-        // authoritative baseline in that case.
-        && liveStateHasActivePitchCount
-      lastRestoredPitcherStorageKeyRef.current = currentPitcherStorageKey
-      const livePitchNumber = Math.max(
-        committedPitchNumber,
-        Number(selectedGameLiveState?.pitchNumber ?? committedPitchNumber),
-      )
-      if (parsed?.scope === currentActivePaScope) {
-        const shouldReuseStoredPitchCount = !shouldHydratePitchNumberFromLiveState && String(parsed.pitcherKey || '') === String(currentPitcherStorageKey)
-        setStarPitchActive(Boolean(parsed.starPitchActive))
-        setPitchActionSheet(parsed.pitchActionSheet || null)
-        setPendingPitchEvent(parsed.pendingPitchEvent || null)
-        const storedRows = Array.isArray(parsed.paPitchRows) ? parsed.paPitchRows : []
-        paPitchRowsRef.current = storedRows
-        setPaPitchRows(storedRows)
-        setInPlayState(parsed.inPlayState || null)
-        setRbiOverlay(parsed.rbiOverlay || null)
-        setStarHitUsed(Boolean(parsed.starHitUsed))
-        setStarHitPending(Boolean(parsed.starHitPending))
-        setStarHitConnected(Boolean(parsed.starHitConnected))
-        restorePitchState({
-          balls: shouldHydrateFromLiveState ? Number(selectedGameLiveState.balls || 0) : Number(parsed.balls || 0),
-          strikes: shouldHydrateFromLiveState ? Number(selectedGameLiveState.strikes || 0) : Number(parsed.strikes || 0),
-          pitchNumber: shouldHydratePitchNumberFromLiveState
-            ? livePitchNumber
-            : shouldReuseStoredPitchCount
-              ? Math.max(committedPitchNumber, Number(parsed.pitchNumber ?? committedPitchNumber))
-              : committedPitchNumber,
-        })
-      } else {
-        setStarPitchActive(false)
-        setPitchActionSheet(null)
-        setPendingPitchEvent(null)
-        const liveRows = shouldHydrateFromLiveState && Array.isArray(selectedGameLiveState.paPitchRows)
-          ? selectedGameLiveState.paPitchRows
-          : []
-        paPitchRowsRef.current = liveRows
-        setPaPitchRows(liveRows)
-        setInPlayState(null)
-        setRbiOverlay(null)
-        setStarHitUsed(shouldHydrateFromLiveState && Boolean(selectedGameLiveState.starHitUsed))
-        setStarHitPending(shouldHydrateFromLiveState && Boolean(selectedGameLiveState.starHitPending))
-        setStarHitConnected(shouldHydrateFromLiveState && Boolean(selectedGameLiveState.starHitConnected))
-        setStarPitchActive(shouldHydrateFromLiveState && Boolean(selectedGameLiveState.starPitchActive))
-        restorePitchState({
-          balls: shouldHydrateFromLiveState ? Number(selectedGameLiveState.balls || 0) : 0,
-          strikes: shouldHydrateFromLiveState ? Number(selectedGameLiveState.strikes || 0) : 0,
-          pitchNumber: shouldHydratePitchNumberFromLiveState
-            ? livePitchNumber
-            : committedPitchNumber,
-        })
-        if (!shouldHydrateFromLiveState) {
-          sessionStorage.removeItem(storageKey)
-        }
-      }
-    } catch {
-      setStarPitchActive(false)
-      setPitchActionSheet(null)
-      setPendingPitchEvent(null)
-      paPitchRowsRef.current = []
-      setPaPitchRows([])
-      setInPlayState(null)
-      setRbiOverlay(null)
-      setStarHitUsed(false)
-      setStarHitPending(false)
-      setStarHitConnected(false)
-      restorePitchState({
-        balls: 0,
-        strikes: 0,
-        pitchNumber: Number(currentPitcherPitchRows.length),
-      })
-    }
-    setActivePaLoadedScope(currentActivePaScope)
-  }, [selectedGameId, currentActivePaScope, activePaLoadedScope, activePaNumber, currentPitcherPitchRows.length, currentPitcherStorageKey, currentPitcherStint?.id, restorePitchState, selectedGameLiveState, currentBatter?.player_id, currentBatter?.character_id])
-
-  useEffect(() => {
-    if (!selectedGameId || !currentActivePaScope) return
-    if (activePaLoadedScope !== currentActivePaScope) return
-    const storageKey = getActivePaStorageKey(selectedGameId)
-    try {
-      if (
-        !paPitchRows.length &&
-        !starHitUsed &&
-        !starHitConnected &&
-        !starPitchActive &&
-        !pitchActionSheet &&
-        !pendingPitchEvent &&
-        !inPlayState &&
-        !rbiOverlay
-      ) {
-        sessionStorage.removeItem(storageKey)
-        return
-      }
-      sessionStorage.setItem(storageKey, JSON.stringify({
-        scope: currentActivePaScope,
-        pitcherKey: currentPitcherStorageKey,
-        balls,
-        strikes,
-        pitchNumber,
-        paPitchRows,
-        starHitUsed,
-        starHitPending,
-        starHitConnected,
-        starPitchActive,
-        pitchActionSheet,
-        pendingPitchEvent,
-        inPlayState,
-        rbiOverlay,
-      }))
-    } catch {}
-  }, [
+  const localActivePaRestoreRef = useActivePaPersistence({
     selectedGameId,
     currentActivePaScope,
-    activePaLoadedScope,
+    activePaNumber,
+    currentPitcherPitchRows,
+    currentPitcherStorageKey,
+    currentPitcherStintId: currentPitcherStint?.id,
+    restorePitchState,
+    selectedGameLiveState,
+    currentBatterPlayerId: currentBatter?.player_id,
+    currentBatterCharacterId: currentBatter?.character_id,
+    deferRealtimeUntilRef,
     balls,
     strikes,
     pitchNumber,
     paPitchRows,
+    paPitchRowsRef,
     starHitUsed,
     starHitPending,
     starHitConnected,
@@ -4241,8 +1779,16 @@ export default function Scorebook() {
     pendingPitchEvent,
     inPlayState,
     rbiOverlay,
-    currentPitcherStorageKey,
-  ])
+    setStarPitchActive,
+    setPitchActionSheet,
+    setPendingPitchEvent,
+    setPaPitchRows,
+    setInPlayState,
+    setRbiOverlay,
+    setStarHitUsed,
+    setStarHitPending,
+    setStarHitConnected,
+  })
 
   useEffect(() => {
     if (!redoAction) return
@@ -4271,82 +1817,17 @@ export default function Scorebook() {
   )
 
 
-  useEffect(() => {
-    if (!selectedGameId) return
-    // Wait for the game itself (and thus `offense`) to finish loading before
-    // deciding what to hydrate — otherwise, right after a remount (e.g.
-    // navigating away and back), `offense` is still null and neither the
-    // sessionStorage cache nor the DB live_state can be trusted, so this
-    // would fall back to empty runners and then permanently mark the scope
-    // as loaded below, locking in the wrong (empty) state forever.
-    if (!selectedGame || !offense) return
-    if (runnerStateLoadedScope === `${selectedGameId}:${currentHalfIdx}`) return
-    const runnerKey = getRunnerStateStorageKey(selectedGameId, currentHalfIdx)
-    const historyKey = getRunnerHistoryStorageKey(selectedGameId, currentHalfIdx)
-    try {
-      const stored = sessionStorage.getItem(runnerKey)
-      const storedHistory = sessionStorage.getItem(historyKey)
-      const parsed = stored ? JSON.parse(stored) : null
-      const parsedHistory = storedHistory ? JSON.parse(storedHistory) : []
-      const storedBattingPlayerId = parsed?.runners ? parsed.battingPlayerId : null
-      const storedRunners = parsed?.runners ?? parsed
-      const rawHistory = Array.isArray(parsedHistory?.history) ? parsedHistory.history : (Array.isArray(parsedHistory) ? parsedHistory : [])
-      const historyBattingPlayerId = Array.isArray(parsedHistory?.history) ? parsedHistory.battingPlayerId : null
-      const normalizedRunners = {
-        first: storedRunners?.first || null,
-        second: storedRunners?.second || null,
-        third: storedRunners?.third || null,
-      }
-      const shouldTrustStoredRunners = !storedBattingPlayerId || String(storedBattingPlayerId) === String(offense?.battingPlayerId)
-      const shouldTrustStoredHistory = !historyBattingPlayerId || String(historyBattingPlayerId) === String(offense?.battingPlayerId)
-      const shouldTrustLiveStateRunners = selectedGameLiveState
-        && (!selectedGameLiveState.batterPlayerId || String(selectedGameLiveState.batterPlayerId) === String(offense?.battingPlayerId))
-      const fallbackRunners = shouldTrustLiveStateRunners
-        ? normalizeLiveRunners(selectedGameLiveState.runners)
-        : { first: null, second: null, third: null }
-      const useStoredRunners = shouldTrustStoredRunners && stored && !shouldTrustLiveStateRunners
-      setRunners(sanitizeRunnersForOffense(
-        useStoredRunners
-          ? normalizedRunners
-          : fallbackRunners,
-        offense,
-      ))
-      // Mirror the runners fallback above: a fresh session (no sessionStorage yet,
-      // e.g. after closing/reopening the tab) previously always fell back to an
-      // empty undo stack here, so the very first Undo of that session had nothing
-      // to pop back to and left a just-deleted PA's runner still parked on base.
-      // Prefer the same live_state snapshot (persisted server-side, survives a
-      // reload) that `runners` itself already trusts above.
-      const fallbackHistory = shouldTrustLiveStateRunners && Array.isArray(selectedGameLiveState?.runnersHistory)
-        ? selectedGameLiveState.runnersHistory
-        : []
-      const useStoredHistory = shouldTrustStoredHistory && storedHistory && !shouldTrustLiveStateRunners
-      setRunnersHistory(
-        (useStoredHistory ? rawHistory : fallbackHistory).map((entry) => sanitizeRunnersForOffense(entry, offense))
-      )
-    } catch {
-      setRunners({ first: null, second: null, third: null })
-      setRunnersHistory([])
-    }
-    setRunnerStateLoadedScope(`${selectedGameId}:${currentHalfIdx}`)
-  }, [selectedGameId, currentHalfIdx, offense, selectedGame, selectedGameLiveState, runnerStateLoadedScope])
-
-  useEffect(() => {
-    if (!selectedGameId || runnerStateLoadedScope !== `${selectedGameId}:${currentHalfIdx}`) return
-    const runnerKey = getRunnerStateStorageKey(selectedGameId, currentHalfIdx)
-    const historyKey = getRunnerHistoryStorageKey(selectedGameId, currentHalfIdx)
-    try {
-      sessionStorage.setItem(runnerKey, JSON.stringify({
-        battingPlayerId: offense?.battingPlayerId || null,
-        runners: sanitizeRunnersForOffense(runners, offense),
-        updatedAt: new Date().toISOString(),
-      }))
-      sessionStorage.setItem(historyKey, JSON.stringify({
-        battingPlayerId: offense?.battingPlayerId || null,
-        history: runnersHistory.map((entry) => sanitizeRunnersForOffense(entry, offense)),
-      }))
-    } catch {}
-  }, [selectedGameId, currentHalfIdx, runnerStateLoadedScope, runners, runnersHistory, offense])
+  const runnerStateLoadedScope = useRunnerStatePersistence({
+    selectedGameId,
+    currentHalfIdx,
+    offense,
+    selectedGame,
+    selectedGameLiveState,
+    runners,
+    setRunners,
+    runnersHistory,
+    setRunnersHistory,
+  })
 
   const [isSaving, setIsSaving] = useState(false)
   const canRecordOutcome = Boolean(currentPitcherStint) && (!isSaving || isUndoInFlight) && !isPitchActionPending && canEditScorebook
@@ -4354,134 +1835,30 @@ export default function Scorebook() {
   useEffect(() => () => {
     if (saveWatchdogRef.current) clearTimeout(saveWatchdogRef.current)
     if (pitchActionUnlockRef.current) clearTimeout(pitchActionUnlockRef.current)
-    if (liveStatePublishTimeoutRef.current) clearTimeout(liveStatePublishTimeoutRef.current)
   }, [])
 
-  useEffect(() => {
-    lastPublishedLiveStateRef.current = serializeLiveStateForComparison(selectedGame?.live_state)
-  }, [selectedGame?.id, selectedGame?.live_state])
-
-  useEffect(() => {
-    if (!selectedGame || !canEditScorebook || isGameComplete || !offense || !currentBatter) return undefined
-    // Don't publish live_state until the runner-load effect has hydrated
-    // `runners` for this game/half — otherwise this can race ahead of that
-    // hydration, see the still-default empty runners, and write a bogus
-    // "bases empty" live_state that clobbers real baserunners in the DB
-    // (especially bad since a tab-hide/pagehide flush can send that
-    // premature write immediately, bypassing the normal debounce).
-    if (runnerStateLoadedScope !== `${selectedGameId}:${currentHalfIdx}`) return undefined
-
-    const normalizedRunners = sanitizeRunnersForOffense(
-      normalizeLiveRunners(runners),
-      offense,
-    )
-    // The baserunner undo stack, sanitized the same way `runners` itself is — every
-    // entry in it belongs to the current half-inning/offense since resetRunners()
-    // clears it at each half turnover, so one sanitize pass covers the whole array.
-    const normalizedRunnersHistory = runnersHistory.map((entry) => sanitizeRunnersForOffense(
-      normalizeLiveRunners(entry),
-      offense,
-    ))
-    const hasLiveContext = hasAnyActiveRunners(normalizedRunners)
-      // A clean out with nobody left on base (e.g. SF/SH scoring the runner
-      // from 3B, or a bases-empty groundout) still needs live_state to
-      // preserve the half-inning's current out count for reloads/spectators.
-      || outsInHalf > 0
-      || balls > 0
-      || strikes > 0
-      || paPitchRows.length > 0
-      || Boolean(pendingPA)
-      || Boolean(pitchActionSheet)
-      || Boolean(pendingPitchEvent)
-      || Boolean(inPlayState)
-      || Boolean(rbiOverlay)
-      || starPitchActive
-      || starHitPending
-      || starHitConnected
-      // Bases can be empty right now (e.g. right after a solo HR) while the undo
-      // stack still holds real prior states an Undo needs to fall back to — don't
-      // let a "nothing live" false negative here null out live_state and drop it.
-      || normalizedRunnersHistory.length > 0
-    const nextLiveState = hasLiveContext
-      ? {
-          inning: offense.inning,
-          isTop: offense.isTop,
-          outsInHalf,
-          balls,
-          strikes,
-          pitchNumber,
-          pitcherStintId: currentPitcherStint?.id ?? null,
-          paNumber: activePaNumber,
-          batterCharacterId: currentBatter.character_id,
-          batterPlayerId: currentBatter.player_id,
-          onDeckCharacterId: onDeckBatter?.character_id ?? null,
-          onDeckPlayerId: onDeckBatter?.player_id ?? null,
-          runners: normalizedRunners,
-          runnersHistory: normalizedRunnersHistory,
-          paPitchRows,
-          starHitUsed,
-          starHitPending,
-          starHitConnected,
-          starPitchActive,
-          updatedAt: new Date().toISOString(),
-        }
-      : null
-    const nextSerialized = serializeLiveStateForComparison(nextLiveState)
-    const targetStatus = isSeasonGame ? 'in_progress' : 'active'
-    const shouldPromoteStatus = ['pending', 'scheduled'].includes(String(selectedGame.status || '')) && (hasLiveContext || gamePAs.length > 0)
-    const shouldClearLiveState = !hasLiveContext && Boolean(selectedGameLiveState)
-
-    if (nextSerialized === lastPublishedLiveStateRef.current && !shouldPromoteStatus && !shouldClearLiveState) {
-      return undefined
-    }
-
-    const updatePayload = {}
-    if (nextSerialized !== lastPublishedLiveStateRef.current || shouldClearLiveState) {
-      // Both live providers currently enforce NOT NULL on live_state. Persist
-      // an empty JSON object when the active context is cleared; writing SQL
-      // NULL makes tournament half transitions and completion fail with 400.
-      updatePayload.live_state = getPersistedLiveStateValue(nextLiveState, true)
-    }
-    if (shouldPromoteStatus) {
-      updatePayload.status = targetStatus
-    }
-    if (!Object.keys(updatePayload).length) return undefined
-
-    pendingLiveStateRef.current = { gameId: selectedGame.id, updatePayload }
-    lastPublishedLiveStateRef.current = nextSerialized
-
-    // Debounce the write so rapid pitch sequences (e.g. ball-ball-strikeout)
-    // collapse into a single update reflecting the final count, rather than
-    // racing multiple in-flight writes that can resolve out of order and
-    // leave a stale balls/strikes value stuck in live_state.
-    if (liveStatePublishTimeoutRef.current) clearTimeout(liveStatePublishTimeoutRef.current)
-    const publishSeq = ++liveStatePublishSeqRef.current
-    liveStatePublishTimeoutRef.current = setTimeout(() => {
-      liveStatePublishTimeoutRef.current = null
-      supabase.from(scorebookTables.games).update(updatePayload).eq('id', selectedGame.id).then(({ error }) => {
-        if (liveStatePublishSeqRef.current !== publishSeq) return
-        if (error) {
-          lastPublishedLiveStateRef.current = serializeLiveStateForComparison(selectedGame?.live_state)
-        } else if (pendingLiveStateRef.current?.gameId === selectedGame.id && pendingLiveStateRef.current?.updatePayload === updatePayload) {
-          pendingLiveStateRef.current = null
-        }
-      })
-    }, 180)
-
-    return undefined
-  }, [
+  useLiveGamePersistence({
     selectedGame,
+    selectedGameId,
+    selectedGameLiveState,
     canEditScorebook,
     isGameComplete,
+    isSeasonGame,
+    gamesTable: scorebookTables.games,
+    accessToken: session?.access_token,
     offense,
+    currentHalfIdx,
+    runnerStateLoadedScope,
     currentBatter,
     onDeckBatter,
     runners,
     runnersHistory,
+    outsInHalf,
     balls,
     strikes,
     pitchNumber,
     currentPitcherStint,
+    activePaNumber,
     paPitchRows,
     pendingPA,
     pitchActionSheet,
@@ -4492,51 +1869,8 @@ export default function Scorebook() {
     starHitUsed,
     starHitPending,
     starHitConnected,
-    activePaNumber,
-    outsInHalf,
-    gamePAs.length,
-    isSeasonGame,
-    scorebookTables.games,
-    selectedGameLiveState,
-    selectedGame?.live_state,
-    runnerStateLoadedScope,
-    selectedGameId,
-    currentHalfIdx,
-  ])
-
-  // ── Best-effort flush of any in-flight live_state write on tab close ───────
-  useEffect(() => {
-    const flushPendingLiveState = () => {
-      const pending = pendingLiveStateRef.current
-      const accessToken = session?.access_token
-      if (!pending || !accessToken) return
-      const { gameId, updatePayload } = pending
-      pendingLiveStateRef.current = null
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/${scorebookTables.games}?id=eq.${gameId}`
-      fetch(url, {
-        method: 'PATCH',
-        keepalive: true,
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(updatePayload),
-      }).catch(() => {})
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushPendingLiveState()
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    window.addEventListener('pagehide', flushPendingLiveState)
-    window.addEventListener('beforeunload', flushPendingLiveState)
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('pagehide', flushPendingLiveState)
-      window.removeEventListener('beforeunload', flushPendingLiveState)
-    }
-  }, [session?.access_token, scorebookTables.games])
+    gamePaCount: gamePAs.length,
+  })
 
   useEffect(() => {
     if (!isScorekeeper) {
@@ -4695,7 +2029,7 @@ export default function Scorebook() {
           }
         : entry
     )))
-    await supabase.from(scorebookTables.games).update(payload).eq('id', game.id)
+    await updateGameRecord({ tables: scorebookTables, gameId: game.id, patch: payload })
   }
 
   async function syncInningScores({ freshPAs = [], freshRuns = [], game }) {
@@ -4743,9 +2077,7 @@ export default function Scorebook() {
       ...normalizedRows,
     ])
 
-    await supabase.from(scorebookTables.inningScores).delete().eq('game_id', game.id)
-    if (!payload.length) return
-    const { error } = await supabase.from(scorebookTables.inningScores).insert(payload)
+    const { error } = await replaceInningScoreRows({ tables: scorebookTables, gameId: game.id, rows: payload })
     if (error) throw error
   }
 
@@ -4788,7 +2120,7 @@ export default function Scorebook() {
 
   const upsertChangedOdds = useCallback(async (changedRows) => {
     if (!selectedGame || !changedRows.length) return
-    const { data: existingOdds } = await supabase.from(scorebookTables.gameOdds).select('*').eq('game_id', selectedGame.id)
+    const { data: existingOdds } = await fetchGameOdds({ tables: scorebookTables, gameId: selectedGame.id })
     const payload = mergeOddsWithExistingRows(changedRows, existingOdds || []).map((row) => {
       const sanitized = Object.fromEntries(
         Object.entries(row).filter(([, value]) => value !== null && value !== undefined),
@@ -4812,9 +2144,8 @@ export default function Scorebook() {
         }, {}),
     )
 
-    await persistOddsRowsWithFallback({
-      supabase,
-      table: scorebookTables.gameOdds,
+    await persistScorebookOddsRows({
+      tables: scorebookTables,
       updates: toUpdate,
       inserts: toInsert,
     })
@@ -4822,7 +2153,7 @@ export default function Scorebook() {
 
   const ensureLiveOdds = useCallback(async (overridePitching = gamePitching, overridePAs = gamePAs) => {
     if (!selectedGame) return []
-    const { data: currentOdds } = await supabase.from(scorebookTables.gameOdds).select('*').eq('game_id', selectedGame.id)
+    const { data: currentOdds } = await fetchGameOdds({ tables: scorebookTables, gameId: selectedGame.id })
     if ((currentOdds || []).length) return currentOdds || []
 
     const generationContext = buildOddsGenerationContext(overridePitching, overridePAs)
@@ -4997,14 +2328,13 @@ export default function Scorebook() {
     // make a diff check think the row is already correct and skip it forever
     // after — silently freezing that pitcher's stats in the database even
     // though the UI still shows the right numbers locally.
-    await Promise.all(
-      stints.map((stint) =>
-        supabase
-          .from(scorebookTables.pitchingStints)
-          .update(nextStatsByStintId[stint.id])
-          .eq('id', stint.id),
-      ),
-    )
+    await updatePitchingStintStats({
+      tables: scorebookTables,
+      updates: stints.map((stint) => ({
+        stintId: stint.id,
+        patch: nextStatsByStintId[stint.id],
+      })),
+    })
 
     setPitchingStints((current) => current.map((stint) => (
       nextStatsByStintId[stint.id]
@@ -5185,6 +2515,7 @@ export default function Scorebook() {
       // on the bases during an otherwise-safe hit/error, which the result
       // code alone (calculateOutsForPa) can't see.
       outsOnPlay: outAssignments.length,
+      runnerAssignments: runnerAssignmentsForSave({ assignments, cancelRuns: wipeRunsOnPlay }),
       ...paMeta,
       // paMeta.starHitRbi is a placeholder 0 set before runners were resolved (see the
       // NEEDS_RESOLUTION branch that builds pendingPA) — the real RBI is only known now, once
@@ -5394,7 +2725,7 @@ export default function Scorebook() {
   }, [canEditScorebook, buildActivePaSnapshot, recordInPlay, starPitchActive, appendPitchEvent, starHitPending, starHitUsed, queueCorrectionDuringUndo])
 
   const finalizeInPlay = useCallback(async (state) => {
-    if (!canEditScorebook || !canFinalizeInPlaySelection(state, activeDefensiveFielders)) return
+    if (!canEditScorebook || !canFinalizeInPlaySelection(state, activeDefensiveFielders, charactersHaveGoodChemistry)) return
     // Freeze the build-the-play/runner-placement UI the instant a save starts.
     // commitPendingPA below pushes the new base state synchronously, ahead of
     // its awaited saveEnhancedPA call — if the details screen were still live
@@ -5480,9 +2811,10 @@ export default function Scorebook() {
     // merged build-the-play + runner-placement screen (runnerPlan, defaulted
     // to the auto-detected placement and optionally overridden by the scorer) —
     // finalizeInPlay just converts that plan into assignments and commits.
-    const planAssignments = runnerPlan.map((entry) => buildPendingAssignment(
-      entry.id, entry.runner, entry.origin, entry.position, entry.id === 'batter',
-    ))
+    const planAssignments = runnerPlan.map((entry) => ({
+      ...buildPendingAssignment(entry.id, entry.runner, entry.origin, entry.position, entry.id === 'batter'),
+      ...(entry.position === 'out' && entry.preOutPosition ? { attemptedBase: entry.preOutPosition } : {}),
+    }))
 
     // Every fielder charged with an error on this play, regardless of result
     // type — a clean hit/out that a fielder then booted still scores as that
@@ -5707,6 +3039,7 @@ export default function Scorebook() {
     runEvents = [],
     nextRunners = runners,
     outsOnPlay = null,
+    runnerAssignments = null,
   }) {
     if (!selectedGame || !offense || !currentBatter || !currentPitcherStint || isGameComplete) {
       return { halfCompleted: false, end: null }
@@ -5791,7 +3124,13 @@ export default function Scorebook() {
       inning: editingPa?.inning ?? offense.inning,
       pa_number: editingPa?.pa_number ?? (gamePAs.length + 1),
       result,
-      outs_on_play: outsOnPlay,
+      outs_on_play: calculateOutsForPa(result, outsOnPlay),
+      runner_assignments: runnerAssignmentsForSave({
+        assignments: runnerAssignments,
+        result,
+        runners,
+        batter: buildBatterRunner(isError),
+      }),
       rbi: normalizeRbiForPaResult(result, rbi, isError),
       run_scored: normalizedRunScored,
       trajectory,
@@ -5845,11 +3184,12 @@ export default function Scorebook() {
       is_robbed_hr: Boolean(isRobbedHr),
     }
 
-    const query = editingPa
-      ? supabase.from(scorebookTables.plateAppearances).update(addSourceFields(paPayload)).eq('id', editingPa.id).select().single()
-      : supabase.from(scorebookTables.plateAppearances).insert(addSourceFields(paPayload)).select().single()
     markSaveStep('insert-pa')
-    const { data: savedPa, error } = await query
+    const { data: savedPa, error } = await savePlateAppearanceRecord({
+      tables: scorebookTables,
+      payload: addSourceFields(paPayload),
+      plateAppearanceId: editingPa ? editingPa.id : null,
+    })
     if (error) {
       if (error.code === '23505') {
         pushToast({
@@ -5891,23 +3231,18 @@ export default function Scorebook() {
     }
     clearRedoAction()
 
-    let pitchPayload = pitchRows.map((pitch, index) => ({
-      game_id: selectedGame.id,
-      pa_id: savedPa.id,
-      pitcher_id: pitch.pitcherId || currentPitcherChar?.name || '',
-      pitcher_player: pitch.pitcherPlayer || playersById[pitch.pitcherPlayerId || currentPitcherStint.player_id]?.name || '',
-      batter_id: charactersById[currentBatter.character_id]?.name || '',
+    let pitchPayload = buildPitchRowsForSave({
+      pitchRows,
+      gameId: selectedGame.id,
+      paId: savedPa.id,
+      currentPitcherName: currentPitcherChar?.name || '',
+      currentPitcherStint,
+      playersById,
+      batterName: charactersById[currentBatter.character_id]?.name || '',
       inning: editingPa?.inning ?? offense.inning,
-      half: offense.isTop ? 'top' : 'bottom',
-      pitch_number_pa: pitch.pitchNumberPa || index + 1,
-      pitch_number_game: pitch.pitchNumberGame || pitchNumber,
-      is_star_pitch: Boolean(pitch.pitch?.is_star_pitch),
-      result: pitch.pitch?.result,
-      count_balls_before: pitch.pitch?.count_balls_before ?? 0,
-      count_strikes_before: pitch.pitch?.count_strikes_before ?? 0,
-      count_balls_after: pitch.pitch?.count_balls_after ?? 0,
-      count_strikes_after: pitch.pitch?.count_strikes_after ?? 0,
-    }))
+      isTop: offense.isTop,
+      pitchNumber,
+    })
     let committedPitchNumber = Number(pitchNumber || 0)
     if (!editingPa && pitchPayload.length) {
       // `usePitchCount` keeps the UI responsive, but realtime/live-state
@@ -5915,10 +3250,10 @@ export default function Scorebook() {
       // pitcher total. Number persisted pitches from the database's committed
       // rows so tournament and season logs stay contiguous and authoritative.
       markSaveStep('fetch-pitch-sequence')
-      const { data: committedPitchRows, error: pitchSequenceError } = await supabase
-        .from(scorebookTables.pitches)
-        .select('pitcher_id,pitch_number_game')
-        .eq('game_id', selectedGame.id)
+      const { data: committedPitchRows, error: pitchSequenceError } = await fetchCommittedPitchSequence({
+        tables: scorebookTables,
+        gameId: selectedGame.id,
+      })
       if (pitchSequenceError) {
         console.warn('[savePA] authoritative pitch sequence read failed; retaining local numbering', pitchSequenceError)
       } else {
@@ -5928,52 +3263,35 @@ export default function Scorebook() {
         committedPitchNumber = Number(latestByPitcher[String(currentPitcherChar?.name || '')] || committedPitchNumber)
       }
     }
-    const runPayload = runEvents.map((run) => ({
-      game_id: selectedGame.id,
-      pa_id: savedPa.id,
+    const runPayload = buildRunRowsForSave({
+      runEvents,
+      gameId: selectedGame.id,
+      paId: savedPa.id,
       inning: editingPa?.inning ?? offense.inning,
-      half: offense.isTop ? 'top' : 'bottom',
-      scoring_player_id: run.playerId,
-      scoring_character_id: run.characterId,
-      charged_to_pitcher_id: run.chargedToPitcherId ?? currentPitcherStint.character_id,
-      charged_to_pitcher_player_id: run.chargedToPitcherPlayerId ?? currentPitcherStint.player_id,
-      is_earned_run: run.isEarnedRun !== false,
-    }))
+      isTop: offense.isTop,
+      currentPitcherStint,
+    })
     const restoreSavedPaState = async () => {
       if (editingPa) {
-        await Promise.all([
-          supabase.from(scorebookTables.pitches).delete().eq('pa_id', savedPa.id),
-          supabase.from(scorebookTables.runsScored).delete().eq('pa_id', savedPa.id),
-        ])
-        if (existingPitchRows.length) {
-          const { error: restorePitchError } = await supabase.from(scorebookTables.pitches).insert(existingPitchRows.map(addSourceFields))
-          if (restorePitchError) throw restorePitchError
-        }
-        if (existingRunRows.length) {
-          const { error: restoreRunError } = await supabase.from(scorebookTables.runsScored).insert(existingRunRows.map(addSourceFields))
-          if (restoreRunError) throw restoreRunError
-        }
-        const { error: restorePaError } = await supabase
-          .from(scorebookTables.plateAppearances)
-          .update(addSourceFields(stripDbManagedFields(editingPa)))
-          .eq('id', editingPa.id)
-        if (restorePaError) throw restorePaError
+        await restorePlateAppearanceBundle({
+          tables: scorebookTables,
+          plateAppearanceId: savedPa.id,
+          plateAppearancePayload: addSourceFields(stripDbManagedFields(editingPa)),
+          pitchRows: existingPitchRows.map(addSourceFields),
+          runRows: existingRunRows.map(addSourceFields),
+        })
         return
       }
 
-      await Promise.all([
-        supabase.from(scorebookTables.pitches).delete().eq('pa_id', savedPa.id),
-        supabase.from(scorebookTables.runsScored).delete().eq('pa_id', savedPa.id),
-        supabase.from(scorebookTables.plateAppearances).delete().eq('id', savedPa.id),
-      ])
+      await deletePlateAppearanceBundle({ tables: scorebookTables, plateAppearanceId: savedPa.id })
     }
 
     if (editingPa) {
       markSaveStep('delete-pitch-run')
-      const [{ error: deletePitchError }, { error: deleteRunError }] = await Promise.all([
-        supabase.from(scorebookTables.pitches).delete().eq('pa_id', savedPa.id),
-        supabase.from(scorebookTables.runsScored).delete().eq('pa_id', savedPa.id),
-      ])
+      const [{ error: deletePitchError }, { error: deleteRunError }] = await deletePlateAppearanceChildren({
+        tables: scorebookTables,
+        plateAppearanceId: savedPa.id,
+      })
       if (deletePitchError || deleteRunError) {
         try {
           await restoreSavedPaState()
@@ -5991,7 +3309,10 @@ export default function Scorebook() {
 
     if (pitchPayload.length) {
       markSaveStep('insert-pitches')
-      const { error: pitchInsertError } = await supabase.from(scorebookTables.pitches).insert(pitchPayload.map(addSourceFields))
+      const { error: pitchInsertError } = await insertPlateAppearancePitches({
+        tables: scorebookTables,
+        rows: pitchPayload.map(addSourceFields),
+      })
       if (pitchInsertError) {
         try {
           await restoreSavedPaState()
@@ -6009,7 +3330,10 @@ export default function Scorebook() {
 
     if (runPayload.length) {
       markSaveStep('insert-runs')
-      const { error: runsInsertError } = await supabase.from(scorebookTables.runsScored).insert(runPayload.map(addSourceFields))
+      const { error: runsInsertError } = await insertPlateAppearanceRuns({
+        tables: scorebookTables,
+        rows: runPayload.map(addSourceFields),
+      })
       if (runsInsertError) {
         try {
           await restoreSavedPaState()
@@ -6025,12 +3349,21 @@ export default function Scorebook() {
       }
     }
 
+    try {
+      await syncPlateAppearanceRunnerOpportunities({
+        tables: scorebookTables,
+        pa: savedPa,
+        outsBefore: selectionOutsInHalf,
+      })
+    } catch (error) {
+      pushToast({ title: 'Play saved; baserunning stats need a refresh', message: error.message, type: 'error' })
+    }
+
     markSaveStep('fetch-fresh-rows')
-    const [paRefresh, pitchRefresh, runRefresh] = await Promise.all([
-      supabase.from(scorebookTables.plateAppearances).select('*').eq('game_id', selectedGame.id).order('created_at'),
-      supabase.from(scorebookTables.pitches).select('*').eq('game_id', selectedGame.id).order('created_at'),
-      supabase.from(scorebookTables.runsScored).select('*').eq('game_id', selectedGame.id).order('created_at'),
-    ])
+    const [paRefresh, pitchRefresh, runRefresh] = await refreshPlateAppearanceBundle({
+      tables: scorebookTables,
+      gameId: selectedGame.id,
+    })
 
     // The PA/pitch inserts above are already committed. If this follow-up read
     // fails (or briefly returns a lagging, shorter snapshot), treating `null` as
@@ -6265,12 +3598,10 @@ export default function Scorebook() {
   }, [])
 
   const deleteLatestPaPersisted = useCallback(async (paId) => {
-    const functionName = isSeasonGame
-      ? 'undo_latest_season_pa'
-      : 'undo_latest_tournament_pa'
-    const { error } = await supabase.rpc(functionName, {
-      p_game_id: selectedGame.id,
-      p_pa_id: paId,
+    const { error } = await undoLatestPlateAppearance({
+      isSeasonGame,
+      gameId: selectedGame.id,
+      plateAppearanceId: paId,
     })
     if (error) throw error
   }, [isSeasonGame, selectedGame?.id])
@@ -6312,7 +3643,7 @@ export default function Scorebook() {
     })
     if (stillReferenced) return stints
 
-    const { error } = await supabase.from(scorebookTables.pitchingStints).delete().eq('id', staleStint.id)
+    const { error } = await deletePitchingStint({ tables: scorebookTables, stintId: staleStint.id })
     if (error) {
       console.warn('[scorebook undo] failed to prune orphaned pitching stint', error)
       return stints
@@ -6656,11 +3987,10 @@ export default function Scorebook() {
     // Sanitize again at execution time so a Redo snapshot captured before a
     // client update cannot retain display-only fields in component state.
     const restoredPaPayload = stripDbManagedFields(redoAction.pa)
-    const { data: restoredPa, error } = await supabase
-      .from(scorebookTables.plateAppearances)
-      .insert(restoredPaPayload)
-      .select()
-      .single()
+    const { data: restoredPa, error } = await savePlateAppearanceRecord({
+      tables: scorebookTables,
+      payload: restoredPaPayload,
+    })
     if (error) {
       pushToast({ title: 'Redo failed', message: error.message, type: 'error' })
       return
@@ -6669,17 +3999,17 @@ export default function Scorebook() {
     const restoredPitchRows = (redoAction.pitches || []).map((pitch) => ({ ...pitch, pa_id: restoredPa.id }))
     const restoredRunRows = (redoAction.runs || []).map((run) => ({ ...run, pa_id: restoredPa.id }))
     const rollbackRestoredPa = async () => {
-      await Promise.all([
-        supabase.from(scorebookTables.pitches).delete().eq('pa_id', restoredPa.id),
-        supabase.from(scorebookTables.runsScored).delete().eq('pa_id', restoredPa.id),
-      ])
-      await supabase.from(scorebookTables.plateAppearances).delete().eq('id', restoredPa.id)
+      await rollbackRestoredPlateAppearance({
+        tables: scorebookTables,
+        plateAppearanceId: restoredPa.id,
+      })
     }
 
     if (redoAction.pitches?.length) {
-      const { error: pitchInsertError } = await supabase
-        .from(scorebookTables.pitches)
-        .insert(restoredPitchRows)
+      const { error: pitchInsertError } = await insertPlateAppearancePitches({
+        tables: scorebookTables,
+        rows: restoredPitchRows,
+      })
       if (pitchInsertError) {
         await rollbackRestoredPa()
         pushToast({ title: 'Pitch restore failed', message: pitchInsertError.message, type: 'error' })
@@ -6688,9 +4018,10 @@ export default function Scorebook() {
     }
 
     if (redoAction.runs?.length) {
-      const { error: runsInsertError } = await supabase
-        .from(scorebookTables.runsScored)
-        .insert(restoredRunRows)
+      const { error: runsInsertError } = await insertPlateAppearanceRuns({
+        tables: scorebookTables,
+        rows: restoredRunRows,
+      })
       if (runsInsertError) {
         await rollbackRestoredPa()
         pushToast({ title: 'Run restore failed', message: runsInsertError.message, type: 'error' })
@@ -6698,11 +4029,15 @@ export default function Scorebook() {
       }
     }
 
-    const [paRefresh, pitchRefresh, runRefresh] = await Promise.all([
-      supabase.from(scorebookTables.plateAppearances).select('*').eq('game_id', selectedGame.id).order('created_at'),
-      supabase.from(scorebookTables.pitches).select('*').eq('game_id', selectedGame.id).order('created_at'),
-      supabase.from(scorebookTables.runsScored).select('*').eq('game_id', selectedGame.id).order('created_at'),
-    ])
+    const [paRefresh, pitchRefresh, runRefresh] = await refreshPlateAppearanceBundle({
+      tables: scorebookTables,
+      gameId: selectedGame.id,
+    })
+    try {
+      await syncPlateAppearanceRunnerOpportunities({ tables: scorebookTables, pa: restoredPa, outsBefore: outsBeforeRedo % 3 })
+    } catch (error) {
+      pushToast({ title: 'Redo saved; baserunning stats need a refresh', message: error.message, type: 'error' })
+    }
     const optimisticPAs = [...gamePAs, normalizePa(restoredPa)]
     const optimisticPitches = [...gamePitches, ...restoredPitchRows]
     const optimisticRuns = [...gameRuns, ...restoredRunRows]
@@ -6817,445 +4152,56 @@ export default function Scorebook() {
     }
   }, [isUndoInFlight, queuedUndoCorrection, handlePitchBall, handlePitchFoul, handlePitchHbp, handleStrikeChoice, handlePitchInPlay])
 
-  // ── Auto-seed lineups ──────────────────────────────────────────────────────
-  const syncGameLineupsFromRoster = useCallback(async () => {
-    if (!canEditScorebook) return
-    if (!selectedGame || isGameComplete) return
-    if (gamePAs.length > 0) return
-    // Once a lineup and its fielding assignments exist for this game, leave them
-    // alone — re-running the roster-based seed here would silently overwrite any
-    // manual edits made in the Lineups tab (e.g. after navigating away and back).
-    if (gameLineups.length > 0 && gameFielderRows.length > 0) return
-    if (isSyncingLineupsRef.current) return
-    isSyncingLineupsRef.current = true
-    try {
-      const teamLineupsTable = isSeasonGame ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
-      const [savedTeamA, savedTeamB] = await Promise.all([
-        fetchTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId: selectedGame.team_a_player_id }),
-        fetchTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId: selectedGame.team_b_player_id }),
-      ])
-      const buildRows = (roster, playerId, saved) => {
-        let picks = roster.filter(p => p.character_id)
-        if (saved && Array.isArray(saved.lineupOrder) && saved.lineupOrder.length) {
-          const byCharId = Object.fromEntries(picks.map(p => [p.character_id, p]))
-          const ordered = saved.lineupOrder.map(id => byCharId[id]).filter(Boolean)
-          const rest = picks.filter(p => !saved.lineupOrder.includes(p.character_id))
-          picks = [...ordered, ...rest]
-        }
-        return picks.slice(0, 9).map((pick, i) => ({
-          game_id: selectedGame.id,
-          player_id: playerId,
-          character_id: pick.character_id,
-          batting_order: i + 1,
-        }))
-      }
-      const buildFielders = (lineupRows, saved) => {
-        const savedPositions = saved?.fieldingPositions && typeof saved.fieldingPositions === 'object'
-          ? saved.fieldingPositions
-          : {}
-        const lineupByCharacterId = Object.fromEntries(lineupRows.map((row) => [row.character_id, row]))
-        const seededFielding = {}
 
-        Object.entries(savedPositions).forEach(([fieldId, characterId]) => {
-          if (!lineupByCharacterId[characterId] || !FIELD_ID_TO_SCOREBOOK_POSITION[fieldId]) return
-          seededFielding[fieldId] = characterId
-        })
+  const {
+    markGameComplete,
+    reopenCompletedGame,
+    resetGameForTesting,
+    resetGameBusy,
+    setShowReopenGameConfirm,
+    setShowResetGameConfirm,
+    showReopenGameConfirm,
+    showResetGameConfirm,
+  } = useGameCompletion({
+    betResolutionConfig,
+    charactersById,
+    currentInning,
+    gamePAs,
+    gamePitching,
+    gameRuns,
+    games,
+    gameSession,
+    isCommissioner,
+    isGameComplete,
+    isSeasonGame,
+    playersById,
+    pushToast,
+    regulationInnings,
+    scorebookTables,
+    scores,
+    selectedGame,
+    selectedStadium,
+    setGameEndBanner,
+    setGames,
+    setPitchingStints,
+    setShowOutsBanner,
+    tournament,
+  })
 
-        const placedIds = new Set(Object.values(seededFielding).map((characterId) => String(characterId)))
-        const remainingRows = lineupRows.filter((row) => !placedIds.has(String(row.character_id)))
-        const emptyFieldIds = FIELD_POSITIONS.map((position) => position.id).filter((fieldId) => !seededFielding[fieldId])
-        remainingRows.forEach((row, index) => {
-          if (emptyFieldIds[index]) seededFielding[emptyFieldIds[index]] = row.character_id
-        })
-
-        return Object.entries(seededFielding).map(([fieldId, characterId]) => {
-          const lineupRow = lineupByCharacterId[characterId]
-          return {
-            game_id: selectedGame.id,
-            team_id: isSeasonGame ? gameSession.teamIdByPlayerId?.[lineupRow.player_id] || null : lineupRow.player_id,
-            player_name: playersById[lineupRow.player_id]?.name || '',
-            character: charactersById[characterId]?.name || '',
-            position: FIELD_ID_TO_SCOREBOOK_POSITION[fieldId],
-            inning_from: 1,
-            inning_to: null,
-          }
-        })
-      }
-
-      const teamALineupRows = buildRows(teamRosters.teamA, selectedGame.team_a_player_id, savedTeamA)
-      const teamBLineupRows = buildRows(teamRosters.teamB, selectedGame.team_b_player_id, savedTeamB)
-      const desiredPayload = [...teamALineupRows, ...teamBLineupRows]
-
-      if (!desiredPayload.length) return
-
-      const currentSignature = gameLineups
-        .map((row) => `${row.player_id}:${row.character_id}:${row.batting_order}`)
-        .join('|')
-      const desiredSignature = desiredPayload
-        .map((row) => `${row.player_id}:${row.character_id}:${row.batting_order}`)
-        .join('|')
-
-      if (currentSignature === desiredSignature && gameFielderRows.length > 0) return
-      // Avoid re-running the delete/insert cycle while the realtime echo of our own
-      // previous sync is still propagating back (which would otherwise transiently
-      // empty `lineups` and re-trigger this effect, causing the lineup to flicker).
-      if (lastSyncedLineupSignatureRef.current === desiredSignature) return
-
-      const lineupPayload = desiredPayload.map(addSourceFields)
-      const fielderPayload = [
-        ...buildFielders(teamALineupRows, savedTeamA),
-        ...buildFielders(teamBLineupRows, savedTeamB),
-      ]
-
-      const [deleteLineupsResult, deleteFieldersResult] = await Promise.all([
-        supabase.from(scorebookTables.lineups).delete().eq('game_id', selectedGame.id),
-        supabase.from(scorebookTables.gameFielders).delete().eq('game_id', selectedGame.id),
-      ])
-
-      if (deleteLineupsResult.error) {
-        pushToast({ title: 'Lineup sync failed', message: deleteLineupsResult.error.message, type: 'error' })
-        return
-      }
-      if (deleteFieldersResult.error) {
-        pushToast({ title: 'Fielder sync failed', message: deleteFieldersResult.error.message, type: 'error' })
-        return
-      }
-
-      const { data: insertedLineups, error: lineupError } = await supabase.from(scorebookTables.lineups).insert(lineupPayload).select()
-      if (lineupError) {
-        pushToast({ title: 'Lineup sync failed', message: lineupError.message, type: 'error' })
-        return
-      }
-
-      const { data: insertedFielders, error: fielderError } = await supabase.from(scorebookTables.gameFielders).insert(fielderPayload.map(addSourceFields)).select()
-      if (fielderError) {
-        pushToast({ title: 'Fielder sync failed', message: fielderError.message, type: 'error' })
-        return
-      }
-
-      deferRealtimeHydration()
-      setLineups((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGame.id)), ...(insertedLineups || lineupPayload)])
-      setGameFielders((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGame.id)), ...(insertedFielders || fielderPayload)])
-      lastSyncedLineupSignatureRef.current = desiredSignature
-    } finally {
-      isSyncingLineupsRef.current = false
-    }
-  }, [canEditScorebook, selectedGame, isGameComplete, gamePAs.length, gameLineups, gameFielderRows.length, teamRosters, gameSession, addSourceFields, playersById, charactersById, scorebookTables.lineups, scorebookTables.gameFielders, pushToast, isSeasonGame, deferRealtimeHydration])
-
-  useEffect(() => {
-    lastSyncedLineupSignatureRef.current = null
-  }, [selectedGame?.id])
-
-  useEffect(() => {
-    if (!canEditScorebook) return
-    if (!selectedGame) return
-    const total = teamRosters.teamA.length + teamRosters.teamB.length
-    if (total === 0) return
-    syncGameLineupsFromRoster()
-  }, [canEditScorebook, selectedGame?.id, teamRosters.teamA.length, teamRosters.teamB.length, gameLineups.length, gamePAs.length, gameFielderRows.length, syncGameLineupsFromRoster])
-
-  // ── Mark game complete ─────────────────────────────────────────────────────
-  const markGameComplete = useCallback(async (winnerId, finalInning, isExtra) => {
-    if (!selectedGame) return
-    const resolved = winnerId ?? (scores.a === scores.b ? null : scores.a > scores.b ? selectedGame.team_a_player_id : selectedGame.team_b_player_id)
-    const resolvedFinalInning = Number(finalInning || currentInning)
-    // The transient walk-off banner passes isExtra explicitly, but a reload
-    // removes that banner and leaves the generic End Game action. Infer the
-    // flag from the persisted inning in that path so an inning-4 finish in a
-    // three-inning game cannot be finalized as a regulation game.
-    const resolvedIsExtra = isExtra == null
-      ? resolvedFinalInning > regulationInnings
-      : Boolean(isExtra)
-    const clearedLiveState = getPersistedLiveStateValue(null, true)
-    const completionUpdate = isSeasonGame
-      ? {
-          status: 'completed',
-          live_state: clearedLiveState,
-          winner_team_id: resolved ? gameSession.teamIdByPlayerId?.[resolved] || null : null,
-          away_score: scores.a,
-          home_score: scores.b,
-          final_inning: resolvedFinalInning,
-          is_extra_innings: resolvedIsExtra,
-        }
-      : {
-          status: 'complete',
-          live_state: clearedLiveState,
-          winner_player_id: resolved,
-          team_a_runs: scores.a,
-          team_b_runs: scores.b,
-          final_inning: resolvedFinalInning,
-          is_extra_innings: resolvedIsExtra,
-        }
-    const { error } = await supabase.from(scorebookTables.games).update(completionUpdate).eq('id', selectedGame.id)
-    if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
-    const completedGame = {
-      ...selectedGame,
-      status: 'complete',
-      winner_player_id: resolved,
-      team_a_runs: scores.a,
-      team_b_runs: scores.b,
-      final_inning: resolvedFinalInning,
-      is_extra_innings: resolvedIsExtra,
-      live_state: clearedLiveState,
-    }
-    setGames(cur => cur.map(g => g.id === selectedGame.id ? completedGame : g))
-    setGameEndBanner(null)
-    if (selectedGame.stadium_id || selectedGame.stadium) {
-      const stadiumLogPayload = isSeasonGame
-        ? {
-            game_id: selectedGame.id,
-            season_id: gameSession?.sourceId,
-            stadium: selectedStadium?.name || selectedGame.stadium || null,
-            is_night: Boolean(selectedGame.is_night),
-            total_runs: scores.a + scores.b,
-            confidence: 1.0,
-          }
-        : {
-            game_id: selectedGame.id,
-            stadium_id: selectedGame.stadium_id,
-            is_night: Boolean(selectedGame.is_night),
-            total_runs: scores.a + scores.b,
-            confidence: 1.0,
-          }
-      const { error: stadiumLogError } = await supabase.from(scorebookTables.stadiumGameLog).insert(stadiumLogPayload)
-      if (stadiumLogError) {
-        pushToast({ title: 'Stadium log failed', message: stadiumLogError.message, type: 'error' })
-      }
-    }
-    try {
-      const pitcherKTotals = {}
-      gamePitching.forEach((stint) => {
-        const key = buildBettingEntityLabel(charactersById[stint.character_id], playersById[stint.player_id])
-        pitcherKTotals[key] = Number(pitcherKTotals[key] || 0) + Number(stint.strikeouts || 0)
-      })
-      const hrTotals = {}
-      const hitTotals = {}
-      gamePAs.forEach((pa) => {
-        const key = buildBettingEntityLabel(charactersById[pa.character_id], playersById[pa.player_id])
-        if (isCreditedHit(pa) && (pa.result === 'HR' || pa.result === 'IPHR')) hrTotals[key] = Number(hrTotals[key] || 0) + 1
-        if (isCreditedHit(pa)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
-      })
-      await resolveGameBets(
-        selectedGame.id,
-        getBettingWinningSide(resolved, selectedGame.team_b_player_id),
-        scores.a + scores.b,
-        pitcherKTotals,
-        Math.abs(scores.a - scores.b),
-        betResolutionConfig,
-        hrTotals,
-        hitTotals,
-      )
-    } catch (bettingError) {
-      pushToast({ title: 'Bet resolution failed', message: bettingError.message, type: 'error' })
-    }
-    // Assign W/L/S to the correct pitching stints — reuses the same play-by-play
-    // reconstruction (derivePitchingDecisions) that Stats/CharacterPage recompute
-    // from historical data, instead of the old "whoever finished the game for the
-    // winning side gets the win" shortcut. That shortcut had no concept of *when*
-    // the lead changed hands, so a reliever who mopped up the last inning (with
-    // nothing left to decide) got credited over the pitcher who was actually on
-    // the mound when the team took the lead for good — and never awarded a save
-    // at all. There's no innings-pitched requirement for a win here (that's an
-    // MLB starter-specific rule, not applicable to these short games); the only
-    // innings-based check is the save's own "3 full innings" qualifying clause.
-    try {
-      const sortedStints = [...gamePitching].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-      const sideForPlayerId = (pid) => (
-        String(pid) === String(selectedGame.team_a_player_id) ? 'A'
-          : String(pid) === String(selectedGame.team_b_player_id) ? 'B'
-            : null
-      )
-      const winnerSide = resolved ? sideForPlayerId(resolved) : null
-      // Deliberately not passing through s.win/s.loss/s.save here — derivePitchingDecisions
-      // honors any already-true flag as final and skips recomputing it, which is right for
-      // the season/tournament-wide recompute (don't clobber a correctly-decided game) but
-      // wrong here: this *is* the authoritative moment those flags get decided for this game,
-      // so it needs to always reconstruct fresh from this game's own play-by-play — including
-      // when re-completing after a reopen, so a previous bad computation doesn't stick around.
-      const decisionStints = sortedStints.map((s) => ({
-        id: s.id,
-        characterId: s.character_id,
-        playerId: s.player_id,
-        side: sideForPlayerId(s.player_id),
-        createdAt: s.created_at,
-        inningsPitched: s.innings_pitched,
-        win: false,
-        loss: false,
-        save: false,
-      }))
-      const decisionPas = [...gamePAs]
-        .sort((a, b) => (Number(a.pa_number || 0) - Number(b.pa_number || 0)) || new Date(a.created_at || 0) - new Date(b.created_at || 0))
-        .map((pa) => ({
-          id: pa.id,
-          side: sideForPlayerId(pa.player_id),
-          createdAt: pa.created_at,
-          result: pa.result,
-          rbi: pa.rbi,
-          run_scored: pa.run_scored,
-          pitcherCharacterId: pa.pitcher_id ?? null,
-          pitcherPlayerId: pa.pitcher_player_id ?? null,
-        }))
-      const { winStint, lossStint, saveStint } = winnerSide
-        ? derivePitchingDecisions({ pas: decisionPas, runsByPaId: groupRunsByPaId(gameRuns), stints: decisionStints, winnerSide })
-        : { winStint: null, lossStint: null, saveStint: null }
-      const winLossUpdates = []
-      sortedStints.forEach((s) => {
-        const isWin = winStint?.id === s.id
-        const isLoss = lossStint?.id === s.id
-        const isSave = saveStint?.id === s.id
-        if (Boolean(s.win) !== isWin || Boolean(s.loss) !== isLoss || Boolean(s.save) !== isSave) {
-          winLossUpdates.push(supabase.from(scorebookTables.pitchingStints).update({ win: isWin, loss: isLoss, save: isSave }).eq('id', s.id))
-        }
-      })
-      await Promise.all(winLossUpdates)
-      if (winLossUpdates.length) {
-        setPitchingStints((cur) => cur.map((s) => (
-          String(s.game_id) === String(selectedGame.id)
-            ? { ...s, win: winStint?.id === s.id, loss: lossStint?.id === s.id, save: saveStint?.id === s.id }
-            : s
-        )))
-      }
-    } catch (wlError) {
-      pushToast({ title: 'W/L assignment failed', message: wlError.message, type: 'error' })
-    }
-    try {
-      if (isSeasonGame) {
-        await gameSession.onGameComplete({ selectedGame: completedGame, scores })
-      } else {
-        const createdGames = await advanceBracketOnGameComplete({
-          supabase,
-          tournament,
-          games: games.map((game) => (game.id === selectedGame.id ? completedGame : game)),
-          completedGame,
-        })
-        if (createdGames.length) {
-          setGames((current) => {
-            const existingById = new Map(current.map((game) => [game.id, game]))
-            createdGames.forEach((game) => existingById.set(game.id, game))
-            return Array.from(existingById.values())
-          })
-        }
-      }
-    } catch (bracketError) {
-      pushToast({ title: isSeasonGame ? 'Season update failed' : 'Bracket update failed', message: bracketError.message, type: 'error' })
-    }
-    pushToast({ title: 'Game complete', type: 'success' })
-  }, [selectedGame, scores, currentInning, regulationInnings, pushToast, gamePitching, charactersById, playersById, tournament, games, isSeasonGame, gameSession, scorebookTables.games, scorebookTables.stadiumGameLog, scorebookTables.pitchingStints, selectedStadium, betResolutionConfig])
-
-  const reopenCompletedGame = useCallback(async () => {
-    if (!selectedGame || !isGameComplete) return
-
-    const reopenedStatus = isSeasonGame ? 'in_progress' : 'active'
-    const clearedLiveState = getPersistedLiveStateValue(null, true)
-    const reopenUpdate = isSeasonGame
-      ? {
-          status: reopenedStatus,
-          live_state: clearedLiveState,
-          winner_team_id: null,
-          away_score: scores.a,
-          home_score: scores.b,
-          final_inning: null,
-          is_extra_innings: false,
-        }
-      : {
-          status: reopenedStatus,
-          live_state: clearedLiveState,
-          winner_player_id: null,
-          team_a_runs: scores.a,
-          team_b_runs: scores.b,
-          final_inning: null,
-          is_extra_innings: false,
-        }
-
-    const { error } = await supabase.from(scorebookTables.games).update(reopenUpdate).eq('id', selectedGame.id)
-    if (error) {
-      pushToast({ title: 'Reopen failed', message: error.message, type: 'error' })
-      return
-    }
-
-    const reopenedGame = {
-      ...selectedGame,
-      status: 'active',
-      winner_player_id: null,
-      team_a_runs: scores.a,
-      team_b_runs: scores.b,
-      final_inning: null,
-      is_extra_innings: false,
-      live_state: clearedLiveState,
-    }
-
-    setGames((current) => current.map((game) => (game.id === selectedGame.id ? reopenedGame : game)))
-    setShowReopenGameConfirm(false)
-    setGameEndBanner(null)
-    setShowOutsBanner(false)
-
-    try {
-      const { error: stadiumLogError } = await supabase.from(scorebookTables.stadiumGameLog).delete().eq('game_id', selectedGame.id)
-      if (stadiumLogError) throw stadiumLogError
-    } catch (stadiumError) {
-      pushToast({ title: 'History cleanup failed', message: stadiumError.message, type: 'error' })
-    }
-
-    // Clear W/L on all stints for this game.
-    try {
-      const stintIds = gamePitching.filter((s) => s.win || s.loss).map((s) => s.id)
-      if (stintIds.length) {
-        await supabase.from(scorebookTables.pitchingStints).update({ win: false, loss: false }).in('id', stintIds)
-        setPitchingStints((cur) => cur.map((s) => stintIds.includes(s.id) ? { ...s, win: false, loss: false } : s))
-      }
-    } catch (wlError) {
-      pushToast({ title: 'W/L reset failed', message: wlError.message, type: 'error' })
-    }
-
-    try {
-      await reopenGameBets(selectedGame.id, betResolutionConfig)
-    } catch (bettingError) {
-      pushToast({ title: 'Bet reopen failed', message: bettingError.message, type: 'error' })
-    }
-
-    try {
-      if (isSeasonGame) {
-        await gameSession.onGameReopen?.({ selectedGame: reopenedGame })
-      } else {
-        if (tournament && (tournament.status === 'complete' || tournament.champion_player_id != null)) {
-          const { error: tournamentError } = await supabase
-            .from('tournaments')
-            .update({ champion_player_id: null, status: 'active' })
-            .eq('id', tournament.id)
-          if (tournamentError) throw tournamentError
-        }
-
-        const syncedGames = await reopenBracketAfterGameEdit({
-          supabase,
-          tournament,
-          games: games.map((game) => (game.id === selectedGame.id ? reopenedGame : game)),
-          reopenedGame,
-        })
-
-        if (syncedGames.length) {
-          setGames((current) => {
-            const existingById = new Map(current.map((game) => [game.id, game]))
-            syncedGames.forEach((game) => existingById.set(game.id, game))
-            return Array.from(existingById.values())
-          })
-        }
-      }
-    } catch (syncError) {
-      pushToast({ title: isSeasonGame ? 'Season reopen failed' : 'Bracket reopen failed', message: syncError.message, type: 'error' })
-    }
-
-    pushToast({ title: 'Game reopened', type: 'success' })
-  }, [selectedGame, isGameComplete, isSeasonGame, scores.a, scores.b, scorebookTables.games, scorebookTables.stadiumGameLog, pushToast, betResolutionConfig, gameSession, tournament, games])
 
   // ── Swap home / away teams ────────────────────────────────────────────────
   const swapTeams = useCallback(async () => {
     if (!selectedGame) return
-    const { error } = await supabase.from(scorebookTables.games).update({
-      team_a_player_id: selectedGame.team_b_player_id,
-      team_b_player_id: selectedGame.team_a_player_id,
-      team_a_runs: selectedGame.team_b_runs,
-      team_b_runs: selectedGame.team_a_runs,
-    }).eq('id', selectedGame.id)
+    const { error } = await updateGameRecord({
+      tables: scorebookTables,
+      gameId: selectedGame.id,
+      patch: {
+        team_a_player_id: selectedGame.team_b_player_id,
+        team_b_player_id: selectedGame.team_a_player_id,
+        team_a_runs: selectedGame.team_b_runs,
+        team_b_runs: selectedGame.team_a_runs,
+      },
+    })
     if (error) { pushToast({ title: 'Swap failed', message: error.message, type: 'error' }); return }
     setGames(cur => cur.map(g => g.id === selectedGame.id ? {
       ...g,
@@ -7285,7 +4231,7 @@ export default function Scorebook() {
     }
     let data, error
     try {
-      ({ data, error } = await supabase.from(scorebookTables.pitchingStints).insert(addSourceFields(newStint)).select().single())
+      ({ data, error } = await insertPitchingStint({ tables: scorebookTables, row: addSourceFields(newStint) }))
     } finally {
       pitcherChangePendingRef.current = false
     }
@@ -7342,12 +4288,15 @@ export default function Scorebook() {
           // season_bets has no game_odds_id column — it isn't tied to a specific
           // odds row, so match on the same (game, bet_type, target_entity) key
           // used to look up the stale prop above instead.
-          const relatedBetsQuery = isSeasonGame
-            ? supabase.from(scorebookTables.bets).select('id').eq('game_id', selectedGame.id).eq('bet_type', 'k_prop').eq('target_entity', oldLabel).limit(1)
-            : supabase.from(scorebookTables.bets).select('id').eq('game_odds_id', staleKProp.id).limit(1)
-          const { data: relatedBets } = await relatedBetsQuery
-          if (!relatedBets || relatedBets.length === 0) {
-            await supabase.from(scorebookTables.gameOdds).delete().eq('id', staleKProp.id)
+          const hasRelatedBets = await hasRelatedPitcherPropBets({
+            tables: scorebookTables,
+            isSeasonGame,
+            gameId: selectedGame.id,
+            gameOddsId: staleKProp.id,
+            targetEntity: oldLabel,
+          })
+          if (!hasRelatedBets) {
+            await deleteGameOddsRow({ tables: scorebookTables, gameOddsId: staleKProp.id })
           }
         }
       }
@@ -7453,7 +4402,7 @@ export default function Scorebook() {
   const addGame = useCallback(async () => {
     if (!tournament || !selectedAddGameStadium) return
     const highestCode = Math.max(...filteredGames.map(g => parseInt(String(g.game_code || '').replace(/\D/g, '') || '0')), 0)
-    const { data, error } = await supabase.from('games').insert({
+    const { data, error } = await createTournamentGame({ row: {
       tournament_id: tournament.id,
       game_code: `G${highestCode + 1}`,
       stage: addGameForm.stage || 'Game',
@@ -7462,7 +4411,7 @@ export default function Scorebook() {
       stadium_id: selectedAddGameStadium.id,
       is_night: normalizeIsNightForStadium(selectedAddGameStadium, addGameForm.isNight),
       team_a_runs: 0, team_b_runs: 0, status: 'pending',
-    }).select().single()
+    } })
     if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
     setGames(cur => [...cur, data])
     setShowAddGame(false)
@@ -7536,7 +4485,9 @@ export default function Scorebook() {
       <div style={{ display: 'inline-flex', gap: 6, padding: 4, borderRadius: 999, border: `1px solid ${C.border}`, background: `${C.card}DD` }}>
         {[
           { key: 'game', label: 'Game View' },
-          ...(selectedGame?.stats_source === 'tracker' ? [] : [{ key: 'scorebook', label: 'Scorebook' }]),
+          ...(selectedGame?.stats_source === 'tracker'
+            ? [{ key: 'liveTracker', label: 'Live Tracker' }]
+            : [{ key: 'scorebook', label: 'Scorebook' }]),
           { key: 'atBatEditor', label: 'At-Bat Editor' },
           { key: 'lineups', label: 'Lineups' },
           { key: 'admin', label: 'Admin' },
@@ -7569,526 +4520,202 @@ export default function Scorebook() {
     </div>
   ) : null
 
-  const renderGameView = () => {
-    return (
-    <div style={{ color: C.text, paddingBottom: 40, margin: '-1.25rem -1.25rem 0' }}>
-      {scorebookToolbar}
-      {viewTabs}
-      <div style={{ padding: '8px 10px 32px', display: 'grid', gap: 12 }}>
-        <SectionCard
-          title={selectedGame.stage ? normalizeStageLabel(selectedGame.stage) : ''}
-          right={(
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ color: effectiveGameStatus === 'complete' ? C.green : effectiveGameStatus === 'active' ? C.accent : '#93C5FD', fontSize: 12, fontWeight: 800, textTransform: 'uppercase' }}>
-                {formatGameStatusLabel(selectedGame, effectiveGameStatus, offense?.halfLabel, regulationInnings)}
-              </div>
-            </div>
-          )}
-        >
-          <div style={{ display: 'grid', gap: 14 }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              <StadiumHeaderPill stadium={selectedStadium} isNight={selectedGame?.is_night} onEdit={isScorekeeper ? openStadiumEditModal : undefined} />
-            </div>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {(() => {
-                const teamARow = { key: homeAwaySwapped ? 'home' : 'away', abbreviation: teamAAbbreviation, name: teamAName, color: teamAColor, logoKey: teamALogoKey, logoUrl: teamALogoUrl, score: scores.a, playerId: selectedGame.team_a_player_id }
-                const teamBRow = { key: homeAwaySwapped ? 'away' : 'home', abbreviation: teamBAbbreviation, name: teamBName, color: teamBColor, logoKey: teamBLogoKey, logoUrl: teamBLogoUrl, score: scores.b, playerId: selectedGame.team_b_player_id }
-                return teamARow.key === 'away' ? [teamARow, teamBRow] : [teamBRow, teamARow]
-              })().map((team) => (
-                <div key={team.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                    <TeamLogo logoKey={team.logoKey} logoUrl={team.logoUrl} teamName={team.name} height={30} />
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: team.color, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>{team.abbreviation} · {team.key === 'away' ? 'Away' : 'Home'}</div>
-                      <div style={{ color: '#F8FAFC', fontSize: 16, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getTeamShortName(identitiesByPlayerId[team.playerId]) || team.name}</div>
-                    </div>
-                  </div>
-                  <div style={{ color: team.color, fontSize: 34, fontWeight: 900, lineHeight: 1 }}>{team.score}</div>
-                </div>
-              ))}
-            </div>
-            {effectiveGameStatus === 'complete' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                {[
-                  { label: 'Winning Pitcher', tone: C.green, stint: pitcherDecisionSummary.winning },
-                  { label: 'Losing Pitcher', tone: C.red, stint: pitcherDecisionSummary.losing },
-                ].map((entry) => {
-                  const link = entry.stint ? getCharacterLinkTarget(entry.stint.character_id) : null
-                  return (
-                    <MiddleClickLink
-                      key={entry.label}
-                      to={link?.to}
-                      state={link?.state}
-                      style={{ borderRadius: 14, border: `1px solid ${entry.tone}44`, background: `${entry.tone}14`, padding: 12, display: 'flex', alignItems: 'center', gap: 10, cursor: link ? 'pointer' : 'default', color: 'inherit', textDecoration: 'none' }}
-                    >
-                      <div style={{ width: 42, height: 42, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${entry.tone}` }}>
-                        <Avatar name={charactersById[entry.stint?.character_id]?.name} size={42} />
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ color: entry.tone, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>{entry.label}</div>
-                        <div style={{ color: '#F8FAFC', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{charactersById[entry.stint?.character_id]?.name || 'Not recorded'}</div>
-                        <div style={{ color: C.muted, fontSize: 12 }}>{entry.stint ? `IP ${entry.stint.innings_pitched ?? 0} / H ${entry.stint.hits_allowed ?? 0} / R ${entry.stint.runs_allowed ?? 0}` : 'Decision unavailable'}</div>
-                      </div>
-                    </MiddleClickLink>
-                  )
-                })}
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', padding: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>
-                    <TeamLogo logoKey={battingIdentity?.teamLogoKey} logoUrl={battingIdentity?.teamLogoUrl || battingPlayer?.team_logo_url} teamName={battingPlayer?.name} height={14} />
-                    Current Batter
-                  </div>
-                  <MiddleClickLink
-                    to={currentBatterLink?.to}
-                    state={currentBatterLink?.state}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: currentBatter ? 'pointer' : 'default', color: 'inherit', textDecoration: 'none' }}
-                  >
-                    <div style={{ width: 42, height: 42, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${battingColor}` }}>
-                      <Avatar name={charactersById[currentBatter?.character_id]?.name} size={42} />
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: '#F8FAFC', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{charactersById[currentBatter?.character_id]?.name || 'Waiting on lineup'}</div>
-                      <div style={{ color: C.muted, fontSize: 12 }}>{currentBatter ? `AVG ${formatBaseballAverage(lineupStatsByEntryKey[currentEntryKey]?.source || {})} / ${formatHitsAtBats(currentBatterGameSummary)}` : 'No batter yet'}</div>
-                    </div>
-                  </MiddleClickLink>
-                </div>
-                <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', padding: 12, display: 'grid', justifyItems: 'center', gap: 8 }}>
-                  <div style={{ color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>{offense?.halfLabel || 'Top 1'}</div>
-                  <BaseStateDiamond runners={displayRunners} charactersById={charactersById} />
-                  <div style={{ display: 'grid', gap: 6, justifyItems: 'center' }}>
-                    <CountDotRow label="B" count={Math.min(displayBalls, 3)} total={3} activeColor={C.green} inactiveColor={C.border} />
-                    <CountDotRow label="S" count={Math.min(displayStrikes, 2)} total={2} activeColor={C.accent} inactiveColor={C.border} />
-                    <CountDotRow label="O" count={Math.min(displayOutsInHalf, 2)} total={2} activeColor={C.red} inactiveColor={C.border} />
-                  </div>
-                </div>
-                <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', padding: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>
-                    <TeamLogo logoKey={pitchingIdentity?.teamLogoKey} logoUrl={pitchingIdentity?.teamLogoUrl || pitchingPlayer?.team_logo_url} teamName={pitchingPlayer?.name} height={14} />
-                    Current Pitcher
-                  </div>
-                  <MiddleClickLink
-                    to={currentPitcherLink?.to}
-                    state={currentPitcherLink?.state}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: currentPitcherChar ? 'pointer' : 'default', color: 'inherit', textDecoration: 'none' }}
-                  >
-                    <div style={{ width: 42, height: 42, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${pitchingColor}` }}>
-                      <Avatar name={currentPitcherChar?.name} size={42} />
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: '#F8FAFC', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentPitcherChar?.name || 'Waiting on pitcher'}</div>
-                      <div style={{ color: C.muted, fontSize: 12 }}>IP {currentPitcherGameLine.ip ?? 0} / H {currentPitcherGameLine.h ?? 0} / R {currentPitcherGameLine.r ?? 0} / K {currentPitcherGameLine.k ?? 0}</div>
-                      <div style={{ color: C.muted, fontSize: 12 }}>Pitch Count {displayPitchNumber}</div>
-                    </div>
-                  </MiddleClickLink>
-                </div>
-              </div>
-            )}
-          </div>
-        </SectionCard>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
-          <SectionCard title="Box Score" subtitle="Line score by inning">
-            <BoxScoreTable
-              innings={innings}
-              scores={scores}
-              completedHalfCount={completedHalfCount}
-              currentInning={currentInning}
-              teamAAbbreviation={teamAAbbreviation}
-              teamBAbbreviation={teamBAbbreviation}
-              teamAColor={teamAColor}
-              teamBColor={teamBColor}
-              teamALogoKey={teamALogoKey}
-              teamALogoUrl={teamALogoUrl}
-              teamBLogoKey={teamBLogoKey}
-              teamBLogoUrl={teamBLogoUrl}
-              teamAName={teamAName}
-              teamBName={teamBName}
-              compact={isNarrowViewport}
-              swapped={homeAwaySwapped}
-              activeBattingSide={activeBattingSide}
-            />
-          </SectionCard>
-          <WinProbabilityCard
-            points={winProbabilityPoints}
-            currentHomeProbability={homeAwaySwapped ? 1 - currentWinProbability : currentWinProbability}
-            homeLabel={homeAwaySwapped ? teamAAbbreviation : teamBAbbreviation}
-            awayLabel={homeAwaySwapped ? teamBAbbreviation : teamAAbbreviation}
-            homeColor={homeAwaySwapped ? teamAColor : teamBColor}
-            awayColor={homeAwaySwapped ? teamBColor : teamAColor}
-          />
-        </div>
-
-        {isNarrowViewport ? (
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              {[
-                { side: 'A', abbreviation: teamAAbbreviation, name: teamAName, color: teamAColor, logoKey: teamALogoKey, logoUrl: teamALogoUrl },
-                { side: 'B', abbreviation: teamBAbbreviation, name: teamBName, color: teamBColor, logoKey: teamBLogoKey, logoUrl: teamBLogoUrl },
-              ].map(({ side, abbreviation, name, color, logoKey, logoUrl }) => (
-                <button
-                  key={side}
-                  type="button"
-                  onClick={() => setViewedLineupSide(side)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 12,
-                    border: `2px solid ${viewedLineupSide === side ? color : C.border}`,
-                    background: viewedLineupSide === side ? `${color}22` : 'transparent',
-                    color: viewedLineupSide === side ? color : C.muted,
-                    fontWeight: 800, fontSize: 13, cursor: 'pointer',
-                  }}
-                >
-                  <TeamLogo logoKey={logoKey} logoUrl={logoUrl} teamName={name} height={24} />
-                  {abbreviation}
-                </button>
-              ))}
-            </div>
-            {viewedLineupSide === 'A' ? (
-              <LineupStatsTable title={`${teamAAbbreviation} Lineup`} lineup={teamALineup} statsByEntryKey={lineupStatsByEntryKey} currentEntryKey={currentEntryKey} teamColor={teamAColor} charactersById={charactersById} getCharacterLink={(characterId) => getCharacterLinkTarget(characterId)} />
-            ) : (
-              <LineupStatsTable title={`${teamBAbbreviation} Lineup`} lineup={teamBLineup} statsByEntryKey={lineupStatsByEntryKey} currentEntryKey={currentEntryKey} teamColor={teamBColor} charactersById={charactersById} getCharacterLink={(characterId) => getCharacterLinkTarget(characterId)} />
-            )}
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
-            <LineupStatsTable title={`${teamAAbbreviation} Lineup`} lineup={teamALineup} statsByEntryKey={lineupStatsByEntryKey} currentEntryKey={currentEntryKey} teamColor={teamAColor} charactersById={charactersById} getCharacterLink={(characterId) => getCharacterLinkTarget(characterId)} />
-            <LineupStatsTable title={`${teamBAbbreviation} Lineup`} lineup={teamBLineup} statsByEntryKey={lineupStatsByEntryKey} currentEntryKey={currentEntryKey} teamColor={teamBColor} charactersById={charactersById} getCharacterLink={(characterId) => getCharacterLinkTarget(characterId)} />
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
-          <PitchingStatsTable title={`${teamAAbbreviation} Pitchers`} stints={teamAPitching} decisionLabels={pitcherDecisionLabels} charactersById={charactersById} getCharacterLink={(characterId) => getCharacterLinkTarget(characterId)} sourceStatsByCharacterKey={pitchingSourceStatsByCharacterKey} />
-          <PitchingStatsTable title={`${teamBAbbreviation} Pitchers`} stints={teamBPitching} decisionLabels={pitcherDecisionLabels} charactersById={charactersById} getCharacterLink={(characterId) => getCharacterLinkTarget(characterId)} sourceStatsByCharacterKey={pitchingSourceStatsByCharacterKey} />
-        </div>
-      </div>
-      {stadiumEditModalOpen && (
-        <EditStadiumModal
-          stadiums={stadiums}
-          stadiumEditForm={stadiumEditForm}
-          setStadiumEditForm={setStadiumEditForm}
-          onSave={saveStadiumEdit}
-          onClose={() => setStadiumEditModalOpen(false)}
-          saving={stadiumEditSaving}
-        />
-      )}
-    </div>
-    )
-  }
-
-  const renderLineupTeamCard = (team) => {
-    const teamName = team === 'A' ? teamAName : teamBName
-    const draft = lineupDrafts[team]
-    const rosterCharMap = rosterCharMaps[team]
-    const rosterCharsArray = Object.values(rosterCharMap)
-    const rosterNames = rosterCharsArray.map((c) => c.chemistryName || c.name)
-    const selectedFieldingCharId = selectedFieldingPlayer[team]
-    const chemistryHighlightIds = buildChemistryHighlightSet(selectedFieldingCharId || null, rosterCharsArray)
-    const positionByCharId = Object.fromEntries(Object.entries(draft.fielding).map(([fieldId, charId]) => [charId, fieldId]))
-
-    return (
-      <SectionCard title={teamName} subtitle="Batting order & fielding positions">
-        <div
-          className="roster-grid"
-          style={{
-            gridTemplateColumns: isNarrowViewport ? '1fr' : 'minmax(0, 0.88fr) minmax(340px, 1.12fr)',
-            alignItems: 'start',
-            gap: 16,
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {draft.order.length === 0 ? (
-              <div style={{ padding: 12, textAlign: 'center', color: C.muted, fontSize: 12 }}>No lineup set yet.</div>
-            ) : (
-              draft.order.map((charId, index) => {
-                const character = rosterCharMap[charId]
-                if (!character) return null
-                return (
-                  <div
-                    key={charId}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={handleDropOnLineupSlot(team, index)}
-                    style={{ borderRadius: 8 }}
-                  >
-                    <DraggableRosterItem
-                      character={character}
-                      onDragStart={handleLineupDragStart(charId)}
-                      rosterNames={rosterNames}
-                      onOpenCard={() => openCharacterPage(charId)}
-                      compact
-                      portraitScale={0.88}
-                      lineupNumber={index + 1}
-                      positionLabel={positionByCharId[charId] || null}
-                      onLineupNumberClick={() => handleLineupNumberClick(team, charId, index)}
-                      lineupNumberSelected={selectedLineupMoveId[team] === charId}
-                      lineupNumberAriaLabel={`Lineup spot ${index + 1}`}
-                      lineupNumberTitle={selectedLineupMoveId[team] === charId ? 'Selected lineup slot' : 'Tap to swap this player with another lineup slot'}
-                      showChemistryNote={chemistryHighlightIds.has(charId)}
-                      highlighted={selectedLineupMoveId[team] === charId}
-                    />
-                  </div>
-                )
-              })
-            )}
-          </div>
-
-          <FieldingView
-            charactersById={rosterCharMap}
-            fieldingPositions={draft.fielding}
-            setFieldingPositions={setFieldingPositionsForTeam(team)}
-            selectedPlayer={selectedFieldingCharId}
-            setSelectedPlayer={setSelectedFieldingPlayerForTeam(team)}
-            fieldingAssignMode={false}
-            selectedForFielding={null}
-            onAssignPosition={() => {}}
-            editable
-            chemistryHighlightIds={chemistryHighlightIds}
-            fieldScale={1.16}
-            portraitScale={0.85}
-          />
-        </div>
-        <SaveLineupBar
-          isDirty={lineupDirty[team]}
-          status={lineupSaveStatus[team]}
-          onSave={() => handleSaveLineupTeam(team)}
-          label={`Save Team ${team} Lineup`}
-        />
-      </SectionCard>
-    )
-  }
+  const renderGameView = () => (
+    <ScorebookGameView
+      toolbar={scorebookToolbar}
+      tabs={viewTabs}
+      game={{
+        selectedGame,
+        effectiveGameStatus,
+        regulationInnings,
+        selectedStadium,
+        isScorekeeper,
+      }}
+      teams={{
+        homeAwaySwapped,
+        scores,
+        identitiesByPlayerId,
+        teamAAbbreviation,
+        teamAName,
+        teamAColor,
+        teamALogoKey,
+        teamALogoUrl,
+        teamBAbbreviation,
+        teamBName,
+        teamBColor,
+        teamBLogoKey,
+        teamBLogoUrl,
+        battingIdentity,
+        battingPlayer,
+        battingColor,
+        pitchingIdentity,
+        pitchingPlayer,
+        pitchingColor,
+      }}
+      matchup={{
+        offense,
+        pitcherDecisionSummary,
+        charactersById,
+        currentBatterLink,
+        currentBatter,
+        lineupStatsByEntryKey,
+        currentEntryKey,
+        currentBatterGameSummary,
+        displayRunners,
+        displayBalls,
+        displayStrikes,
+        displayOutsInHalf,
+        currentPitcherLink,
+        currentPitcherChar,
+        currentPitcherGameLine,
+        displayPitchNumber,
+      }}
+      tables={{
+        innings,
+        completedHalfCount,
+        currentInning,
+        isNarrowViewport,
+        activeBattingSide,
+        winProbabilityPoints,
+        currentWinProbability,
+        viewedLineupSide,
+        teamALineup,
+        teamBLineup,
+        teamAPitching,
+        teamBPitching,
+        pitcherDecisionLabels,
+        pitchingSourceStatsByCharacterKey,
+      }}
+      actions={{
+        openStadiumEditModal,
+        setViewedLineupSide,
+        getCharacterLinkTarget,
+      }}
+      stadiumModal={{
+        open: stadiumEditModalOpen,
+        stadiums,
+        form: stadiumEditForm,
+        setForm: setStadiumEditForm,
+        onSave: saveStadiumEdit,
+        onClose: () => setStadiumEditModalOpen(false),
+        saving: stadiumEditSaving,
+      }}
+    />
+  )
 
   const renderLineupsView = () => (
-    <div style={{ color: C.text, paddingBottom: 40, margin: '-1.25rem -1.25rem 0' }}>
-      {scorebookToolbar}
-      {viewTabs}
-      <div style={{ padding: '8px 10px 32px', display: 'grid', gap: 12 }}>
-        {!selectedGame ? (
-          <div style={{ color: C.muted, textAlign: 'center', padding: 24 }}>Select a game to manage lineups.</div>
-        ) : (
-          <>
-            <div style={{ color: C.muted, fontSize: 12, textAlign: 'center' }}>
-              Changes apply starting in inning {currentInning} and update the scorebook, spectator view, and odds immediately.
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
-              {renderLineupTeamCard('A')}
-              {renderLineupTeamCard('B')}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+    <ScorebookLineupsView
+      toolbar={scorebookToolbar}
+      tabs={viewTabs}
+      selectedGame={selectedGame}
+      currentInning={currentInning}
+      isNarrowViewport={isNarrowViewport}
+      state={{
+        teamAName,
+        teamBName,
+        lineupDrafts,
+        rosterCharMaps,
+        selectedFieldingPlayer,
+        selectedLineupMoveId,
+        lineupDirty,
+        lineupSaveStatus,
+      }}
+      actions={{
+        handleDropOnLineupSlot,
+        handleLineupDragStart,
+        openCharacterPage,
+        handleLineupNumberClick,
+        setFieldingPositionsForTeam,
+        setSelectedFieldingPlayerForTeam,
+        handleSaveLineupTeam,
+      }}
+    />
   )
 
-  const renderAtBatEditorView = () => (
-    <div style={{ color: C.text, paddingBottom: 40, margin: '-1.25rem -1.25rem 0' }}>
-      {scorebookToolbar}
-      {viewTabs}
-      <div style={{ padding: '8px 10px 32px' }}>
-        {!selectedGame ? (
-          <div style={{ color: C.muted, textAlign: 'center', padding: 24 }}>Select a game to edit its at-bats.</div>
-        ) : (
-          <Suspense fallback={<div style={{ color: C.muted, textAlign: 'center', padding: 24 }}>Loading editor…</div>}>
-            <AtBatEditor
-              ref={atBatPanelRef}
-              source={isSeasonGame ? 'season' : 'tournament'}
-              gameId={selectedGame.id}
-              embedded
-              onDirtyChange={setAtBatDataDirty}
-            />
-          </Suspense>
-        )}
-      </div>
-    </div>
+  const renderAdminView = () => (
+    <ScorebookAdminView
+      toolbar={scorebookToolbar}
+      tabs={viewTabs}
+      state={{
+        selectedGame,
+        videoUrlDraft,
+        videoUrlSaving,
+        trackerModeSaving,
+        trackerStats,
+        canEditScorebook,
+        battingColor,
+        battingIdentity,
+        battingPlayer,
+        runners,
+        charactersById,
+        adminRunnerBase,
+        adminRunnerCharacterId,
+        adminRunnerOptions,
+        canUndoAction,
+        isGameComplete,
+        isCommissioner,
+        resetGameBusy,
+      }}
+      actions={{
+        setVideoUrlDraft,
+        saveVideoUrl,
+        setStatsSource,
+        applyTrackerFinalResult,
+        removeRunnerFromBase,
+        setAdminRunnerBase,
+        setAdminRunnerCharacterId,
+        addAdminRunner,
+        handleUndoAction,
+        openReopenConfirm: () => setShowReopenGameConfirm(true),
+        openResetConfirm: () => setShowResetGameConfirm(true),
+      }}
+    />
   )
 
-  const renderAdminView = () => {
-    return (
-      <div style={{ color: C.text, paddingBottom: 40, margin: '-1.25rem -1.25rem 0' }}>
-        {scorebookToolbar}
-        {viewTabs}
-        <div style={{ padding: '8px 10px 32px', display: 'grid', gap: 12 }}>
-          {!selectedGame ? (
-            <div style={{ color: C.muted, textAlign: 'center', padding: 24 }}>Select a game to manage scorebook corrections.</div>
-          ) : (
-            <>
-              <SectionCard title="Game Video">
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <input
-                    type="text"
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    value={videoUrlDraft}
-                    onChange={(e) => setVideoUrlDraft(e.target.value)}
-                    style={{ flex: 1, minWidth: 260, padding: '8px 10px' }}
-                  />
-                  <button type="button" className="solid-button" onClick={saveVideoUrl} disabled={videoUrlSaving}>
-                    {videoUrlSaving ? 'Saving…' : 'Save video URL'}
-                  </button>
-                </div>
-              </SectionCard>
-
-              <SectionCard
-                title="Live Stat Tracker"
-                subtitle="Feed this game from the community auto-tracker instead of the manual scorebook."
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div style={{ fontSize: 13, color: '#CBD5E1' }}>
-                    Currently: <strong style={{ color: selectedGame.stats_source === 'tracker' ? '#22C55E' : '#E2E8F0' }}>
-                      {selectedGame.stats_source === 'tracker' ? 'Live Tracker' : 'Manual Scorebook'}
-                    </strong>
-                    {selectedGame.stats_source === 'tracker' && (
-                      <div style={{ color: '#94A3B8', fontSize: 12, marginTop: 4 }}>
-                        The tracker now drives the live score, count, runners, lineups, pitching changes, fielding changes, in-game odds, and bet settlement. Use the At-Bat Editor only for details the console feed cannot identify confidently.
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      className={selectedGame.stats_source === 'tracker' ? 'ghost-button' : 'solid-button'}
-                      disabled={trackerModeSaving}
-                      onClick={() => setStatsSource(selectedGame.stats_source === 'tracker' ? 'manual' : 'tracker')}
-                    >
-                      {trackerModeSaving
-                        ? 'Saving…'
-                        : selectedGame.stats_source === 'tracker' ? 'Switch to Manual Scorebook' : 'Switch to Live Tracker'}
-                    </button>
-                  </div>
-                </div>
-                {selectedGame.stats_source === 'tracker' && (() => {
-                  const events = trackerStats?.live_feed?.events || []
-                  const dumpText = events.map((e) => `${e.time} [${e.level}] ${e.message}`).join('\n')
-                  return (
-                    <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', display: 'grid', gap: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                        <div style={{ color: '#94A3B8', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Console Dump</div>
-                        <button
-                          type="button"
-                          className="ghost-button"
-                          disabled={!events.length}
-                          onClick={() => navigator.clipboard?.writeText(dumpText)}
-                          style={{ fontSize: 11, padding: '4px 10px' }}
-                        >
-                          Copy
-                        </button>
-                      </div>
-                      <div style={{ color: '#94A3B8', fontSize: 11 }}>
-                        Every log line the bridge has seen for this game so far ({events.length}) — copy/paste these when reporting a tracker parsing issue.
-                      </div>
-                      <pre style={{
-                        margin: 0, maxHeight: 420, overflowY: 'auto', overscrollBehavior: 'contain', fontFamily: 'monospace', fontSize: 11,
-                        color: '#CBD5E1', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                      }}>
-                        {events.length ? dumpText : 'No log lines captured yet.'}
-                      </pre>
-                    </div>
-                  )
-                })()}
-                {selectedGame.stats_source === 'tracker' && trackerStats?.live_feed?.gameEnded && selectedGame.status !== 'complete' && (
-                  <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    <div style={{ fontSize: 13, color: '#CBD5E1' }}>
-                      The tracker reported a final score{trackerStats.live_feed.winner ? ` (${trackerStats.live_feed.winner} win)` : ''}, but automatic finalization has not completed and this game is still marked {selectedGame.status}.
-                      <div style={{ color: '#94A3B8', fontSize: 12, marginTop: 4 }}>
-                        Use this as an emergency fallback. It only sets the score and status; review the bridge log before applying it.
-                      </div>
-                    </div>
-                    <button type="button" className="solid-button" disabled={trackerModeSaving} onClick={applyTrackerFinalResult}>
-                      {trackerModeSaving ? 'Saving…' : 'Apply Final Score'}
-                    </button>
-                  </div>
-                )}
-              </SectionCard>
-
-              <SectionCard
-                title="Scorebook Admin"
-                subtitle={canEditScorebook ? 'Manual corrections for the active batting side and recorded plate appearances.' : 'Reopen the game to apply corrections.'}
-              >
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-                  <div style={{ display: 'grid', gap: 12 }}>
-                    <div style={{ borderRadius: 14, border: `1px solid ${C.border}`, background: 'rgba(15,23,42,0.58)', padding: 14, display: 'grid', gap: 10 }}>
-                      <div>
-                        <div style={{ color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Current offense</div>
-                        <div style={{ color: battingColor, fontSize: 16, fontWeight: 800 }}>
-                          {getTeamShortName(battingIdentity) || battingPlayer?.name || 'Batting team'}
-                        </div>
-                      </div>
-                      {[
-                        { key: 'first', label: '1B' },
-                        { key: 'second', label: '2B' },
-                        { key: 'third', label: '3B' },
-                      ].map((base) => {
-                        const runner = runners[base.key]
-                        return (
-                          <div key={base.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.border}`, background: `${C.bg}AA` }}>
-                            <div>
-                              <div style={{ color: C.muted, fontSize: 11, fontWeight: 800 }}>{base.label}</div>
-                              <div style={{ color: '#E2E8F0', fontSize: 13, fontWeight: 700 }}>
-                                {runner ? charactersById[runner.characterId]?.name || 'Runner' : 'Empty'}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              className="ghost-button"
-                              disabled={!canEditScorebook || !runner}
-                              onClick={() => removeRunnerFromBase(base.key)}
-                            >
-                              Clear
-                            </button>
-                          </div>
-                        )
-                      })}
-                      <div style={{ display: 'grid', gap: 8 }}>
-                        <div style={{ color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Add runner</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '120px minmax(0, 1fr)', gap: 8 }}>
-                          <select value={adminRunnerBase} onChange={(event) => setAdminRunnerBase(event.target.value)} disabled={!canEditScorebook}>
-                            <option value="first">1st Base</option>
-                            <option value="second">2nd Base</option>
-                            <option value="third">3rd Base</option>
-                          </select>
-                          <select value={adminRunnerCharacterId} onChange={(event) => setAdminRunnerCharacterId(event.target.value)} disabled={!canEditScorebook}>
-                            <option value="">Select batter</option>
-                            {adminRunnerOptions.map((entry) => (
-                              <option key={entry.id || `${entry.player_id}:${entry.character_id}`} value={entry.character_id}>
-                                {charactersById[entry.character_id]?.name || `Character ${entry.character_id}`}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <button type="button" className="solid-button" disabled={!canEditScorebook || !adminRunnerCharacterId} onClick={addAdminRunner}>
-                          Add Runner
-                        </button>
-                      </div>
-                    </div>
-                    <div style={{ display: 'grid', gap: 8 }}>
-                      <button type="button" className="ghost-button" disabled={!canUndoAction} onClick={handleUndoAction}>
-                        Undo Latest Action
-                      </button>
-                      {isGameComplete ? (
-                        <button type="button" className="solid-button" onClick={() => setShowReopenGameConfirm(true)}>
-                          Reopen Game
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-
-                </div>
-              </SectionCard>
-            </>
-          )}
-        </div>
-      </div>
-    )
-  }
+  // Both of these are opened from buttons inside the Admin tab, which returns
+  // early below — so rendering them only in the scorekeeper view at the bottom
+  // of this component means the button sets state that nothing is listening
+  // to and looks completely dead. Kept as one fragment so the two places that
+  // need them cannot drift apart.
+  const gameActionModals = (
+    <>
+      {showResetGameConfirm && (
+        <ResetGameConfirmModal
+          teamAName={teamAName}
+          teamBName={teamBName}
+          busy={resetGameBusy}
+          onConfirm={resetGameForTesting}
+          onClose={() => setShowResetGameConfirm(false)}
+        />
+      )}
+      {showReopenGameConfirm && (
+        <ReopenGameConfirmModal
+          scores={scores}
+          teamAName={teamAName}
+          teamBName={teamBName}
+          teamAColor={teamAColor}
+          teamBColor={teamBColor}
+          onConfirm={() => reopenCompletedGame()}
+          onClose={() => setShowReopenGameConfirm(false)}
+        />
+      )}
+    </>
+  )
 
   // Tracker-fed games have no play-by-play data for the granular manual-entry
   // grid to work from — route everything except Admin (where the mode gets
   // toggled), Lineups (pregame setup, unaffected), and the At-Bat Editor
   // (works for any game) to the read-only tracker box score instead.
+  if (viewMode === 'liveTracker' && isScorekeeper && selectedGame?.stats_source === 'tracker') {
+    return <><TrackerScorebookView toolbar={scorebookToolbar} tabs={viewTabs} selectedGame={selectedGame} TrackerComponent={TrackerLivePreview} /><UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
+  }
+
   if (selectedGame?.stats_source === 'tracker' && viewMode !== 'admin' && viewMode !== 'lineups' && viewMode !== 'atBatEditor') {
     return <>{renderGameView()}<UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
   }
 
   if (viewMode === 'atBatEditor' && isScorekeeper) {
-    return <>{renderAtBatEditorView()}<UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
+    return <><AtBatEditorScorebookView toolbar={scorebookToolbar} tabs={viewTabs} selectedGame={selectedGame} isSeasonGame={isSeasonGame} editorRef={atBatPanelRef} onDirtyChange={setAtBatDataDirty} EditorComponent={AtBatEditor} /><UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
   }
 
   if (viewMode === 'lineups' && isScorekeeper) {
@@ -8096,7 +4723,7 @@ export default function Scorebook() {
   }
 
   if (viewMode === 'admin' && isScorekeeper) {
-    return <>{renderAdminView()}<UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
+    return <>{renderAdminView()}{gameActionModals}<UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
   }
 
   if (viewMode === 'game' || !isScorekeeper) {
@@ -8110,553 +4737,141 @@ export default function Scorebook() {
       {scorebookToolbar}
       {viewTabs}
 
-      {/* ── Sticky header: score + inning strip ── */}
-      <div style={{ background: C.bg, borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ padding: '8px 12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-            <StadiumHeaderPill stadium={selectedStadium} isNight={selectedGame?.is_night} onEdit={isScorekeeper ? openStadiumEditModal : undefined} />
-            {isScorekeeper && (
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={toggleHomeAwaySwap}
-                disabled={gamePAs.length > 0}
-                title={gamePAs.length > 0
-                  ? 'Home/Away can only be swapped before the first plate appearance is recorded.'
-                  : 'Swap which team bats first (top of the inning) — updates the batting order, line score, and game view for everyone.'}
-                style={{ fontSize: 11, padding: '6px 10px', opacity: gamePAs.length > 0 ? 0.5 : 1 }}
-              >
-                ⇄ Swap Home/Away
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div style={{ padding: '0 12px 8px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)', gap: 16, alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <div style={{ width: 48, height: 48, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${battingColor}`, flexShrink: 0 }}>
-                <Avatar name={charactersById[currentBatter?.character_id]?.name} size={48} />
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: battingColor, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                  <TeamLogo logoKey={battingIdentity?.teamLogoKey} logoUrl={battingIdentity?.teamLogoUrl || battingPlayer?.team_logo_url} teamName={battingPlayer?.name} height={14} />
-                  Batter
-                </div>
-                <div style={{ fontSize: 16, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{charactersById[currentBatter?.character_id]?.name || 'No batter'}</div>
-                <div style={{ color: C.muted, fontSize: 11, fontWeight: 700 }}>{currentBatter ? `${getTeamShortName(identitiesByPlayerId[currentBatter.player_id]) || playersById[currentBatter.player_id]?.name || ''} · #${currentBatter.batting_order}` : 'Waiting'}</div>
-                {characterSeasonStats ? (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-                    <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>AVG {formatBaseballAverage({ atBats: 1, avg: characterSeasonStats.avg })}</span>
-                    <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>HR {characterSeasonStats.homeRuns}</span>
-                    <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>RBI {characterSeasonStats.rbi}</span>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            {/* ── Mini runner diamond ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flexShrink: 0 }}>
-              <MiniRunnerDiamond runners={displayRunners} charactersById={charactersById} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <div style={{ minWidth: 0, textAlign: 'right' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, color: pitchingColor, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                  Pitcher
-                  <TeamLogo logoKey={pitchingIdentity?.teamLogoKey} logoUrl={pitchingIdentity?.teamLogoUrl || pitchingPlayer?.team_logo_url} teamName={pitchingPlayer?.name} height={14} />
-                </div>
-                <div style={{ fontSize: 16, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentPitcherChar?.name || 'No pitcher'}</div>
-                <div style={{ color: C.muted, fontSize: 11, fontWeight: 700 }}>{getTeamShortName(identitiesByPlayerId[currentPitcherStint?.player_id]) || playersById[currentPitcherStint?.player_id]?.name || 'Waiting'}</div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-                  <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>IP {currentPitcherGameLine.ip ?? '0.0'}</span>
-                  <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>H {currentPitcherGameLine.h ?? 0}</span>
-                  <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>R {currentPitcherGameLine.r ?? 0}</span>
-                  <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>ER {currentPitcherGameLine.er ?? 0}</span>
-                  <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>BB {currentPitcherGameLine.bb ?? 0}</span>
-                  <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>K {currentPitcherGameLine.k ?? 0}</span>
-                  <span style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700 }}>P {displayPitchNumber}</span>
-                </div>
-              </div>
-              <div style={{ width: 48, height: 48, borderRadius: '50%', overflow: 'hidden', border: `2px solid ${pitchingColor}`, flexShrink: 0 }}>
-                <Avatar name={currentPitcherChar?.name} size={48} />
-              </div>
-            </div>
-          </div>
-        </div>
-        {/* Inning score strip */}
-        <div style={{ overflowX: 'auto', scrollbarWidth: 'none' }}>
-          <div style={{ display: 'flex', minWidth: 'max-content', padding: '2px 8px 4px', gap: 1, alignItems: 'flex-start' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginRight: 6, paddingTop: 18 }}>
-              {lineScoreRows.map((team) => (
-                <div key={team.battingSide} style={{ height: 26, display: 'flex', alignItems: 'center', gap: 4, color: team.color, fontSize: 10, fontWeight: 700 }}>
-                  <TeamLogo logoKey={team.logoKey} logoUrl={team.logoUrl} teamName={team.teamName} height={18} />
-                  <span>{team.abbreviation}</span>
-                </div>
-              ))}
-            </div>
-            {innings.map(inn => {
-              // No half-inning is "active" once the game is final, unless the user is
-              // deliberately browsing a past inning via viewedInning.
-              const isActive = inn === (viewedInning ?? (effectiveGameStatus === 'complete' ? null : currentInning))
-              const isExtra  = inn > regulationInnings
-              // When looking at the live current inning (not browsing a past one), only the
-              // half-inning actually being played should be highlighted, not the whole column.
-              const isLiveHalf = isActive && !viewedInning && inn === currentInning && activeBattingSide
-              return (
-                <div key={inn} onClick={() => setViewedInning(viewedInning === inn ? null : inn)} style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer', width: 30 }}>
-                  <div style={{ height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: inn === currentInning ? 700 : 400, color: inn === currentInning ? C.accent : isExtra ? '#F97316' : C.muted, borderBottom: isActive ? `2px solid ${C.accent}` : isExtra ? '2px solid #F97316' : '2px solid transparent' }}>{inn}</div>
-                  {lineScoreRows.map((team) => (
-                    <div key={team.battingSide} style={{ height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', background: (isLiveHalf ? team.battingSide === activeBattingSide : isActive) ? `${C.accent}20` : 'transparent', border: isExtra ? '1px solid #F9731644' : 'none', borderRadius: 3, fontSize: 13, fontWeight: 700, color: C.text }}>{getLineScoreCellValue({ inning: inn, side: team.battingSide, scoreMap: team.scoreMap, completedHalfCount })}</div>
-                  ))}
-                </div>
-              )
-            })}
-            {/* R / H / E totals */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginLeft: 8 }}>
-              <div style={{ height: 18, display: 'flex', gap: 4 }}>{['R', 'H', 'E'].map(l => <div key={l} style={{ width: 24, textAlign: 'center', fontSize: 10, color: C.muted, fontWeight: 700 }}>{l}</div>)}</div>
-              {lineScoreRows.map((team) => (
-                <div key={team.battingSide} style={{ height: 26, display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 800, color: team.color }}>{team.runs}</div>
-                  <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{team.hits}</div>
-                  <div style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 700 }}>{team.errors}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginLeft: 10, padding: '8px 10px', borderRadius: 12, border: `1px solid ${C.border}`, background: `${C.card}DD`, display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'center' }}>
-              <CountDotRow label="B" count={Math.min(displayBalls, 3)} total={3} activeColor={C.green} inactiveColor={C.border} />
-              <CountDotRow label="S" count={Math.min(displayStrikes, 2)} total={2} activeColor={C.accent} inactiveColor={C.border} />
-              <CountDotRow label="O" count={Math.min(displayOutsInHalf, 2)} total={2} activeColor={C.red} inactiveColor={C.border} />
-            </div>
-          </div>
-        </div>
-        {viewedInning && viewedInning !== currentInning && (
-          <button onClick={() => setViewedInning(null)} style={{ display: 'block', width: '100%', background: `${C.accent}22`, color: C.accent, border: 'none', padding: '5px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-            Jump to Current (Inn. {currentInning}) →
-          </button>
-        )}
-      </div>
+      <ScorekeeperGameHeader
+        game={{
+          selectedGame,
+          selectedStadium,
+          isScorekeeper,
+          gamePAs,
+          effectiveGameStatus,
+          currentInning,
+          regulationInnings,
+          innings,
+          completedHalfCount,
+          activeBattingSide,
+        }}
+        teams={{
+          battingColor,
+          battingIdentity,
+          battingPlayer,
+          pitchingColor,
+          pitchingIdentity,
+          pitchingPlayer,
+          identitiesByPlayerId,
+          playersById,
+        }}
+        matchup={{
+          characterSeasonStats,
+          charactersById,
+          currentBatter,
+          currentPitcherChar,
+          currentPitcherGameLine,
+          currentPitcherStint,
+          displayBalls,
+          displayOutsInHalf,
+          displayPitchNumber,
+          displayRunners,
+          displayStrikes,
+        }}
+        lineScore={{ lineScoreRows, viewedInning, setViewedInning }}
+        actions={{ openStadiumEditModal, toggleHomeAwaySwap }}
+      />
 
       {/* ── Main content ── */}
       <div style={{ padding: '8px 10px 0' }}>
 
-        {/* Loading lineups indicator */}
-        {!gameLineups.length && (
-          <div style={{ background: `${C.accent}18`, border: `1px solid ${C.accent}44`, borderRadius: 10, padding: '8px 14px', marginBottom: 8 }}>
-            <div style={{ color: C.accent, fontWeight: 700, fontSize: 13 }}>Loading lineup…</div>
-          </div>
-        )}
+        <ScorekeeperLineupStatus
+          game={{ gameLineups, inPlayState, isGameComplete, isScorekeeper, selectedGame }}
+          lineups={{
+            battingColor,
+            canEditScorebook,
+            charactersById,
+            currentLineup,
+            currentPitcherChar,
+            defensiveLineup,
+            effectiveBatterIdx,
+            isNarrowViewport,
+            pitchingColor,
+            selectedPitcher,
+          }}
+          actions={{ handlePitcherDragStart, handlePitcherItemClick, setShowReopenGameConfirm }}
+        />
 
-        {/* ── Three-column: batting lineup | diamond | pitching lineup ──
-            Hidden once the ball-in-play flow (result picker → build-the-play
-            screen) is up — that screen already needs the field diagram,
-            runner placement, and Confirm button to fit without scrolling, and
-            the lineups aren't actionable mid-play anyway. */}
-        {!inPlayState && (
-          <div style={{ display: 'grid', gap: 8, marginBottom: 10, width: '100%' }}>
+        <ScorekeeperGameEndBanner
+          banner={{ gameEndBanner, showOutsBanner }}
+          teams={{ identitiesByPlayerId, playersById }}
+          scores={scores}
+          regulationInnings={regulationInnings}
+          actions={{
+            markGameComplete,
+            continuePlaying: () => {
+              dismissedGameEndOutsRef.current = outsRecorded
+              setGameEndBanner(null)
+            },
+          }}
+        />
 
-            {/* Left: batting team lineup */}
-            <LineupColumn
-              lineup={currentLineup}
-              currentIdx={effectiveBatterIdx}
-              teamColor={battingColor}
-              stat="batting"
-              draggable={false}
-              charactersById={charactersById}
-              orientation="horizontal"
-              wrap={isNarrowViewport}
-            />
-
-            {/* Center: diamond */}
-            {/* Right: pitching team lineup (drag to mound or tap to select) */}
-            <LineupColumn
-              lineup={defensiveLineup}
-              currentIdx={-1}
-              currentPitcherCharId={currentPitcherChar?.id}
-              pendingPitcherCharId={selectedPitcher?.charId}
-              teamColor={pitchingColor}
-              stat="pitching"
-              draggable={canEditScorebook}
-              onDragStart={handlePitcherDragStart}
-              onItemClick={canEditScorebook ? handlePitcherItemClick : undefined}
-              charactersById={charactersById}
-              orientation="horizontal"
-              wrap={isNarrowViewport}
-            />
-          </div>
-        )}
-
-        {selectedGame && !gameLineups.length && !inPlayState && <div style={{ background: C.card, borderRadius: 10, padding: 16, textAlign: 'center', marginBottom: 10, color: C.muted }}>No lineup set.</div>}
-        {isGameComplete && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: `${C.green}18`, border: `1px solid ${C.green}44`, borderRadius: 10, padding: '10px 14px', marginBottom: 10, color: C.green, fontWeight: 700, fontSize: 13 }}>
-            <span>Game complete. The scorebook is locked for viewing only.</span>
-            {isScorekeeper && (
-              <button
-                type="button"
-                onClick={() => setShowReopenGameConfirm(true)}
-                style={{ background: C.card, color: C.green, border: `1px solid ${C.green}55`, borderRadius: 8, padding: '8px 12px', fontWeight: 800, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
-              >
-                Reopen Game
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* ── Game-end banner ── */}
-        {gameEndBanner && !showOutsBanner && (
-          <div style={{ background: `${C.green}18`, border: `2px solid ${C.green}`, borderRadius: 14, padding: 20, marginBottom: 10, textAlign: 'center' }}>
-            <div style={{ fontSize: 20, fontWeight: 900, color: C.green, marginBottom: 4 }}>
-              {gameEndBanner.type === 'mercy' ? '⚡ Mercy Rule!' : '🏁 Game Over!'}
-            </div>
-            <div style={{ color: C.text, fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
-              {getTeamShortName(identitiesByPlayerId[gameEndBanner.winnerId]) || playersById[gameEndBanner.winnerId]?.name} wins {scores.a}–{scores.b}
-            </div>
-            <div style={{ color: C.muted, fontSize: 13, marginBottom: 16 }}>
-              {gameEndBanner.type === 'mercy'
-                ? `Mercy rule after ${gameEndBanner.inning} inning${gameEndBanner.inning !== 1 ? 's' : ''}`
-                : gameEndBanner.inning > regulationInnings ? `Walk-off in extra inning ${gameEndBanner.inning}` : `Final after ${gameEndBanner.inning} innings`}
-            </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button onClick={() => markGameComplete(gameEndBanner.winnerId, gameEndBanner.inning, gameEndBanner.inning > regulationInnings)}
-                style={{ background: C.green, color: '#000', border: 'none', borderRadius: 8, padding: '12px 24px', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
-                Mark Complete ✓
-              </button>
-              <button onClick={() => {
-                dismissedGameEndOutsRef.current = outsRecorded
-                setGameEndBanner(null)
-              }}
-                style={{ background: C.card, color: C.muted, border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px 14px', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>
-                Continue Playing
-              </button>
-            </div>
-          </div>
-        )}
-
-        {canEditScorebook && !pendingPA && !pitchActionSheet && !inPlayState && !showOutsBanner && !gameEndBanner && currentBatter && (
-          <div style={{ position: 'sticky', bottom: 0, zIndex: 22, marginBottom: 10 }}>
-            {editingPa && (
-              <div style={{ background: `${C.blue}18`, border: `1px solid ${C.blue}44`, borderRadius: 8, padding: '7px 12px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: C.blue, fontSize: 13 }}>Editing PA #{editingPa.pa_number} - {charactersById[editingPa.character_id]?.name}</span>
-                <button onClick={() => setEditingPa(null)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer' }}><X size={15} /></button>
-              </div>
-            )}
-            <div style={{ background: 'rgba(15,23,42,0.98)', border: `1px solid ${C.border}`, borderRadius: 18, padding: 14, boxShadow: '0 -8px 30px rgba(0,0,0,0.28)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 12 }}>
-                <button type="button" disabled={isSaving || isPitchActionPending} onClick={() => setStarPitchActive((current) => !current)} style={{ width: '100%', minHeight: 68, borderRadius: 16, border: `1px solid ${starPitchActive ? C.accent : C.border}`, background: starPitchActive ? `${C.accent}22` : C.card, color: starPitchActive ? C.accent : C.text, fontWeight: 800, fontSize: 15, opacity: isSaving || isPitchActionPending ? 0.55 : 1, cursor: isSaving || isPitchActionPending ? 'not-allowed' : 'pointer' }}>
-                  {starPitchActive ? 'STAR PITCH ON' : 'STAR PITCH'}
-                </button>
-                <button type="button" disabled={isSaving || isPitchActionPending} onClick={() => setStarHitUsed((current) => {
-                  if (current) setStarHitConnected(false)
-                  return !current
-                })} style={{ width: '100%', minHeight: 68, borderRadius: 16, border: `1px solid ${starHitUsed ? C.accent : C.border}`, background: starHitUsed ? `${C.accent}22` : C.card, color: starHitUsed ? C.accent : C.text, fontWeight: 800, fontSize: 15, opacity: isSaving || isPitchActionPending ? 0.55 : 1, cursor: isSaving || isPitchActionPending ? 'not-allowed' : 'pointer' }}>
-                  {starHitUsed ? 'STAR HIT ON' : 'STAR HIT'}
-                </button>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 10 }}>
-                <button type="button" onClick={handlePitchBall} disabled={!canRecordOutcome || starHitUsed} style={{ minHeight: 68, borderRadius: 16, border: `1px solid ${starHitUsed ? `${C.border}99` : C.border}`, background: starHitUsed ? 'rgba(148,163,184,0.12)' : `${C.blue}22`, color: starHitUsed ? C.muted : C.blue, fontWeight: 800, fontSize: 15, opacity: !canRecordOutcome || starHitUsed ? 0.55 : 1, cursor: !canRecordOutcome || starHitUsed ? 'not-allowed' : 'pointer' }}>BALL</button>
-                <button type="button" onClick={() => handleStrikeChoice('swinging')} disabled={!canRecordOutcome} style={{ minHeight: 68, borderRadius: 16, border: `1px solid ${C.border}`, background: `${C.red}22`, color: C.red, fontWeight: 800, fontSize: 15, opacity: !canRecordOutcome ? 0.55 : 1, cursor: !canRecordOutcome ? 'not-allowed' : 'pointer' }}>SWING</button>
-                <button type="button" onClick={() => handleStrikeChoice('looking')} disabled={!canRecordOutcome || starHitUsed} title={starHitUsed ? 'A star hit requires swinging.' : undefined} style={{ minHeight: 68, borderRadius: 16, border: `1px solid ${starHitUsed ? `${C.border}99` : C.border}`, background: starHitUsed ? 'rgba(148,163,184,0.12)' : `${C.red}22`, color: starHitUsed ? C.muted : C.red, fontWeight: 800, fontSize: 15, opacity: !canRecordOutcome || starHitUsed ? 0.55 : 1, cursor: !canRecordOutcome || starHitUsed ? 'not-allowed' : 'pointer' }}>LOOK</button>
-                <button type="button" onClick={handlePitchFoul} disabled={!canRecordOutcome} style={{ minHeight: 68, borderRadius: 16, border: `1px solid ${C.border}`, background: `${C.red}22`, color: C.red, fontWeight: 800, fontSize: 15, opacity: !canRecordOutcome ? 0.55 : 1, cursor: !canRecordOutcome ? 'not-allowed' : 'pointer' }}>FOUL</button>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-                <button type="button" onClick={handlePitchHbp} disabled={!canRecordOutcome || starHitUsed} style={{ minHeight: 68, borderRadius: 16, border: `1px solid ${starHitUsed ? `${C.border}99` : C.border}`, background: starHitUsed ? 'rgba(148,163,184,0.12)' : `${C.blue}22`, color: starHitUsed ? C.muted : C.blue, fontWeight: 800, fontSize: 15, opacity: !canRecordOutcome || starHitUsed ? 0.55 : 1, cursor: !canRecordOutcome || starHitUsed ? 'not-allowed' : 'pointer' }}>HBP</button>
-                <button type="button" onClick={handlePitchInPlay} disabled={!canRecordOutcome} style={{ minHeight: 68, borderRadius: 16, border: `1px solid ${C.border}`, background: `${C.green}22`, color: C.green, fontWeight: 800, fontSize: 15, opacity: !canRecordOutcome ? 0.55 : 1, cursor: !canRecordOutcome ? 'not-allowed' : 'pointer' }}>IN PLAY</button>
-              </div>
-            </div>
-          </div>
-        )}
+        <ScorekeeperPitchControls
+          visibility={{
+            canEditScorebook,
+            currentBatter,
+            gameEndBanner,
+            inPlayState,
+            pendingPA,
+            pitchActionSheet,
+            showOutsBanner,
+          }}
+          pitch={{
+            canRecordOutcome,
+            charactersById,
+            editingPa,
+            isPitchActionPending,
+            isSaving,
+            starHitUsed,
+            starPitchActive,
+          }}
+          actions={{
+            handlePitchBall,
+            handlePitchFoul,
+            handlePitchHbp,
+            handlePitchInPlay,
+            handleStrikeChoice,
+            setEditingPa,
+            setStarHitConnected,
+            setStarHitUsed,
+            setStarPitchActive,
+          }}
+        />
 
 
-        {canEditScorebook && inPlayState && !showOutsBanner && !gameEndBanner && (
-          <div style={{ background: 'rgba(15,23,42,0.98)', border: `1px solid ${C.border}`, borderRadius: 18, padding: 14, marginBottom: 10 }}>
-            {buildInPlaySelectionSummary(inPlayState).length > 0 && (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                {buildInPlaySelectionSummary(inPlayState).map((item) => (
-                  <div key={item.label} style={{ padding: '7px 10px', borderRadius: 999, border: `1px solid ${C.border}`, background: `${C.card}DD` }}>
-                    <span style={{ color: C.muted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>{item.label}</span>
-                    <span style={{ marginLeft: 6, color: C.text, fontSize: 12, fontWeight: 700 }}>{item.value}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {inPlayState.stage === 'result' && (
-              <>
-                <div style={{ color: C.muted, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>Ball In Play — Result</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
-                  {IN_PLAY_RESULT_OPTIONS.map((option) => {
-                    const color = ZONE_COLOR[option.zone]
-                    const disabledForOuts = isOutcomeDisabledForOuts(option.value, selectionOutsInHalf)
-                    const disabledForRunners = isOutcomeDisabledForRunners(option.value, runners)
-                    const disabled = disabledForOuts || disabledForRunners
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        disabled={disabled}
-                        title={disabled ? (disabledForOuts ? `${option.label} is not available with two outs.` : `${option.label} requires a runner on base.`) : undefined}
-                        onClick={() => {
-                          if (disabled) return
-                          const nextState = {
-                            ...inPlayState,
-                            stage: 'details',
-                            resultType: option.resultType,
-                            result: option.value,
-                            trajectory: option.value === 'GO' ? 'G' : option.value === 'LO' ? 'L' : option.value === 'FO' ? 'F' : null,
-                            isBuddyJump: false,
-                            robbedHrOverride: null,
-                            fielderChain: [],
-                            manualRunnerPositions: {},
-                            errorMode: false,
-                            errorFielderPositions: [],
-                            nicePlay: false,
-                          }
-                          // A ball hit clean over the fence has no fielders to
-                          // mark and nothing left to configure — confirm it
-                          // immediately instead of landing on an empty details
-                          // screen. An inside-the-park HR is a real fielded
-                          // play (relay, missed catch, etc.), so it still goes
-                          // through fielder selection like any other hit.
-                          if (option.value === 'HR') {
-                            finalizeInPlay(nextState)
-                            return
-                          }
-                          setInPlayState(nextState)
-                        }}
-                        style={{
-                          minHeight: 64,
-                          borderRadius: 16,
-                          border: `1px solid ${disabled ? `${C.border}99` : color}`,
-                          background: disabled ? 'rgba(148,163,184,0.12)' : `${color}22`,
-                          color: disabled ? C.muted : color,
-                          fontWeight: 800,
-                          fontSize: 15,
-                          opacity: disabled ? 0.5 : 1,
-                          cursor: disabled ? 'not-allowed' : 'pointer',
-                        }}
-                      >
-                        {option.label}
-                      </button>
-                    )
-                  })}
-                </div>
-                <button type="button" onClick={cancelInPlaySelection} style={{ width: '100%', minHeight: 56, marginTop: 10, borderRadius: 14, border: `1px solid ${C.border}`, background: C.card, color: C.muted, fontWeight: 700, fontSize: 14 }}>BACK</button>
-              </>
-            )}
-            {inPlayState.stage === 'details' && (
-              <div>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: !isHomeRunResult(inPlayState.result) && !isStackedInPlayLayout
-                    ? 'minmax(320px, 420px) minmax(320px, 640px) minmax(320px, 420px)'
-                    : '1fr',
-                  gap: 16,
-                  alignItems: 'flex-start',
-                  justifyContent: 'center',
-                }}>
-                  {!isHomeRunResult(inPlayState.result) && !isStackedInPlayLayout ? (
-                    runnerPlacementPreview ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, paddingTop: 4 }}>
-                        <div style={{ fontSize: 11, fontWeight: 800, color: C.muted, textTransform: 'uppercase', letterSpacing: '.04em' }}>Preview</div>
-                        <MiniRunnerDiamond runners={runnerPlacementPreview} charactersById={charactersById} size={120} />
-                      </div>
-                    ) : <div aria-hidden="true" />
-                  ) : null}
-                  <div style={{ minWidth: 0, width: '100%', maxWidth: 640, justifySelf: 'center' }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
-                        <button
-                          type="button"
-                          onClick={() => setInPlayState((current) => ({ ...current, nicePlay: !current.nicePlay }))}
-                          title="Marks the first fielder to touch the ball as having made a diving/great catch"
-                          style={{
-                            width: 108,
-                            minHeight: 40,
-                            padding: '0 12px',
-                            borderRadius: 12,
-                            border: `1px solid ${inPlayState.nicePlay ? C.accent : C.border}`,
-                            background: inPlayState.nicePlay ? `${C.accent}33` : C.card,
-                            color: inPlayState.nicePlay ? C.accent : C.muted,
-                            fontWeight: 900,
-                            fontSize: 12,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {inPlayState.nicePlay ? 'NICE PLAY ON' : 'NICE PLAY'}
-                        </button>
-                        {BUDDY_JUMP_RESULTS.has(inPlayState.result) && (
-                          <button
-                            type="button"
-                            onClick={() => setInPlayState((current) => ({
-                              ...current,
-                              isBuddyJump: !current.isBuddyJump,
-                              robbedHrOverride: null,
-                            }))}
-                            title="Marks this catch as a Buddy Jump; tap the assisting fielder first, then the fielder who made the catch"
-                            style={{
-                              width: 108,
-                              minHeight: 40,
-                              padding: '0 12px',
-                              borderRadius: 12,
-                              border: `1px solid ${inPlayState.isBuddyJump ? C.accent : C.border}`,
-                              background: inPlayState.isBuddyJump ? `${C.accent}33` : C.card,
-                              color: inPlayState.isBuddyJump ? C.accent : C.muted,
-                              fontWeight: 900,
-                              fontSize: 12,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {inPlayState.isBuddyJump ? 'BJ ON' : 'BJ'}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setInPlayState((current) => ({ ...current, errorMode: !current.errorMode }))}
-                          title="While on, tapping a fielder charges them with an error on this play — stays on across multiple taps"
-                          style={{
-                            width: 108,
-                            minHeight: 40,
-                            padding: '0 12px',
-                            borderRadius: 12,
-                            border: `1px solid ${inPlayState.errorMode ? C.red : C.border}`,
-                            background: inPlayState.errorMode ? `${C.red}33` : C.card,
-                            color: inPlayState.errorMode ? C.red : C.muted,
-                            fontWeight: 900,
-                            fontSize: 12,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {inPlayState.errorMode ? 'ERROR ON' : 'ERROR'}
-                        </button>
-                        {inPlayState.isBuddyJump && (
-                          <button
-                            type="button"
-                            onClick={() => setInPlayState((current) => ({ ...current, robbedHrOverride: !buddyJumpEffectiveRobbedHr }))}
-                            title="Whether this Buddy Jump catch robbed a home run at the wall — auto-estimated from the catch spot, tap to correct if it's wrong"
-                            style={{
-                              width: 108,
-                              minHeight: 40,
-                              padding: '0 12px',
-                              borderRadius: 12,
-                              border: `1px solid ${buddyJumpEffectiveRobbedHr ? C.accent : C.border}`,
-                              background: buddyJumpEffectiveRobbedHr ? `${C.accent}33` : C.card,
-                              color: buddyJumpEffectiveRobbedHr ? C.accent : C.muted,
-                              fontWeight: 900,
-                              fontSize: 12,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {buddyJumpEffectiveRobbedHr ? 'HR ROB ON' : 'HR ROB'}
-                          </button>
-                        )}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <FieldPlayBuilder
-                          fieldersByPosition={activeDefensiveFielders}
-                          fielderChain={inPlayState.fielderChain || []}
-                          onToggleFielder={(position) => setInPlayState((current) => {
-                            const chain = current.fielderChain || []
-                            // The same fielder can appear more than once in the chain
-                            // (e.g. a 3-4-3 double play), just never twice in a row —
-                            // tapping whoever was just tapped is a no-op instead of a
-                            // second consecutive touch. Removing a fielder is now a
-                            // right-click (see onFielderContextMenu below), so a left
-                            // tap always adds another touch rather than toggling one
-                            // off.
-                            if (chain[chain.length - 1] === position) return current
-                            const nextChain = [...chain, position]
-                            // Error mode stays on across multiple taps, so every
-                            // fielder tapped while it's active gets stacked onto the
-                            // same play's error credit rather than replacing whoever
-                            // was tapped before them.
-                            if (current.errorMode) {
-                              const errors = current.errorFielderPositions || []
-                              return { ...current, fielderChain: nextChain, errorFielderPositions: errors.includes(position) ? errors : [...errors, position] }
-                            }
-                            return { ...current, fielderChain: nextChain }
-                          })}
-                          onFielderContextMenu={(position) => setInPlayState((current) => {
-                            const chain = current.fielderChain || []
-                            const idx = chain.lastIndexOf(position)
-                            if (idx === -1) return current
-                            const nextChain = [...chain.slice(0, idx), ...chain.slice(idx + 1)]
-                            const errors = (current.errorFielderPositions || []).filter((p) => p !== position)
-                            return { ...current, fielderChain: nextChain, errorFielderPositions: errors }
-                          })}
-                          notation={inPlayState.fielderChain?.length
-                            ? assembleErrorNotation(inPlayState.trajectory, inPlayState.fielderChain, effectiveErrorPositions(inPlayState))
-                            : ''}
-                          accent={C.accent}
-                          label={inPlayState.isBuddyJump ? 'Tap Assist, Then The Catch' : inPlayState.result === 'IPHR' ? 'Who Touched The Ball? (Inside-The-Park HR)' : 'Who Touched The Ball?'}
-                          stadiumKey={stadiumKey}
-                        />
-                        {inPlayState.isBuddyJump && (
-                          <div style={{ marginTop: 8, fontSize: 11, color: C.muted, textAlign: 'center' }}>
-                            Buddy Jump — 1st fielder tapped gets the assist, 2nd gets the putout. Both need good chemistry together.
-                            {inPlayState.fielderChain?.length >= 2 && !canFinalizeInPlaySelection(inPlayState, activeDefensiveFielders) && (
-                              <div style={{ color: C.red, marginTop: 4, fontWeight: 700 }}>These two don't have chemistry together.</div>
-                            )}
-                            <div style={{ marginTop: 4 }}>
-                              {inPlayState.robbedHrOverride == null
-                                ? `HR ROB ${buddyJumpAutoRobbedHr ? 'auto-detected' : 'not detected'} from the catch spot — tap HR ROB to correct it.`
-                                : `HR ROB set manually (${buddyJumpEffectiveRobbedHr ? 'on' : 'off'}).`}
-                            </div>
-                          </div>
-                        )}
-                        {Boolean(inPlayState.errorFielderPositions?.length) && (
-                          <div style={{ marginTop: 8, fontSize: 11, color: C.red, textAlign: 'center', fontWeight: 700 }}>
-                            E — {inPlayState.errorFielderPositions.map((position) => activeDefensiveFielders[position]?.character || 'fielder').join(', ')}
-                          </div>
-                        )}
-                        {inPlayState.nicePlay && inPlayState.fielderChain?.[0] && (
-                          <div style={{ marginTop: 8, fontSize: 11, color: C.accent, textAlign: 'center', fontWeight: 700 }}>
-                            ★ Nice play by {activeDefensiveFielders[inPlayState.fielderChain[0]]?.character || 'fielder'}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {!isHomeRunResult(inPlayState.result) && (
-                    <div style={{
-                      minWidth: 0,
-                      width: '100%',
-                      maxWidth: isStackedInPlayLayout ? undefined : 420,
-                      justifySelf: 'stretch',
-                      marginTop: isStackedInPlayLayout ? 16 : 0,
-                      paddingTop: isStackedInPlayLayout ? 16 : 0,
-                      borderTop: isStackedInPlayLayout ? `1px solid ${C.border}` : 'none',
-                    }}>
-                      <BaserunnerField
-                        entries={runnerPlan}
-                        charactersById={charactersById}
-                        onSetPosition={handleRunnerSetPosition}
-                        accent={C.accent}
-                      />
-                    </div>
-                  )}
-                </div>
-                <div ref={inPlayDetailsFooterRef} style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  <button type="button" onClick={() => setInPlayState((current) => ({ ...current, stage: 'result', resultType: null, result: null, trajectory: null, fielderChain: [], manualRunnerPositions: {}, errorMode: false, errorFielderPositions: [], nicePlay: false, isBuddyJump: false, robbedHrOverride: null }))} style={{ flex: 1, minHeight: 56, borderRadius: 14, border: `1px solid ${C.border}`, background: C.card, color: C.muted, fontWeight: 700, fontSize: 14 }}>BACK</button>
-                  <button type="button" disabled={!canFinalizeInPlaySelection(inPlayState, activeDefensiveFielders)} onClick={() => finalizeInPlay(inPlayState)} style={{ flex: 1, minHeight: 56, borderRadius: 14, border: `1px solid ${C.accent}`, background: `${C.accent}22`, color: C.accent, fontWeight: 800, fontSize: 15, opacity: !canFinalizeInPlaySelection(inPlayState, activeDefensiveFielders) ? 0.5 : 1 }}>CONFIRM</button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        {/* ── Undo + End game ── */}
-        {!inPlayState && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <button onClick={handleUndoAction} disabled={!canUndoAction}
-              style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: canUndoAction ? C.text : C.muted, borderRadius: 8, padding: '10px 0', fontWeight: 600, cursor: canUndoAction ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13 }}>
-              <RotateCcw size={14} /> Undo
-            </button>
-            <button onClick={handleRedoAction} disabled={!canRedoUiAction}
-              style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: canRedoUiAction ? C.text : C.muted, borderRadius: 8, padding: '10px 0', fontWeight: 600, cursor: canRedoUiAction ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13 }}>
-              <RotateCw size={14} /> Redo
-            </button>
-            <button onClick={() => setShowEndGameConfirm(true)} disabled={isGameComplete}
-              style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: isGameComplete ? C.muted : C.text, borderRadius: 8, padding: '10px 0', fontWeight: 600, cursor: isGameComplete ? 'not-allowed' : 'pointer', fontSize: 13 }}>
-              End Game
-            </button>
-          </div>
-        )}
+        <ScorekeeperInPlayPanel
+          visibility={{ canEditScorebook, gameEndBanner, inPlayState, showOutsBanner }}
+          play={{
+            activeDefensiveFielders,
+            buddyJumpAutoRobbedHr,
+            buddyJumpEffectiveRobbedHr,
+            charactersById,
+            isStackedInPlayLayout,
+            runnerPlacementPreview,
+            runnerPlan,
+            runners,
+            selectionOutsInHalf,
+            stadiumKey,
+          }}
+          actions={{ cancelInPlaySelection, finalizeInPlay, handleRunnerSetPosition, setInPlayState }}
+          inPlayDetailsFooterRef={inPlayDetailsFooterRef}
+        />
+        <ScorekeeperActionBar
+          inPlayState={inPlayState}
+          canUndoAction={canUndoAction}
+          canRedoUiAction={canRedoUiAction}
+          isGameComplete={isGameComplete}
+          actions={{
+            handleRedoAction,
+            handleUndoAction,
+            openEndGameConfirm: () => setShowEndGameConfirm(true),
+          }}
+        />
       </div>
 
       {/* ── Add Game Modal ── */}
@@ -8685,273 +4900,9 @@ export default function Scorebook() {
           onClose={() => setShowEndGameConfirm(false)}
         />
       )}
-      {showReopenGameConfirm && (
-        <ReopenGameConfirmModal
-          scores={scores}
-          teamAName={teamAName}
-          teamBName={teamBName}
-          teamAColor={teamAColor}
-          teamBColor={teamBColor}
-          onConfirm={() => reopenCompletedGame()}
-          onClose={() => setShowReopenGameConfirm(false)}
-        />
-      )}
+      {gameActionModals}
     </div>
   )
 }
 
 // ─── Add Game Modal (shared) ──────────────────────────────────────────────────
-function StadiumSelectionFields({ stadiums, selectedStadiumId, isNight, onSelectStadium, onToggleTime }) {
-  const orderedStadiums = useMemo(() => getOrderedStadiums(stadiums), [stadiums])
-  const selectedStadium = orderedStadiums.find((stadium) => String(stadium.id) === String(selectedStadiumId)) || orderedStadiums[0] || null
-
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ color: C.muted, fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Stadium</div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>{selectedStadium?.name || 'Select a stadium'}</div>
-        </div>
-        <button
-          onClick={onToggleTime}
-          disabled={!selectedStadium || stadiumTimeToggleDisabled(selectedStadium)}
-          type="button"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            borderRadius: 999,
-            border: `1px solid ${C.border}`,
-            background: selectedStadium && normalizeIsNightForStadium(selectedStadium, isNight) ? 'rgba(59,130,246,0.18)' : 'rgba(234,179,8,0.16)',
-            color: C.text,
-            padding: '10px 14px',
-            cursor: !selectedStadium || stadiumTimeToggleDisabled(selectedStadium) ? 'not-allowed' : 'pointer',
-            opacity: !selectedStadium || stadiumTimeToggleDisabled(selectedStadium) ? 0.65 : 1,
-            fontWeight: 700,
-          }}
-        >
-          {selectedStadium && normalizeIsNightForStadium(selectedStadium, isNight) ? <Moon size={16} /> : <Sun size={16} />}
-          {selectedStadium ? getStadiumTimeLabel(selectedStadium, isNight) : 'Day'}
-        </button>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-        {orderedStadiums.map((stadium) => {
-          const active = String(selectedStadiumId) === String(stadium.id)
-          const stadiumIsNight = normalizeIsNightForStadium(stadium, active ? isNight : false)
-          return (
-            <button
-              key={stadium.id}
-              onClick={() => onSelectStadium(stadium)}
-              type="button"
-              style={{
-                textAlign: 'left',
-                padding: 14,
-                borderRadius: 14,
-                border: `1.5px solid ${active ? C.accent : C.border}`,
-                background: active ? 'rgba(234,179,8,0.12)' : C.bg,
-                color: C.text,
-                cursor: 'pointer',
-              }}
-            >
-              <StadiumLogo name={stadium.name} height={52} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 10, alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 15 }}>{stadium.name}</div>
-                  <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>LF {stadium.lf_distance} / CF {stadium.cf_distance} / RF {stadium.rf_distance}</div>
-                </div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: C.muted, fontSize: 11, fontWeight: 700 }}>
-                  {stadiumIsNight ? <Moon size={12} /> : <Sun size={12} />}
-                  {getStadiumTimeLabel(stadium, stadiumIsNight)}
-                </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: 10, gap: 10 }}>
-                <span style={{ color: C.muted, fontSize: 11, fontWeight: 700 }}>
-                  {stadium.night_only ? 'Night only' : stadium.day_only ? 'Day only' : 'Day or night'}
-                </span>
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </>
-  )
-}
-
-// ─── Edit Stadium Modal (fixes a mis-set stadium for the current game) ──────
-function EditStadiumModal({ stadiums, stadiumEditForm, setStadiumEditForm, onSave, onClose, saving }) {
-  const orderedStadiums = useMemo(() => getOrderedStadiums(stadiums), [stadiums])
-  const selectedStadium = orderedStadiums.find((stadium) => String(stadium.id) === String(stadiumEditForm.stadiumId)) || orderedStadiums[0] || null
-
-  const setStadium = (stadium) => {
-    setStadiumEditForm((current) => ({
-      ...current,
-      stadiumId: stadium.id,
-      isNight: normalizeIsNightForStadium(stadium, current.isNight),
-    }))
-  }
-
-  const toggleTime = () => {
-    if (!selectedStadium || stadiumTimeToggleDisabled(selectedStadium)) return
-    setStadiumEditForm((current) => ({
-      ...current,
-      isNight: !normalizeIsNightForStadium(selectedStadium, current.isNight),
-    }))
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: C.card, borderRadius: 16, padding: 24, width: '100%', maxWidth: 960, maxHeight: '92vh', overflowY: 'auto', border: `1px solid ${C.border}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 18 }}>Edit Stadium</div>
-            <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>Corrects the stadium on the live game record. A fresh historical row is written when the game is completed.</div>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer' }}><X size={20} /></button>
-        </div>
-
-        <StadiumSelectionFields
-          stadiums={stadiums}
-          selectedStadiumId={stadiumEditForm.stadiumId}
-          isNight={stadiumEditForm.isNight}
-          onSelectStadium={setStadium}
-          onToggleTime={toggleTime}
-        />
-
-        <button onClick={onSave} disabled={!selectedStadium || saving} style={{ width: '100%', background: C.accent, color: '#000', border: 'none', borderRadius: 10, padding: '14px 0', fontWeight: 800, fontSize: 16, cursor: selectedStadium && !saving ? 'pointer' : 'not-allowed', marginTop: 20, opacity: selectedStadium && !saving ? 1 : 0.6 }}>
-          {saving ? 'Saving…' : 'Save Stadium'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function AddGameModal({ players, stadiums, addGameForm, setAddGameForm, onAdd, onClose }) {
-  const orderedStadiums = useMemo(() => getOrderedStadiums(stadiums), [stadiums])
-  const selectedStadium = orderedStadiums.find((stadium) => String(stadium.id) === String(addGameForm.stadiumId)) || orderedStadiums[0] || null
-
-  const setStadium = (stadium) => {
-    setAddGameForm((current) => ({
-      ...current,
-      stadiumId: stadium.id,
-      isNight: normalizeIsNightForStadium(stadium, current.isNight),
-    }))
-  }
-
-  const toggleTime = () => {
-    if (!selectedStadium || stadiumTimeToggleDisabled(selectedStadium)) return
-    setAddGameForm((current) => ({
-      ...current,
-      isNight: !normalizeIsNightForStadium(selectedStadium, current.isNight),
-    }))
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: C.card, borderRadius: 16, padding: 24, width: '100%', maxWidth: 960, maxHeight: '92vh', overflowY: 'auto', border: `1px solid ${C.border}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Add Game</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer' }}><X size={20} /></button>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 20 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ color: C.muted, fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Stage / Round</span>
-            <input type="text" placeholder="e.g. Winners Final" value={addGameForm.stage}
-              onChange={e => setAddGameForm(cur => ({ ...cur, stage: e.target.value }))}
-              style={{ background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', fontSize: 14 }} />
-          </label>
-          {[{ label: 'Team A', key: 'teamA' }, { label: 'Team B', key: 'teamB' }].map(f => (
-            <label key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ color: C.muted, fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>{f.label}</span>
-              <select value={addGameForm[f.key]} onChange={e => setAddGameForm(cur => ({ ...cur, [f.key]: e.target.value }))}
-                style={{ background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', fontSize: 14 }}>
-                <option value="">Select player</option>
-                {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </label>
-          ))}
-        </div>
-
-        <StadiumSelectionFields
-          stadiums={stadiums}
-          selectedStadiumId={addGameForm.stadiumId}
-          isNight={addGameForm.isNight}
-          onSelectStadium={setStadium}
-          onToggleTime={toggleTime}
-        />
-
-        <button onClick={onAdd} disabled={!selectedStadium} style={{ width: '100%', background: C.accent, color: '#000', border: 'none', borderRadius: 10, padding: '14px 0', fontWeight: 800, fontSize: 16, cursor: selectedStadium ? 'pointer' : 'not-allowed', marginTop: 20, opacity: selectedStadium ? 1 : 0.6 }}>
-          Add Game
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ─── End Game Confirmation Modal ─────────────────────────────────────────────
-function EndGameConfirmModal({ scores, teamAName, teamBName, teamAColor, teamBColor, onConfirm, onClose }) {
-  const tied = scores.a === scores.b
-  const winner = scores.a > scores.b ? teamAName : scores.b > scores.a ? teamBName : null
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: C.card, borderRadius: 16, padding: 24, width: '100%', maxWidth: 340, border: `1px solid ${C.border}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>End Game?</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer' }}><X size={20} /></button>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginBottom: 16, fontSize: 22, fontWeight: 900 }}>
-          <span style={{ color: teamAColor }}>{teamAName} {scores.a}</span>
-          <span style={{ color: C.muted, fontWeight: 400 }}>–</span>
-          <span style={{ color: teamBColor }}>{teamBName} {scores.b}</span>
-        </div>
-        {tied ? (
-          <div style={{ color: '#F97316', fontWeight: 700, textAlign: 'center', marginBottom: 16, fontSize: 14 }}>
-            ⚠ Game is tied — ending will record no winner.
-          </div>
-        ) : (
-          <div style={{ color: C.muted, textAlign: 'center', marginBottom: 16, fontSize: 14 }}>
-            <span style={{ color: winner === teamAName ? teamAColor : teamBColor, fontWeight: 700 }}>{winner}</span> wins.
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onConfirm} style={{ flex: 1, background: C.green, color: '#000', border: 'none', borderRadius: 10, padding: '13px 0', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
-            Confirm End
-          </button>
-          <button onClick={onClose} style={{ flex: 1, background: 'none', color: C.muted, border: `1px solid ${C.border}`, borderRadius: 10, padding: '13px 0', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Batter Stats Modal ───────────────────────────────────────────────────────
-function ReopenGameConfirmModal({ scores, teamAName, teamBName, teamAColor, teamBColor, onConfirm, onClose }) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: C.card, borderRadius: 16, padding: 24, width: '100%', maxWidth: 360, border: `1px solid ${C.border}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Reopen Game?</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer' }}><X size={20} /></button>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginBottom: 16, fontSize: 22, fontWeight: 900 }}>
-          <span style={{ color: teamAColor }}>{teamAName} {scores.a}</span>
-          <span style={{ color: C.muted, fontWeight: 400 }}>-</span>
-          <span style={{ color: teamBColor }}>{teamBName} {scores.b}</span>
-        </div>
-        <div style={{ color: C.muted, textAlign: 'center', marginBottom: 16, fontSize: 14, lineHeight: 1.5 }}>
-          Reopening will unlock the scorebook, clear the final result, and roll back postgame standings, bracket advancement, and bet settlement so you can fix mistakes.
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onConfirm} style={{ flex: 1, background: C.accent, color: '#000', border: 'none', borderRadius: 10, padding: '13px 0', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
-            Confirm Reopen
-          </button>
-          <button onClick={onClose} style={{ flex: 1, background: 'none', color: C.muted, border: `1px solid ${C.border}`, borderRadius: 10, padding: '13px 0', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}

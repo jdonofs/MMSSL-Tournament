@@ -1,0 +1,87 @@
+{
+  "session": "daisy_cruiser-20260904T202047Z",
+  "position_offset": 4,
+  "ball_frame": {
+    "sign_x": 1.0,
+    "sign_z": -1.0,
+    "swap_xz": false,
+    "lock_frames": 9605,
+    "lock_units": 0.05
+  },
+  "movement_units": 18042.6,
+  "teleports": 1609,
+  "candidates": [
+    {
+      "offset": 4,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 9605,
+      "path": 18042.6,
+      "teleports": 1609
+    },
+    {
+      "offset": 56,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 3631,
+      "path": 8240.9,
+      "teleports": 4998
+    },
+    {
+      "offset": 68,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 1471,
+      "path": 430.5,
+      "teleports": 113
+    },
+    {
+      "offset": 424,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 376,
+      "path": 4659.3,
+      "teleports": 4510
+    },
+    {
+      "offset": 212,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": false,
+      "locks": 321,
+      "path": 3179.8,
+      "teleports": 2257
+    },
+    {
+      "offset": 212,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": false,
+      "locks": 316,
+      "path": 3179.8,
+      "teleports": 2257
+    },
+    {
+      "offset": 220,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 313,
+      "path": 3142.4,
+      "teleports": 2246
+    },
+    {
+      "offset": 220,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 313,
+      "path": 3142.4,
+      "teleports": 2246
+    }
+  ]
+}

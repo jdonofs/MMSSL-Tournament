@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
 import { computeRangeLeagueConstants, summarizeFieldingRange } from '../utils/fieldingRange'
@@ -36,13 +36,14 @@ import {
 import { buildSeasonStandings } from '../utils/competitionStandings'
 import { buildTeamStatRow } from '../utils/teamStatAggregation'
 import { buildDraftValueReport, summarizeTeamDraftValue } from '../utils/draftValue'
-import { buildExpectedOutcomeModel, summarizeExpectedBatting } from '../utils/expectedStats'
+import { buildExpectedOutcomeModel, summarizeExpectedBatting, summarizeExpectedPitching } from '../utils/expectedStats'
 import { buildStadiumKeyByGameId, getStadiumNameByKey, STADIUM_GAME_LOG_SELECT, SEASON_STADIUM_GAME_LOG_SELECT } from '../utils/stadiums'
 import { resolveSeasonPitchingDecisions, resolveTournamentPitchingDecisions, groupRunsByPaId } from '../utils/pitchingDecisions'
 import { buildTeamTransactionFeed } from '../utils/transactionHistory'
 import { buildPlayerTeamIdentity, buildSeasonTeamIdentity, buildTournamentTeamIdentityMap, getTeamAbbreviation, getTeamShortName } from '../utils/teamIdentity'
 import { getDoubleElimTemplate, getSingleElimTemplate, normalizeStage } from '../utils/bracketTemplates'
 import { normalizeSeasonRowsByGameId, normalizeSeasonScheduleRows } from '../utils/seasonGameIds'
+import { reconcileStatSource, selectPitchesForPlateAppearances } from '../utils/statReconciliation'
 
 function dedupeCharactersById(characters) {
   const byId = new Map()
@@ -100,6 +101,7 @@ function createEmptyTables() {
 function createDefault() {
   return {
     loading: true,
+    errorMessage: '',
     player: null,
     identity: null,
     record: null,
@@ -283,6 +285,7 @@ function appendGameLogRow(rows, { runsFor, runsAgainst, won }) {
 // "broad fetch, filter client-side by scope" pattern used elsewhere in this app.
 export default function useTeamProfileData(playerId, scope) {
   const [data, setData] = useState(createDefault)
+  const loadGenerationRef = useRef(0)
 
   useEffect(() => {
     if (!playerId) {
@@ -290,11 +293,15 @@ export default function useTeamProfileData(playerId, scope) {
       return undefined
     }
     let cancelled = false
+    // Do not render the previous team/scope while the new request is in flight.
+    setData(createDefault())
 
     const isCareer = scope.type === 'career'
 
     async function load() {
-      setData((current) => ({ ...current, loading: true }))
+      const generation = loadGenerationRef.current + 1
+      loadGenerationRef.current = generation
+      setData((current) => ({ ...current, loading: true, errorMessage: '' }))
 
       const [
         playersResult, seasonTeamsResult, seasonRosterResult, scheduleResult, bettingResult,
@@ -338,7 +345,27 @@ export default function useTeamProfileData(playerId, scope) {
         fetchAllRows(() => supabase.from('game_fielders').select('*')),
         fetchAllRows(() => supabase.from('season_game_fielders').select('*')),
       ])
-      if (cancelled) return
+      if (cancelled || generation !== loadGenerationRef.current) return
+
+      const results = [
+        playersResult, seasonTeamsResult, seasonRosterResult, scheduleResult, bettingResult,
+        seasonPasResult, seasonStintsResult, seasonPitchesResult, draftPicksResult, gamesResult,
+        tournamentPasResult, tournamentStintsResult, tournamentPitchesResult, tournamentsResult, seasonsResult,
+        tournamentTradeProposalsResult, tournamentTradeMovesResult,
+        seasonTradeProposalsResult, seasonTradeMovesResult, seasonWaiversResult, charactersResult,
+        seasonRunsScoredResult, tournamentRunsScoredResult,
+        stadiumsResult, stadiumGameLogResult, seasonStadiumGameLogResult,
+        gameFieldersResult, seasonGameFieldersResult,
+      ]
+      const failedResult = results.find((result) => result?.error)
+      if (failedResult?.error) {
+        setData((current) => ({
+          ...current,
+          loading: false,
+          errorMessage: failedResult.error.message || 'Failed to load team statistics.',
+        }))
+        return
+      }
 
       const players = playersResult.data || []
       const player = players.find((p) => String(p.id) === String(playerId)) || null
@@ -347,22 +374,38 @@ export default function useTeamProfileData(playerId, scope) {
       const seasonRoster = seasonRosterResult.data || []
       const schedule = scheduleResult.data || []
       const bettingLedger = bettingResult.data || []
-      const seasonPas = seasonPasResult.data || []
-      const rawSeasonStints = seasonStintsResult.data || []
-      const seasonPitches = normalizeSeasonRowsByGameId(seasonPitchesResult.data || [])
+      const officialSeason = reconcileStatSource({
+        games: schedule,
+        plateAppearances: seasonPasResult.data || [],
+        pitchingStints: seasonStintsResult.data || [],
+        pitches: seasonPitchesResult.data || [],
+        runs: seasonRunsScoredResult.data || [],
+        gameFielders: seasonGameFieldersResult.data || [],
+      })
+      const seasonPas = officialSeason.plateAppearances
+      const rawSeasonStints = officialSeason.pitchingStints
+      const seasonPitches = normalizeSeasonRowsByGameId(officialSeason.pitches)
       const draftPicks = draftPicksResult.data || []
       const games = gamesResult.data || []
-      const tournamentPas = tournamentPasResult.data || []
-      const rawTournamentStints = tournamentStintsResult.data || []
-      const tournamentPitches = tournamentPitchesResult.data || []
+      const officialTournament = reconcileStatSource({
+        games,
+        plateAppearances: tournamentPasResult.data || [],
+        pitchingStints: tournamentStintsResult.data || [],
+        pitches: tournamentPitchesResult.data || [],
+        runs: tournamentRunsScoredResult.data || [],
+        gameFielders: gameFieldersResult.data || [],
+      })
+      const tournamentPas = officialTournament.plateAppearances
+      const rawTournamentStints = officialTournament.pitchingStints
+      const tournamentPitches = officialTournament.pitches
       const tournaments = tournamentsResult.data || []
       const seasons = seasonsResult.data || []
       const characters = charactersResult.data || []
       const stadiums = stadiumsResult.data || []
       const tournamentStadiumLog = stadiumGameLogResult.data || []
       const seasonStadiumLog = seasonStadiumGameLogResult.data || []
-      const gameFielders = gameFieldersResult.data || []
-      const seasonGameFielders = normalizeSeasonRowsByGameId(seasonGameFieldersResult.data || [])
+      const gameFielders = officialTournament.gameFielders
+      const seasonGameFielders = normalizeSeasonRowsByGameId(officialSeason.gameFielders)
       const charactersById = Object.fromEntries(characters.map((c) => [c.id, c]))
       const charactersByName = Object.fromEntries(characters.map((c) => [c.name, c]))
       const seasonTeamPlayerIdByTeamId = Object.fromEntries(seasonTeams.map((team) => [String(team.id), team.player_id]))
@@ -382,9 +425,9 @@ export default function useTeamProfileData(playerId, scope) {
         charactersByName,
         stadiumKeyByGameId: tournamentStadiumKeyByGameId,
       })
-      const rawSeasonRunEvents = seasonRunsScoredResult.data || []
+      const rawSeasonRunEvents = officialSeason.runs
       const seasonRunEvents = normalizeSeasonRowsByGameId(rawSeasonRunEvents)
-      const tournamentRunEvents = tournamentRunsScoredResult.data || []
+      const tournamentRunEvents = officialTournament.runs
       const runEvents = [...seasonRunEvents, ...tournamentRunEvents]
       const seasonRunsByPaId = groupRunsByPaId(rawSeasonRunEvents)
       const tournamentRunsByPaId = groupRunsByPaId(tournamentRunEvents)
@@ -532,9 +575,7 @@ export default function useTeamProfileData(playerId, scope) {
       const battingRawPas = battingPas
 
       function selectPitchesForPas(pitches, pas) {
-        const paIds = new Set(pas.map((pa) => String(pa.id)))
-        if (!paIds.size) return []
-        return pitches.filter((pitch) => paIds.has(String(pitch.pa_id)))
+        return selectPitchesForPlateAppearances(pitches, pas)
       }
       // Same season/tournament-split + select dance as currentBatterPitches/currentPitcherPitches
       // below, generalized for an arbitrary PA subset (used to pull one character's pitches out of
@@ -658,7 +699,11 @@ export default function useTeamProfileData(playerId, scope) {
           label: characterNameFor(characterId),
           linkTo: characterLinkFor(characterId),
           pitching,
-          advancedPitching: { hasInningsPitched: pitching.innings > 0, ...summarizeAdvancedPitching(stints, leagueConstants, { plateAppearances: pas }) },
+          advancedPitching: {
+            hasInningsPitched: pitching.innings > 0,
+            ...summarizeAdvancedPitching(stints, leagueConstants, { plateAppearances: pas }),
+            ...summarizeExpectedPitching(pas, expectedOutcomeModel),
+          },
           starPitch: summarizeStarPitching(pas, pitches),
           starHitAgainst: summarizeStarHits(pas),
           battedBallAllowed: summarizeBattedBallProfile(pas),
@@ -752,6 +797,7 @@ export default function useTeamProfileData(playerId, scope) {
         label: 'Team Total',
         hasInningsPitched: (pitchingStints.length > 0) && summarizePitching(pitchingStints).innings > 0,
         ...summarizeAdvancedPitching(pitchingStints, leagueConstants, { plateAppearances: pitchingPas }),
+        ...summarizeExpectedPitching(pitchingPas, expectedOutcomeModel),
       }
       const starHitCareerRow = { label: 'Team Total', ...summarizeStarHits(battingPas) }
       const starPitchCareerRow = { label: 'Team Total', star: summarizeStarPitching(pitchingPas, currentPitcherPitches) }
@@ -1180,8 +1226,8 @@ export default function useTeamProfileData(playerId, scope) {
         scope,
       })
 
-      const nextData = { loading: false, player, identity, record, rosterCharacters, statRow, scopeOptions, transactions, gameLog, franchiseHistory, franchiseSummary, topPlayers, draftValue, draftValueSummary, tables, battingRawPas }
-      if (!cancelled) setData(nextData)
+      const nextData = { loading: false, errorMessage: '', player, identity, record, rosterCharacters, statRow, scopeOptions, transactions, gameLog, franchiseHistory, franchiseSummary, topPlayers, draftValue, draftValueSummary, tables, battingRawPas }
+      if (!cancelled && generation === loadGenerationRef.current) setData(nextData)
     }
 
     load()
@@ -1200,7 +1246,11 @@ export default function useTeamProfileData(playerId, scope) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, load)
       .subscribe()
 
-    return () => { cancelled = true; supabase.removeChannel(channel) }
+    return () => {
+      cancelled = true
+      loadGenerationRef.current += 1
+      supabase.removeChannel(channel)
+    }
   }, [playerId, scope.type, scope.id])
 
   return data

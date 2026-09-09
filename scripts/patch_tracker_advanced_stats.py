@@ -9,7 +9,7 @@ vectors. It also uses the tracker's authoritative first-fair transition to arm
 a rolling three-sample downward-to-upward coordinate reversal, recording the
 physical landing point while excluding caught and foul balls. It records the
 authoritative catch point for caught balls, and reports horizontal
-contact-to-endpoint distance using the locked 3-feet-per-unit convention
+contact-to-endpoint distance using the canonical 1-meter-per-unit convention
 (see FEET_PER_UNIT in _refresh_game_values).
 Once a contact resolves, it also emits one combined batted-ball record so
 downstream consumers do not need to join separate metric lines themselves.
@@ -113,38 +113,31 @@ def code_contains_marker(code: CodeType, marker: str) -> bool:
 def compile_replacements() -> dict[str, CodeType]:
     source = r'''
 def _refresh_game_values(game, team1, team2):
-    # Game world units -> feet, derived rather than assumed.
+    # Game world units -> real-world units.
     #
-    # The infield was measured directly: a character carrying the ball was
-    # stood on home, first, second, third and the rubber, 17-28 times each and
-    # approached from varied directions so the ball's offset in their hands
-    # averaged out (see scripts/fit_infield_scale.py). Fitting a regulation
-    # infield to those 103 holds gives a base path of 26.840 units with an RMS
-    # residual of 0.186u (0.62 ft) -- and, as a blind test, places the rubber
-    # at 60.29 ft against a regulation 60.50 ft, having taken no part in the
-    # fit. That 0.4% agreement establishes the infield has regulation
-    # PROPORTIONS.
+    # One game unit is one metre. Three independent measurements point to the
+    # same convention (see scripts/fit_infield_scale.py and
+    # scripts/backtest_hr_projection.mjs):
     #
-    # It does NOT establish regulation SIZE: a 70-foot infield with the rubber
-    # scaled to match would fit identically. No object in this game has a known
-    # real-world size, so that ambiguity cannot be resolved from inside it. The
-    # 90 feet below is therefore the one genuine assumption in the chain, kept
-    # as its own named value so it stays visible and swappable rather than
-    # dissolved into a magic constant. It rests on parsimony: a developer who
-    # reproduces regulation proportions to 0.4% near-certainly used regulation
-    # numbers.
+    #   * Mario Stadium's base path is 26.840u and Luigi's is 26.991u, both
+    #     clustering around an intended 27 metres.
+    #   * Mario's rubber is 17.979u from home, clustering around 18 metres.
+    #   * A scale-free fit of 65 ball flights recovers gravity at 9.9316u/s^2,
+    #     within 1.28% of standard gravity when a unit is a metre.
     #
-    # Rankings, park factors, spray-chart positions and every player-vs-player
-    # comparison are invariant to this value; only absolute printed numbers
-    # move. If a real in-game distance readout ever turns up, change
-    # BASE_PATH_FEET and everything downstream follows.
+    # The former 90ft / 26.840u scale made the regulation-size assumption part
+    # of every distance and speed. Run-timing fence references did not verify
+    # that assumption: their runner speed was itself calibrated by declaring a
+    # base path to be 90ft, so agreement with them was circular. Raw world
+    # coordinates, fence curves, and homographies never carry this conversion
+    # and remain unchanged.
     #
     # Kept as function-locals: compile_replacements() extracts only function
     # code objects by name, so module-level constants in this injected source
     # would not exist in the patched executable's namespace at runtime.
-    BASE_PATH_UNITS = 26.840  # measured
-    BASE_PATH_FEET = 90.0     # assumed (regulation)
-    FEET_PER_UNIT = BASE_PATH_FEET / BASE_PATH_UNITS  # 3.3531
+    METERS_PER_UNIT = 1.0
+    FEET_PER_METER = 3.280839895013123
+    FEET_PER_UNIT = METERS_PER_UNIT * FEET_PER_METER
 
     game.current_batter.index.refresh()
     game.current_batter.refresh_all()
@@ -255,6 +248,12 @@ def _refresh_game_values(game, team1, team2):
             # between the start and end, parameterized by forward Z progress.
             horizontal_deviation = 0.0
             vertical_deviation = 0.0
+            # The two horizontal extremes are kept separately, not just the
+            # larger one. A path whose lateral curvature keeps one sign lies
+            # entirely on one side of its own chord, so deviation to BOTH sides
+            # means the break reversed mid-flight -- the knuckleball below.
+            horizontal_max = 0.0
+            horizontal_min = 0.0
             if abs(direct_z) > 0.000001:
                 for item in pitch_samples[1:-1]:
                     progress = (item[5] - first[5]) / direct_z
@@ -262,6 +261,10 @@ def _refresh_game_values(game, team1, team2):
                     expected_y = first[4] + direct_y * progress
                     item_horizontal = item[3] - expected_x
                     item_vertical = item[4] - expected_y
+                    if item_horizontal > horizontal_max:
+                        horizontal_max = item_horizontal
+                    if item_horizontal < horizontal_min:
+                        horizontal_min = item_horizontal
                     if abs(item_horizontal) > abs(horizontal_deviation):
                         horizontal_deviation = item_horizontal
                     if abs(item_vertical) > abs(vertical_deviation):
@@ -286,6 +289,17 @@ def _refresh_game_values(game, team1, team2):
             elif len(pitch_samples) >= 20 and direct_units >= 12:
                 if abs(vertical_deviation) >= 1.0:
                     pitch_type = "changeup"
+                elif (horizontal_max >= 0.15 and -horizontal_min >= 0.15):
+                    # Steered both ways: a curve in each direction, by the same
+                    # 0.15 bar a one-way break has to clear. Replaying
+                    # bowser_castle-20260904T011909Z through this rule gives
+                    # four of 167 pitches -- three from the two slow pitchers
+                    # the operator named (Toadsworth 13-15 mph, Goomba 17), and
+                    # one marginal Green Magikoopa at 27 whose two lobes are
+                    # 0.167/0.152. The other 163 are all under 0.09 on the
+                    # smaller lobe, so the bar sits in a real gap, but that
+                    # fourth one is the one to check on the next game.
+                    pitch_type = "knuckleball"
                 elif abs(horizontal_deviation) >= 0.15:
                     pitch_type = "curveball"
                 else:
@@ -308,6 +322,7 @@ def _refresh_game_values(game, team1, team2):
                 f"|classifier_status={classifier_status}"
                 "|changeup_vertical_threshold_units=1"
                 "|curve_horizontal_threshold_units=0.15"
+                "|knuckle_two_sided_threshold_units=0.15"
                 "|minimum_samples=20|minimum_direct_distance_units=12"
                 f"|terminal={terminal}"
                 f"|pitch_counter={sample_state.get('pitch_counter')}"
@@ -334,6 +349,8 @@ def _refresh_game_values(game, team1, team2):
                 f"|horizontal_range_units={max(horizontal_values) - min(horizontal_values):.9g}"
                 f"|vertical_range_units={max(vertical_values) - min(vertical_values):.9g}"
                 f"|horizontal_chord_deviation_units={horizontal_deviation:.9g}"
+                f"|horizontal_chord_deviation_max_units={horizontal_max:.9g}"
+                f"|horizontal_chord_deviation_min_units={horizontal_min:.9g}"
                 f"|vertical_chord_deviation_units={vertical_deviation:.9g}"
                 f"|feet_per_unit={FEET_PER_UNIT:.4f}|timing_source=perf_counter_ns"
                 "|samples_format=seq,time_ns,x,y,z"
@@ -619,11 +636,11 @@ def _refresh_game_values(game, team1, team2):
             raise ValueError("ball pointer is null")
 
         # The position field's offset inside the ball object is NOT stable
-        # across sessions. It was 0x558 when this feed was first built and is
-        # 0x4B4 now, with the pointer itself unchanged; 0x558 currently holds
-        # an unrelated integer that never moves. A hardcoded offset therefore
-        # fails silently and total: the coordinates read fine, never change,
-        # and every downstream metric produces nothing with no error anywhere.
+        # across sessions. It was 0x558 when this feed was first built, then
+        # 0x4B4, and is 0x720 as of 2026-08-17, with the pointer itself
+        # unchanged. A hardcoded offset therefore fails silently and total: the
+        # coordinates read fine, never change, and every downstream metric
+        # produces nothing with no error anywhere.
         # So ask the object where its coordinates are instead of assuming.
         # Between pitches the ball rests on the mound at a byte-exact Z, which
         # is re-established before every single pitch and is unique within the
@@ -632,13 +649,21 @@ def _refresh_game_values(game, team1, team2):
         # whether the pitcher is holding the ball, so keying on it would miss
         # half the time. X and Y are range-checked instead, which is enough to
         # reject a stray constant that is not a position.
+        #
+        # THE SEARCH COVERS THE WHOLE OBJECT. It used to scan +0x300..+0x700,
+        # a window bracketing the offsets known at the time -- and when the
+        # field moved to 0x720 it landed 0x20 bytes past the end, so calibration
+        # found nothing, the stale fallback was used, and tracking died exactly
+        # the silent way the paragraph above describes. Narrowing bought nothing:
+        # the signature is unique across the full object and this is one 4 KB
+        # read per calibration, done once per session.
         coordinate_offset = sample_state.get("coordinate_offset")
         if coordinate_offset is None:
             reset_signature = struct_module.pack(">f", -18.6000004)
-            window = dme.read_bytes(pointer + 0x300, 0x400)
+            window = dme.read_bytes(pointer + 0x000, 0x1000)
             match_index = window.find(reset_signature)
             while match_index >= 0:
-                candidate_offset = 0x300 + match_index - 8
+                candidate_offset = 0x000 + match_index - 8
                 if match_index >= 8 and candidate_offset % 4 == 0:
                     candidate_x, candidate_y = struct_module.unpack(
                         ">ff", window[match_index - 8 : match_index]
@@ -660,8 +685,11 @@ def _refresh_game_values(game, team1, team2):
                 # The ball is not at rest yet (or this build rests it
                 # somewhere else). Use the last known-good offset without
                 # latching it, so calibration retries every update until the
-                # next reset settles the question.
-                coordinate_offset = 0x4B4
+                # next reset settles the question. This value goes stale the
+                # moment the field moves, which is precisely when it gets used,
+                # so it is only ever a bridge to the next pitch reset -- never
+                # a substitute for calibration.
+                coordinate_offset = 0x720
                 if not sample_state.get("uncalibrated_reported"):
                     sample_state["uncalibrated_reported"] = True
                     log.debug(
@@ -672,6 +700,23 @@ def _refresh_game_values(game, team1, team2):
                     )
         raw_coordinates = dme.read_bytes(pointer + coordinate_offset, 12)
         coordinates = struct_module.unpack(">fff", raw_coordinates)
+        # A last-known offset is useful when the tracker starts mid-at-bat, but
+        # it must not turn an unrelated struct field into a fake ball flight
+        # after a future build moves the coordinates again. The stale 0x4B4
+        # read that exposed this bug was (-0.0002, -0.125, 0): finite and quiet,
+        # but physically below the field. Refuse an implausible fallback and
+        # wait for the next pitch-reset signature to calibrate authoritatively.
+        if not (
+            -70 < coordinates[0] < 70
+            and 0 <= coordinates[1] < 80
+            and -140 < coordinates[2] < 140
+        ):
+            # This also protects a previously calibrated offset after a future
+            # game build moves the field again. A stale field can still unpack
+            # as three finite floats; impossible ball coordinates are the cue
+            # to discard that calibration and search the object again.
+            sample_state["coordinate_offset"] = None
+            coordinates = None
     except Exception:
         if sample_state.get("valid") is not False:
             log.debug("[TRACKER_BALL_POINTER] status=invalid")
@@ -778,8 +823,17 @@ def _refresh_game_values(game, team1, team2):
                         or sample[5] > previous_pitch_sample[5]
                     ):
                         pitch_samples.append(sample)
-                        if len(pitch_samples) > 120:
-                            del pitch_samples[:-120]
+                        # ~400 samples is 6.7s at 59.94fps. 120 (2.0s) silently
+                        # truncated every slow pitcher: Toadsworth's delivery
+                        # takes 3.0-4.0s, so the window kept only its last two
+                        # seconds, the straight-line distance came out under the
+                        # 12-unit completeness gate, and nine of his pitches in
+                        # bowser_castle-20260904T011909Z were emitted
+                        # `pitch_type=unresolved` with sample_count exactly 120.
+                        # The buffer is still bounded so a window that never
+                        # terminates cannot grow without limit.
+                        if len(pitch_samples) > 400:
+                            del pitch_samples[:-400]
                     else:
                         # The first loss of forward +Z motion is treated only as
                         # an arrival boundary; the reversing sample is excluded.
@@ -991,14 +1045,43 @@ def _refresh_game_values(game, team1, team2):
                             sample_state["landing_tracking"] = False
                             sample_state["landing_recent_samples"] = []
                     elif landing_status == BallLandingStatus.CAUGHT_OUT:
+                        # The game blanks the ball coordinate to the origin on
+                        # the dead-ball frame, and on some parks that reset
+                        # lands on the SAME update the caught state arrives --
+                        # 11 of 107 contacts in the 2026-08-31 Daisy Cruiser
+                        # session, every one of them an outfield catch recorded
+                        # at 2.5-3.5 feet from home plate. (0, 0, 0) is that
+                        # sentinel and never a place a ball was caught, so step
+                        # back through the rolling buffer to the last update
+                        # that still holds a real coordinate. The landing
+                        # branch above already refuses the same sample by its
+                        # positive-height filter.
                         catch_sample = sample
+                        catch_source = "this_pitch.fair_or_foul"
+                        if (
+                            catch_sample[3] == 0.0
+                            and catch_sample[4] == 0.0
+                            and catch_sample[5] == 0.0
+                        ):
+                            for item in reversed(recent_samples):
+                                if not (
+                                    item[3] == 0.0
+                                    and item[4] == 0.0
+                                    and item[5] == 0.0
+                                ):
+                                    catch_sample = item
+                                    catch_source = (
+                                        "this_pitch.fair_or_foul"
+                                        "+last_coordinate_before_reset"
+                                    )
+                                    break
                         distance_feet = None
                         log.debug(
                             "[TRACKER_CATCH_PROVISIONAL] status=caught"
                             f"|seq={catch_sample[0]}|time_ns={catch_sample[1]}"
                             f"|x={catch_sample[3]:.9g}|y={catch_sample[4]:.9g}"
                             f"|z={catch_sample[5]:.9g}"
-                            "|source=this_pitch.fair_or_foul"
+                            f"|source={catch_source}"
                         )
                         contact_sample = sample_state.get("contact_sample")
                         if contact_sample is not None:

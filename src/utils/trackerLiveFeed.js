@@ -14,6 +14,21 @@ function normalizeSide(value) {
   return side === 'A' || side === 'B' ? side : null
 }
 
+// A reset test fixture can briefly regain its old tracker_live_stats row when
+// the previous bridge finishes one last queued write after the browser deleted
+// it.  The game row and play table are the durable reset boundary: pending /
+// scheduled, no recorded PAs, and a 0-0 score means an old live-feed snapshot
+// belongs to the discarded attempt and must not be resumed by the next bridge.
+export function shouldStartFreshTrackerSession(game = null, plateAppearanceCount = 0) {
+  if (!game || Number(plateAppearanceCount || 0) > 0) return false
+  const status = String(game.status || '').toLowerCase()
+  if (status !== 'pending' && status !== 'scheduled') return false
+  const teamAScore = Number(game.team_a_runs ?? game.away_score ?? 0)
+  const teamBScore = Number(game.team_b_runs ?? game.home_score ?? 0)
+  return Number.isFinite(teamAScore) && Number.isFinite(teamBScore)
+    && teamAScore === 0 && teamBScore === 0
+}
+
 export function resolveTrackerScore({
   trackerStats = null,
   teamAPlayerId = null,

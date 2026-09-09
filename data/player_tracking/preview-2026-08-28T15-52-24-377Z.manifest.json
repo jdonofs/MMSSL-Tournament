@@ -1,0 +1,28 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260828T155225Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260828T155225Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260828T155225Z.bin",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "recorded_utc": "20260828T155225Z",
+  "frames": 112529,
+  "missed_frames": 0,
+  "duration_seconds": 3647.322,
+  "checksum_sha256": "63e2b4615320e375beabc867b369abe5b8fe67db275e6ce4133b199a4607f068",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 60,
+    "plays_seen": 120,
+    "plays_emitted": 120,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260828T155225Z.live.jsonl",
+    "mean_feed_ms": 0.0666,
+    "max_feed_ms": 3.069,
+    "max_play_build_ms": 76.1,
+    "replay_duplicates": 6
+  }
+}

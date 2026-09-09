@@ -431,6 +431,7 @@ export function normalizeStoredRunnerAssignments(value) {
       origin: row.origin ?? null,
       destination,
       isBatter: Boolean(row.isBatter ?? row.is_batter ?? row.id === 'batter'),
+      ...(['first', 'second', 'third', 'home'].includes(row.attemptedBase) ? { attemptedBase: row.attemptedBase } : {}),
     })
   }
   return normalized
@@ -444,6 +445,8 @@ export function serializeRunnerEntries(entries) {
     origin: entry.origin ?? null,
     destination: entry.position,
     isBatter: entry.id === 'batter',
+    ...(entry.position === 'out' && ['first', 'second', 'third', 'home'].includes(entry.preOutPosition)
+      ? { attemptedBase: entry.preOutPosition } : {}),
   }))
 }
 
@@ -465,7 +468,7 @@ export function hydrateRunnerEntries(defaultEntries, storedAssignments) {
       && String(saved.runner?.characterId ?? '') === String(entry.runner?.characterId ?? '')
       && String(saved.runner?.playerId ?? '') === String(entry.runner?.playerId ?? '')
     return sameRunner
-      ? { ...entry, position: saved.destination, manual: true }
+      ? { ...entry, position: saved.destination, ...(saved.attemptedBase ? { preOutPosition: saved.attemptedBase } : {}), manual: true }
       : entry
   })
 }

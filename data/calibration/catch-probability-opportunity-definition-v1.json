@@ -1,0 +1,31 @@
+{
+  "definition_version": "sluggers-of-airborne-opportunity-v1",
+  "population": "primary outfielder on defensibly airborne fair balls",
+  "catch_label": "caught_in_flight, first touch by primary fielder, primary reason catch",
+  "failure_label": "fair_in_play with observed landing at least 1.0 s after contact and primary reason fielded/failed_contact/closest_at_landing",
+  "model_features": [
+    "park",
+    "position",
+    "start_depth_units",
+    "start_angle_deg",
+    "projected_distance_units",
+    "projected_landing_seconds",
+    "projected_required_speed_ups",
+    "projected_direction"
+  ],
+  "early_flight_window_frames": 12,
+  "exclusions": [
+    "missing_pitch_release_start",
+    "missing_preoutcome_flight_projection",
+    "missing_primary_fielder",
+    "not_defensible_airborne_label",
+    "not_fair_ball",
+    "not_primary_outfielder",
+    "operator_annotation",
+    "session_not_join_validated",
+    "special_or_redirected_mechanic",
+    "unresolved_fielding_evidence",
+    "wall_play"
+  ],
+  "outcome_value": "actual catch minus frozen expected catch probability"
+}

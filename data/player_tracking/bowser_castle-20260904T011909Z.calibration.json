@@ -1,0 +1,87 @@
+{
+  "session": "bowser_castle-20260904T011909Z",
+  "position_offset": 4,
+  "ball_frame": {
+    "sign_x": 1.0,
+    "sign_z": -1.0,
+    "swap_xz": false,
+    "lock_frames": 185028,
+    "lock_units": 0.05
+  },
+  "movement_units": 20277.6,
+  "teleports": 1840,
+  "candidates": [
+    {
+      "offset": 4,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 185028,
+      "path": 20277.6,
+      "teleports": 1840
+    },
+    {
+      "offset": 56,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 3876,
+      "path": 8214.2,
+      "teleports": 6094
+    },
+    {
+      "offset": 432,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 836,
+      "path": 4726.5,
+      "teleports": 5215
+    },
+    {
+      "offset": 432,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 836,
+      "path": 4726.5,
+      "teleports": 5215
+    },
+    {
+      "offset": 432,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 801,
+      "path": 4726.5,
+      "teleports": 5215
+    },
+    {
+      "offset": 432,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 801,
+      "path": 4726.5,
+      "teleports": 5215
+    },
+    {
+      "offset": 68,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 500,
+      "path": 434.4,
+      "teleports": 108
+    },
+    {
+      "offset": 428,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 210,
+      "path": 69.0,
+      "teleports": 0
+    }
+  ]
+}

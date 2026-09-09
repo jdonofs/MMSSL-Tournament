@@ -1,0 +1,1120 @@
+{
+  "generated_at": "2026-09-05T01:29:53.838Z",
+  "basis": "Current calibrator sample definitions; target coverage is not a held-out accuracy score.",
+  "sessions": [
+    {
+      "stem": "bowser_castle-20260826T153516Z",
+      "park": 1,
+      "plays": 101,
+      "pitches": 129,
+      "frames": 72233,
+      "missed_rate": 0.000013843896226153889,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "bowser_castle-20260828T182145Z",
+      "park": 1,
+      "plays": 94,
+      "pitches": 145,
+      "frames": 107316,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "bowser_castle-20260904T011909Z",
+      "park": 1,
+      "plays": 129,
+      "pitches": 167,
+      "missed_rate": null,
+      "quarantined": false,
+      "night": false
+    },
+    {
+      "stem": "bowser_castle-20260905T005948Z",
+      "park": 1,
+      "plays": 98,
+      "pitches": 111,
+      "frames": 86463,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": true
+    },
+    {
+      "stem": "bowser_jr_playroom-20260828T133634Z",
+      "park": 8,
+      "plays": 16,
+      "pitches": 18,
+      "frames": 16254,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "bowser_jr_playroom-20260828T144924Z",
+      "park": 8,
+      "plays": 88,
+      "pitches": 107,
+      "frames": 108482,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "bowser_jr_playroom-20260828T155225Z",
+      "park": 8,
+      "plays": 118,
+      "pitches": 142,
+      "frames": 112529,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "daisy_cruiser-20260826T185635Z",
+      "park": 7,
+      "plays": 93,
+      "pitches": 117,
+      "frames": 112482,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "daisy_cruiser-20260831T212804Z",
+      "park": 7,
+      "plays": 107,
+      "pitches": 132,
+      "frames": 83395,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "daisy_cruiser-20260904T202047Z",
+      "park": 7,
+      "plays": 109,
+      "pitches": 126,
+      "frames": 91582,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": false
+    },
+    {
+      "stem": "dk_jungle-20260828T211713Z",
+      "park": 5,
+      "plays": 94,
+      "pitches": 133,
+      "frames": 112093,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "dk_jungle-20260902T171957Z",
+      "park": 5,
+      "plays": 81,
+      "pitches": 106,
+      "frames": 75539,
+      "missed_rate": 0.000013238019592268997,
+      "quarantined": false,
+      "night": false
+    },
+    {
+      "stem": "dk_jungle-20260904T161731Z",
+      "park": 5,
+      "plays": 98,
+      "pitches": 119,
+      "frames": 77581,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": false
+    },
+    {
+      "stem": "luigis_mansion-20260828T005141Z",
+      "park": 6,
+      "plays": 78,
+      "pitches": 101,
+      "frames": 59186,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "luigis_mansion-20260902T122308Z",
+      "park": 6,
+      "plays": 98,
+      "pitches": 120,
+      "frames": 85451,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "luigis_mansion-20260904T171123Z",
+      "park": 6,
+      "plays": 89,
+      "pitches": 108,
+      "frames": 79282,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": true
+    },
+    {
+      "stem": "mario_stadium-20260826T171346Z",
+      "park": 0,
+      "plays": 83,
+      "pitches": 153,
+      "frames": 72860,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "mario_stadium-20260831T174649Z",
+      "park": 0,
+      "plays": 33,
+      "pitches": 41,
+      "missed_rate": null,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "mario_stadium-20260904T000419Z",
+      "park": 0,
+      "plays": 91,
+      "pitches": 102,
+      "frames": 64301,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": false
+    },
+    {
+      "stem": "mario_stadium-20260904T213725Z",
+      "park": 0,
+      "plays": 110,
+      "pitches": 130,
+      "frames": 85640,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": false
+    },
+    {
+      "stem": "peach_ice_garden-20260826T201820Z",
+      "park": 4,
+      "plays": 111,
+      "pitches": 135,
+      "frames": 175538,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "peach_ice_garden-20260902T151327Z",
+      "park": 4,
+      "plays": 94,
+      "pitches": 107,
+      "frames": 72617,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": false
+    },
+    {
+      "stem": "peach_ice_garden-20260904T152214Z",
+      "park": 4,
+      "plays": 89,
+      "pitches": 110,
+      "frames": 87181,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": false
+    },
+    {
+      "stem": "wario_city-20260902T135123Z",
+      "park": 2,
+      "plays": 107,
+      "pitches": 129,
+      "frames": 93982,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "wario_city-20260904T144308Z",
+      "park": 2,
+      "plays": 82,
+      "pitches": 100,
+      "frames": 67946,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": false
+    },
+    {
+      "stem": "wario_stadium-20260826T005958Z",
+      "park": 2,
+      "plays": 57,
+      "pitches": 67,
+      "frames": 37298,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "yoshi_park-20260830T235406Z",
+      "park": 3,
+      "plays": 65,
+      "pitches": 106,
+      "frames": 82078,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "yoshi_park-20260831T031212Z",
+      "park": 3,
+      "plays": 72,
+      "pitches": 97,
+      "frames": 63444,
+      "missed_rate": 0.000015761683347781542,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "yoshi_park-20260831T134815Z",
+      "park": 3,
+      "plays": 21,
+      "pitches": 35,
+      "missed_rate": null,
+      "quarantined": false,
+      "night": null
+    },
+    {
+      "stem": "yoshi_park-20260831T140742Z",
+      "park": 3,
+      "plays": 84,
+      "pitches": 115,
+      "frames": 62759,
+      "missed_rate": 0,
+      "quarantined": false,
+      "night": null
+    }
+  ],
+  "summary": {
+    "fielding": {
+      "target": 20,
+      "samples": 1699,
+      "met": 52,
+      "deficit": 25,
+      "short": [
+        {
+          "name": "Bowser",
+          "samples": 18
+        },
+        {
+          "name": "Toadette",
+          "samples": 18
+        },
+        {
+          "name": "Red Koopa",
+          "samples": 18
+        },
+        {
+          "name": "Green Paratroopa",
+          "samples": 18
+        },
+        {
+          "name": "Boomerang Bro",
+          "samples": 18
+        },
+        {
+          "name": "Wiggler",
+          "samples": 18
+        },
+        {
+          "name": "Diddy Kong",
+          "samples": 19
+        },
+        {
+          "name": "Baby Luigi",
+          "samples": 19
+        },
+        {
+          "name": "Green Noki",
+          "samples": 19
+        },
+        {
+          "name": "Blue Toad",
+          "samples": 19
+        },
+        {
+          "name": "Yellow Toad",
+          "samples": 19
+        },
+        {
+          "name": "Yellow Magikoopa",
+          "samples": 19
+        },
+        {
+          "name": "King Boo",
+          "samples": 19
+        },
+        {
+          "name": "Yellow Shy Guy",
+          "samples": 19
+        },
+        {
+          "name": "Gray Shy Guy",
+          "samples": 19
+        },
+        {
+          "name": "Dark Bones",
+          "samples": 19
+        },
+        {
+          "name": "Baby Daisy",
+          "samples": 19
+        },
+        {
+          "name": "Yellow Yoshi",
+          "samples": 19
+        },
+        {
+          "name": "Pink Yoshi",
+          "samples": 19
+        }
+      ]
+    },
+    "batting": {
+      "target": 20,
+      "samples": 2165,
+      "met": 70,
+      "deficit": 1,
+      "short": [
+        {
+          "name": "Monty Mole",
+          "samples": 19
+        }
+      ]
+    },
+    "pitching": {
+      "target": 20,
+      "samples": 3308,
+      "met": 69,
+      "deficit": 2,
+      "short": [
+        {
+          "name": "Magikoopa",
+          "samples": 19
+        },
+        {
+          "name": "Light-Blue Yoshi",
+          "samples": 19
+        }
+      ]
+    },
+    "arm": {
+      "target": 10,
+      "samples": 1700,
+      "met": 71,
+      "deficit": 0,
+      "short": []
+    },
+    "running": {
+      "target": 8,
+      "samples": 1539,
+      "met": 70,
+      "deficit": 2,
+      "short": [
+        {
+          "name": "Red Pianta",
+          "samples": 6
+        }
+      ]
+    }
+  },
+  "selected": [
+    {
+      "side": "away",
+      "name": "Red Pianta",
+      "position": "catcher",
+      "fielding": 20,
+      "batting": 42,
+      "pitching": 38,
+      "arm": 30,
+      "running": 6
+    },
+    {
+      "side": "away",
+      "name": "Yellow Yoshi",
+      "position": "shortStop",
+      "fielding": 19,
+      "batting": 27,
+      "pitching": 32,
+      "arm": 12,
+      "running": 12
+    },
+    {
+      "side": "away",
+      "name": "Green Paratroopa",
+      "position": "leftField",
+      "fielding": 18,
+      "batting": 32,
+      "pitching": 35,
+      "arm": 24,
+      "running": 21
+    },
+    {
+      "side": "away",
+      "name": "Bowser",
+      "position": "secondBase",
+      "fielding": 18,
+      "batting": 28,
+      "pitching": 40,
+      "arm": 24,
+      "running": 12
+    },
+    {
+      "side": "away",
+      "name": "Green Noki",
+      "position": "firstBase",
+      "fielding": 19,
+      "batting": 24,
+      "pitching": 32,
+      "arm": 21,
+      "running": 25
+    },
+    {
+      "side": "away",
+      "name": "Diddy Kong",
+      "position": "thirdBase",
+      "fielding": 19,
+      "batting": 23,
+      "pitching": 52,
+      "arm": 20,
+      "running": 35
+    },
+    {
+      "side": "away",
+      "name": "Wiggler",
+      "position": "centerField",
+      "fielding": 18,
+      "batting": 30,
+      "pitching": 41,
+      "arm": 24,
+      "running": 8
+    },
+    {
+      "side": "away",
+      "name": "Monty Mole",
+      "position": "pitcher",
+      "fielding": 22,
+      "batting": 19,
+      "pitching": 30,
+      "arm": 20,
+      "running": 24
+    },
+    {
+      "side": "away",
+      "name": "Boomerang Bro",
+      "position": "rightField",
+      "fielding": 18,
+      "batting": 45,
+      "pitching": 106,
+      "arm": 22,
+      "running": 55
+    },
+    {
+      "side": "home",
+      "name": "Red Koopa",
+      "position": "centerField",
+      "fielding": 18,
+      "batting": 31,
+      "pitching": 67,
+      "arm": 13,
+      "running": 16
+    },
+    {
+      "side": "home",
+      "name": "Blue Toad",
+      "position": "thirdBase",
+      "fielding": 19,
+      "batting": 20,
+      "pitching": 38,
+      "arm": 18,
+      "running": 23
+    },
+    {
+      "side": "home",
+      "name": "Yellow Shy Guy",
+      "position": "catcher",
+      "fielding": 19,
+      "batting": 23,
+      "pitching": 20,
+      "arm": 20,
+      "running": 25
+    },
+    {
+      "side": "home",
+      "name": "King Boo",
+      "position": "secondBase",
+      "fielding": 19,
+      "batting": 25,
+      "pitching": 56,
+      "arm": 19,
+      "running": 13
+    },
+    {
+      "side": "home",
+      "name": "Magikoopa",
+      "position": "pitcher",
+      "fielding": 21,
+      "batting": 20,
+      "pitching": 19,
+      "arm": 19,
+      "running": 26
+    },
+    {
+      "side": "home",
+      "name": "Yellow Toad",
+      "position": "shortStop",
+      "fielding": 19,
+      "batting": 25,
+      "pitching": 21,
+      "arm": 23,
+      "running": 27
+    },
+    {
+      "side": "home",
+      "name": "Baby Daisy",
+      "position": "leftField",
+      "fielding": 19,
+      "batting": 27,
+      "pitching": 32,
+      "arm": 16,
+      "running": 19
+    },
+    {
+      "side": "home",
+      "name": "Yellow Magikoopa",
+      "position": "firstBase",
+      "fielding": 19,
+      "batting": 22,
+      "pitching": 25,
+      "arm": 19,
+      "running": 31
+    },
+    {
+      "side": "home",
+      "name": "Toadette",
+      "position": "rightField",
+      "fielding": 18,
+      "batting": 32,
+      "pitching": 39,
+      "arm": 21,
+      "running": 41
+    }
+  ],
+  "counts": {
+    "Mario": {
+      "fielding": 42,
+      "batting": 30,
+      "pitching": 39,
+      "arm": 20,
+      "running": 16
+    },
+    "Luigi": {
+      "fielding": 25,
+      "batting": 26,
+      "pitching": 36,
+      "arm": 25,
+      "running": 15
+    },
+    "Donkey Kong": {
+      "fielding": 52,
+      "batting": 40,
+      "pitching": 23,
+      "arm": 44,
+      "running": 18
+    },
+    "Diddy Kong": {
+      "fielding": 19,
+      "batting": 23,
+      "pitching": 52,
+      "arm": 20,
+      "running": 35
+    },
+    "Peach": {
+      "fielding": 33,
+      "batting": 25,
+      "pitching": 64,
+      "arm": 27,
+      "running": 30
+    },
+    "Daisy": {
+      "fielding": 28,
+      "batting": 37,
+      "pitching": 56,
+      "arm": 39,
+      "running": 17
+    },
+    "Yoshi": {
+      "fielding": 24,
+      "batting": 42,
+      "pitching": 103,
+      "arm": 18,
+      "running": 49
+    },
+    "Baby Mario": {
+      "fielding": 25,
+      "batting": 28,
+      "pitching": 21,
+      "arm": 27,
+      "running": 14
+    },
+    "Baby Luigi": {
+      "fielding": 19,
+      "batting": 30,
+      "pitching": 20,
+      "arm": 16,
+      "running": 20
+    },
+    "Bowser": {
+      "fielding": 18,
+      "batting": 28,
+      "pitching": 40,
+      "arm": 24,
+      "running": 12
+    },
+    "Wario": {
+      "fielding": 33,
+      "batting": 47,
+      "pitching": 184,
+      "arm": 26,
+      "running": 43
+    },
+    "Waluigi": {
+      "fielding": 26,
+      "batting": 34,
+      "pitching": 144,
+      "arm": 27,
+      "running": 35
+    },
+    "Koopa": {
+      "fielding": 25,
+      "batting": 26,
+      "pitching": 34,
+      "arm": 18,
+      "running": 19
+    },
+    "Red Toad": {
+      "fielding": 26,
+      "batting": 31,
+      "pitching": 26,
+      "arm": 22,
+      "running": 38
+    },
+    "Boo": {
+      "fielding": 24,
+      "batting": 32,
+      "pitching": 32,
+      "arm": 20,
+      "running": 8
+    },
+    "Toadette": {
+      "fielding": 18,
+      "batting": 32,
+      "pitching": 39,
+      "arm": 21,
+      "running": 41
+    },
+    "Shy Guy": {
+      "fielding": 21,
+      "batting": 31,
+      "pitching": 31,
+      "arm": 16,
+      "running": 37
+    },
+    "Birdo": {
+      "fielding": 25,
+      "batting": 33,
+      "pitching": 22,
+      "arm": 31,
+      "running": 20
+    },
+    "Monty Mole": {
+      "fielding": 22,
+      "batting": 19,
+      "pitching": 30,
+      "arm": 20,
+      "running": 24
+    },
+    "Bowser Jr.": {
+      "fielding": 28,
+      "batting": 30,
+      "pitching": 43,
+      "arm": 22,
+      "running": 9
+    },
+    "Paratroopa": {
+      "fielding": 24,
+      "batting": 33,
+      "pitching": 30,
+      "arm": 23,
+      "running": 19
+    },
+    "Blue Pianta": {
+      "fielding": 30,
+      "batting": 52,
+      "pitching": 80,
+      "arm": 43,
+      "running": 9
+    },
+    "Red Pianta": {
+      "fielding": 20,
+      "batting": 42,
+      "pitching": 38,
+      "arm": 30,
+      "running": 6
+    },
+    "Yellow Pianta": {
+      "fielding": 27,
+      "batting": 32,
+      "pitching": 20,
+      "arm": 23,
+      "running": 9
+    },
+    "Blue Noki": {
+      "fielding": 28,
+      "batting": 26,
+      "pitching": 70,
+      "arm": 20,
+      "running": 12
+    },
+    "Red Noki": {
+      "fielding": 23,
+      "batting": 29,
+      "pitching": 52,
+      "arm": 26,
+      "running": 9
+    },
+    "Green Noki": {
+      "fielding": 19,
+      "batting": 24,
+      "pitching": 32,
+      "arm": 21,
+      "running": 25
+    },
+    "Hammer Bro": {
+      "fielding": 28,
+      "batting": 46,
+      "pitching": 50,
+      "arm": 45,
+      "running": 16
+    },
+    "Toadsworth": {
+      "fielding": 23,
+      "batting": 22,
+      "pitching": 41,
+      "arm": 23,
+      "running": 11
+    },
+    "Blue Toad": {
+      "fielding": 19,
+      "batting": 20,
+      "pitching": 38,
+      "arm": 18,
+      "running": 23
+    },
+    "Yellow Toad": {
+      "fielding": 19,
+      "batting": 25,
+      "pitching": 21,
+      "arm": 23,
+      "running": 27
+    },
+    "Green Toad": {
+      "fielding": 23,
+      "batting": 22,
+      "pitching": 39,
+      "arm": 21,
+      "running": 34
+    },
+    "Purple Toad": {
+      "fielding": 22,
+      "batting": 28,
+      "pitching": 57,
+      "arm": 14,
+      "running": 32
+    },
+    "Magikoopa": {
+      "fielding": 21,
+      "batting": 20,
+      "pitching": 19,
+      "arm": 19,
+      "running": 26
+    },
+    "Red Magikoopa": {
+      "fielding": 20,
+      "batting": 37,
+      "pitching": 35,
+      "arm": 18,
+      "running": 52
+    },
+    "Green Magikoopa": {
+      "fielding": 21,
+      "batting": 24,
+      "pitching": 37,
+      "arm": 13,
+      "running": 30
+    },
+    "Yellow Magikoopa": {
+      "fielding": 19,
+      "batting": 22,
+      "pitching": 25,
+      "arm": 19,
+      "running": 31
+    },
+    "King Boo": {
+      "fielding": 19,
+      "batting": 25,
+      "pitching": 56,
+      "arm": 19,
+      "running": 13
+    },
+    "Petey Piranha": {
+      "fielding": 27,
+      "batting": 43,
+      "pitching": 28,
+      "arm": 26,
+      "running": 8
+    },
+    "Dixie Kong": {
+      "fielding": 23,
+      "batting": 28,
+      "pitching": 32,
+      "arm": 13,
+      "running": 23
+    },
+    "Goomba": {
+      "fielding": 26,
+      "batting": 26,
+      "pitching": 43,
+      "arm": 23,
+      "running": 18
+    },
+    "Paragoomba": {
+      "fielding": 23,
+      "batting": 27,
+      "pitching": 78,
+      "arm": 16,
+      "running": 17
+    },
+    "Red Koopa": {
+      "fielding": 18,
+      "batting": 31,
+      "pitching": 67,
+      "arm": 13,
+      "running": 16
+    },
+    "Green Paratroopa": {
+      "fielding": 18,
+      "batting": 32,
+      "pitching": 35,
+      "arm": 24,
+      "running": 21
+    },
+    "Blue Shy Guy": {
+      "fielding": 21,
+      "batting": 28,
+      "pitching": 34,
+      "arm": 21,
+      "running": 36
+    },
+    "Yellow Shy Guy": {
+      "fielding": 19,
+      "batting": 23,
+      "pitching": 20,
+      "arm": 20,
+      "running": 25
+    },
+    "Green Shy Guy": {
+      "fielding": 22,
+      "batting": 21,
+      "pitching": 69,
+      "arm": 27,
+      "running": 33
+    },
+    "Gray Shy Guy": {
+      "fielding": 19,
+      "batting": 29,
+      "pitching": 120,
+      "arm": 23,
+      "running": 35
+    },
+    "Dry Bones": {
+      "fielding": 22,
+      "batting": 25,
+      "pitching": 29,
+      "arm": 35,
+      "running": 13
+    },
+    "Green Dry Bones": {
+      "fielding": 20,
+      "batting": 29,
+      "pitching": 42,
+      "arm": 24,
+      "running": 11
+    },
+    "Dark Bones": {
+      "fielding": 19,
+      "batting": 27,
+      "pitching": 36,
+      "arm": 31,
+      "running": 9
+    },
+    "Blue Dry Bones": {
+      "fielding": 22,
+      "batting": 30,
+      "pitching": 36,
+      "arm": 31,
+      "running": 9
+    },
+    "Fire Bro": {
+      "fielding": 54,
+      "batting": 54,
+      "pitching": 67,
+      "arm": 70,
+      "running": 19
+    },
+    "Boomerang Bro": {
+      "fielding": 18,
+      "batting": 45,
+      "pitching": 106,
+      "arm": 22,
+      "running": 55
+    },
+    "Wiggler": {
+      "fielding": 18,
+      "batting": 30,
+      "pitching": 41,
+      "arm": 24,
+      "running": 8
+    },
+    "Blooper": {
+      "fielding": 23,
+      "batting": 30,
+      "pitching": 31,
+      "arm": 20,
+      "running": 32
+    },
+    "Funky Kong": {
+      "fielding": 31,
+      "batting": 32,
+      "pitching": 44,
+      "arm": 25,
+      "running": 9
+    },
+    "Tiny Kong": {
+      "fielding": 27,
+      "batting": 27,
+      "pitching": 30,
+      "arm": 16,
+      "running": 8
+    },
+    "Kritter": {
+      "fielding": 21,
+      "batting": 37,
+      "pitching": 49,
+      "arm": 29,
+      "running": 11
+    },
+    "Blue Kritter": {
+      "fielding": 24,
+      "batting": 24,
+      "pitching": 49,
+      "arm": 30,
+      "running": 9
+    },
+    "Red Kritter": {
+      "fielding": 23,
+      "batting": 26,
+      "pitching": 52,
+      "arm": 13,
+      "running": 16
+    },
+    "Brown Kritter": {
+      "fielding": 20,
+      "batting": 20,
+      "pitching": 29,
+      "arm": 21,
+      "running": 11
+    },
+    "King K. Rool": {
+      "fielding": 20,
+      "batting": 46,
+      "pitching": 89,
+      "arm": 18,
+      "running": 9
+    },
+    "Baby Peach": {
+      "fielding": 20,
+      "batting": 33,
+      "pitching": 45,
+      "arm": 30,
+      "running": 39
+    },
+    "Baby Daisy": {
+      "fielding": 19,
+      "batting": 27,
+      "pitching": 32,
+      "arm": 16,
+      "running": 19
+    },
+    "Baby DK": {
+      "fielding": 23,
+      "batting": 24,
+      "pitching": 50,
+      "arm": 21,
+      "running": 31
+    },
+    "Red Yoshi": {
+      "fielding": 23,
+      "batting": 28,
+      "pitching": 33,
+      "arm": 20,
+      "running": 24
+    },
+    "Blue Yoshi": {
+      "fielding": 26,
+      "batting": 31,
+      "pitching": 27,
+      "arm": 27,
+      "running": 14
+    },
+    "Yellow Yoshi": {
+      "fielding": 19,
+      "batting": 27,
+      "pitching": 32,
+      "arm": 12,
+      "running": 12
+    },
+    "Light-Blue Yoshi": {
+      "fielding": 34,
+      "batting": 40,
+      "pitching": 19,
+      "arm": 38,
+      "running": 29
+    },
+    "Pink Yoshi": {
+      "fielding": 19,
+      "batting": 32,
+      "pitching": 35,
+      "arm": 20,
+      "running": 26
+    }
+  },
+  "unknown": [
+    "Mii"
+  ]
+}

@@ -15,7 +15,9 @@ export default function PercentileBar({ label, value, percentile, formatValue })
         </span>
       </div>
       <div style={{ position: 'relative', height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', inset: 0, backgroundImage: GRADIENT, opacity: 0.35 }} />
+        {/* No percentile means no measurement. Painting the gradient anyway leaves an unranked
+            metric looking like a full red bar, i.e. elite, which is the opposite of unknown. */}
+        {pct != null && <div style={{ position: 'absolute', inset: 0, backgroundImage: GRADIENT, opacity: 0.35 }} />}
         {pct != null && (
           <div style={{
             position: 'absolute', top: -2, left: `${pct}%`, width: 3, height: 12,

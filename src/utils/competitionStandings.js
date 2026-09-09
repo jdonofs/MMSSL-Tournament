@@ -42,9 +42,16 @@ function buildSeasonBettingLookup(entries = []) {
   return entries.reduce((lookup, entry) => {
     const playerId = String(entry.player_id || '')
     if (!playerId) return lookup
-    lookup[playerId] = (lookup[playerId] || 0) + Number(entry.dollars_change || 0)
+    const dollarsChange = Number(entry.dollars_change)
+    lookup[playerId] = (lookup[playerId] || 0) + (Number.isFinite(dollarsChange) ? dollarsChange : 0)
     return lookup
   }, {})
+}
+
+function compareStableTeamIdentity(a, b) {
+  const nameDelta = String(a.team_name || '').localeCompare(String(b.team_name || ''))
+  if (nameDelta !== 0) return nameDelta
+  return String(a.id || '').localeCompare(String(b.id || ''))
 }
 
 function buildSeasonRows(seasonTeams = [], regularSeasonGames = []) {
@@ -146,7 +153,7 @@ function sortSeasonTieGroup(group = [], regularSeasonGames = [], bettingLookup =
     if (bettingDelta !== 0) return bettingDelta
 
     if (b.run_differential !== a.run_differential) return b.run_differential - a.run_differential
-    return String(a.team_name || '').localeCompare(String(b.team_name || ''))
+    return compareStableTeamIdentity(a, b)
   })
 }
 
@@ -160,12 +167,13 @@ export function buildSeasonStandings(seasonTeams = [], schedule = [], bettingLed
   const firstPass = [...rows].sort((a, b) => {
     if (b.wins !== a.wins) return b.wins - a.wins
     if (b.losses !== a.losses) return a.losses - b.losses
-    return String(a.team_name || '').localeCompare(String(b.team_name || ''))
+    return compareStableTeamIdentity(a, b)
   })
 
   while (index < firstPass.length) {
     const currentWins = firstPass[index].wins
-    const tiedGroup = firstPass.filter((team) => team.wins === currentWins)
+    const currentLosses = firstPass[index].losses
+    const tiedGroup = firstPass.filter((team) => team.wins === currentWins && team.losses === currentLosses)
     if (tiedGroup.length === 1) {
       sorted.push(tiedGroup[0])
       index += 1

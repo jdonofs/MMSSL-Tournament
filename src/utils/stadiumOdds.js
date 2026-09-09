@@ -55,6 +55,11 @@ function getGimmickScoringModifier(name, isNight) {
   return isNight ? modifier.night : modifier.day
 }
 
+// How many games of park history it takes before the observed scoring at a park
+// outweighs the hand-authored gimmick prior. A shrinkage strength, not a
+// measurement — stated so it can be refit rather than believed.
+export const DEFAULT_PARK_PRIOR_GAMES = 6
+
 export function calcConfidenceWeight(stadiumGameLog = []) {
   const gameCount = stadiumGameLog.length
   const avgConfidence = gameCount === 0
@@ -82,25 +87,53 @@ export function blendModifiers(formulaModifiers, historicalModifiers, weights) {
   }
 }
 
-export function buildAppliedStadiumModel(stadium, isNight, stadiumGameLog = []) {
+/**
+ * The park model actually applied to a game.
+ *
+ * `leagueMeanRuns` is the competition's OWN average game total. Passing it is
+ * what makes the observed park factor mean anything: without it this function
+ * divides by `BASELINE_RUNS` (4.9), a nine-inning number, and a three-inning
+ * league that averages 7 runs a game reads as though every park inflated
+ * scoring by about 43%. The constant is kept only as the fallback for callers
+ * that have no league average to hand.
+ *
+ * The blend is empirical-Bayes rather than a step function: the hand-authored
+ * gimmick table is the prior mean and each recorded game at the park moves the
+ * posterior toward what was observed, with `priorGames` setting how fast.
+ */
+export function buildAppliedStadiumModel(stadium, isNight, stadiumGameLog = [], options = {}) {
   const formulaModifiers = calcStadiumModifiers(stadium, isNight)
-  const historicalAvgRuns = stadiumGameLog.length
-    ? stadiumGameLog.reduce((sum, game) => sum + Number(game.total_runs || 0), 0) / stadiumGameLog.length
-    : BASELINE_RUNS
+  const leagueMeanRuns = Number(options.leagueMeanRuns) > 0 ? Number(options.leagueMeanRuns) : BASELINE_RUNS
+  const priorGames = Number(options.priorGames) > 0 ? Number(options.priorGames) : DEFAULT_PARK_PRIOR_GAMES
+  const games = stadiumGameLog.length
+  const historicalAvgRuns = games
+    ? stadiumGameLog.reduce((sum, game) => sum + Number(game.total_runs || 0), 0) / games
+    : leagueMeanRuns
 
+  const observedScoringFactor = historicalAvgRuns / leagueMeanRuns
   const historicalModifiers = {
     hrFactor: formulaModifiers.hrFactor,
-    scoringFactor: historicalAvgRuns / BASELINE_RUNS,
+    scoringFactor: observedScoringFactor,
     varianceMultiplier: formulaModifiers.varianceMultiplier,
   }
 
-  const weights = calcConfidenceWeight(stadiumGameLog)
+  const historicalWeight = games / (games + priorGames)
+  const weights = {
+    historicalWeight,
+    formulaWeight: 1 - historicalWeight,
+    avgConfidence: games === 0
+      ? 0
+      : stadiumGameLog.reduce((sum, game) => sum + Number(game.confidence || 0), 0) / games,
+    priorGames,
+    observedGames: games,
+  }
   const finalModifiers = blendModifiers(formulaModifiers, historicalModifiers, weights)
 
   return {
     formulaModifiers,
     historicalModifiers,
     historicalAvgRuns,
+    leagueMeanRuns,
     weights,
     finalModifiers,
   }

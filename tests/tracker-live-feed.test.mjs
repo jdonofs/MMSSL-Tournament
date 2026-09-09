@@ -7,6 +7,7 @@ import {
   buildTrackerGameSignature,
   buildTrackerMarketInputSignature,
   resolveTrackerScore,
+  shouldStartFreshTrackerSession,
 } from '../src/utils/trackerLiveFeed.js'
 import { buildTrackerBetResolutionConfig } from '../scripts/tracker_betting_sync.mjs'
 import {
@@ -17,6 +18,7 @@ import {
   isTrackerMissingPlayerName,
   isTrackerReplayMessage,
   markPendingTrackerStarPitch,
+  markTrackerStarSwing,
   parseTrackerPutoutMessage,
   parseTrackerStarPitchMessage,
   shouldCreditTrackerPutout,
@@ -49,6 +51,31 @@ test('keeps explicit tracker inning state when PA outs are one short', () => {
     isTop: true,
     outs: 0,
   })
+})
+
+test('treats a reset fixture as fresh even when a stale tracker feed row still exists', () => {
+  assert.equal(shouldStartFreshTrackerSession({
+    status: 'scheduled',
+    away_score: null,
+    home_score: null,
+  }, 0), true)
+  assert.equal(shouldStartFreshTrackerSession({
+    status: 'pending',
+    team_a_runs: 0,
+    team_b_runs: 0,
+  }, 0), true)
+
+  // A bridge restart during a real game must resume instead of erasing state.
+  assert.equal(shouldStartFreshTrackerSession({
+    status: 'in_progress',
+    away_score: 0,
+    home_score: 0,
+  }, 0), false)
+  assert.equal(shouldStartFreshTrackerSession({
+    status: 'scheduled',
+    away_score: 0,
+    home_score: 0,
+  }, 1), false)
 })
 
 test('uses PA outs as an inning-state fallback before tracker state arrives', () => {
@@ -137,6 +164,7 @@ test('records Wario star pitching from the tracker announcement on the following
 
   assert.deepEqual(trackerPitchStatFields(starPitch), {
     is_star_pitch: true,
+    is_star_swing: false,
     result: 'swinging_miss',
     count_balls_before: 0,
     count_strikes_before: 1,
@@ -144,6 +172,20 @@ test('records Wario star pitching from the tracker announcement on the following
     count_strikes_after: 2,
     pitch_type: null,
   })
+})
+
+test('records a star swing on its pitch even when strike three is announced first', () => {
+  const buffer = {
+    batterName: 'Bowser Jr.',
+    result: 'K',
+    pendingStarSwing: false,
+    starHitUsed: false,
+    pitches: [{ type: 'swinging_miss', isStarSwing: false }],
+  }
+  assert.equal(markTrackerStarSwing(buffer, 'Bowser Jr. used a star swing!'), true)
+  assert.equal(buffer.starHitUsed, true)
+  assert.equal(buffer.pitches[0].isStarSwing, true)
+  assert.equal(buffer.pendingStarSwing, false)
 })
 
 test('only marks a plate appearance when the decisive pitch was a star pitch', () => {

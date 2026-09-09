@@ -205,52 +205,52 @@
       peach_ice_garden: {
         label: 'Peach Ice Garden',
         image: '/stadiums/peach-ice-garden.png',
-        dims: { lf: 314, cf: 402, rf: 313 },
+        dims: { lf: 306.6, cf: 389.6, rf: 307.2 },
       },
       mario_stadium: {
         label: 'Mario Stadium',
         image: '/stadiums/mario-stadium.png',
-        dims: { lf: 259, cf: 317, rf: 259 },
+        dims: { lf: 257.8, cf: 317.2, rf: 259.0 },
       },
       luigis_mansion: {
         label: "Luigi's Mansion",
         image: "/stadiums/luigi's-mansion.png",
-        dims: { lf: 282, cf: 351, rf: 287 },
+        dims: { lf: 276.6, cf: 338.5, rf: 277.8 },
       },
       daisy_cruiser: {
         label: 'Daisy Cruiser',
         image: '/stadiums/daisy-cruiser.png',
-        dims: { lf: 232, cf: 328, rf: 231 },
+        dims: { lf: 227.6, cf: 319.1, rf: 228.0 },
       },
       wario_city: {
         label: 'Wario City',
         image: '/stadiums/wario-stadium.png',
-        dims: { lf: 292, cf: 297, rf: 289 },
+        dims: { lf: 285.7, cf: 290.6, rf: 282.8 },
       },
       yoshi_park: {
         label: 'Yoshi Park',
         image: '/stadiums/yoshi-park.png',
-        dims: { lf: 253, cf: 324, rf: 254 },
+        dims: { lf: 252.7, cf: 321.6, rf: 253.2 },
       },
       dk_jungle: {
         label: 'DK Jungle',
         image: '/stadiums/dk-jungle.png',
-        dims: { lf: 274, cf: 323, rf: 275 },
+        dims: { lf: 268.1, cf: 316.0, rf: 269.1 },
       },
       bowser_jr_playroom: {
         label: 'Bowser Jr. Playroom',
         image: '/stadiums/bowser-jr-playroom.png',
-        dims: { lf: 262, cf: 328, rf: 264 },
+        dims: { lf: 256.3, cf: 320.9, rf: 258.3 },
       },
       bowser_castle: {
         label: 'Bowser Castle',
         image: '/stadiums/bowser-castle.png',
-        dims: { lf: 278, cf: 334, rf: 277 },
+        dims: { lf: 269.8, cf: 322.7, rf: 270.2 },
       },
       generic_field: {
         label: 'All Parks Generic Field',
         image: '/stadiums/spray chart.png',
-        dims: { lf: 272, cf: 334, rf: 272 },
+        dims: { lf: 266.2, cf: 325.7, rf: 266.8 },
       },
     }
 
@@ -299,7 +299,9 @@
     function setPreset(key) {
       activePresetKey = PRESETS[key] ? key : 'peach_ice_garden'
       presetSelect.value = activePresetKey
-      img.src = activePreset().image
+      // See calibrate-homography.html: stadium art is replaced from time to
+      // time and a cached copy makes a stale calibration look correct.
+      img.src = `${activePreset().image}?v=${Date.now()}`
       syncMeta()
       syncQueryString()
       reset()

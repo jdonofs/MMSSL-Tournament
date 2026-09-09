@@ -30,9 +30,25 @@ import sys
 import time
 
 BALL_POINTER_SLOT = 0x80795310
-SCAN_START = 0x300
-SCAN_SIZE = 0x400
-FALLBACK_OFFSET = 0x4B4
+# Scan the WHOLE object, not a window around wherever the field was last time.
+#
+# This started as +0x300..+0x700, chosen to bracket the two offsets then known
+# (0x558, then 0x4B4). On 2026-08-17 the field moved to 0x720 -- 0x20 bytes past
+# the end of that window -- and the failure was exactly the silent one this
+# probe exists to catch: the signature scan found nothing, the fallback read
+# 0x4B4, and 0x4B4 now holds (-0.0002, -0.125, 0), which is not a position at
+# all. Nothing tracked and nothing errored.
+#
+# Narrowing the search bought nothing. The signature is unique across the full
+# object (verified: exactly one match in 0x1000 bytes), the read is a single
+# 4 KB fetch, and the x/y range check rejects a stray constant. So there is no
+# reason to guess where to look.
+SCAN_START = 0x000
+SCAN_SIZE = 0x1000
+# Only used until the ball reaches a pitch reset. It is a LAST-KNOWN-GOOD value
+# and goes stale exactly when this file matters most, so it is validated before
+# being trusted -- see plausible_position().
+FALLBACK_OFFSET = 0x720
 WATCH_START = 0x400
 WATCH_SIZE = 0x200
 
@@ -54,8 +70,44 @@ def hook():
         )
     dme.hook()
     if not dme.is_hooked():
-        raise SystemExit("Could not hook Dolphin. Is it running with a game loaded?")
+        # "Is it running with a game loaded?" was the whole message, and it is
+        # wrong as often as it is right: the library takes no PID and attaches
+        # to whichever Dolphin it finds first, so a second instance sitting on
+        # the game list makes every probe fail while a game IS loaded in the
+        # other one. `get_status` tells the two apart, so say which it is.
+        try:
+            status = str(dme.get_status()).rsplit(".", 1)[-1]
+        except Exception:
+            status = "unknown"
+        if status == "noEmu":
+            raise SystemExit("\n".join([
+                "Found Dolphin, but it is not emulating anything.",
+                "  dolphin_memory_engine attaches to the FIRST Dolphin process it",
+                "  finds and cannot be pointed at a particular one. If you have a",
+                "  second Dolphin open on the game list, close it and retry --",
+                "  that empty instance is the one it grabbed.",
+            ]))
+        raise SystemExit(
+            f"Could not hook Dolphin (status: {status}). "
+            "Is it running with a game loaded?"
+        )
     return dme
+
+
+def plausible_position(x, y, z):
+    """Could these three floats be a ball position in this game's units?
+
+    Deliberately loose -- it is here to catch a read landing on padding or an
+    unrelated struct, not to validate a coordinate. The fallback offset reading
+    (-0.0002, -0.125, 0) is what this is for: y below the ground and z exactly
+    zero is not somewhere a ball has ever been.
+    """
+    for v in (x, y, z):
+        if v != v or abs(v) == float("inf"):
+            return False
+    if x == 0.0 and y == 0.0 and z == 0.0:
+        return False
+    return -70 < x < 70 and 0 <= y < 80 and -140 < z < 140
 
 
 def resolve_offset(dme, base):
@@ -128,7 +180,8 @@ def main() -> int:
         return 1
 
     offset = resolve_offset(dme, base)
-    if offset is None:
+    calibrated = offset is not None
+    if not calibrated:
         offset = FALLBACK_OFFSET
         print(
             f"coordinate offset  NOT FOUND -- ball is not at the pitch-reset position.\n"
@@ -136,10 +189,28 @@ def main() -> int:
         )
     else:
         print(f"coordinate offset  0x{offset:03X}  (from the pitch-reset signature)")
+        if offset != FALLBACK_OFFSET:
+            # The field can move between stadium loads. The fallback is only a
+            # startup seed; calibration is authoritative and there is no one
+            # permanent value to copy back into the source.
+            print(
+                f"                   NOTE: this differs from FALLBACK_OFFSET "
+                f"(0x{FALLBACK_OFFSET:03X}).\n"
+                f"                   That is expected across stadium loads. Do not update\n"
+                f"                   the seed; the tracker resolves this signature too."
+            )
     print(f"coordinate address 0x{base + offset:08X}")
 
     x, y, z = struct.unpack(">fff", dme.read_bytes(base + offset, 12))
     print(f"current position   ({x:.6g}, {y:.6g}, {z:.6g})")
+    if not plausible_position(x, y, z):
+        print(
+            "\n  *** THAT IS NOT A POSITION. ***\n"
+            "  The offset in use does not point at the coordinate field, so the\n"
+            "  feed is dead: coordinates will read fine, never change, and every\n"
+            "  downstream metric will produce nothing with no error anywhere.\n"
+            "  Get to a pitch reset (between pitches) and re-run to recalibrate."
+        )
 
     if args.watch:
         watch(dme, base, offset, args.watch)

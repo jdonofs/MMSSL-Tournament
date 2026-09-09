@@ -13,7 +13,7 @@ import { formatSeasonLabel } from '../utils/season'
 import { buildScorebookPath } from '../utils/scorebookRouting'
 import { getOrderedStadiums, getStadiumTimeLabel, normalizeIsNightForStadium, stadiumTimeToggleDisabled } from '../utils/stadiums'
 import { calculateOutsForPa } from '../utils/statsCalculator'
-import { sortSeasonPlayoffGames } from '../utils/seasonPlayoffs'
+import { deriveSeasonPlayoffUiState } from '../utils/seasonPlayoffs'
 import { buildSeasonTeamIdentity, getTeamPrimaryColor, getTeamShortName } from '../utils/teamIdentity'
 import { applyTrackerLiveStateToGame } from '../utils/trackerLiveFeed'
 
@@ -446,18 +446,19 @@ export default function SeasonSchedule() {
       .map((game) => applyLiveGameState(applyGameOverride(game, scheduleOverrides))),
     [weekGroups, selectedWeek, scheduleOverrides, applyLiveGameState],
   )
-  const orderedPlayoffGames = useMemo(
-    () => sortSeasonPlayoffGames(
-      schedule.filter((game) => Boolean(game.stage)),
-      currentSeason?.playoff_format,
-      seasonTeams.length,
-    ).map((game) => applyLiveGameState(applyGameOverride(game, scheduleOverrides))),
-    [schedule, currentSeason?.playoff_format, seasonTeams.length, scheduleOverrides, applyLiveGameState],
-  )
-  const visiblePlayoffGames = useMemo(
-    () => orderedPlayoffGames.filter((game) => game.home_team_id || game.away_team_id),
-    [orderedPlayoffGames],
-  )
+  const playoffUiState = useMemo(() => {
+    const playoffSchedule = schedule
+      .filter((game) => Boolean(game.stage))
+      .map((game) => applyLiveGameState(applyGameOverride(game, scheduleOverrides)))
+    return deriveSeasonPlayoffUiState({
+      schedule: playoffSchedule,
+      playoffFormat: currentSeason?.playoff_format,
+      teamCount: seasonTeams.length,
+      seasonStatus: currentSeason?.status,
+    })
+  }, [schedule, currentSeason?.playoff_format, currentSeason?.status, seasonTeams.length, scheduleOverrides, applyLiveGameState])
+  const orderedPlayoffGames = playoffUiState.orderedGames
+  const visiblePlayoffGames = playoffUiState.visibleGames
   const hasPlayoffTab = currentSeason?.status === 'playoffs'
     || currentSeason?.status === 'completed'
     || visiblePlayoffGames.length > 0
@@ -477,32 +478,7 @@ export default function SeasonSchedule() {
     return Boolean(isScorekeeper || (pickerTeam?.player_id && String(pickerTeam.player_id) === String(player?.id)))
   }, [isScorekeeper, player, teamsById])
 
-  const playoffMetaByGameId = useMemo(() => {
-    const meta = {}
-    orderedPlayoffGames.forEach((game, index) => {
-      const previousGame = orderedPlayoffGames[index - 1] || null
-      const previousComplete = !previousGame || previousGame.status === 'completed'
-      const missingHome = !game.home_team_id
-      const missingAway = !game.away_team_id
-
-      let lockReason = ''
-      if (!previousComplete) {
-        lockReason = `Complete ${previousGame.stage} first.`
-      } else if (missingHome && missingAway) {
-        lockReason = 'Waiting for both teams to be determined.'
-      } else if (missingHome) {
-        lockReason = 'Waiting for the home team slot to be determined.'
-      } else if (missingAway) {
-        lockReason = 'Waiting for the away team slot to be determined.'
-      }
-
-      meta[String(game.id)] = {
-        canStartGame: previousComplete && !missingHome && !missingAway,
-        lockReason,
-      }
-    })
-    return meta
-  }, [orderedPlayoffGames])
+  const playoffMetaByGameId = playoffUiState.metaByGameId
 
   const setSelectedView = useCallback((view) => {
     const next = new URLSearchParams(searchParams)
@@ -691,7 +667,7 @@ export default function SeasonSchedule() {
             const isCompleted = game.status === 'completed'
             const isLocked = Boolean(game.stage && playoffMeta && !playoffMeta.canStartGame)
             const canEditStadium = canEditStadiumForGame(game)
-            const showSetStadiumPill = !isCompleted && !isLocked && !game.stadium && canEditStadium
+            const showSetStadiumPill = !isCompleted && !game.stadium && canEditStadium
             const showStartPill = !isCompleted && !isLocked && Boolean(game.stadium)
             const startLabel = game.status === 'in_progress' ? 'Resume Game' : 'Start Game'
             return (

@@ -4,6 +4,7 @@ import {
   BASE_PATH_UNITS,
   BODY_RADIUS_UNITS,
   FEET_PER_UNIT,
+  METERS_PER_UNIT,
   HOME_PLATE,
   PARK_FENCES,
   RUBBER_DISTANCE_UNITS,
@@ -12,6 +13,7 @@ import {
   clampToFairTerritory,
   fenceDistanceFeet,
   fenceRadiusAt,
+  hasHeightCalibration,
   hasImageCalibration,
   hasMeasuredGeometry,
   infieldCorners,
@@ -20,27 +22,29 @@ import {
   standsHeightUnits,
   worldToImagePercent,
   worldToImagePercentAtHeight,
+  worldLandingToImagePercentAtHeight,
   worldToPolar,
 } from '../src/utils/parkGeometry.js'
 
-test('the scale is the measured base path against a regulation one', () => {
+test('world coordinates use exactly one metre per unit', () => {
   assert.equal(BASE_PATH_UNITS, 26.84)
-  assert.ok(Math.abs(FEET_PER_UNIT - 3.3532) < 0.001)
-  // The rubber was held out of the infield fit and still landed within 0.4% of
-  // 60'6", which is the evidence the scale rests on rather than an assumption
-  // it makes. Guard that it stays true if the scale is ever retuned.
-  assert.ok(Math.abs((RUBBER_DISTANCE_UNITS * FEET_PER_UNIT) - 60.5) < 0.01)
+  assert.equal(METERS_PER_UNIT, 1)
+  assert.ok(Math.abs(FEET_PER_UNIT - 3.280839895013123) < 1e-12)
+  // The held-out rubber clusters around an intended 18m, independently of the
+  // fitted 27m base path. It must remain the measured coordinate, not a 60'6"
+  // regulation distance converted back into units.
+  assert.ok(Math.abs(RUBBER_DISTANCE_UNITS - 17.979) < 1e-6)
+  assert.ok(Math.abs((RUBBER_DISTANCE_UNITS * FEET_PER_UNIT) - 58.986) < 0.01)
 })
 
 test('measured fence distances match what the presses recorded', () => {
-  // Straightaway centre and both foul poles, cross-checked against the Reddit
-  // run-timing numbers (259 / 317 / 259) which agree to within ~3%.
+  // Straightaway centre and both foul poles from raw world coordinates.
   const centre = fenceDistanceFeet('mario_stadium', 0)
   const leftPole = fenceDistanceFeet('mario_stadium', -45)
   const rightPole = fenceDistanceFeet('mario_stadium', 45)
-  assert.ok(centre > 320 && centre < 332, `centre was ${centre}`)
-  assert.ok(leftPole > 260 && leftPole < 270, `LF pole was ${leftPole}`)
-  assert.ok(rightPole > 260 && rightPole < 270, `RF pole was ${rightPole}`)
+  assert.ok(centre > 316 && centre < 319, `centre was ${centre}`)
+  assert.ok(leftPole > 256 && leftPole < 260, `LF pole was ${leftPole}`)
+  assert.ok(rightPole > 257 && rightPole < 261, `RF pole was ${rightPole}`)
   // A symmetric park should measure symmetric.
   assert.ok(Math.abs(leftPole - rightPole) < 8)
 })
@@ -92,7 +96,7 @@ test('distances are measured from home plate, not the world origin', () => {
   assert.ok(atOrigin.distanceUnits > 0.5 && atOrigin.distanceUnits < 1.0)
 })
 
-test('the infield is a regulation diamond at the measured scale', () => {
+test('the infield is the measured metric diamond', () => {
   const { home, first, second, third, rubber } = infieldCorners()
   const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
   for (const [p, q] of [[home, first], [first, second], [second, third], [third, home]]) {
@@ -101,15 +105,236 @@ test('the infield is a regulation diamond at the measured scale', () => {
   // Diagonals of a square: side * sqrt(2).
   assert.ok(Math.abs(dist(home, second) - (BASE_PATH_UNITS * Math.SQRT2)) < 1e-6)
   assert.ok(Math.abs(dist(first, third) - (BASE_PATH_UNITS * Math.SQRT2)) < 1e-6)
-  assert.ok(Math.abs((dist(home, rubber) * FEET_PER_UNIT) - 60.5) < 0.01)
+  assert.ok(Math.abs(dist(home, rubber) - 17.979) < 1e-6)
 })
 
 test('a park with no measurements yet is reported as unmeasured, not guessed at', () => {
   assert.equal(hasMeasuredGeometry('mario_stadium'), true)
-  assert.equal(hasMeasuredGeometry('peach_ice_garden'), false)
-  assert.equal(fenceRadiusAt('peach_ice_garden', 0), null)
-  assert.equal(fenceDistanceFeet('peach_ice_garden', 0), null)
-  assert.equal(parkMaxRadius('peach_ice_garden'), null)
+  // No real park stands in for "not yet pressed" any more: yoshi_park was the
+  // last one, measured on 2026-08-20, and wario_city on 2026-08-19 before it.
+  // An unknown key carries the same contract -- report nothing rather than
+  // interpolate a fence out of thin air -- so it is what the test asserts on.
+  assert.equal(hasMeasuredGeometry('not_a_park'), false)
+  assert.equal(fenceRadiusAt('not_a_park', 0), null)
+  assert.equal(fenceDistanceFeet('not_a_park', 0), null)
+  assert.equal(parkMaxRadius('not_a_park'), null)
+})
+
+test('every park the tracker can be played in now has a measured fence', () => {
+  // Nine parks, all pressed. If a tenth is ever added this should fail until it
+  // is measured, rather than the app quietly guessing at its wall.
+  for (const park of [
+    'mario_stadium', 'luigis_mansion', 'daisy_cruiser', 'peach_ice_garden',
+    'bowser_castle', 'bowser_jr_playroom', 'dk_jungle', 'wario_city',
+    'yoshi_park',
+  ]) {
+    assert.equal(hasMeasuredGeometry(park), true, park)
+    assert.ok(fenceDistanceFeet(park, 0) > 200, park)
+  }
+})
+
+test('Peach Ice Garden measures as the deep park it is', () => {
+  // The source samples are origin-relative, but the exported curve is correctly
+  // converted to distance and angle from home plate.
+  const centre = fenceDistanceFeet('peach_ice_garden', 0)
+  const leftPole = fenceDistanceFeet('peach_ice_garden', -45)
+  const rightPole = fenceDistanceFeet('peach_ice_garden', 45)
+  assert.ok(centre > 388 && centre < 391, `centre was ${centre}`)
+  assert.ok(leftPole > 305 && leftPole < 308, `LF pole was ${leftPole}`)
+  assert.ok(rightPole > 306 && rightPole < 309, `RF pole was ${rightPole}`)
+  assert.ok(Math.abs(leftPole - rightPole) < 3)
+  // Deepest park in the game, by a margin no measurement error could close.
+  assert.ok(parkMaxRadius('peach_ice_garden') > parkMaxRadius('luigis_mansion'))
+})
+
+test('Peach Ice Garden keeps its polygon corners sharp', () => {
+  // The stored points are generated from a fitted regular 24-gon, and every
+  // vertex is an entry precisely so linear interpolation cannot round one off.
+  // A vertex shows up as a change in slope; between vertices the slope holds.
+  // Guard the property that matters: sampling the array back at 0.25-degree
+  // steps must stay close to the stored points it interpolates between, which
+  // fails loudly if someone thins the array to "tidy" it.
+  const fence = PARK_FENCES.peach_ice_garden
+  for (const [angle, radius] of fence) {
+    const sampled = fenceRadiusAt('peach_ice_garden', angle)
+    assert.ok(Math.abs(sampled - radius) < 1e-9)
+  }
+  // Angles must be sorted and reach both foul lines.
+  for (let i = 1; i < fence.length; i += 1) {
+    assert.ok(fence[i][0] > fence[i - 1][0], `angle ${i} out of order`)
+  }
+  assert.ok(fence[0][0] < -44 && fence[fence.length - 1][0] > 44)
+})
+
+test('Bowser Castle uses its measured symmetric polygon', () => {
+  const left = fenceDistanceFeet('bowser_castle', -45)
+  const centre = fenceDistanceFeet('bowser_castle', 0)
+  const right = fenceDistanceFeet('bowser_castle', 45)
+  assert.ok(left > 268 && left < 272, `LF was ${left}`)
+  assert.ok(centre > 321 && centre < 324, `CF was ${centre}`)
+  assert.ok(right > 269 && right < 272, `RF was ${right}`)
+  assert.ok(Math.abs(left - right) < 1)
+  assert.equal(hasImageCalibration('bowser_castle'), true)
+  assert.equal(hasHeightCalibration('bowser_castle'), true)
+  assert.equal(hasHeightCalibration('daisy_cruiser'), false)
+})
+
+test('Bowser Castle vertical calibration uses its measured ordinary-wall height', () => {
+  // Three tracked top contacts put the ordinary surface at 8.737477u on
+  // average. The vertical was fitted from that game-space measurement, not
+  // Mario Stadium's much shorter wall assumption.
+  const height = 8.7374773
+  const refs = [
+    [-45, { x: 13.8, y: 44.7 }],
+    [0, { x: 49.2, y: 24.2 }],
+    [45, { x: 84.4, y: 43.8 }],
+  ]
+  for (const [angle, expected] of refs) {
+    const radius = fenceRadiusAt('bowser_castle', angle)
+    const world = polarToWorld(angle, radius)
+    const point = worldToImagePercentAtHeight(
+      'bowser_castle', world.x, world.z, height,
+    )
+    assert.ok(
+      Math.hypot(point.x - expected.x, point.y - expected.y) < 1.2,
+      `${angle}deg wall top was ${JSON.stringify(point)}`,
+    )
+  }
+})
+
+test('a shallow Bowser Castle lava landing clears the wall only on the artwork', () => {
+  // Boomerang Bro.'s measured 2026-08-18 landing: 10.29u behind the fence at
+  // +19.43deg. Its flat-plane projection is physically behind the wall but is
+  // painted on top of the wall silhouette in this overhead image.
+  const landing = { x: 35.9727173, z: -102.855698 }
+  const polar = worldToPolar(landing.x, landing.z)
+  const fence = fenceRadiusAt('bowser_castle', polar.angleDeg)
+  assert.ok(polar.distanceUnits > fence)
+  assert.ok(polar.distanceUnits < fence + 20)
+
+  const raw = worldToImagePercentAtHeight('bowser_castle', landing.x, landing.z, 0.25)
+  const visible = worldLandingToImagePercentAtHeight(
+    'bowser_castle', landing.x, landing.z, 0.25,
+  )
+  assert.ok(raw.y > 25 && raw.y < 26, `raw y was ${raw.y}`)
+  assert.ok(visible.y > 21 && visible.y < 23, `visible y was ${visible.y}`)
+  assert.ok(visible.y < raw.y, 'the display marker must clear the wall toward the lava')
+
+  // Deep landings are already visible, and other parks have no invented rule.
+  const deep = polarToWorld(polar.angleDeg, fence + 25)
+  assert.deepEqual(
+    worldLandingToImagePercentAtHeight('bowser_castle', deep.x, deep.z, 0.25),
+    worldToImagePercentAtHeight('bowser_castle', deep.x, deep.z, 0.25),
+  )
+  assert.deepEqual(
+    worldLandingToImagePercentAtHeight('mario_stadium', landing.x, landing.z, 0.25),
+    worldToImagePercentAtHeight('mario_stadium', landing.x, landing.z, 0.25),
+  )
+})
+
+test('a shallow Playroom ground landing can clear the wall artwork', () => {
+  // The low-level visibility projection remains available for a true ground
+  // landing. Callers deliberately do not use it for measured raised impacts,
+  // because a Thwomp and the rear deck can share the same world height.
+  const landing = { x: 69.7323532, y: 0.25, z: -76.3782883 }
+  const polar = worldToPolar(landing.x, landing.z)
+  const fence = fenceRadiusAt('bowser_jr_playroom', polar.angleDeg)
+  assert.ok(polar.distanceUnits > fence)
+  assert.ok(polar.distanceUnits < fence + 28)
+
+  const raw = worldToImagePercentAtHeight(
+    'bowser_jr_playroom', landing.x, landing.z, landing.y,
+  )
+  const visible = worldLandingToImagePercentAtHeight(
+    'bowser_jr_playroom', landing.x, landing.z, landing.y,
+  )
+  assert.deepEqual(
+    { x: Number(visible.x.toFixed(1)), y: Number(visible.y.toFixed(1)) },
+    { x: 88.2, y: 29.6 },
+  )
+  assert.ok(visible.y < raw.y, 'the display marker must clear the wall toward the visible deck')
+})
+
+test('Playroom local calibration reproduces replay-marked object impacts', () => {
+  // Petey's and Bowser Jr.'s raised objects are direct measured impacts.
+  // K. Rool's ground landing uses the display-only clearance.
+  const direct = worldToImagePercentAtHeight(
+    'bowser_jr_playroom', -9.70315742, -103.197731, 12.9713068,
+  )
+  assert.deepEqual(
+    { x: Number(direct.x.toFixed(1)), y: Number(direct.y.toFixed(1)) },
+    { x: 44.4, y: 9.9 },
+  )
+
+  const wallTop = worldToImagePercentAtHeight(
+    'bowser_jr_playroom', -16.2222824, -97.5733032, 12.5062609,
+  )
+  assert.deepEqual(
+    { x: Number(wallTop.x.toFixed(1)), y: Number(wallTop.y.toFixed(1)) },
+    { x: 40.4, y: 20.8 },
+  )
+
+  // A point only 0.1u away can belong to a different overlapping surface.
+  // Do not smear the marked wall-top correction onto an unmarked contact.
+  const adjacentSurface = worldToImagePercentAtHeight(
+    'bowser_jr_playroom', -16.1222824, -97.5733032, 12.5062609,
+  )
+  assert.deepEqual(
+    { x: Number(adjacentSurface.x.toFixed(1)), y: Number(adjacentSurface.y.toFixed(1)) },
+    { x: 41.7, y: 20.5 },
+  )
+
+  const raised = worldToImagePercentAtHeight(
+    'bowser_jr_playroom', 53.4743958, -83.1447296, 6.34289837,
+  )
+  assert.deepEqual(
+    { x: Number(raised.x.toFixed(1)), y: Number(raised.y.toFixed(1)) },
+    { x: 80.3, y: 28.6 },
+  )
+
+  const ground = worldLandingToImagePercentAtHeight(
+    'bowser_jr_playroom', 69.7323532, -76.3782883, 0.25,
+  )
+  assert.deepEqual(
+    { x: Number(ground.x.toFixed(1)), y: Number(ground.y.toFixed(1)) },
+    { x: 88.2, y: 29.6 },
+  )
+
+  for (const [x, y, z, expected] of [
+    [-56.0879364, 6.38419437, -72.3675079, { x: 18, y: 36 }],
+    [-52.680088, 6.42286682, -83.7811661, { x: 21.4, y: 28.8 }],
+  ]) {
+    const thwomp = worldToImagePercentAtHeight('bowser_jr_playroom', x, z, y)
+    assert.deepEqual(
+      { x: Number(thwomp.x.toFixed(1)), y: Number(thwomp.y.toFixed(1)) },
+      expected,
+    )
+  }
+
+  for (const [x, y, z, expected] of [
+    [-41.6679306, 23.9301376, -88.3078384, { x: 23.4, y: 15.3 }],
+    [-39.6038399, 25.8843918, -91.9564209, { x: 25.4, y: 13.1 }],
+    [-42.3134537, 25.9399357, -89.7069168, { x: 24.3, y: 15.7 }],
+  ]) {
+    const chest = worldToImagePercentAtHeight('bowser_jr_playroom', x, z, y)
+    assert.deepEqual(
+      { x: Number(chest.x.toFixed(1)), y: Number(chest.y.toFixed(1)) },
+      expected,
+    )
+  }
+
+  for (const [x, y, z, expected] of [
+    [-42.7874718, 0.25, -111.736595, { x: 29.1, y: 13.5 }],
+    [31.3421078, 0.25, -122.650551, { x: 69.3, y: 9.5 }],
+  ]) {
+    const behindChest = worldLandingToImagePercentAtHeight(
+      'bowser_jr_playroom', x, z, y,
+    )
+    assert.deepEqual(
+      { x: Number(behindChest.x.toFixed(1)), y: Number(behindChest.y.toFixed(1)) },
+      expected,
+    )
+  }
 })
 
 test('the body-radius correction is already folded into the stored fence', () => {
@@ -184,9 +409,25 @@ test('the wall looks taller near the camera than far from it', () => {
 
 test('an uncalibrated park reports no image mapping rather than a wrong one', () => {
   assert.equal(hasImageCalibration('mario_stadium'), true)
-  assert.equal(hasImageCalibration('peach_ice_garden'), false)
-  assert.equal(worldToImagePercent('peach_ice_garden', 0, -80), null)
+  // No real park is uncalibrated any more -- yoshi_park was the last stand-in
+  // and got its homography on 2026-08-20, wario_city on 2026-08-19 before it.
+  // An unknown key holds the same contract: report nothing, never a guess.
+  assert.equal(hasImageCalibration('not_a_park'), false)
+  assert.equal(worldToImagePercent('not_a_park', 0, -80), null)
   assert.equal(worldToImagePercent('mario_stadium', Number.NaN, 0), null)
+})
+
+test('a park with a ground mapping but no vertical still draws ground-level hits', () => {
+  // Peach Ice Garden has a homography and deliberately no PARK_IMAGE_VERTICAL.
+  // That combination must degrade to the ground mapping rather than to null,
+  // because it is the normal state of a freshly calibrated park -- and at this
+  // park nearly every ball comes down at field level anyway.
+  assert.equal(hasImageCalibration('peach_ice_garden'), true)
+  assert.equal(hasHeightCalibration('peach_ice_garden'), false)
+  const ground = worldToImagePercent('peach_ice_garden', 0, -119.5)
+  assert.ok(ground && ground.x > 45 && ground.x < 55)
+  const elevated = worldToImagePercentAtHeight('peach_ice_garden', 0, -119.5, 6)
+  assert.deepEqual(elevated, ground)
 })
 
 test('an estimated home run is never plotted in foul territory', () => {
@@ -228,7 +469,7 @@ test('a ball clearing the wall is placed on the deck, not on the ground', () => 
   const deepCorner = standsHeightUnits('mario_stadium', 35, 100)
   assert.ok(deepCentre > 0, 'a ball into the centre stands must not sit at ground level')
   assert.ok(deepCorner > deepCentre, 'the corner deck measured higher than the centre one')
-  assert.ok(Math.abs((deepCentre * FEET_PER_UNIT) - 11.5) < 0.1, 'centre deck is the measured 11.5 ft')
+  assert.ok(Math.abs((deepCentre * FEET_PER_UNIT) - 11.252) < 0.1, 'raw deck height survives the scale change')
 })
 
 test('a ball that stays in the park gets no deck height', () => {
@@ -264,4 +505,26 @@ test('the measured fence agrees with the right field foul pole', () => {
   const fence = fenceRadiusAt('mario_stadium', polar.angleDeg)
   const gapFeet = Math.abs(polar.distanceUnits - fence) * FEET_PER_UNIT
   assert.ok(gapFeet < 3, `fence and foul pole disagree by ${gapFeet.toFixed(2)} ft`)
+})
+
+// Every stadium image is served with a hardcoded aspectRatio, and every other
+// number for that park -- homePlate, wallRefs, the nine fielder markers -- is a
+// PERCENTAGE OF THAT IMAGE. Replace the artwork without redoing them and each
+// one silently points at the wrong spot. Yoshi Park shipped that way: its
+// aspectRatio read 1280/823 while the committed image was 952x789, matching
+// neither it nor the 1486x899 replacement.
+test('each park aspectRatio matches the real dimensions of its stadium image', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../src/components/FieldPlayBuilder.jsx', import.meta.url), 'utf8')
+  const entries = [...source.matchAll(/image: ['"]([^'"]+\.png)['"],\s*\n\s*aspectRatio: '(\d+)\/(\d+)'/g)]
+  assert.ok(entries.length >= 9, `expected every park to declare an aspectRatio, found ${entries.length}`)
+
+  for (const [, imagePath, width, height] of entries) {
+    const png = await readFile(new URL(`../public${imagePath}`, import.meta.url))
+    // PNG IHDR: 8-byte signature, 4 length, 4 type, then width and height as
+    // big-endian uint32. Cheaper and more certain than pulling in a decoder.
+    assert.equal(png.toString('ascii', 12, 16), 'IHDR', `${imagePath} is not a PNG`)
+    assert.equal(png.readUInt32BE(16), Number(width), `${imagePath} width`)
+    assert.equal(png.readUInt32BE(20), Number(height), `${imagePath} height`)
+  }
 })

@@ -1,0 +1,64 @@
+{
+  "session": "bowser_castle-20260905T005948Z",
+  "live_count": 98,
+  "postgame_count": 98,
+  "live_postgame_differences": [],
+  "classes": {
+    "fair_caught": 30,
+    "foul_home_run": 2,
+    "fair_in_play": 58,
+    "foul": 3,
+    "home_run": 5
+  },
+  "knockdowns": 8,
+  "annotations": [
+    {
+      "pa": 12,
+      "timer": 12442,
+      "categories": [
+        "wrong_result"
+      ],
+      "note": "this should be an error. boomerang bro booted the ball in the air, it did not reach the ground untouched int he outfield"
+    },
+    {
+      "pa": 38,
+      "timer": 33584,
+      "categories": [
+        "stadium_event"
+      ],
+      "note": "blue yoshi was hit by the bomb from king bob-omb"
+    },
+    {
+      "pa": 40,
+      "timer": 36621,
+      "categories": [
+        "stadium_event"
+      ],
+      "note": "goomba was knocked down from a bomb by king bob-omb"
+    },
+    {
+      "pa": 70,
+      "timer": 62057,
+      "categories": [
+        "stadium_event"
+      ],
+      "note": "blue yoshi was sprayed and stunnned by the fire of the bowser statue in cf"
+    },
+    {
+      "pa": 77,
+      "timer": 67816,
+      "categories": [
+        "stadium_event"
+      ],
+      "note": "paragoomba was hit by a bomb from king bob-omb"
+    },
+    {
+      "pa": 89,
+      "timer": 77180,
+      "categories": [
+        "stadium_event"
+      ],
+      "note": "paragoomba got hit by  the falling lava"
+    }
+  ]
+}

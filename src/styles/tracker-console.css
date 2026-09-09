@@ -1,0 +1,838 @@
+/* Scoped styles for the tracker validation console.
+ *
+ * Everything here is prefixed `tc-` and reached only from the console's own
+ * components. The console is the one page in this app that is read at a glance
+ * while something else is happening, so three things it never had are settled
+ * here rather than in a hundred inline style objects:
+ *
+ *   FOCUS IS VISIBLE. Every control on this page was an inline-styled <button>
+ *   on a dark ground with the browser default outline, which is invisible
+ *   against #0f172a. A console that cannot be driven from the keyboard cannot
+ *   be driven while the operator is also holding a controller.
+ *
+ *   THE PAGE FITS A PHONE. The capture bar used to take a quarter of an 844 px
+ *   viewport permanently, and every wide table pushed the document sideways.
+ *
+ *   STATUS HAS A SHAPE, NOT ONLY A COLOUR. Blocker, warning, absent-by-design
+ *   and healthy each get a border weight and a text label as well as a hue.
+ */
+
+.tc-console {
+  --tc-good: #4ade80;
+  --tc-warn: #fbbf24;
+  --tc-bad: #f87171;
+  --tc-info: #38bdf8;
+  --tc-muted: #94a3b8;
+  --tc-dim: #64748b;
+  --tc-ink: #f8fafc;
+  --tc-ground: rgba(15, 23, 42, 0.55);
+  --tc-line: rgba(148, 163, 184, 0.22);
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+  /* The page must never scroll sideways. Wide content scrolls inside its own
+     box (.tc-scroll) instead of taking the document with it. */
+  overflow-x: clip;
+}
+
+/* --- focus ---------------------------------------------------------------- */
+
+.tc-console :is(button, a, select, textarea, input, summary, [tabindex]):focus-visible {
+  outline: 3px solid #fde047;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Safari and older Chrome do not resolve :focus-visible inside :is() the same
+   way; a plain fallback keeps the ring rather than losing it silently. */
+.tc-console button:focus-visible,
+.tc-console summary:focus-visible,
+.tc-console a:focus-visible {
+  outline: 3px solid #fde047;
+  outline-offset: 2px;
+}
+
+.tc-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 60;
+  padding: 8px 14px;
+  border-radius: 0 0 8px 0;
+  background: #fde047;
+  color: #0f172a;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.tc-skip-link:focus {
+  left: 0;
+}
+
+/* --- scroll containers ---------------------------------------------------- */
+
+/* A wide table lives in one of these, so the table scrolls and the page does
+   not. `tabindex=0` on the same element is what makes that scroll reachable
+   from the keyboard, which is why the focus ring below is deliberate. */
+.tc-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
+  scrollbar-width: thin;
+}
+
+.tc-scroll:focus-visible {
+  outline: 2px solid rgba(253, 224, 71, 0.75);
+  outline-offset: 2px;
+}
+
+/* --- tables --------------------------------------------------------------- */
+
+.tc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tc-table caption {
+  caption-side: top;
+  text-align: left;
+  color: var(--tc-muted);
+  font-size: 11px;
+  padding-bottom: 6px;
+}
+
+.tc-table th {
+  text-align: left;
+  font-weight: 700;
+  color: var(--tc-muted);
+  padding: 4px 8px 6px 0;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: #101a2e;
+  z-index: 1;
+}
+
+.tc-table td {
+  padding: 5px 8px 5px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  vertical-align: top;
+}
+
+.tc-table tbody tr:hover td {
+  background: rgba(148, 163, 184, 0.07);
+}
+
+/* --- status chips --------------------------------------------------------- */
+
+.tc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--tc-line);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tc-chip--good { border-color: rgba(74, 222, 128, 0.55); color: var(--tc-good); background: rgba(74, 222, 128, 0.10); }
+.tc-chip--warn { border-color: rgba(251, 191, 36, 0.55); color: var(--tc-warn); background: rgba(251, 191, 36, 0.10); }
+.tc-chip--bad { border-color: rgba(248, 113, 113, 0.6); color: var(--tc-bad); background: rgba(248, 113, 113, 0.12); }
+.tc-chip--info { border-color: rgba(56, 189, 248, 0.5); color: var(--tc-info); background: rgba(56, 189, 248, 0.10); }
+.tc-chip--neutral { color: var(--tc-muted); background: rgba(148, 163, 184, 0.08); }
+
+/* --- the game header ------------------------------------------------------ */
+
+.tc-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(2, 6, 23, 0.97);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--tc-line);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.tc-header--blocked { border-color: #ef4444; }
+.tc-header--degraded { border-color: #f59e0b; }
+.tc-header--healthy { border-color: rgba(74, 222, 128, 0.5); }
+.tc-header--waiting { border-color: rgba(148, 163, 184, 0.4); }
+
+.tc-header-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+}
+
+.tc-header-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  align-items: baseline;
+  margin-top: 8px;
+}
+
+.tc-fact {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tc-fact dt,
+.tc-fact-label {
+  color: var(--tc-dim);
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.tc-fact dd,
+.tc-fact-value {
+  margin: 0;
+  color: var(--tc-ink);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.tc-fact-value--missing {
+  color: var(--tc-warn);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+/* The count, as balls and strikes rather than a string. */
+.tc-count {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.tc-pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+}
+
+.tc-pip--ball { background: var(--tc-good); border-color: var(--tc-good); }
+.tc-pip--strike { background: var(--tc-warn); border-color: var(--tc-warn); }
+.tc-pip--out { background: var(--tc-bad); border-color: var(--tc-bad); }
+
+/* --- capture health triage ------------------------------------------------ */
+
+.tc-findings {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tc-finding {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--tc-line);
+  background: var(--tc-ground);
+  font-size: 12px;
+}
+
+.tc-finding--blocker { border-left: 4px solid var(--tc-bad); background: rgba(248, 113, 113, 0.10); }
+.tc-finding--warning { border-left: 4px solid var(--tc-warn); background: rgba(251, 191, 36, 0.08); }
+.tc-finding--optional { border-left: 4px solid var(--tc-dim); background: rgba(148, 163, 184, 0.06); }
+.tc-finding--healthy { border-left: 4px solid var(--tc-good); background: rgba(74, 222, 128, 0.06); }
+
+.tc-finding-label { color: var(--tc-ink); font-weight: 700; }
+.tc-finding-detail { color: var(--tc-muted); }
+.tc-finding-field { color: var(--tc-dim); font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.tc-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tc-metric {
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--tc-line);
+  background: var(--tc-ground);
+}
+
+.tc-metric-value {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.tc-metric-value--good { color: var(--tc-good); }
+.tc-metric-value--warn { color: var(--tc-warn); }
+.tc-metric-value--bad { color: var(--tc-bad); }
+.tc-metric-value--neutral { color: var(--tc-ink); }
+.tc-metric-value--missing { color: var(--tc-muted); font-weight: 600; font-size: 12px; }
+
+.tc-metric-detail { color: var(--tc-dim); font-size: 10px; }
+
+/* --- navigation ----------------------------------------------------------- */
+
+.tc-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.tc-btn {
+  padding: 6px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(148, 163, 184, 0.08);
+  color: #cbd5e1;
+  /* 40 px is a reachable target on a phone; the old 24 px arrows were not. */
+  min-height: 34px;
+}
+
+.tc-btn:hover:not(:disabled) { background: rgba(148, 163, 184, 0.16); }
+.tc-btn:disabled { opacity: 0.45; cursor: default; }
+
+.tc-btn--primary {
+  border-color: rgba(250, 204, 21, 0.55);
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde047;
+}
+
+.tc-btn--danger {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.10);
+  color: #fca5a5;
+}
+
+.tc-btn[aria-pressed='true'] {
+  border-color: var(--tc-good);
+  background: rgba(74, 222, 128, 0.16);
+  color: var(--tc-good);
+}
+
+.tc-filter[aria-pressed='true'] {
+  border-color: #fde047;
+  background: rgba(250, 204, 21, 0.16);
+  color: #fde047;
+}
+
+.tc-strip {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 2px 4px 2px 0;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+
+.tc-strip-item {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.6);
+  color: #e2e8f0;
+}
+
+.tc-strip-item[aria-current='true'] {
+  border-color: #fde047;
+  background: rgba(250, 204, 21, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.35);
+}
+
+.tc-strip-item--warning { border-color: rgba(248, 113, 113, 0.55); }
+.tc-strip-item--uncertain { border-color: rgba(251, 191, 36, 0.45); }
+
+/* --- the play diagram ----------------------------------------------------- */
+
+.tc-diagram {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+  /* The fan is 1000x760; letting it grow to the card's width instead of a fixed
+     pixel cap is what makes the play readable on a phone and on a monitor. */
+  max-width: 100%;
+}
+
+.tc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--tc-muted);
+}
+
+.tc-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+
+/* --- layout --------------------------------------------------------------- */
+
+.tc-console > .panel,
+.tc-console .panel {
+  border-radius: 12px;
+}
+
+.tc-workspace {
+  display: grid;
+  grid-template-columns: clamp(252px, 16vw, 304px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.tc-workspace--empty {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tc-review-column {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tc-history {
+  position: sticky;
+  top: 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  max-height: calc(100vh - 120px);
+  min-height: 420px;
+  padding: 11px;
+  overflow: hidden;
+}
+
+.tc-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tc-history-heading h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.tc-history-heading .muted {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+}
+
+.tc-history-stepper {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+}
+
+.tc-history-stepper .tc-btn {
+  min-width: 0;
+  padding-inline: 8px;
+}
+
+.tc-history-filter {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: var(--tc-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.tc-history-filter select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 7px;
+  padding: 7px 28px 7px 9px;
+  background: #172238;
+  color: var(--tc-ink);
+  font: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.tc-history-shortcuts {
+  margin: 0;
+  font-size: 9px;
+  text-align: center;
+}
+
+.tc-selected-play {
+  display: grid;
+  grid-template-columns: minmax(148px, auto) minmax(220px, 1fr) minmax(210px, auto) auto auto;
+  gap: 10px 18px;
+  align-items: center;
+  padding: 10px 13px;
+  border-color: rgba(56, 189, 248, 0.36);
+}
+
+.tc-selected-kicker,
+.tc-selected-result {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tc-selected-kicker > span,
+.tc-selected-result > span,
+.tc-section-label {
+  color: var(--tc-dim);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.55px;
+  text-transform: uppercase;
+}
+
+.tc-selected-kicker > strong { font-size: 13px; }
+
+.tc-selected-matchup {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 17px;
+}
+
+.tc-selected-matchup strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tc-selected-matchup span { color: var(--tc-dim); font-size: 11px; }
+.tc-selected-result > strong { color: #fde047; font-size: 15px; }
+.tc-selected-actions { display: flex; justify-content: end; gap: 7px; }
+
+.tc-primary-review {
+  display: grid;
+  grid-template-columns: minmax(560px, 1.7fr) minmax(350px, 0.78fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+}
+
+.tc-diagram-card {
+  padding: 12px;
+  min-width: 0;
+}
+
+.tc-diagram-card > div:first-child {
+  margin-bottom: 4px !important;
+}
+
+.tc-review-sidebar {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tc-review-summary {
+  padding: 13px;
+  border-color: rgba(56, 189, 248, 0.38);
+}
+
+.tc-review-summary-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: start;
+}
+
+.tc-review-summary-heading h2 {
+  margin: 3px 0 0;
+  color: var(--tc-ink);
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.tc-outcome-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 12px;
+  padding: 9px;
+  border: 1px solid var(--tc-line);
+  border-radius: 9px;
+  background: rgba(2, 6, 23, 0.25);
+}
+
+.tc-outcome-grid .tc-fact-value { font-size: 12px; }
+
+.tc-review-block {
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.tc-review-block h3 {
+  margin: 0 0 6px;
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.55px;
+  text-transform: uppercase;
+}
+
+.tc-runner-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tc-runner-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.tc-runner-list li span { color: var(--tc-muted); }
+
+.tc-inline-warning,
+.tc-review-problems p {
+  margin: 4px 0 0;
+  color: #fcd34d;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tc-key-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.tc-key-metric {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--tc-line);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.tc-key-metric > span {
+  display: block;
+  color: var(--tc-muted);
+  font-size: 9px;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+}
+
+.tc-key-metric > strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--tc-ink);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.tc-key-metric > small {
+  display: block;
+  margin-top: 2px;
+  color: var(--tc-dim);
+  font-size: 9px;
+  line-height: 1.25;
+}
+
+.tc-key-metric--warn { border-color: rgba(251, 191, 36, 0.48); }
+.tc-key-metric--warn > strong { color: var(--tc-warn); }
+.tc-key-metric--info > strong { color: #7dd3fc; }
+
+.tc-review-problems {
+  padding: 9px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.07);
+}
+
+.tc-review-problems h3 { color: var(--tc-warn); }
+.tc-review-problems .tc-problem-error { color: #fca5a5; }
+
+.tc-review-foot {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  color: var(--tc-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.tc-all-clear { color: var(--tc-good); font-weight: 700; }
+.tc-measurement-gap { color: var(--tc-warn); }
+
+.tc-play-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.tc-flag-play {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.tc-interpretation-panel,
+.tc-detail-panel {
+  padding: 0 !important;
+  overflow: clip;
+}
+
+.tc-interpretation-details > summary,
+.tc-detail-panel > summary,
+.tc-detail-panel > details > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 13px;
+  cursor: pointer;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tc-interpretation-details > summary::marker,
+.tc-detail-panel > summary::marker,
+.tc-detail-panel > details > summary::marker {
+  color: var(--tc-dim);
+}
+
+.tc-clause-list {
+  display: grid;
+  gap: 6px;
+  margin: 0 12px;
+  padding-top: 3px;
+}
+
+.tc-interpretation-details > p { margin-inline: 12px !important; padding-bottom: 10px; }
+
+.tc-detail-panel > details > :not(summary),
+.tc-detail-panel > :not(summary) {
+  margin-inline: 12px;
+}
+
+.tc-detail-cards {
+  padding: 0 12px 12px;
+}
+
+.tc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+/* Four dense cards across a 1320 px page gave each one 320 px, which is
+   narrower than the tables inside them. Two columns is the widest layout in
+   which a pitch row still fits without scrolling. */
+@media (min-width: 980px) {
+  .tc-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.tc-two-up {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.tc-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- narrow screens ------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .tc-two-up { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .tc-console { gap: 10px; }
+
+  /* A sticky bar that owns a quarter of the viewport is worse than one that
+     scrolls: the operator loses the play to keep the diagnostics. On a phone
+     the header collapses to one line and the detail moves into a disclosure. */
+  .tc-header { padding: 8px 10px; border-radius: 10px; }
+
+  .tc-header-facts { gap: 4px 12px; }
+
+  .tc-fact-value { font-size: 13px; }
+
+  .tc-metrics { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
+
+  .tc-strip-item { min-width: 168px; }
+
+  .tc-cards { grid-template-columns: minmax(0, 1fr); }
+
+  /* Controls stay reachable with a thumb rather than shrinking with the page. */
+  .tc-btn { min-height: 40px; padding: 8px 12px; }
+
+  /* A phone has 390 px and the panel's own padding was taking 60 of them from
+     the one graphic on the page that needs every pixel. */
+  .tc-console .tc-diagram-card { padding: 10px 6px; }
+
+  /* The expanded capture-health panel is nine metrics and three finding lists.
+     Pinned to the top of a 844 px phone it owns nearly half the screen for as
+     long as it is open, so on a narrow viewport an opened header scrolls away
+     with the page instead. The blockers stay in the document either way. */
+  .tc-header--expanded { position: static; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tc-console * { scroll-behavior: auto !important; transition: none !important; }
+}
+
+/* A screen reader announcement region that must not affect layout. */
+.tc-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+}

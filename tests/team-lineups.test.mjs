@@ -1,6 +1,39 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildActivePitcherByGamePlayer, gamePitcherKey } from '../src/utils/teamLineupProjection.js'
+import { isPregameGameStatus, reconcileTeamLineupDraft } from '../src/utils/teamLineupDraft.js'
+
+test('only never-started games accept reusable team-lineup snapshots', () => {
+  assert.equal(isPregameGameStatus('pending'), true)
+  assert.equal(isPregameGameStatus('scheduled'), true)
+  assert.equal(isPregameGameStatus('active'), false)
+  assert.equal(isPregameGameStatus('in_progress'), false)
+  assert.equal(isPregameGameStatus('complete'), false)
+})
+
+test('pregame lineup reconciliation uses the saved order and fills roster gaps', () => {
+  const result = reconcileTeamLineupDraft({
+    lineupOrder: [3, 1, 999],
+    fieldingPositions: { pitcher: 3, catcher: 999 },
+  }, [1, 2, 3], ['pitcher', 'catcher', 'firstBase'])
+
+  assert.deepEqual(result, {
+    order: [3, 1, 2],
+    fielding: { pitcher: 3, catcher: 1, firstBase: 2 },
+  })
+})
+
+test('pregame lineup reconciliation normalizes ids and ignores duplicate assignments', () => {
+  const result = reconcileTeamLineupDraft({
+    lineupOrder: ['2', '2', '1'],
+    fieldingPositions: { pitcher: '2', catcher: 2, unknown: 1 },
+  }, [1, 2, 3], ['pitcher', 'catcher', 'firstBase'])
+
+  assert.deepEqual(result, {
+    order: [2, 1, 3],
+    fielding: { pitcher: 2, catcher: 1, firstBase: 3 },
+  })
+})
 
 test('betting resolves the active season pitcher from game fielders', () => {
   const games = [{ id: 2421, team_a_player_id: 'aidan', team_b_player_id: 'nick' }]

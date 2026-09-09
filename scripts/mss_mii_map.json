@@ -1,0 +1,7 @@
+{
+  "_comment": "Which Wii Mii each player's 'Mii' pick means. menuOffset is the 0-based position in MSS's OWN Mii menu (10 per page, left to right, top row first) -- count it off the screen, because it is not the same as the order in the console's Mii database. name is checked against RFL_DB.dat so a wrong MSS_MII_DB stops the run instead of fielding a stranger.",
+  "byPlayer": {
+    "May": { "name": "garfield", "menuOffset": 21 }
+  },
+  "byColor": {}
+}

@@ -1,35 +1,21 @@
-"""Fit the MLB infield template to measured landmarks to pin the world scale.
+"""Measure the infield and test the game's one-metre world-unit convention.
 
-Everything in this project is measured in game units and exact. Converting to
-feet needs exactly one number -- feet per unit -- and the game never states a
-distance in feet anywhere, so that number can only come from recognising a
-real-world dimension inside the game's own geometry.
+The landmark coordinates are the measurement; feet are only a display unit.
+Earlier versions divided an assumed 90-foot base path by the measured 26.840
+units and called the result a measured scale. That established the diamond's
+shape, but it could not establish its absolute size: a slightly compressed
+diamond has the same shape.
 
-The naive way is to divide one measured length by one assumed real length, and
-it is what every previous attempt here did: a base path assumed to be 90 feet,
-a rubber assumed to be 60 feet 6 inches. Each is a single unverified equation,
-and a bad assumption is indistinguishable from a good one.
+Two parks instead put their base paths at 26.840u and 26.991u, close to a round
+27 metres, while Mario Stadium puts the rubber at 17.979u, close to 18 metres.
+The independent check is ball flight: a scale-free fit recovers gravity at
+9.9316u/s^2, within 1.28% of standard gravity if one unit is one metre. The
+project therefore uses exactly 1 metre/unit (3.280839895 feet/unit).
 
-This does it as an overdetermined fit instead. A regulation infield is a rigid
-shape: a 90-foot square with the rubber 60'6" from the plate along the
-home-to-second line. Fitting that whole template to every measured landmark at
-once gives two things a single division cannot:
-
-  scale       the best-fit feet per unit, using every measurement rather than
-              one, so independent centring errors average out instead of
-              propagating
-
-  residuals   how far each landmark sits from where a regulation infield says
-              it should be. THIS IS THE PART THAT MATTERS. Small residuals mean
-              the game really was built on a regulation infield and the scale
-              is trustworthy. Large ones mean it was not, and no assumed
-              dimension will ever convert this game to feet honestly.
-
-The rubber is deliberately held out of the fit by default and used as a blind
-test: the scale is fitted from the four bases alone, then the rubber's measured
-position is compared against where 60'6" says it should land. That comparison
-is evidence rather than assumption, because nothing about the rubber informed
-the fit.
+This script still fits a square template to all four bases so centring errors
+average out and so the residual exposes a malformed landmark pass. The
+pitcher's rubber is held out by default and reported separately. Regulation
+feet remain a comparison, never an input to the canonical conversion.
 
     python scripts/collect_fence_samples.py --park mario_stadium --mode landmark
     python scripts/fit_infield_scale.py --park mario_stadium
@@ -44,18 +30,25 @@ from pathlib import Path
 
 SAMPLES_DIR = Path(__file__).resolve().parent / "fence_samples"
 
-# Regulation dimensions, in feet, in a canonical frame: home at the origin,
-# second base straight out along -z, first base toward +x.
-BASE_PATH_FT = 90.0
-RUBBER_FT = 60.5
-_HALF = BASE_PATH_FT / math.sqrt(2)
+# Unitless regulation proportions in a canonical frame: home at the origin,
+# second base straight out along -z, first base toward +x. The fit's scale is
+# therefore the measured base path in game units, not units per assumed foot.
+METERS_PER_UNIT = 1.0
+FEET_PER_METER = 3.280839895013123
+FEET_PER_UNIT = METERS_PER_UNIT * FEET_PER_METER
+REGULATION_BASE_PATH_FT = 90.0
+REGULATION_RUBBER_FT = 60.5
+REGULATION_RUBBER_M = REGULATION_RUBBER_FT / FEET_PER_METER
+ROUND_METRIC_BASE_PATH_M = 27.0
+ROUND_METRIC_RUBBER_M = 18.0
+_HALF = 1.0 / math.sqrt(2)
 TEMPLATE = {
     "home": (0.0, 0.0),
     "1B": (_HALF, -_HALF),
-    "2B": (0.0, -BASE_PATH_FT * math.sqrt(2)),
+    "2B": (0.0, -math.sqrt(2)),
     "3B": (-_HALF, -_HALF),
 }
-RUBBER_TEMPLATE = (0.0, -RUBBER_FT)
+RUBBER_TEMPLATE = (0.0, -(REGULATION_RUBBER_FT / REGULATION_BASE_PATH_FT))
 
 # A hold is the ball sitting still while a character stands on a landmark.
 STILL_SPEED = 2.0
@@ -72,8 +65,17 @@ MIN_VISITS = 3
 
 
 def load_holds(park: str):
+    # Landmark sessions only, when there are any. Press files are read as a
+    # LAST RESORT -- they can yield infield holds for a park nobody ran a
+    # landmark pass in, but mixing them into a real landmark session is
+    # actively destructive: every wall press becomes a "hold", and identify()
+    # keys off the two clusters furthest apart, so a pair of foul-pole presses
+    # 84 units out gets labelled home and second. That produced a base path of
+    # 78.6u base path for Luigi's Mansion -- not a worse fit, a
+    # fit of the wrong shape entirely, and one that still prints a tidy table.
     paths = sorted(SAMPLES_DIR.glob(f"{park}-landmark-*.csv"))
-    paths += sorted(SAMPLES_DIR.glob(f"{park}-press-*.csv"))
+    if not paths:
+        paths = sorted(SAMPLES_DIR.glob(f"{park}-press-*.csv"))
     if not paths:
         raise SystemExit(
             f"No landmark files for {park}.\n"
@@ -212,7 +214,7 @@ def identify(clusters):
 
 
 def procrustes(template_pts, measured_pts):
-    """Best-fit similarity transform; returns (units_per_foot, rotation, rms)."""
+    """Best-fit similarity transform; returns (units_per_template_side, rotation, rms)."""
     n = len(template_pts)
     tcx = statistics.fmean([p[0] for p in template_pts])
     tcz = statistics.fmean([p[1] for p in template_pts])
@@ -286,43 +288,52 @@ def main() -> int:
         template.append(RUBBER_TEMPLATE)
         measured.append((labels["rubber"][0], labels["rubber"][1]))
 
-    scale, theta, rms, residuals, origin = procrustes(template, measured)
-    feet_per_unit = 1.0 / scale
+    base_path_units, theta, rms, residuals, origin = procrustes(template, measured)
 
     print(f"\nfit over {len(order)} landmarks ({', '.join(order)})")
     print(f"{'landmark':>8}  {'residual(u)':>12}  {'residual(ft)':>13}")
     print("-" * 38)
     for name, residual in zip(order, residuals):
-        print(f"{name:>8}  {residual:>12.3f}  {residual * feet_per_unit:>13.2f}")
-    print(f"\nRMS residual   {rms:.3f}u ({rms * feet_per_unit:.2f} ft)")
+        print(f"{name:>8}  {residual:>12.3f}  {residual * FEET_PER_UNIT:>13.2f}")
+    print(f"\nRMS residual   {rms:.3f}u ({rms * FEET_PER_UNIT:.2f} ft)")
     print(f"home plate at  ({origin[0]:+.3f}, {origin[1]:+.3f})")
-    print(f"\nFEET PER UNIT  {feet_per_unit:.4f}")
-    print(f"base path      {scale * BASE_PATH_FT:.3f}u")
+    base_path_m = base_path_units * METERS_PER_UNIT
+    base_path_ft = base_path_units * FEET_PER_UNIT
+    print(f"\nCANONICAL SCALE  {METERS_PER_UNIT:.4f} m/unit "
+          f"({FEET_PER_UNIT:.6f} ft/unit)")
+    print(f"base path        {base_path_units:.3f}u = {base_path_m:.3f} m "
+          f"= {base_path_ft:.2f} ft")
+    print(f"round metric     {ROUND_METRIC_BASE_PATH_M:.3f} m "
+          f"({base_path_m - ROUND_METRIC_BASE_PATH_M:+.3f} m)")
+    print(f"regulation       {REGULATION_BASE_PATH_FT:.2f} ft "
+          f"({base_path_ft - REGULATION_BASE_PATH_FT:+.2f} ft)")
 
     # The residual is the whole verdict. A regulation infield forced onto
     # geometry that is not one leaves an unmistakable signature.
-    tolerance = 0.02 * scale * BASE_PATH_FT
+    tolerance = 0.02 * base_path_units
     print()
     if rms <= tolerance:
         print(f"VERDICT: residual is under 2% of the base path ({tolerance:.2f}u).")
-        print("The layout matches a regulation infield, so reading real dimensions")
-        print("into this game is justified and the scale above is trustworthy.")
+        print("The layout is a clean square. This validates the landmark measurement;")
+        print("it does not turn the regulation-size comparison into a scale input.")
     else:
         print(f"VERDICT: residual EXCEEDS 2% of the base path ({tolerance:.2f}u).")
         print("Either the landmarks were not centred well, or this game's infield")
-        print("is not regulation -- in which case no assumed dimension converts it")
-        print("to feet honestly. Re-measure before trusting the scale above.")
+        print("is not square. Re-measure before trusting the geometry above.")
 
     if labels["rubber"] is not None and not args.include_rubber:
         rx, rz = labels["rubber"][0], labels["rubber"][1]
-        measured_ft = math.hypot(rx - origin[0], rz - origin[1]) * feet_per_unit
-        print(f"\nBLIND TEST -- the rubber, which did not inform the fit:")
-        print(f"  measured   {measured_ft:.2f} ft from home")
-        print(f"  regulation {RUBBER_FT:.2f} ft")
-        print(f"  difference {measured_ft - RUBBER_FT:+.2f} ft "
-              f"({(measured_ft - RUBBER_FT) / RUBBER_FT * 100:+.1f}%)")
-        print("  An independent dimension landing this close is the strongest")
-        print("  available evidence that the scale is right.")
+        measured_units = math.hypot(rx - origin[0], rz - origin[1])
+        measured_m = measured_units * METERS_PER_UNIT
+        measured_ft = measured_units * FEET_PER_UNIT
+        print("\nHELD-OUT RUBBER -- did not inform the base fit:")
+        print(f"  measured       {measured_units:.3f}u = {measured_m:.3f} m "
+              f"= {measured_ft:.2f} ft")
+        print(f"  round metric   {ROUND_METRIC_RUBBER_M:.3f} m "
+              f"({measured_m - ROUND_METRIC_RUBBER_M:+.3f} m)")
+        print(f"  regulation     {REGULATION_RUBBER_M:.3f} m / "
+              f"{REGULATION_RUBBER_FT:.2f} ft "
+              f"({measured_ft - REGULATION_RUBBER_FT:+.2f} ft)")
     return 0
 
 

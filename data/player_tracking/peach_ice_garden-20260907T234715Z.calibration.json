@@ -1,0 +1,87 @@
+{
+  "session": "peach_ice_garden-20260907T234715Z",
+  "position_offset": 4,
+  "ball_frame": {
+    "sign_x": 1.0,
+    "sign_z": -1.0,
+    "swap_xz": false,
+    "lock_frames": 8945,
+    "lock_units": 0.05
+  },
+  "movement_units": 18934.7,
+  "teleports": 1263,
+  "candidates": [
+    {
+      "offset": 4,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 8945,
+      "path": 18934.7,
+      "teleports": 1263
+    },
+    {
+      "offset": 56,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 2496,
+      "path": 7181.8,
+      "teleports": 4301
+    },
+    {
+      "offset": 424,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 1346,
+      "path": 3998.0,
+      "teleports": 3916
+    },
+    {
+      "offset": 424,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 1345,
+      "path": 3998.0,
+      "teleports": 3916
+    },
+    {
+      "offset": 432,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 1284,
+      "path": 3975.1,
+      "teleports": 3916
+    },
+    {
+      "offset": 432,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 1079,
+      "path": 3975.1,
+      "teleports": 3916
+    },
+    {
+      "offset": 648,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 926,
+      "path": 24.4,
+      "teleports": 4
+    },
+    {
+      "offset": 648,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 926,
+      "path": 24.4,
+      "teleports": 4
+    }
+  ]
+}

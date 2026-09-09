@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import BracketContainer from '../components/BracketContainer'
+import PlayerTag from '../components/PlayerTag'
 import { useSeason } from '../context/SeasonContext'
 import { buildDoubleElimBracket, generateSingleElimBracket } from '../utils/bracketTemplates'
-import { sortSeasonPlayoffGames } from '../utils/seasonPlayoffs'
+import { deriveSeasonPlayoffUiState } from '../utils/seasonPlayoffs'
 import { buildSeasonTeamIdentity } from '../utils/teamIdentity'
 
 function buildPlayoffPicture(seeding, bracketFormat) {
@@ -41,12 +42,14 @@ export default function SeasonBracket() {
     [seasonTeams],
   )
   const seeding = useMemo(() => standings.map((entry) => entry.player_id), [standings])
+  const playoffUiState = useMemo(() => deriveSeasonPlayoffUiState({
+    schedule,
+    playoffFormat: currentSeason?.playoff_format,
+    teamCount: seasonTeams.length,
+    seasonStatus: currentSeason?.status,
+  }), [currentSeason?.playoff_format, currentSeason?.status, schedule, seasonTeams.length])
   const actualPlayoffGames = useMemo(
-    () => sortSeasonPlayoffGames(
-      schedule.filter((game) => Boolean(game.stage)),
-      currentSeason?.playoff_format,
-      seasonTeams.length,
-    ).map((game) => ({
+    () => playoffUiState.orderedGames.map((game) => ({
       ...game,
       team_a_player_id: teamsById[game.away_team_id]?.player_id || null,
       team_b_player_id: teamsById[game.home_team_id]?.player_id || null,
@@ -54,7 +57,7 @@ export default function SeasonBracket() {
       team_a_runs: game.away_score || 0,
       team_b_runs: game.home_score || 0,
     })),
-    [currentSeason?.playoff_format, schedule, seasonTeams.length, teamsById],
+    [playoffUiState.orderedGames, teamsById],
   )
   const showPlayoffPicture = currentSeason && actualPlayoffGames.length === 0 && currentSeason.status !== 'completed'
   const displayGames = useMemo(
@@ -80,6 +83,17 @@ export default function SeasonBracket() {
         playersById={playersById}
         teamLinkBuilder={(playerId) => `/teams/${playerId}/season/${currentSeason.id}`}
       />
+      {currentSeason.status === 'completed' && currentSeason.champion_player_id ? (
+        <section className="summary-card" style={{ display: 'grid', justifyItems: 'center', gap: 8, textAlign: 'center' }}>
+          <span className="brand-kicker">Season Champion</span>
+          <PlayerTag
+            height={36}
+            identitiesByPlayerId={identitiesByPlayerId}
+            playerId={currentSeason.champion_player_id}
+            playersById={playersById}
+          />
+        </section>
+      ) : null}
     </div>
   )
 }

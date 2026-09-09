@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import CharacterPortrait from './CharacterPortrait'
 import { POSITION_GROUP_COLORS } from './RosterLineupWidgets'
+import { STADIUM_FIELD_GEOMETRY } from '../utils/stadiumFieldGeometry'
 
 export const FIELD_POSITIONS = [
   { position: 8, label: 'CF', left: '50%', top: '27%', group: 'outfield' },
@@ -141,7 +142,7 @@ export function estimateWallDistanceAtAngle(angleDeg, config) {
 }
 
 // A stadium-agnostic outline field (public/stadiums/spray chart.png,
-// currently 978x989) for comparing hits across every park on one diagram, in
+// currently 1254x1254) for comparing hits across every park on one diagram, in
 // the style of Baseball Savant's spray charts. wallRefs use the average
 // LF/CF/RF wall distance across all calibrated stadiums; homePlate/wallRefs
 // x/y and the fallback fielder positions were measured directly from the
@@ -150,13 +151,9 @@ export function estimateWallDistanceAtAngle(angleDeg, config) {
 // immediately — recalibrate with calibrate.html if its geometry changes.
 export const GENERIC_FIELD_CONFIG = {
   image: '/stadiums/spray chart.png',
-  aspectRatio: '978/989',
-  homePlate: { x: 50.2, y: 91.7 },
-  wallRefs: [
-    { x: 10.0, y: 54.7, dist: 272 },  // LF (avg of all stadiums)
-    { x: 51.2, y: 26.6, dist: 334 },  // CF (avg of all stadiums)
-    { x: 90.1, y: 54.6, dist: 272 },  // RF (avg of all stadiums)
-  ],
+  aspectRatio: '1254/1254',
+  homePlate: STADIUM_FIELD_GEOMETRY.generic_field.homePlate,
+  wallRefs: STADIUM_FIELD_GEOMETRY.generic_field.wallRefs,
   positions: [
     { position: 8, label: 'CF', left: '50.6%', top: '33.2%', group: 'outfield' },
     { position: 7, label: 'LF', left: '23.1%', top: '46.7%', group: 'outfield' },
@@ -187,12 +184,8 @@ export const STADIUM_CONFIGS = {
   'mario_stadium': {
     image: '/stadiums/mario-stadium.png',
     aspectRatio: '1506/1006',
-    homePlate: { x: 50.0, y: 92.9 },
-    wallRefs: [
-      { x: 18.0, y: 44.2, dist: 259 },  // LF foul pole
-      { x: 50.6, y: 21.7, dist: 317 },  // CF wall
-      { x: 82.8, y: 44.6, dist: 259 },  // RF foul pole
-    ],
+    homePlate: STADIUM_FIELD_GEOMETRY.mario_stadium.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.mario_stadium.wallRefs,
     positions: [
       { position: 8, label: 'CF', left: '50.4%', top: '34.5%', group: 'outfield' },
       { position: 7, label: 'LF', left: '31.6%', top: '43.9%', group: 'outfield' },
@@ -207,34 +200,31 @@ export const STADIUM_CONFIGS = {
   },
   'yoshi_park': {
     image: '/stadiums/yoshi-park.png',
-    aspectRatio: '1280/823',
-    homePlate: { x: 50.2, y: 94.2 },
-    wallRefs: [
-      { x: 10.4, y: 49.0, dist: 253 },  // LF foul pole
-      { x: 50.3, y: 25.2, dist: 324 },  // CF wall
-      { x: 89.4, y: 48.7, dist: 254 },  // RF foul pole
-    ],
+    aspectRatio: '1260/899',
+    homePlate: STADIUM_FIELD_GEOMETRY.yoshi_park.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.yoshi_park.wallRefs,
+    // Anchored on WORLD positions, not on the picture: through each artwork
+    // swap these were carried by inverting the old PARK_IMAGE_HOMOGRAPHY and
+    // re-projecting through the new one, so the markers keep the same physical
+    // spots. They read 226/250/227 ft at LF/CF/RF, 125/124 at SS/2B, 99 at the
+    // corners and 59.3 at P against a true rubber distance of 58.99 ft.
     positions: [
-      { position: 8, label: 'CF', left: '49.9%', top: '39.8%', group: 'outfield' },
-      { position: 7, label: 'LF', left: '26.4%', top: '49.2%', group: 'outfield' },
-      { position: 9, label: 'RF', left: '73.6%', top: '49.2%', group: 'outfield' },
-      { position: 6, label: 'SS', left: '41.8%', top: '64.7%', group: 'infield' },
-      { position: 4, label: '2B', left: '58.2%', top: '64.9%', group: 'infield' },
-      { position: 5, label: '3B', left: '34.8%', top: '74.8%', group: 'infield' },
-      { position: 1, label: 'P',  left: '50.2%', top: '78.5%', group: 'battery' },
-      { position: 3, label: '1B', left: '65.4%', top: '74.6%', group: 'infield' },
-      { position: 2, label: 'C',  left: '50.3%', top: '96.7%', group: 'battery' },
+      { position: 8, label: 'CF', left: '50.3%', top: '36.1%', group: 'outfield' },
+      { position: 7, label: 'LF', left: '29.9%', top: '45.7%', group: 'outfield' },
+      { position: 9, label: 'RF', left: '70.8%', top: '45.9%', group: 'outfield' },
+      { position: 6, label: 'SS', left: '43.0%', top: '61.9%', group: 'infield' },
+      { position: 4, label: '2B', left: '57.2%', top: '62.2%', group: 'infield' },
+      { position: 5, label: '3B', left: '36.6%', top: '72.5%', group: 'infield' },
+      { position: 1, label: 'P',  left: '50.1%', top: '76.7%', group: 'battery' },
+      { position: 3, label: '1B', left: '63.5%', top: '72.6%', group: 'infield' },
+      { position: 2, label: 'C',  left: '49.9%', top: '96.5%', group: 'battery' },
     ],
   },
   'wario_city': {
     image: '/stadiums/wario-stadium.png',
-    aspectRatio: '1410/975',
-    homePlate: { x: 50.1, y: 94.1 },
-    wallRefs: [
-      { x: 15.8, y: 41.8, dist: 292 },  // LF foul pole
-      { x: 51.4, y: 28.3, dist: 297 },  // CF wall
-      { x: 86.9, y: 43.2, dist: 289 },  // RF foul pole
-    ],
+    aspectRatio: '1096/978',
+    homePlate: STADIUM_FIELD_GEOMETRY.wario_city.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.wario_city.wallRefs,
     positions: [
       { position: 8, label: 'CF', left: '51.4%', top: '36.7%', group: 'outfield' },
       { position: 7, label: 'LF', left: '31.8%', top: '45.5%', group: 'outfield' },
@@ -250,12 +240,8 @@ export const STADIUM_CONFIGS = {
   'dk_jungle': {
     image: '/stadiums/dk-jungle.png',
     aspectRatio: '1475/990',
-    homePlate: { x: 50.2, y: 92.6 },
-    wallRefs: [
-      { x: 15.4, y: 40.8, dist: 274 },  // LF foul pole
-      { x: 50.1, y: 19.2, dist: 323 },  // CF wall
-      { x: 83.9, y: 39.4, dist: 275 },  // RF foul pole
-    ],
+    homePlate: STADIUM_FIELD_GEOMETRY.dk_jungle.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.dk_jungle.wallRefs,
     positions: [
       { position: 8, label: 'CF', left: '49.9%', top: '33.9%', group: 'outfield' },
       { position: 7, label: 'LF', left: '30.5%', top: '43.3%', group: 'outfield' },
@@ -271,12 +257,8 @@ export const STADIUM_CONFIGS = {
   'bowser_castle': {
     image: '/stadiums/bowser-castle.png',
     aspectRatio: '1322/990',
-    homePlate: { x: 49.6, y: 92.8 },
-    wallRefs: [
-      { x: 13.8, y: 44.7, dist: 278 },  // LF foul pole
-      { x: 49.2, y: 24.2, dist: 334 },  // CF wall
-      { x: 84.4, y: 43.8, dist: 277 },  // RF foul pole
-    ],
+    homePlate: STADIUM_FIELD_GEOMETRY.bowser_castle.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.bowser_castle.wallRefs,
     positions: [
       { position: 8, label: 'CF', left: '49.3%', top: '38.4%', group: 'outfield' },
       { position: 7, label: 'LF', left: '29.6%', top: '47.7%', group: 'outfield' },
@@ -292,12 +274,8 @@ export const STADIUM_CONFIGS = {
   'bowser_jr_playroom': {
     image: '/stadiums/bowser-jr-playroom.png',
     aspectRatio: '1280/992',
-    homePlate: { x: 49.8, y: 92.6 },
-    wallRefs: [
-      { x: 13.3, y: 44.2, dist: 262 },  // LF foul pole
-      { x: 50.3, y: 20.8, dist: 328 },  // CF wall
-      { x: 86.0, y: 44.3, dist: 264 },  // RF foul pole
-    ],
+    homePlate: STADIUM_FIELD_GEOMETRY.bowser_jr_playroom.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.bowser_jr_playroom.wallRefs,
     positions: [
       { position: 8, label: 'CF', left: '50.1%', top: '37.7%', group: 'outfield' },
       { position: 7, label: 'LF', left: '29.5%', top: '46%', group: 'outfield' },
@@ -313,12 +291,8 @@ export const STADIUM_CONFIGS = {
   'daisy_cruiser': {
     image: '/stadiums/daisy-cruiser.png',
     aspectRatio: '1218/945',
-    homePlate: { x: 50.3, y: 93.9 },
-    wallRefs: [
-      { x: 24.7, y: 62.5, dist: 232 },  // LF foul pole
-      { x: 50.3, y: 37.9, dist: 328 },  // CF wall
-      { x: 75.3, y: 61.7, dist: 231 },  // RF foul pole
-    ],
+    homePlate: STADIUM_FIELD_GEOMETRY.daisy_cruiser.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.daisy_cruiser.wallRefs,
     positions: [
       { position: 8, label: 'CF', left: '50.2%', top: '48.9%', group: 'outfield' },
       { position: 7, label: 'LF', left: '33.4%', top: '56.7%', group: 'outfield' },
@@ -334,12 +308,8 @@ export const STADIUM_CONFIGS = {
   'peach_ice_garden': {
     image: '/stadiums/peach-ice-garden.png',
     aspectRatio: '1304/915',
-    homePlate: { x: 50.0, y: 93.0 },
-    wallRefs: [
-      { x: 13.3, y: 41.6, dist: 314 },  // LF foul pole
-      { x: 50.9, y: 18.0, dist: 402 },  // CF wall
-      { x: 86.6, y: 42.9, dist: 313 },  // RF foul pole
-    ],
+    homePlate: STADIUM_FIELD_GEOMETRY.peach_ice_garden.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.peach_ice_garden.wallRefs,
     positions: [
       { position: 8, label: 'CF', left: '50.4%', top: '39.2%', group: 'outfield' },
       { position: 7, label: 'LF', left: '31.2%', top: '48.3%', group: 'outfield' },
@@ -355,12 +325,8 @@ export const STADIUM_CONFIGS = {
   'luigis_mansion': {
     image: "/stadiums/luigi's-mansion.png",
     aspectRatio: '1139/988',
-    homePlate: { x: 49.9, y: 90.4 },
-    wallRefs: [
-      { x: 13.6, y: 47.8, dist: 282 },  // LF foul pole
-      { x: 49.7, y: 27.4, dist: 351 },  // CF wall
-      { x: 85.8, y: 48.9, dist: 287 },  // RF foul pole
-    ],
+    homePlate: STADIUM_FIELD_GEOMETRY.luigis_mansion.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.luigis_mansion.wallRefs,
     positions: [
       { position: 8, label: 'CF', left: '49.6%', top: '42.7%', group: 'outfield' },
       { position: 7, label: 'LF', left: '29.6%', top: '50.6%', group: 'outfield' },
@@ -376,12 +342,8 @@ export const STADIUM_CONFIGS = {
   'generic_field': {
     image: '/stadiums/spray chart.png',
     aspectRatio: '1254/1254',
-    homePlate: { x: 49.9, y: 90.4 },
-    wallRefs: [
-      { x: 9.4, y: 52.3, dist: 272 },  // LF foul pole
-      { x: 50.6, y: 22.1, dist: 334 },  // CF wall
-      { x: 90.4, y: 52.2, dist: 272 },  // RF foul pole
-    ],
+    homePlate: STADIUM_FIELD_GEOMETRY.generic_field.homePlate,
+    wallRefs: STADIUM_FIELD_GEOMETRY.generic_field.wallRefs,
     positions: [
       { position: 8, label: 'CF', left: '50.5%', top: '35.7%', group: 'outfield' },
       { position: 7, label: 'LF', left: '23.9%', top: '47.9%', group: 'outfield' },

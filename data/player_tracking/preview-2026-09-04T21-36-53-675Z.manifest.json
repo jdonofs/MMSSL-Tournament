@@ -1,0 +1,38 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\mario_stadium-20260904T213725Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\mario_stadium-20260904T213725Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\mario_stadium-20260904T213725Z.bin",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "recorded_utc": "20260904T213725Z",
+  "park": "mario_stadium",
+  "stadium_byte": 0,
+  "day_night_bytes": [
+    0,
+    0
+  ],
+  "is_night": false,
+  "frames": 85640,
+  "missed_frames": 0,
+  "duration_seconds": 1448.264,
+  "checksum_sha256": "2044c6727c802f4bba3d8314aa9087505b02b1f6bc492265b4461015fd8ff2a6",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 60,
+    "plays_seen": 111,
+    "plays_emitted": 111,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\mario_stadium-20260904T213725Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\mario_stadium-20260904T213725Z.pitches.jsonl",
+    "mean_feed_ms": 0.0782,
+    "max_feed_ms": 3.731,
+    "max_play_build_ms": 68.9,
+    "replay_duplicates": 3,
+    "pitches_emitted": 130,
+    "pitch_replay_increments": 19
+  }
+}

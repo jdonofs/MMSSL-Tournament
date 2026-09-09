@@ -1,0 +1,10 @@
+options.json
+teams.json
+
+build
+dist
+*.exe
+*.zip
+
+tmp
+docs/plans

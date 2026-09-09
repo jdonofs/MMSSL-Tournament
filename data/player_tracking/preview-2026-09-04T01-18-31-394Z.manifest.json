@@ -1,0 +1,17 @@
+{
+  "status": "recording",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260904T011909Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260904T011909Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260904T011909Z.bin",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "recorded_utc": "20260904T011909Z",
+  "park": "bowser_castle",
+  "stadium_byte": 1,
+  "day_night_bytes": [
+    0,
+    0
+  ],
+  "is_night": false
+}

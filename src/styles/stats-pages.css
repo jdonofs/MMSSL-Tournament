@@ -1,0 +1,284 @@
+/* Page-scoped styles for the Stats / Character / Team profile pages.
+   Kept out of global.css so these pages can be adjusted without touching every other
+   screen's chrome. Imported by Stats.jsx, CharacterPage.jsx and TeamPage.jsx. */
+
+/* ── Load / error / empty states ─────────────────────────────────────────── */
+
+.entity-status-panel {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 1.5rem 1.4rem;
+}
+
+.entity-status-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.entity-status-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #94a3b8;
+  max-width: 60ch;
+}
+
+.entity-status-error .entity-status-title {
+  color: #fca5a5;
+}
+
+.entity-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.entity-status-button {
+  padding: 0.4rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.entity-status-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.entity-status-button-primary {
+  border-color: rgba(234, 179, 8, 0.45);
+  background: rgba(234, 179, 8, 0.16);
+  color: #fde68a;
+}
+
+.entity-status-button-primary:hover {
+  background: rgba(234, 179, 8, 0.24);
+}
+
+/* Indeterminate progress stripe for the first load of a stats page. */
+.entity-status-progress {
+  width: min(320px, 100%);
+  height: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.entity-status-progress::after {
+  content: '';
+  display: block;
+  width: 38%;
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(234, 179, 8, 0.75);
+  animation: entity-status-slide 1.15s ease-in-out infinite;
+}
+
+@keyframes entity-status-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entity-status-progress::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
+/* A background refresh failed but stale data is still on screen. */
+.entity-stale-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 0.55rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.1);
+  color: #fecaca;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── Stat table legend ───────────────────────────────────────────────────── */
+
+.stat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 8px;
+  padding: 0 2px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.stat-legend-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.stat-legend-key {
+  color: #94a3b8;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Sortable table headers (StatTable / SortableTable) ──────────────────── */
+
+.stat-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.stat-sort-button:focus-visible,
+.entity-status-button:focus-visible {
+  outline: 2px solid #eab308;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.stat-sort-caret {
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+/* Rows that navigate on click also need a visible keyboard focus ring. */
+.stat-row-clickable:focus-visible {
+  outline: 2px solid #eab308;
+  outline-offset: -2px;
+}
+
+/* ── Stats page identity column ──────────────────────────────────────────── */
+
+.stats-identity-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  max-width: 100%;
+}
+
+/* min-width:0 is what actually lets a flex child ellipsis instead of forcing the row wider. */
+.stats-identity-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Overview table name filter ──────────────────────────────────────────── */
+
+.stats-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.stats-filter-label {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.stats-filter-input {
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 280px;
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.stats-filter-input::placeholder {
+  color: #64748b;
+}
+
+.stats-filter-input:focus-visible {
+  outline: 2px solid #eab308;
+  outline-offset: 1px;
+}
+
+.stats-filter-count {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-filter-clear {
+  padding: 0.25rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.stats-filter-clear:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.stats-filter-clear:focus-visible {
+  outline: 2px solid #eab308;
+  outline-offset: 2px;
+}
+
+/* ── Compact stats rail affordance ───────────────────────────────────────── */
+
+/* Below 900px the rail lays its items out as pills, but .stats-rail-item gets no background or
+   border — so the standalone "Experimental WAR" entry rendered as bare text next to sibling
+   controls that do look like buttons. Match the pill treatment its neighbours already have, and
+   give the row a large enough tap target. Scoped under .stats-rail so this overrides the base
+   rule without editing global.css. */
+@media (max-width: 900px) {
+  .stats-rail .stats-rail-item {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .stats-rail .stats-rail-item-active {
+    border-color: rgba(234, 179, 8, 0.45);
+    background: rgba(234, 179, 8, 0.14);
+  }
+}
+
+.stats-rail .stats-rail-item:focus-visible,
+.stats-rail .stats-rail-toggle-btn:focus-visible,
+.stats-rail .stats-rail-label-btn:focus-visible,
+.stats-rail .stats-rail-scope-select:focus-visible {
+  outline: 2px solid #eab308;
+  outline-offset: 2px;
+}

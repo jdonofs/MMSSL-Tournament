@@ -1,0 +1,3494 @@
+{
+  "schema_version": 1,
+  "analysis_date": "2026-09-05",
+  "model_version": "sluggers-catch-probability-candidate-v1",
+  "activation_criteria": {
+    "declared_before_final_test": true,
+    "minimum_eligible_opportunities": 500,
+    "minimum_failures": 100,
+    "minimum_final_test_opportunities": 100,
+    "minimum_final_test_failures": 20,
+    "maximum_session_share": 0.2,
+    "maximum_park_share": 0.35,
+    "maximum_test_ece": 0.08,
+    "minimum_relative_brier_improvement_vs_climatology": 0.02,
+    "minimum_populated_probability_bins": 3,
+    "minimum_rows_per_probability_bin": 20,
+    "maximum_sensitivity_brier_change": 0.03,
+    "grouped_bootstrap_brier_improvement_lower_bound_must_exceed_zero": true,
+    "required_predictor_families": [
+      "fielder_start",
+      "ball_path_or_projected_endpoint",
+      "time_available"
+    ],
+    "all_predictors_must_be_knowable_before_outcome": true
+  },
+  "selected_candidate": "logistic_lambda_0.1",
+  "validation": {
+    "logistic_lambda_0.1": {
+      "n": 69,
+      "catches": 45,
+      "failures": 24,
+      "brier": 0.18937910149317483,
+      "log_loss": 0.5867031222561881,
+      "ece": 0.15090174211795515,
+      "auc": 0.7509259259259259,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 1,
+          "mean_probability": 0.04778896360007943,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 2,
+          "mean_probability": 0.16391524962940035,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 2,
+          "mean_probability": 0.28924138931623605,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 2,
+          "mean_probability": 0.38112416777893154,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 3,
+          "mean_probability": 0.4430617570400068,
+          "catch_rate": 0.6666666666666666
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 5,
+          "mean_probability": 0.550245414241261,
+          "catch_rate": 0.4
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 8,
+          "mean_probability": 0.6531561030991265,
+          "catch_rate": 0.625
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 8,
+          "mean_probability": 0.7444003965865003,
+          "catch_rate": 0.875
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 15,
+          "mean_probability": 0.8551741456175252,
+          "catch_rate": 0.6
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 23,
+          "mean_probability": 0.964181304027805,
+          "catch_rate": 0.8695652173913043
+        }
+      ]
+    },
+    "logistic_lambda_1": {
+      "n": 69,
+      "catches": 45,
+      "failures": 24,
+      "brier": 0.19178596144870158,
+      "log_loss": 0.5747583928236994,
+      "ece": 0.1334952441482609,
+      "auc": 0.75,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 1,
+          "mean_probability": 0.12449938007881238,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 1,
+          "mean_probability": 0.24791999327734465,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 2,
+          "mean_probability": 0.341578621002408,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 3,
+          "mean_probability": 0.4471589130591764,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 5,
+          "mean_probability": 0.5347501734898622,
+          "catch_rate": 0.6
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 12,
+          "mean_probability": 0.6554636415716145,
+          "catch_rate": 0.5833333333333334
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 11,
+          "mean_probability": 0.7551273831706589,
+          "catch_rate": 0.8181818181818182
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 15,
+          "mean_probability": 0.8548835080341903,
+          "catch_rate": 0.6
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 19,
+          "mean_probability": 0.9529186449813594,
+          "catch_rate": 0.8947368421052632
+        }
+      ]
+    },
+    "logistic_lambda_10": {
+      "n": 69,
+      "catches": 45,
+      "failures": 24,
+      "brier": 0.20818762311944056,
+      "log_loss": 0.5960205004063273,
+      "ece": 0.11814317180337537,
+      "auc": 0.7398148148148148,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 1,
+          "mean_probability": 0.4701013237370146,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 4,
+          "mean_probability": 0.5765241189565797,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 12,
+          "mean_probability": 0.6650697965974776,
+          "catch_rate": 0.5833333333333334
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 29,
+          "mean_probability": 0.7535791941728476,
+          "catch_rate": 0.6206896551724138
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 17,
+          "mean_probability": 0.8341862849157893,
+          "catch_rate": 0.8235294117647058
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 6,
+          "mean_probability": 0.9400199964801934,
+          "catch_rate": 1
+        }
+      ]
+    },
+    "empirical_prior_32": {
+      "n": 69,
+      "catches": 45,
+      "failures": 24,
+      "brier": 0.24125793021131972,
+      "log_loss": 0.684290907069901,
+      "ece": 0.11022246478715252,
+      "auc": 0.4615740740740741,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 62,
+          "mean_probability": 0.7574273860402828,
+          "catch_rate": 0.6935483870967742
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 7,
+          "mean_probability": 0.8064074479737131,
+          "catch_rate": 0.2857142857142857
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        }
+      ]
+    },
+    "empirical_prior_16": {
+      "n": 69,
+      "catches": 45,
+      "failures": 24,
+      "brier": 0.24402879429755447,
+      "log_loss": 0.6933893390623842,
+      "ece": 0.11208902027624518,
+      "auc": 0.4615740740740741,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 13,
+          "mean_probability": 0.6915733941683896,
+          "catch_rate": 0.6153846153846154
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 36,
+          "mean_probability": 0.7636657529021105,
+          "catch_rate": 0.6666666666666666
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 20,
+          "mean_probability": 0.8125860585197937,
+          "catch_rate": 0.65
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        }
+      ]
+    },
+    "empirical_prior_8": {
+      "n": 69,
+      "catches": 45,
+      "failures": 24,
+      "brier": 0.24854412898435033,
+      "log_loss": 0.7083084432121585,
+      "ece": 0.13951494574515952,
+      "auc": 0.4615740740740741,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 2,
+          "mean_probability": 0.5933734939759036,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 11,
+          "mean_probability": 0.6845564074479736,
+          "catch_rate": 0.5454545454545454
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 31,
+          "mean_probability": 0.7591924190759924,
+          "catch_rate": 0.6774193548387096
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 25,
+          "mean_probability": 0.8299277108433735,
+          "catch_rate": 0.64
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        }
+      ]
+    }
+  },
+  "final_test": {
+    "selected": {
+      "n": 51,
+      "catches": 39,
+      "failures": 12,
+      "brier": 0.12213676394564109,
+      "log_loss": 0.3709003379455884,
+      "ece": 0.1062253588924418,
+      "auc": 0.8717948717948718,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 2,
+          "mean_probability": 0.09162392428885437,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 1,
+          "mean_probability": 0.16354144980108828,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 1,
+          "mean_probability": 0.24409348176877504,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 3,
+          "mean_probability": 0.3595373849193484,
+          "catch_rate": 0.3333333333333333
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 4,
+          "mean_probability": 0.4560669668623287,
+          "catch_rate": 0.5
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 4,
+          "mean_probability": 0.639860320375141,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 9,
+          "mean_probability": 0.7555035140023205,
+          "catch_rate": 0.5555555555555556
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 7,
+          "mean_probability": 0.8524400892556635,
+          "catch_rate": 0.8571428571428571
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 20,
+          "mean_probability": 0.9606278260067448,
+          "catch_rate": 1
+        }
+      ]
+    },
+    "climatology": {
+      "n": 51,
+      "catches": 39,
+      "failures": 12,
+      "brier": 0.1799309214177758,
+      "log_loss": 0.545594923151821,
+      "ece": 0.00035435861091415166,
+      "auc": 0.5,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 51,
+          "mean_probability": 0.7650602409638553,
+          "catch_rate": 0.7647058823529411
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        }
+      ]
+    },
+    "candidates": {
+      "logistic_lambda_0.1": {
+        "n": 51,
+        "catches": 39,
+        "failures": 12,
+        "brier": 0.12213676394564109,
+        "log_loss": 0.3709003379455884,
+        "ece": 0.1062253588924418,
+        "auc": 0.8717948717948718,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 2,
+            "mean_probability": 0.09162392428885437,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 1,
+            "mean_probability": 0.16354144980108828,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 1,
+            "mean_probability": 0.24409348176877504,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 3,
+            "mean_probability": 0.3595373849193484,
+            "catch_rate": 0.3333333333333333
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 4,
+            "mean_probability": 0.4560669668623287,
+            "catch_rate": 0.5
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 4,
+            "mean_probability": 0.639860320375141,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 9,
+            "mean_probability": 0.7555035140023205,
+            "catch_rate": 0.5555555555555556
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 7,
+            "mean_probability": 0.8524400892556635,
+            "catch_rate": 0.8571428571428571
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 20,
+            "mean_probability": 0.9606278260067448,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "logistic_lambda_1": {
+        "n": 51,
+        "catches": 39,
+        "failures": 12,
+        "brier": 0.12416353971091987,
+        "log_loss": 0.38559829873087154,
+        "ece": 0.10528675129799148,
+        "auc": 0.8525641025641025,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 1,
+            "mean_probability": 0.168574698377104,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 2,
+            "mean_probability": 0.2226248390454405,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 1,
+            "mean_probability": 0.35598477041924154,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 5,
+            "mean_probability": 0.4609076029224807,
+            "catch_rate": 0.4
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 2,
+            "mean_probability": 0.5343071668184872,
+            "catch_rate": 0.5
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 4,
+            "mean_probability": 0.6487540464122632,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 11,
+            "mean_probability": 0.7480169696415302,
+            "catch_rate": 0.6363636363636364
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 9,
+            "mean_probability": 0.8534606309105803,
+            "catch_rate": 0.8888888888888888
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 16,
+            "mean_probability": 0.9508370275195694,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "logistic_lambda_10": {
+        "n": 51,
+        "catches": 39,
+        "failures": 12,
+        "brier": 0.14354391448749965,
+        "log_loss": 0.4505067389325166,
+        "ece": 0.10567379901024129,
+        "auc": 0.8205128205128205,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 2,
+            "mean_probability": 0.4849795637262393,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 4,
+            "mean_probability": 0.5701636264463935,
+            "catch_rate": 0.25
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 8,
+            "mean_probability": 0.6556747931902309,
+            "catch_rate": 0.75
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 16,
+            "mean_probability": 0.7326086754702649,
+            "catch_rate": 0.75
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 18,
+            "mean_probability": 0.8400881658886376,
+            "catch_rate": 0.9444444444444444
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 3,
+            "mean_probability": 0.9241752482247284,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "empirical_prior_32": {
+        "n": 51,
+        "catches": 39,
+        "failures": 12,
+        "brier": 0.17414845461358328,
+        "log_loss": 0.5295035651630382,
+        "ece": 0.04715994875095919,
+        "auc": 0.6581196581196581,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 44,
+            "mean_probability": 0.7511365800480662,
+            "catch_rate": 0.7272727272727273
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 7,
+            "mean_probability": 0.8064074479737131,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          }
+        ]
+      },
+      "empirical_prior_16": {
+        "n": 51,
+        "catches": 39,
+        "failures": 12,
+        "brier": 0.1716731174408622,
+        "log_loss": 0.5222613461109606,
+        "ece": 0.05465323764923566,
+        "auc": 0.6581196581196581,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 10,
+            "mean_probability": 0.6899629286376274,
+            "catch_rate": 0.6
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 32,
+            "mean_probability": 0.7600197469915314,
+            "catch_rate": 0.75
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 9,
+            "mean_probability": 0.825882896666029,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          }
+        ]
+      },
+      "empirical_prior_8": {
+        "n": 51,
+        "catches": 39,
+        "failures": 12,
+        "brier": 0.16942583104850245,
+        "log_loss": 0.5151626033312888,
+        "ece": 0.05281961706059615,
+        "auc": 0.6581196581196581,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 2,
+            "mean_probability": 0.5933734939759036,
+            "catch_rate": 0.5
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 8,
+            "mean_probability": 0.6845564074479736,
+            "catch_rate": 0.625
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 31,
+            "mean_probability": 0.7583958353952774,
+            "catch_rate": 0.7419354838709677
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 10,
+            "mean_probability": 0.8479668674698793,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          }
+        ]
+      }
+    },
+    "by_park": {
+      "bowser_castle": {
+        "n": 38,
+        "catches": 29,
+        "failures": 9,
+        "brier": 0.12321007608984014,
+        "log_loss": 0.37553991847357954,
+        "ece": 0.13575029275052997,
+        "auc": 0.8735632183908046,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 1,
+            "mean_probability": 0.0998777707781855,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 1,
+            "mean_probability": 0.16354144980108828,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 1,
+            "mean_probability": 0.24409348176877504,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 2,
+            "mean_probability": 0.3747623192431877,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 3,
+            "mean_probability": 0.4595897888993785,
+            "catch_rate": 0.6666666666666666
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 2,
+            "mean_probability": 0.6347407566033192,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 7,
+            "mean_probability": 0.7533625175665944,
+            "catch_rate": 0.5714285714285714
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 6,
+            "mean_probability": 0.8597696865141793,
+            "catch_rate": 0.8333333333333334
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 15,
+            "mean_probability": 0.9596162743282132,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "luigis_mansion": {
+        "n": 13,
+        "catches": 10,
+        "failures": 3,
+        "brier": 0.11899938998567475,
+        "log_loss": 0.3573384871714608,
+        "ece": 0.21608002970181234,
+        "auc": 0.8666666666666667,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 1,
+            "mean_probability": 0.08337007779952323,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 1,
+            "mean_probability": 0.3290875162716697,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 1,
+            "mean_probability": 0.44549850075117925,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 2,
+            "mean_probability": 0.6449798841469628,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 2,
+            "mean_probability": 0.7629970015273617,
+            "catch_rate": 0.5
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 1,
+            "mean_probability": 0.8084625057045685,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 5,
+            "mean_probability": 0.9636624810423404,
+            "catch_rate": 1
+          }
+        ]
+      }
+    },
+    "by_direction": {
+      "back": {
+        "n": 1,
+        "catches": 1,
+        "failures": 0,
+        "brier": 0.5713946643044533,
+        "log_loss": 1.4102040050582536,
+        "ece": 0.755906518231225,
+        "auc": null,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 1,
+            "mean_probability": 0.24409348176877504,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          }
+        ]
+      },
+      "back_left": {
+        "n": 15,
+        "catches": 12,
+        "failures": 3,
+        "brier": 0.10985423877506045,
+        "log_loss": 0.38320765420354286,
+        "ece": 0.2442415287855964,
+        "auc": 0.9722222222222222,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 1,
+            "mean_probability": 0.16354144980108828,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 1,
+            "mean_probability": 0.3821067975682275,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 3,
+            "mean_probability": 0.4595897888993785,
+            "catch_rate": 0.6666666666666666
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 3,
+            "mean_probability": 0.6409610698067918,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 4,
+            "mean_probability": 0.7707215997392496,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 3,
+            "mean_probability": 0.8324954468366202,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          }
+        ]
+      },
+      "back_right": {
+        "n": 15,
+        "catches": 13,
+        "failures": 2,
+        "brier": 0.10163024621537485,
+        "log_loss": 0.3115640693139189,
+        "ece": 0.13932167578645452,
+        "auc": 0.8461538461538461,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 1,
+            "mean_probability": 0.6365580720801887,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 1,
+            "mean_probability": 0.7354879299406881,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 3,
+            "mean_probability": 0.8688980889951997,
+            "catch_rate": 0.6666666666666666
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 10,
+            "mean_probability": 0.9615798988049281,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "in": {
+        "n": 1,
+        "catches": 1,
+        "failures": 0,
+        "brier": 0.006594015321168769,
+        "log_loss": 0.08469066379147316,
+        "ece": 0.08120354254075846,
+        "auc": null,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 1,
+            "mean_probability": 0.9187964574592415,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "in_left": {
+        "n": 6,
+        "catches": 4,
+        "failures": 2,
+        "brier": 0.03450745130819319,
+        "log_loss": 0.1668775400506425,
+        "ece": 0.14498491800386748,
+        "auc": 1,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 1,
+            "mean_probability": 0.08337007779952323,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 1,
+            "mean_probability": 0.36741784091814783,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 1,
+            "mean_probability": 0.7912177891607595,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 1,
+            "mean_probability": 0.8629000172941845,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 2,
+            "mean_probability": 0.9633803021197611,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "in_right": {
+        "n": 13,
+        "catches": 8,
+        "failures": 5,
+        "brier": 0.1747441768381836,
+        "log_loss": 0.4613985748699617,
+        "ece": 0.2811559840640986,
+        "auc": 0.9,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 1,
+            "mean_probability": 0.0998777707781855,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 1,
+            "mean_probability": 0.3290875162716697,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 1,
+            "mean_probability": 0.44549850075117925,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 3,
+            "mean_probability": 0.7299798359874795,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 7,
+            "mean_probability": 0.9644572100552645,
+            "catch_rate": 1
+          }
+        ]
+      }
+    },
+    "by_position": {
+      "CF": {
+        "n": 16,
+        "catches": 13,
+        "failures": 3,
+        "brier": 0.04782942548234709,
+        "log_loss": 0.18482279027908768,
+        "ece": 0.0973865120236165,
+        "auc": 0.9743589743589743,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 2,
+            "mean_probability": 0.09162392428885437,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 2,
+            "mean_probability": 0.35559715691994864,
+            "catch_rate": 0.5
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 1,
+            "mean_probability": 0.7883378809467041,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 4,
+            "mean_probability": 0.8479930008217366,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 7,
+            "mean_probability": 0.9619370654466138,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "LF": {
+        "n": 16,
+        "catches": 13,
+        "failures": 3,
+        "brier": 0.16155720799092296,
+        "log_loss": 0.4710857550826617,
+        "ece": 0.201095946353521,
+        "auc": 0.6923076923076923,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 1,
+            "mean_probability": 0.4722885707356333,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 2,
+            "mean_probability": 0.6184404694087735,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 5,
+            "mean_probability": 0.7554935583005156,
+            "catch_rate": 0.6
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 1,
+            "mean_probability": 0.888338313254039,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 7,
+            "mean_probability": 0.9627287790781572,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "RF": {
+        "n": 19,
+        "catches": 13,
+        "failures": 6,
+        "brier": 0.15151520135028293,
+        "log_loss": 0.4432305531282645,
+        "ece": 0.2170181473601352,
+        "auc": 0.8461538461538461,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 1,
+            "mean_probability": 0.16354144980108828,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 1,
+            "mean_probability": 0.24409348176877504,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 1,
+            "mean_probability": 0.36741784091814783,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 3,
+            "mean_probability": 0.45065976557122717,
+            "catch_rate": 0.3333333333333333
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 2,
+            "mean_probability": 0.6612801713415086,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 3,
+            "mean_probability": 0.7445753178572009,
+            "catch_rate": 0.3333333333333333
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 2,
+            "mean_probability": 0.8433851541243295,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 6,
+            "mean_probability": 0.9566492680769166,
+            "catch_rate": 1
+          }
+        ]
+      }
+    },
+    "by_difficulty_band": {
+      "2_to_4": {
+        "n": 11,
+        "catches": 11,
+        "failures": 0,
+        "brier": 0.029607136484840757,
+        "log_loss": 0.15269537756514986,
+        "ece": 0.1344469592259215,
+        "auc": null,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 1,
+            "mean_probability": 0.6365580720801887,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 3,
+            "mean_probability": 0.7741014991447009,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 1,
+            "mean_probability": 0.8564995961107043,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 6,
+            "mean_probability": 0.9509535471483113,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "4_to_6": {
+        "n": 17,
+        "catches": 17,
+        "failures": 0,
+        "brier": 0.031636652948045775,
+        "log_loss": 0.14053156565375283,
+        "ece": 0.11842958463119337,
+        "auc": null,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 1,
+            "mean_probability": 0.4722885707356333,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 1,
+            "mean_probability": 0.6896369015565673,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 1,
+            "mean_probability": 0.7912177891607595,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 4,
+            "mean_probability": 0.839835674532679,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 10,
+            "mean_probability": 0.9674211101686037,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "6_to_8": {
+        "n": 14,
+        "catches": 10,
+        "failures": 4,
+        "brier": 0.24600917259020802,
+        "log_loss": 0.6860610080128894,
+        "ece": 0.2827220959980784,
+        "auc": 0.575,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 1,
+            "mean_probability": 0.24409348176877504,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 1,
+            "mean_probability": 0.3290875162716697,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 3,
+            "mean_probability": 0.45065976557122717,
+            "catch_rate": 0.3333333333333333
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 2,
+            "mean_probability": 0.616623153931904,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 2,
+            "mean_probability": 0.7491190118154574,
+            "catch_rate": 0.5
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 2,
+            "mean_probability": 0.8756191652741118,
+            "catch_rate": 0.5
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 3,
+            "mean_probability": 0.9456396670051563,
+            "catch_rate": 1
+          }
+        ]
+      },
+      "8_plus": {
+        "n": 8,
+        "catches": 0,
+        "failures": 8,
+        "brier": 0.2401658122056836,
+        "log_loss": 0.6547591548537662,
+        "ece": 0.410510656582535,
+        "auc": null,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 2,
+            "mean_probability": 0.09162392428885437,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 1,
+            "mean_probability": 0.16354144980108828,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 2,
+            "mean_probability": 0.3747623192431877,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 3,
+            "mean_probability": 0.7292571052650358,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          }
+        ]
+      },
+      "under_2": {
+        "n": 1,
+        "catches": 1,
+        "failures": 0,
+        "brier": 0.000018445869289230365,
+        "log_loss": 0.004304114883985345,
+        "ece": 0.004294865456475949,
+        "auc": null,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 1,
+            "mean_probability": 0.995705134543524,
+            "catch_rate": 1
+          }
+        ]
+      }
+    },
+    "grouped_bootstrap": {
+      "metric": "baseline_brier_minus_candidate_brier",
+      "iterations": 1000,
+      "lower_95": 0.057541465269000114,
+      "median": 0.057794157472134705,
+      "upper_95": 0.05853279621975856
+    }
+  },
+  "leave_one_park_out": {
+    "bowser_castle": {
+      "n": 61,
+      "catches": 44,
+      "failures": 17,
+      "brier": 0.13070154792878247,
+      "log_loss": 0.41014915778092687,
+      "ece": 0.12097120169165776,
+      "auc": 0.8609625668449198,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 1,
+          "mean_probability": 0.05156360466447146,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 2,
+          "mean_probability": 0.13542551763219068,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 1,
+          "mean_probability": 0.21694303653911368,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 1,
+          "mean_probability": 0.3154827358254,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 4,
+          "mean_probability": 0.47098043619963426,
+          "catch_rate": 0.25
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 5,
+          "mean_probability": 0.5591463713288294,
+          "catch_rate": 0.4
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 4,
+          "mean_probability": 0.6371428875735038,
+          "catch_rate": 0.25
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 8,
+          "mean_probability": 0.7723702373600412,
+          "catch_rate": 0.875
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 13,
+          "mean_probability": 0.8400638486739701,
+          "catch_rate": 0.9230769230769231
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 22,
+          "mean_probability": 0.9468116247218739,
+          "catch_rate": 0.9090909090909091
+        }
+      ]
+    },
+    "daisy_cruiser": {
+      "n": 25,
+      "catches": 20,
+      "failures": 5,
+      "brier": 0.10368496452076442,
+      "log_loss": 0.3330850418239573,
+      "ece": 0.14959688376401287,
+      "auc": 0.91,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 1,
+          "mean_probability": 0.08534192763529665,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 1,
+          "mean_probability": 0.13198681889648975,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 3,
+          "mean_probability": 0.45514228531412276,
+          "catch_rate": 0.3333333333333333
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 3,
+          "mean_probability": 0.5545573376864575,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 4,
+          "mean_probability": 0.6723270445664483,
+          "catch_rate": 0.75
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 4,
+          "mean_probability": 0.7321261658159671,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 2,
+          "mean_probability": 0.8522516033506249,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 7,
+          "mean_probability": 0.9795493495833641,
+          "catch_rate": 1
+        }
+      ]
+    },
+    "dk_jungle": {
+      "n": 29,
+      "catches": 16,
+      "failures": 13,
+      "brier": 0.17132271205221103,
+      "log_loss": 0.5062338237116485,
+      "ece": 0.17055997748351417,
+      "auc": 0.7836538461538461,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 2,
+          "mean_probability": 0.05693908701891979,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 3,
+          "mean_probability": 0.24399311105577637,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 2,
+          "mean_probability": 0.323649295781966,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 3,
+          "mean_probability": 0.46039742646097476,
+          "catch_rate": 0.6666666666666666
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 2,
+          "mean_probability": 0.5488008986725617,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 3,
+          "mean_probability": 0.679887846034149,
+          "catch_rate": 0.6666666666666666
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 8,
+          "mean_probability": 0.7682258456863684,
+          "catch_rate": 0.625
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 2,
+          "mean_probability": 0.825033521575929,
+          "catch_rate": 0.5
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 4,
+          "mean_probability": 0.9759150054410984,
+          "catch_rate": 1
+        }
+      ]
+    },
+    "mario_stadium": {
+      "n": 51,
+      "catches": 36,
+      "failures": 15,
+      "brier": 0.11612752500401839,
+      "log_loss": 0.49584143320449714,
+      "ece": 0.10185670309645925,
+      "auc": 0.8388888888888889,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 4,
+          "mean_probability": 0.03781780659249371,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 1,
+          "mean_probability": 0.28988264885102544,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 1,
+          "mean_probability": 0.3018526061954924,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 2,
+          "mean_probability": 0.44949083806104473,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 2,
+          "mean_probability": 0.5297853458603012,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 4,
+          "mean_probability": 0.6658963552531357,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 8,
+          "mean_probability": 0.76019076366509,
+          "catch_rate": 0.75
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 12,
+          "mean_probability": 0.8649422224770684,
+          "catch_rate": 0.8333333333333334
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 17,
+          "mean_probability": 0.9821109206251317,
+          "catch_rate": 0.9411764705882353
+        }
+      ]
+    },
+    "peach_ice_garden": {
+      "n": 29,
+      "catches": 21,
+      "failures": 8,
+      "brier": 0.12462676260679739,
+      "log_loss": 0.3756089364029406,
+      "ece": 0.10319701996345679,
+      "auc": 0.8809523809523809,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 1,
+          "mean_probability": 0.00002811378088781362,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 1,
+          "mean_probability": 0.16769143826848737,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 1,
+          "mean_probability": 0.2895839026051949,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 2,
+          "mean_probability": 0.31749148879101147,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 2,
+          "mean_probability": 0.4693665010422625,
+          "catch_rate": 0.5
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 2,
+          "mean_probability": 0.5489169039128601,
+          "catch_rate": 0.5
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 6,
+          "mean_probability": 0.7602778549149353,
+          "catch_rate": 0.8333333333333334
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 4,
+          "mean_probability": 0.8547131949768927,
+          "catch_rate": 0.75
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 10,
+          "mean_probability": 0.9780476432918526,
+          "catch_rate": 1
+        }
+      ]
+    },
+    "wario_city": {
+      "n": 23,
+      "catches": 15,
+      "failures": 8,
+      "brier": 0.15590462532645652,
+      "log_loss": 0.4532590962792336,
+      "ece": 0.2125788806231557,
+      "auc": 0.8916666666666667,
+      "calibration": [
+        {
+          "low": 0,
+          "high": 0.1,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.2,
+          "high": 0.3,
+          "n": 0,
+          "mean_probability": null,
+          "catch_rate": null
+        },
+        {
+          "low": 0.3,
+          "high": 0.4,
+          "n": 1,
+          "mean_probability": 0.38142852476717126,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "n": 2,
+          "mean_probability": 0.44416141967983835,
+          "catch_rate": 0
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "n": 1,
+          "mean_probability": 0.5507564030111136,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.6,
+          "high": 0.7,
+          "n": 3,
+          "mean_probability": 0.6359140435967985,
+          "catch_rate": 0.3333333333333333
+        },
+        {
+          "low": 0.7,
+          "high": 0.8,
+          "n": 6,
+          "mean_probability": 0.7443678763016277,
+          "catch_rate": 0.5
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "n": 4,
+          "mean_probability": 0.8670892284719477,
+          "catch_rate": 1
+        },
+        {
+          "low": 0.9,
+          "high": 1,
+          "n": 6,
+          "mean_probability": 0.9558788635825874,
+          "catch_rate": 1
+        }
+      ]
+    }
+  },
+  "sensitivity": {
+    "strict": {
+      "train_n": 166,
+      "test_n": 51,
+      "metrics": {
+        "n": 51,
+        "catches": 39,
+        "failures": 12,
+        "brier": 0.12213676394564107,
+        "log_loss": 0.3709003379455884,
+        "ece": 0.1062253588924418,
+        "auc": 0.8717948717948718,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 2,
+            "mean_probability": 0.09162392428885435,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 1,
+            "mean_probability": 0.1635414498010882,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 1,
+            "mean_probability": 0.24409348176877504,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 3,
+            "mean_probability": 0.3595373849193484,
+            "catch_rate": 0.3333333333333333
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 4,
+            "mean_probability": 0.4560669668623287,
+            "catch_rate": 0.5
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 4,
+            "mean_probability": 0.6398603203751411,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 9,
+            "mean_probability": 0.7555035140023205,
+            "catch_rate": 0.5555555555555556
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 7,
+            "mean_probability": 0.8524400892556635,
+            "catch_rate": 0.8571428571428571
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 20,
+            "mean_probability": 0.9606278260067448,
+            "catch_rate": 1
+          }
+        ]
+      }
+    },
+    "exclude_assisted_movement": {
+      "train_n": 5,
+      "test_n": 1,
+      "metrics": {
+        "n": 1,
+        "catches": 1,
+        "failures": 0,
+        "brier": 0.0010080076129234021,
+        "log_loss": 0.032264067868668485,
+        "ece": 0.031749135624822955,
+        "auc": null,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 1,
+            "mean_probability": 0.968250864375177,
+            "catch_rate": 1
+          }
+        ]
+      }
+    },
+    "exclude_dive_leap_reach": {
+      "train_n": 136,
+      "test_n": 40,
+      "metrics": {
+        "n": 40,
+        "catches": 37,
+        "failures": 3,
+        "brier": 0.05367459229297061,
+        "log_loss": 0.20593800041166457,
+        "ece": 0.05108423488321771,
+        "auc": 0.8108108108108109,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 1,
+            "mean_probability": 0.3725135361157921,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 1,
+            "mean_probability": 0.5910336095417,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 3,
+            "mean_probability": 0.6404739256761064,
+            "catch_rate": 0.6666666666666666
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 2,
+            "mean_probability": 0.7644510388773846,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 5,
+            "mean_probability": 0.8679227996431672,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 28,
+            "mean_probability": 0.9661366900626265,
+            "catch_rate": 0.9642857142857143
+          }
+        ]
+      }
+    },
+    "include_wall_plays": {
+      "train_n": 167,
+      "test_n": 51,
+      "metrics": {
+        "n": 51,
+        "catches": 39,
+        "failures": 12,
+        "brier": 0.12197025595329611,
+        "log_loss": 0.3704422249113068,
+        "ece": 0.1060780028725081,
+        "auc": 0.8717948717948718,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 1,
+            "mean_probability": 0.08372377284676963,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 2,
+            "mean_probability": 0.13193515069893957,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 1,
+            "mean_probability": 0.24513052136100422,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 3,
+            "mean_probability": 0.3617670419470587,
+            "catch_rate": 0.3333333333333333
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 4,
+            "mean_probability": 0.45723733211655293,
+            "catch_rate": 0.5
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 0,
+            "mean_probability": null,
+            "catch_rate": null
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 4,
+            "mean_probability": 0.641093780920871,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 9,
+            "mean_probability": 0.7557066423082789,
+            "catch_rate": 0.5555555555555556
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 7,
+            "mean_probability": 0.8530659485383894,
+            "catch_rate": 0.8571428571428571
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 20,
+            "mean_probability": 0.9607180110541498,
+            "catch_rate": 1
+          }
+        ]
+      }
+    },
+    "include_special_mechanics": {
+      "train_n": 177,
+      "test_n": 54,
+      "metrics": {
+        "n": 54,
+        "catches": 41,
+        "failures": 13,
+        "brier": 0.12123301563409818,
+        "log_loss": 0.3712945356677973,
+        "ece": 0.09872633405161238,
+        "auc": 0.8555347091932458,
+        "calibration": [
+          {
+            "low": 0,
+            "high": 0.1,
+            "n": 1,
+            "mean_probability": 0.06992485453786366,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 2,
+            "mean_probability": 0.12869672293490858,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.2,
+            "high": 0.3,
+            "n": 1,
+            "mean_probability": 0.2745133600794924,
+            "catch_rate": 1
+          },
+          {
+            "low": 0.3,
+            "high": 0.4,
+            "n": 4,
+            "mean_probability": 0.35768288952772537,
+            "catch_rate": 0.25
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 3,
+            "mean_probability": 0.45746027315051535,
+            "catch_rate": 0.6666666666666666
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 1,
+            "mean_probability": 0.5081126728285909,
+            "catch_rate": 0
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 6,
+            "mean_probability": 0.6492017831582885,
+            "catch_rate": 0.8333333333333334
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 9,
+            "mean_probability": 0.7544857988890904,
+            "catch_rate": 0.6666666666666666
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 7,
+            "mean_probability": 0.8489839635994657,
+            "catch_rate": 0.8571428571428571
+          },
+          {
+            "low": 0.9,
+            "high": 1,
+            "n": 20,
+            "mean_probability": 0.9620160029442444,
+            "catch_rate": 1
+          }
+        ]
+      }
+    }
+  },
+  "activation": {
+    "decision": "reject",
+    "checks": {
+      "eligible_sample": false,
+      "failures": false,
+      "final_test_sample": false,
+      "final_test_failures": false,
+      "session_dominance": true,
+      "park_dominance": true,
+      "calibration": false,
+      "brier_improvement": true,
+      "probability_bin_coverage": false,
+      "grouped_uncertainty": true,
+      "sensitivity": false,
+      "no_post_outcome_predictors": true,
+      "predictor_family_coverage": true
+    },
+    "failed_checks": [
+      "eligible_sample",
+      "failures",
+      "final_test_sample",
+      "final_test_failures",
+      "calibration",
+      "probability_bin_coverage",
+      "sensitivity"
+    ],
+    "diagnostics": {
+      "session": {
+        "counts": {
+          "bowser_castle-20260904T011909Z": 38,
+          "bowser_castle-20260905T005948Z": 23,
+          "bowser_jr_playroom-20260828T155225Z": 23,
+          "daisy_cruiser-20260904T202047Z": 25,
+          "dk_jungle-20260904T161731Z": 29,
+          "luigis_mansion-20260904T171123Z": 13,
+          "mario_stadium-20260831T174649Z": 11,
+          "mario_stadium-20260904T213725Z": 40,
+          "peach_ice_garden-20260904T152214Z": 29,
+          "wario_city-20260904T144308Z": 23,
+          "yoshi_park-20260831T134815Z": 6,
+          "yoshi_park-20260831T140742Z": 26
+        },
+        "maximum_share": 0.13986013986013987,
+        "dominant": "mario_stadium-20260904T213725Z"
+      },
+      "park": {
+        "counts": {
+          "bowser_castle": 61,
+          "bowser_jr_playroom": 23,
+          "daisy_cruiser": 25,
+          "dk_jungle": 29,
+          "luigis_mansion": 13,
+          "mario_stadium": 51,
+          "peach_ice_garden": 29,
+          "wario_city": 23,
+          "yoshi_park": 32
+        },
+        "maximum_share": 0.21328671328671328,
+        "dominant": "bowser_castle"
+      },
+      "relative_brier_improvement": 0.3212019202521857,
+      "populated_probability_bins": 1,
+      "sensitivity_changes": [
+        {
+          "name": "exclude_assisted_movement",
+          "absolute_brier_change": 0.12112875633271768
+        },
+        {
+          "name": "exclude_dive_leap_reach",
+          "absolute_brier_change": 0.06846217165267046
+        },
+        {
+          "name": "include_wall_plays",
+          "absolute_brier_change": 0.00016650799234496638
+        },
+        {
+          "name": "include_special_mechanics",
+          "absolute_brier_change": 0.0009037483115428985
+        }
+      ]
+    }
+  },
+  "collection_target": {
+    "additional_eligible_opportunities": 214,
+    "additional_failures": 25,
+    "reserve_new_test_opportunities": 100,
+    "reserve_new_test_failures": 20,
+    "priority_contexts": [
+      "6_to_8 projected required speed with both outcomes",
+      "successful catches above 8 projected required speed"
+    ],
+    "park_sessions": {
+      "bowser_jr_playroom": 1,
+      "daisy_cruiser": 1,
+      "dk_jungle": 1,
+      "luigis_mansion": 1,
+      "peach_ice_garden": 1,
+      "wario_city": 1,
+      "wario_stadium": 2
+    }
+  }
+}

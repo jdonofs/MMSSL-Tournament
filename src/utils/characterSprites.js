@@ -1,3 +1,5 @@
+import { characterNameKey } from './characterNames.js'
+
 const SPRITE_SHEET_PATH = '/characters/mss-character-icons.png'
 
 const SHEET_WIDTH = 834
@@ -6,9 +8,6 @@ const CELL_WIDTH = 49
 const CELL_HEIGHT = 52
 const CELL_INSET = 1
 
-const aliases = {
-  'Light Blue Yoshi': 'Light-Blue Yoshi',
-}
 
 const spriteCells = {
   Mario: [0, 0],
@@ -85,17 +84,23 @@ const spriteCells = {
   'Green Dry Bones': [7, 2],
 }
 
-function normalizeName(name = '') {
-  return aliases[name] || name
-}
+// Keyed on the repo's shared character key rather than the exact string, so a
+// name from any vocabulary finds its cell. The private alias table here held
+// one entry ("Light Blue Yoshi") and therefore returned NO PORTRAIT for every
+// tracker spelling that differed some other way -- "Fire Bro.", "Koopa Troopa".
+const CELLS_BY_KEY = new Map(
+  Object.entries(spriteCells).map(([spriteName, cell]) => [
+    characterNameKey(spriteName), { spriteName, cell },
+  ]),
+)
 
 export function getCharacterSpriteMeta(name) {
-  const cell = spriteCells[normalizeName(name)]
-  if (!cell) return null
+  const entry = CELLS_BY_KEY.get(characterNameKey(name))
+  if (!entry) return null
 
-  const [row, col] = cell
+  const [row, col] = entry.cell
   return {
-    name: normalizeName(name),
+    name: entry.spriteName,
     sheetPath: SPRITE_SHEET_PATH,
     sheetWidth: SHEET_WIDTH,
     sheetHeight: SHEET_HEIGHT,

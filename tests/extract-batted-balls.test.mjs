@@ -72,16 +72,19 @@ test('only records with a real tracked endpoint are offered for calibration', ()
 test('distance comes from coordinates, not from the executable feet', () => {
   const [row] = calibrationRows(extractBattedBallRecords(`"${marked(A)}"`))
   // distance_feet said 229.2, converted inside a build using 3.0 ft/unit.
-  // Measured from the coordinates at the real scale it is about 257.
-  assert.ok(Math.abs(row.distanceFeet - 257) < 2, `got ${row.distanceFeet.toFixed(1)}`)
+  // Measured from the coordinates at 1 metre/unit it is about 251.5 ft.
+  assert.ok(Math.abs(row.distanceFeet - 251.5) < 1, `got ${row.distanceFeet.toFixed(1)}`)
 })
 
 test('exit velocity is rescaled out of the build that reported it', () => {
-  const stated = marked(`${A}|feet_per_unit=3.3532`)
-  const [rescaled] = calibrationRows(extractBattedBallRecords(`"${stated}"`))
+  const current = marked(`${A}|feet_per_unit=3.2808`)
+  const intermediate = marked(`${A}|feet_per_unit=3.3532`)
+  const [unchanged] = calibrationRows(extractBattedBallRecords(`"${current}"`))
+  const [rescaled] = calibrationRows(extractBattedBallRecords(`"${intermediate}"`))
   const [assumed] = calibrationRows(extractBattedBallRecords(`"${marked(A)}"`))
   // A build that declares the current scale needs no correction; one that says
-  // nothing is assumed to be the old 3.0 and is scaled up.
-  assert.ok(Math.abs(rescaled.exitVelocityMph - 85.0) < 0.01)
-  assert.ok(assumed.exitVelocityMph > rescaled.exitVelocityMph)
+  // 3.3532 is converted down, and a silent legacy 3.0 build is converted up.
+  assert.ok(Math.abs(unchanged.exitVelocityMph - 85.0) < 0.01)
+  assert.ok(rescaled.exitVelocityMph < unchanged.exitVelocityMph)
+  assert.ok(assumed.exitVelocityMph > unchanged.exitVelocityMph)
 })

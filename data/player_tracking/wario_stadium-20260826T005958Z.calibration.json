@@ -1,0 +1,87 @@
+{
+  "session": "wario_stadium-20260826T005958Z",
+  "position_offset": 4,
+  "ball_frame": {
+    "sign_x": 1.0,
+    "sign_z": -1.0,
+    "swap_xz": false,
+    "lock_frames": 4978,
+    "lock_units": 0.05
+  },
+  "movement_units": 8603.1,
+  "teleports": 902,
+  "candidates": [
+    {
+      "offset": 4,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 4978,
+      "path": 8603.1,
+      "teleports": 902
+    },
+    {
+      "offset": 56,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 2124,
+      "path": 3175.8,
+      "teleports": 2639
+    },
+    {
+      "offset": 68,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 598,
+      "path": 159.3,
+      "teleports": 37
+    },
+    {
+      "offset": 432,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 394,
+      "path": 2089.8,
+      "teleports": 2287
+    },
+    {
+      "offset": 432,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 394,
+      "path": 2089.8,
+      "teleports": 2287
+    },
+    {
+      "offset": 432,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 376,
+      "path": 2089.8,
+      "teleports": 2287
+    },
+    {
+      "offset": 432,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 376,
+      "path": 2089.8,
+      "teleports": 2287
+    },
+    {
+      "offset": 428,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 153,
+      "path": 33.5,
+      "teleports": 0
+    }
+  ]
+}

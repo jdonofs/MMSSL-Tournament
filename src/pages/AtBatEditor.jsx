@@ -15,7 +15,18 @@ import { estimateExitVelocity, exitVelocityDistanceFt, ROBBED_HR_WALL_MARGIN_FT 
 import { shouldShowFieldedLocation } from '../utils/fieldedLocation'
 import { battedBallResults, calculateOutsForPa, inningsPitchedFromOuts, isCreditedHit } from '../utils/statsCalculator'
 import { deriveGameStateAtIndex } from '../utils/trackerGameState'
+import { runnerAssignmentsForSave } from '../features/scorebook/domain/plateAppearance'
+import { undoLatestPlateAppearance } from '../features/scorebook/services/plateAppearanceService'
+import { syncRunnerOpportunities } from '../utils/runnerOpportunityPersistence'
 import { getStadiumKeyByName } from '../utils/stadiums'
+import {
+  correctionContext,
+  correctionInsertionIndex,
+  describeUnresolvedPlay,
+  draftPitchesFromEvidence,
+  fetchUnresolvedPlays,
+  recordUnresolvedPlayCorrection,
+} from '../utils/trackerUnresolvedPlays'
 import {
   computePendingState,
   computePendingOutState,
@@ -48,6 +59,7 @@ const PITCH_RESULT_OPTIONS = ['ball', 'looking', 'swinging_miss', 'strike_unknow
 const PITCH_TYPE_OPTIONS = [
   { value: 'fastball', label: 'Fastball', shortLabel: 'FB' },
   { value: 'curveball', label: 'Curveball', shortLabel: 'CB' },
+  { value: 'knuckleball', label: 'Knuckleball', shortLabel: 'KN' },
   { value: 'changeup', label: 'Changeup', shortLabel: 'CH' },
 ]
 // Star pitch lives on its own is_star_pitch column, not pitch_type — but a
@@ -105,7 +117,7 @@ function recountPitchSequence(pitchRows) {
 }
 
 function blankPitch(result = 'ball') {
-  return { result, pitch_type: null, is_star_pitch: false }
+  return { result, pitch_type: null, is_star_pitch: false, is_star_swing: false }
 }
 
 function pitchTypeValue(pitch) {
@@ -211,7 +223,9 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   const paIdParam = paIdProp ?? params.id ?? null
   const source = rawSource === 'season' ? 'season' : 'tournament'
   const tables = TABLES[source]
-  const { isScorekeeper } = useAuth()
+  // `player`, not `authUser`: corrected_by / resolved_by reference players(id),
+  // which is the identity the rest of the scorebook records people by.
+  const { isScorekeeper, player } = useAuth()
   const { pushToast } = useToast()
   const canEdit = Boolean(isScorekeeper)
 
@@ -223,6 +237,12 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   const [pitchesByPaId, setPitchesByPaId] = useState({})
   const [pitchingStints, setPitchingStints] = useState([])
   const [runsScoredRows, setRunsScoredRows] = useState([])
+  // Plays the automatic tracker watched and could not score. They are NOT
+  // plate appearances and are counted by nobody; they are here so the gap is
+  // visible to whoever can answer it, and so the answer lands under the same
+  // durable key the tracker used.
+  const [unresolvedPlays, setUnresolvedPlays] = useState([])
+  const [resolvingPlay, setResolvingPlay] = useState(null)
   const [gameFielderRows, setGameFielderRows] = useState([])
   const [seasonTeamRows, setSeasonTeamRows] = useState([])
   const [charactersById, setCharactersById] = useState({})
@@ -277,6 +297,13 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
       fetchAllRows(() => supabase.from(tables.gameFielders).select('*').eq('game_id', resolvedGameId)),
       supabase.from('stadiums').select('id,name'),
     ])
+    // Deliberately not inside the Promise.all above: a deployment without the
+    // migration answers this with "no such table", and that must not take the
+    // whole editor down with it.
+    const unresolved = await fetchUnresolvedPlays(supabase, {
+      competitionType: source, gameId: Number(resolvedGameId),
+    })
+    setUnresolvedPlays(unresolved.rows)
     // deriveOffense (gameRules.js) expects games-table-shaped team_a_player_id/
     // team_b_player_id — season_schedule instead carries away_team_id/
     // home_team_id pointing at season_teams, so normalize into the same shape
@@ -358,10 +385,34 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedGameId, source])
 
+  // WHERE THE ANSWER GOES, AND WHAT IT IS ANSWERED IN.
+  //
+  // `startResolvingPlay` used to open the append page (`pageIndex = pas.length`)
+  // and set the batter and pitcher by hand -- and the draft-seed effect below,
+  // which runs on every page change, immediately overwrote both from the state
+  // derived at the END of the game. An unresolved Top 5 play was then recorded
+  // as Bottom 9 with the ninth-inning batter, the ninth-inning pitcher, no
+  // pitches and empty bases. Nothing in that page came from the play.
+  //
+  // Half-innings here are derived from the running out count rather than read
+  // off the `inning` column, so the slot is not a display choice: recorded at
+  // the end of the list, a fifth-inning plate appearance also moves every later
+  // at-bat's derived inning once it carries outs.
+  const correctionSlot = useMemo(() => {
+    if (!resolvingPlay || !game) return null
+    return correctionInsertionIndex({
+      unresolved: resolvingPlay,
+      paCount: pas.length,
+      deriveAt: (index) => deriveGameStateAtIndex(pas, game, lineups, index, runsScoredRows),
+    })
+  }, [resolvingPlay, pas, game, lineups, runsScoredRows])
+
   const derived = useMemo(() => {
     if (!game) return null
-    return deriveGameStateAtIndex(pas, game, lineups, pageIndex, runsScoredRows)
-  }, [pas, game, lineups, pageIndex, runsScoredRows])
+    const at = correctionSlot == null ? pageIndex : correctionSlot
+    const state = deriveGameStateAtIndex(pas, game, lineups, at, runsScoredRows)
+    return correctionSlot == null ? state : correctionContext(resolvingPlay, state)
+  }, [pas, game, lineups, pageIndex, runsScoredRows, correctionSlot, resolvingPlay])
 
   // Tournament team ids on game_fielders rows are the owning player id
   // directly; season team ids point at season_teams, so map back to a
@@ -391,9 +442,12 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     }, {})
   }, [gameFielderRows, derived, source, teamIdByPlayerId])
 
-  const currentPa = pas[pageIndex] || null
-  const isNewPage = pageIndex === pas.length
-  const isLastPage = pageIndex === pas.length - 1
+  // A correction is always a NEW plate appearance, even though its slot sits in
+  // the middle of the list: the row at that index is the at-bat it goes BEFORE.
+  const isCorrecting = correctionSlot != null
+  const currentPa = isCorrecting ? null : (pas[pageIndex] || null)
+  const isNewPage = isCorrecting || pageIndex === pas.length
+  const isLastPage = !isCorrecting && pageIndex === pas.length - 1
 
   // Prefer the PA's own recorded stadium (the park a past hit was actually
   // measured against) but fall back to the game's current stadium — without
@@ -429,7 +483,22 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   useEffect(() => {
     if (!derived) return
     shouldSyncOutcomeRef.current = false
-    if (currentPa) {
+    if (resolvingPlay) {
+      // The batter, the pitcher and the pitches are what the tracker DID see
+      // and are evidence. The result is not, and is deliberately left blank:
+      // an unresolved play that arrived pre-filled with a guess would be
+      // exactly the inference this whole path exists to avoid.
+      setDraft(emptyDraft())
+      setDraftBatter(resolvingPlay.batter_character_id == null ? null : {
+        characterId: resolvingPlay.batter_character_id,
+        playerId: resolvingPlay.batter_player_id ?? null,
+      })
+      setDraftPitcher(resolvingPlay.pitcher_character_id == null ? null : {
+        characterId: resolvingPlay.pitcher_character_id,
+        playerId: resolvingPlay.pitcher_player_id ?? null,
+      })
+      setDraftPitches(draftPitchesFromEvidence(resolvingPlay))
+    } else if (currentPa) {
       setDraft(draftFromPa(currentPa))
       setDraftBatter({ characterId: currentPa.character_id, playerId: currentPa.player_id })
       setDraftPitcher({ characterId: currentPa.pitcher_id, playerId: currentPa.pitcher_player_id })
@@ -449,8 +518,11 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     runnerOverridesRef.current = new Map()
     setRunnerEntries(null)
     setEditingClipBounds(false)
+    // resolvingPlay?.id is in the list on purpose: opening a correction has to
+    // re-seed the draft, and this effect is what would otherwise run afterwards
+    // and overwrite the play's own batter and pitcher with the derived ones.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageIndex, currentPa?.id, derived?.batter?.character_id, pitchesByPaId])
+  }, [pageIndex, currentPa?.id, derived?.batter?.character_id, pitchesByPaId, resolvingPlay?.id])
 
   // Build (or rebuild) the runner-resolution panel whenever the chosen result
   // or the derived runners-before state changes for a result that needs it.
@@ -676,6 +748,47 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     return pitchingStints.find((s) => String(s.character_id) === String(draftPitcher.characterId) && String(s.player_id) === String(draftPitcher.playerId)) || null
   }
 
+  // The same shapes persistDraftPitches and the runs block below write, without
+  // the writes. The correction path hands its children to one transactional
+  // function instead of inserting them itself, and sharing the row builders is
+  // what stops the two paths drifting into recording a pitch differently.
+  function correctionPitchValues(pitch) {
+    return {
+      pitcher_id: charactersById[String(draftPitcher?.characterId)]?.name || '',
+      pitcher_player: playersById[String(draftPitcher?.playerId)]?.name || '',
+      batter_id: charactersById[String(draftBatter?.characterId)]?.name || '',
+      inning: derived.inning,
+      half: derived.isTop ? 'top' : 'bottom',
+      pitch_number_pa: pitch.pitch_number_pa,
+      is_star_pitch: Boolean(pitch.is_star_pitch),
+      is_star_swing: Boolean(pitch.is_star_swing),
+      result: pitch.result,
+      pitch_type: pitch.pitch_type || null,
+      count_balls_before: pitch.count_balls_before,
+      count_strikes_before: pitch.count_strikes_before,
+      count_balls_after: pitch.count_balls_after,
+      count_strikes_after: pitch.count_strikes_after,
+    }
+  }
+
+  function correctionRunsPayload() {
+    if (!outcome?.scoredRunnerIds?.length) return []
+    const stint = findActivePitcherStint()
+    return resolveScoringRunners(
+      outcome.scoredRunnerIds,
+      currentAssignments(),
+      derived.runnersBefore,
+      { characterId: draftBatter.characterId, playerId: draftBatter.playerId },
+    ).map((runner) => ({
+      game_id: resolvedGameId, inning: derived.inning, half: derived.isTop ? 'top' : 'bottom',
+      scoring_player_id: runner.playerId, scoring_character_id: runner.characterId,
+      charged_to_pitcher_id: runner.chargedToPitcherId ?? stint?.character_id ?? draftPitcher?.characterId ?? null,
+      charged_to_pitcher_player_id: runner.chargedToPitcherPlayerId ?? stint?.player_id ?? draftPitcher?.playerId ?? null,
+      is_earned_run: !runner.reachedOnError,
+      ...(source === 'season' && game?.season_id != null ? { season_id: game.season_id } : {}),
+    }))
+  }
+
   async function persistDraftPitches(savedPa) {
     const rows = recountPitchSequence(draftPitches)
     const originalRows = currentPa ? (pitchesByPaId[String(currentPa.id)] || []) : []
@@ -700,6 +813,7 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
       half: derived.isTop ? 'top' : 'bottom',
       pitch_number_pa: pitch.pitch_number_pa,
       is_star_pitch: Boolean(pitch.is_star_pitch),
+      is_star_swing: Boolean(pitch.is_star_swing),
       result: pitch.result,
       pitch_type: pitch.pitch_type || null,
       count_balls_before: pitch.count_balls_before,
@@ -1017,7 +1131,12 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
         runner_on_first_before: Boolean(derived.runnersBefore.first),
         runner_on_second_before: Boolean(derived.runnersBefore.second),
         runner_on_third_before: Boolean(derived.runnersBefore.third),
-        runner_assignments: runnerEntries ? currentAssignments() : null,
+        runner_assignments: runnerAssignmentsForSave({
+          assignments: runnerEntries ? currentAssignments() : null,
+          result: outcome.finalResult,
+          runners: derived.runnersBefore,
+          batter: draftBatter,
+        }),
         trajectory: draft.trajectory, hit_x: draft.hit_x, hit_y: draft.hit_y,
         hit_distance_ft: draft.hit_distance_ft, hit_angle_deg: draft.hit_angle_deg,
         hit_stadium_key: resolvedStadiumKey,
@@ -1044,6 +1163,47 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
       // a hand-picked whitelist payload.
       const payload = currentPa ? { ...currentPa, ...overrides } : overrides
       if (currentPa) { delete payload.id; delete payload.created_at }
+
+      // ANSWERING A PLAY THE TRACKER COULD NOT SCORE IS ONE TRANSACTION.
+      //
+      // The correction, its pitches, its runs and the closing of the gap all
+      // land together, at the chronological slot the play belongs in. It used
+      // to be four client writes in a deliberate order, so that a failure left
+      // the gap visible -- which it did, along with a plate appearance holding
+      // the unresolved play's tracker_event_key. The unique index on that key
+      // then refused every retry, so the only path that could close the gap was
+      // blocked by its own first attempt. The function completes a half-written
+      // attempt instead of colliding with it.
+      if (resolvingPlay) {
+        // pitch_number_game is a display ordinal across the whole game and is
+        // not part of a pitch's identity; the loaded pitches are the whole
+        // game's, so the next one can be counted without another round trip.
+        const highestPitchNumberGame = Object.values(pitchesByPaId).flat()
+          .reduce((highest, pitch) => Math.max(highest, Number(pitch.pitch_number_game) || 0), 0)
+        const { data, error } = await recordUnresolvedPlayCorrection(supabase, {
+          competitionType: source,
+          unresolved: resolvingPlay,
+          pa: payload,
+          pitches: recountPitchSequence(draftPitches).map((pitch, index) => ({
+            ...correctionPitchValues(pitch),
+            game_id: resolvedGameId,
+            pitch_number_game: highestPitchNumberGame + index + 1,
+            ...(source === 'season' && game?.season_id != null ? { season_id: game.season_id } : {}),
+          })),
+          runs: correctionRunsPayload(),
+          paNumber: (correctionSlot ?? pas.length) + 1,
+          resolvedBy: player?.id ?? null,
+          note: `Recorded in the At-Bat editor as ${outcome.finalResult}`,
+        })
+        if (error) throw error
+        setResolvingPlay(null)
+        pushToast({ title: data?.retried ? 'Correction completed' : 'Correction recorded', type: 'success' })
+        await recomputeGameScore()
+        await recomputePitchingStintsForGame()
+        await loadAll()
+        setPageIndex(Math.max(0, Number(data?.pa_number || 1) - 1))
+        return
+      }
 
       let savedPa = currentPa
       if (currentPa) {
@@ -1090,9 +1250,19 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
         if (deleteRunsError) throw deleteRunsError
       }
 
+      let baserunningError = null
+      try {
+        await syncRunnerOpportunities(supabase, {
+          pa: savedPa,
+          competitionType: source,
+          outsBefore: derived.outsInHalf,
+        })
+      } catch (error) { baserunningError = error }
       await recomputeGameScore()
       await recomputePitchingStintsForGame()
-      pushToast({ title: currentPa ? 'At-bat updated' : 'At-bat added', type: 'success' })
+      pushToast(baserunningError
+        ? { title: 'At-bat saved; baserunning stats need a refresh', message: baserunningError.message, type: 'error' }
+        : { title: currentPa ? 'At-bat updated' : 'At-bat added', type: 'success' })
       const newAtBatIndex = pas.length
       await loadAll()
       if (!currentPa) setPageIndex(newAtBatIndex)
@@ -1104,13 +1274,26 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     }
   }
 
+  // Open the correction page. Everything it shows -- the half-inning, the
+  // runners, the outs, the batter, the pitcher and the pitches -- comes from
+  // the unresolved play and from the game as it stood at that play's slot; the
+  // seed effect above does the filling, keyed on resolvingPlay.id, so this only
+  // has to say which play is being answered.
+  function startResolvingPlay(row) {
+    setResolvingPlay(row)
+  }
+
+  function cancelResolvingPlay() {
+    setResolvingPlay(null)
+    setPageIndex(pas.length)
+  }
+
   async function deleteLatest() {
     if (!currentPa || !isLastPage) return
     if (!window.confirm(`Delete this at-bat (${nameFor(currentPa.character_id, currentPa.player_id)}, ${formatPaResultLabel(currentPa)})? This cannot be undone.`)) return
     savingRef.current = true
     setSaving(true)
-    const rpcName = source === 'season' ? 'undo_latest_season_pa' : 'undo_latest_tournament_pa'
-    const { error } = await supabase.rpc(rpcName, { p_game_id: Number(resolvedGameId), p_pa_id: currentPa.id })
+    const { error } = await undoLatestPlateAppearance({ isSeasonGame: source === 'season', gameId: Number(resolvedGameId), plateAppearanceId: currentPa.id })
     if (error) {
       savingRef.current = false
       setSaving(false)
@@ -1134,11 +1317,10 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     if (!window.confirm(`Delete all ${pas.length} at-bats for this game? This cannot be undone.`)) return
     savingRef.current = true
     setSaving(true)
-    const rpcName = source === 'season' ? 'undo_latest_season_pa' : 'undo_latest_tournament_pa'
     try {
       const newestFirst = [...pas].sort((a, b) => Number(b.pa_number) - Number(a.pa_number))
       for (const pa of newestFirst) {
-        const { error } = await supabase.rpc(rpcName, { p_game_id: Number(resolvedGameId), p_pa_id: pa.id })
+        const { error } = await undoLatestPlateAppearance({ isSeasonGame: source === 'season', gameId: Number(resolvedGameId), plateAppearanceId: pa.id })
         if (error) throw error
       }
       await recomputeGameScore()
@@ -1182,6 +1364,70 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
         <Link to="#" className="at-bat-back-link" onClick={(e) => { e.preventDefault(); if (window.history.length > 1) window.history.back(); else window.close() }}>
           <ArrowLeft size={16} /> Back to game
         </Link>
+      ) : null}
+
+      {unresolvedPlays.length || resolvingPlay ? (
+        <section className="at-bat-unresolved-panel" aria-label="Unresolved tracker plays">
+          <header className="at-bat-unresolved-header">
+            <strong>
+              {unresolvedPlays.length} play{unresolvedPlays.length === 1 ? '' : 's'} the tracker
+              could not score
+            </strong>
+            <span>
+              Nothing below is counted for anyone until someone with the video supplies the
+              result. Nothing here is guessed to make a total match.
+            </span>
+          </header>
+          <ul className="at-bat-unresolved-list">
+            {unresolvedPlays.map((row) => (
+              <li key={row.id} className={resolvingPlay?.id === row.id ? 'is-active' : ''}>
+                <div className="at-bat-unresolved-copy">
+                  <strong>{describeUnresolvedPlay(row)}</strong>
+                  <span>{row.reason}</span>
+                </div>
+                {canEdit ? (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    disabled={saving}
+                    onClick={() => runPageChange(() => startResolvingPlay(row))}
+                  >
+                    {resolvingPlay?.id === row.id ? 'Recording…' : 'Record the result'}
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {resolvingPlay ? (
+            <p className="at-bat-unresolved-active" data-testid="at-bat-correction-active">
+              Recording <strong>{describeUnresolvedPlay(resolvingPlay)}</strong> as at-bat
+              {' '}<strong data-testid="at-bat-correction-slot">#{(correctionSlot ?? pas.length) + 1}</strong>
+              {' '}of this game, in {derived?.halfLabel} with{' '}
+              {derived?.outsInHalf} out{derived?.outsInHalf === 1 ? '' : 's'}. Pick the result and
+              the runners below and save; the at-bat, its pitches, its runs and the closing of
+              this gap are written together, under the tracker's own key, so a replay of this
+              game will not overwrite it.
+              {derived && derived.matchesEvidence === false ? (
+                <>
+                  {' '}
+                  <strong data-testid="at-bat-correction-mismatch">
+                    The recorded at-bats cannot place this play in {derived.evidenceHalfLabel}
+                    {' '}— the game's own out count puts this slot in {derived.halfLabel}. Check
+                    the half-inning before saving.
+                  </strong>
+                </>
+              ) : null}
+              {' '}
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => runPageChange(cancelResolvingPlay)}
+              >
+                Cancel
+              </button>
+            </p>
+          ) : null}
+        </section>
       ) : null}
 
       <header className="at-bat-editor-hero">

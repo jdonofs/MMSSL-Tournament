@@ -4,19 +4,27 @@ import { getPlayerSkillProfile } from './teamIdentity'
 import { deriveTrackedHitFields } from './hitFieldDerivation'
 import { computeDifficultySignal } from './fieldingRange'
 import { isCreditedHit, isCreditedHitType, isCreditedHomeRun } from './creditedHit'
+import { OUT_RESULTS, calculateOutsForPa } from './defensiveEfficiency'
+import { isOfficialAtBat } from './plateAppearanceRules'
+import {
+  dedupeStatRows,
+  filterRunEventsForPlateAppearances,
+  getStatGameKey,
+  getStatPaKey,
+} from './statReconciliation'
 
 export { isCreditedHit } from './creditedHit'
+export { isOfficialAtBat } from './plateAppearanceRules'
+// DER and the out-count rule live in their own leaf module so they can be
+// tested without loading this file's field-plotting dependencies. They are
+// re-exported here because every existing caller imports them from here.
+export { calculateOutsForPa, summarizeDefensiveEfficiency } from './defensiveEfficiency'
 
 export const hitResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR'])
 const plateAppearanceResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'BB', 'HBP', 'K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
-const outResults = new Set(['K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH'])
+const outResults = OUT_RESULTS
 export const battedBallResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
 const swingPitchResults = new Set(['swinging_miss', 'foul', 'in_play'])
-
-export function isOfficialAtBat(pa = {}) {
-  if (typeof pa.is_official_ab === 'boolean') return pa.is_official_ab
-  return !['BB', 'HBP', 'SF', 'SH'].includes(pa.result)
-}
 
 function getHalfFromPa(pa = {}) {
   return pa.half || pa.pa_half || 'top'
@@ -141,17 +149,15 @@ export function hasRispOpportunity(pa = {}) {
 // to one season/tournament/window doesn't pull in runs from unrelated games).
 export function filterRunEventsForCharacter(runEvents = [], characterId, plateAppearances = []) {
   if (characterId == null) return []
-  const gameIds = new Set(plateAppearances.map((pa) => String(pa.game_id)))
-  return runEvents.filter((run) => (
-    String(run.scoring_character_id) === String(characterId) && gameIds.has(String(run.game_id))
+  return filterRunEventsForPlateAppearances(runEvents, plateAppearances).filter((run) => (
+    String(run.scoring_character_id) === String(characterId)
   ))
 }
 
 export function filterRunEventsForPlayer(runEvents = [], playerId, plateAppearances = []) {
   if (playerId == null) return []
-  const gameIds = new Set(plateAppearances.map((pa) => String(pa.game_id)))
-  return runEvents.filter((run) => (
-    String(run.scoring_player_id) === String(playerId) && gameIds.has(String(run.game_id))
+  return filterRunEventsForPlateAppearances(runEvents, plateAppearances).filter((run) => (
+    String(run.scoring_player_id) === String(playerId)
   ))
 }
 
@@ -162,6 +168,10 @@ export function filterRunEventsForPlayer(runEvents = [], playerId, plateAppearan
 // PA row. runEvents is the authoritative source for any game that has rows in it; pa.run_scored
 // is kept only as a fallback for games recorded before runs_scored existed.
 export function summarizeBatting(plateAppearances = [], runEvents = []) {
+  const uniquePas = dedupeStatRows(plateAppearances, 'plateAppearances')
+  const uniqueRunEvents = filterRunEventsForPlateAppearances(runEvents, uniquePas)
+  plateAppearances = uniquePas
+  runEvents = uniqueRunEvents
   const atBats = plateAppearances.filter((pa) => isOfficialAtBat(pa)).length
   const hits = plateAppearances.filter(isCreditedHit).length
   const walks = plateAppearances.filter((pa) => pa.result === 'BB').length
@@ -186,13 +196,13 @@ export function summarizeBatting(plateAppearances = [], runEvents = []) {
   const rispAtBats = rispPas.filter((pa) => isOfficialAtBat(pa)).length
   const rispHits = rispPas.filter(isCreditedHit).length
 
-  const gameIdsWithRunTracking = new Set(runEvents.map((run) => String(run.game_id)))
+  const gameIdsWithRunTracking = new Set(runEvents.map(getStatGameKey))
   const legacyRuns = plateAppearances.filter(
-    (pa) => pa.run_scored && !gameIdsWithRunTracking.has(String(pa.game_id)),
+    (pa) => pa.run_scored && !gameIdsWithRunTracking.has(getStatGameKey(pa)),
   ).length
 
   return {
-    games: new Set(plateAppearances.map((pa) => pa.game_id)).size,
+    games: new Set(plateAppearances.map(getStatGameKey)).size,
     plateAppearances: plateAppearances.length,
     atBats,
     hits,
@@ -216,27 +226,42 @@ export function summarizeBatting(plateAppearances = [], runEvents = []) {
     rispAtBats,
     rispHits,
     rispAvg: rispAtBats ? rispHits / rispAtBats : null,
-    ops: 0
+    ops: 0,
+    coverage: {
+      resolvedPlateAppearances: plateAppearances.filter((pa) => Boolean(pa.result)).length,
+      ambiguousPlateAppearances: plateAppearances.filter((pa) => !pa.result).length,
+      runEvents: runEvents.length,
+      legacyRunFallbacks: legacyRuns,
+    },
   }
 }
 
 export function summarizePitching(stints = [], options = {}) {
   const { aggregation = 'flags', allGameStints = stints } = options
-  const totalOuts = stints.reduce((total, stint) => total + outsFromInningsPitched(stint.innings_pitched), 0)
-  const innings = inningsPitchedFromOuts(totalOuts)
+  const uniqueStints = dedupeStatRows(stints, 'pitchingStints')
+  stints = uniqueStints
+  const measured = (field) => stints.filter((stint) => stint[field] != null)
+  const sumMeasured = (field) => {
+    const rows = measured(field)
+    if (!rows.length) return stints.length ? null : 0
+    return rows.reduce((total, stint) => total + Number(stint[field] || 0), 0)
+  }
+  const inningsRows = measured('innings_pitched')
+  const totalOuts = inningsRows.reduce((total, stint) => total + outsFromInningsPitched(stint.innings_pitched), 0)
+  const innings = inningsRows.length ? inningsPitchedFromOuts(totalOuts) : (stints.length ? null : 0)
   const inningsDecimal = totalOuts / 3
-  const earnedRuns = stints.reduce((total, stint) => total + (stint.earned_runs || 0), 0)
-  const runsAllowed = stints.reduce((total, stint) => total + (stint.runs_allowed || 0), 0)
-  const hitsAllowed = stints.reduce((total, stint) => total + (stint.hits_allowed || 0), 0)
-  const walks = stints.reduce((total, stint) => total + (stint.walks || 0), 0)
-  const strikeouts = stints.reduce((total, stint) => total + (stint.strikeouts || 0), 0)
-  const homeRunsAllowed = stints.reduce((total, stint) => total + (stint.hr_allowed || 0), 0)
+  const earnedRuns = sumMeasured('earned_runs')
+  const runsAllowed = sumMeasured('runs_allowed')
+  const hitsAllowed = sumMeasured('hits_allowed')
+  const walks = sumMeasured('walks')
+  const strikeouts = sumMeasured('strikeouts')
+  const homeRunsAllowed = sumMeasured('hr_allowed')
   const derivedAwards = aggregation === 'flags'
     ? null
     : derivePitchingGameAwards(stints, allGameStints, aggregation)
 
   return {
-    games: new Set(stints.map((stint) => stint.game_id)).size,
+    games: new Set(stints.map(getStatGameKey)).size,
     innings,
     wins: stints.filter((stint) => stint.win).length,
     losses: stints.filter((stint) => stint.loss).length,
@@ -249,10 +274,13 @@ export function summarizePitching(stints = [], options = {}) {
     earnedRuns,
     walks,
     homeRunsAllowed,
-    era: inningsDecimal ? (earnedRuns * 3) / inningsDecimal : 0,
-    whip: inningsDecimal ? (hitsAllowed + walks) / inningsDecimal : 0,
-    kPer3: inningsDecimal ? (strikeouts * 3) / inningsDecimal : 0,
-    hrPer3: inningsDecimal ? (homeRunsAllowed * 3) / inningsDecimal : 0
+    era: inningsDecimal && earnedRuns != null ? (earnedRuns * 3) / inningsDecimal : (earnedRuns == null ? null : 0),
+    whip: inningsDecimal && hitsAllowed != null && walks != null ? (hitsAllowed + walks) / inningsDecimal : (hitsAllowed == null || walks == null ? null : 0),
+    kPer3: inningsDecimal && strikeouts != null ? (strikeouts * 3) / inningsDecimal : (strikeouts == null ? null : 0),
+    hrPer3: inningsDecimal && homeRunsAllowed != null ? (homeRunsAllowed * 3) / inningsDecimal : (homeRunsAllowed == null ? null : 0),
+    coverage: Object.fromEntries([
+      'innings_pitched', 'earned_runs', 'runs_allowed', 'hits_allowed', 'walks', 'strikeouts', 'hr_allowed',
+    ].map((field) => [field, { measured: measured(field).length, total: stints.length }])),
   }
 }
 
@@ -460,34 +488,40 @@ export function summarizeStarHits(plateAppearances = []) {
   // star_hit_connected is tracked as its own flag (set true by Scorebook's pitch-by-pitch FOUL/
   // IN-PLAY handlers), which historically could go unset on rows saved through other paths (e.g.
   // outcome-button shortcuts) — leaving "0% contact, nonzero success" rows where a hit was logged
-  // without contact ever being marked. A batted-ball result is proof of contact on its own, so
-  // treat it as connected even if the flag itself is missing/stale.
-  const connected = used.filter((pa) => pa.star_hit_connected || battedBallResults.has(pa.result))
-  const successful = used.filter(isCreditedHit)
+  // without contact ever being marked. A missing flag keeps that legacy fallback; explicit false
+  // means the star attempt missed and a later ordinary swing produced the plate appearance result.
+  const connected = used.filter((pa) => pa.star_hit_connected === true
+    || (pa.star_hit_connected == null && battedBallResults.has(pa.result)))
+  const successful = connected.filter(isCreditedHit)
   // Uses the PA's own credited RBI rather than the separate star_hit_rbi column — a data-entry
   // bug in Scorebook's runner-resolution flow (hits needing base assignment, e.g. singles/doubles)
   // leaves star_hit_rbi at 0 even when the play drove in a run, while the PA's real `rbi` field is
   // correct. Since `used` is already filtered to star_hit_used PAs, any RBI credited on one of them
   // happened during that star hit by definition.
-  const totalRbi = used.reduce((sum, pa) => sum + getCreditedRbiForPa(pa), 0)
+  const totalRbi = connected.reduce((sum, pa) => sum + getCreditedRbiForPa(pa), 0)
   // K and BB/HBP are broken out from the generic 'Out' bucket so the table doesn't hide that a
   // star hit attempt ended in a strikeout or a walk rather than a fielded out — they used to all
   // get lumped into 'Out' (and a walk isn't even an out), which hid part of the picture.
   const resultBreakdown = ['1B', '2B', '3B', 'HR', 'K', 'BB', 'Out', 'Error'].reduce((acc, result) => {
     acc[result] = used.filter((pa) => {
-      const derivedResult = pa.star_hit_result || (
-        pa.is_error ? 'Error'
-          : isCreditedHit(pa) ? pa.result
-            : pa.result === 'K' ? 'K'
-              : (pa.result === 'BB' || pa.result === 'HBP') ? 'BB'
-                : 'Out'
-      )
+      const derivedResult = pa.star_hit_result
+        || (pa.star_hit_connected === false
+          ? (pa.result === 'K' ? 'K' : 'Out')
+          : pa.is_error ? 'Error'
+            : isCreditedHit(pa) ? pa.result
+              : pa.result === 'K' ? 'K'
+                : (pa.result === 'BB' || pa.result === 'HBP') ? 'BB'
+                  : 'Out')
       const normalizedResult = derivedResult === 'IPHR' ? 'HR' : derivedResult
       return normalizedResult === result
     }).length
     return acc
   }, {})
-  const slashLine = summarizeBatting(used)
+  const slashLine = summarizeBatting(used.map((pa) => (
+    pa.star_hit_connected === false && pa.result !== 'K'
+      ? { ...pa, result: 'GO', is_error: false, rbi: 0, run_scored: false }
+      : pa
+  )))
   slashLine.ops = slashLine.obp + slashLine.slg
   return {
     used: used.length,
@@ -499,11 +533,11 @@ export function summarizeStarHits(plateAppearances = []) {
     avgRbiPerUse: used.length ? totalRbi / used.length : 0,
     resultBreakdown,
     slashLine,
-    avgExitVelo: averageOf(used, 'exit_velocity_mph'),
-    maxExitVelo: maxOf(used, 'exit_velocity_mph'),
-    avgLaunchAngle: averageOf(used, 'launch_angle_deg'),
-    avgDistance: averageOf(used, 'hit_distance_ft'),
-    maxDistance: maxOf(used, 'hit_distance_ft'),
+    avgExitVelo: averageOf(connected, 'exit_velocity_mph'),
+    maxExitVelo: maxOf(connected, 'exit_velocity_mph'),
+    avgLaunchAngle: averageOf(connected, 'launch_angle_deg'),
+    avgDistance: averageOf(connected, 'hit_distance_ft'),
+    maxDistance: maxOf(connected, 'hit_distance_ft'),
   }
 }
 
@@ -575,6 +609,19 @@ export function summarizeStarPitching(plateAppearances = [], pitches = []) {
 export function summarizePitchMix(plateAppearances = [], pitches = []) {
   const total = pitches.length
   const strikes = pitches.filter((pitch) => ['swinging_miss', 'looking', 'strike_unknown', 'foul', 'in_play'].includes(pitch.result)).length
+  const tracked = pitches.filter((pitch) => (
+    pitch.pitch_speed_mph != null && Number.isFinite(Number(pitch.pitch_speed_mph))
+  ))
+  const averageTracked = (key, { absolute = false } = {}) => {
+    const values = tracked
+      .filter((pitch) => pitch[key] != null && Number.isFinite(Number(pitch[key])))
+      .map((pitch) => absolute ? Math.abs(Number(pitch[key])) : Number(pitch[key]))
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+  }
+  const pitchTypeCounts = ['fastball', 'curveball', 'knuckleball', 'changeup'].reduce((counts, type) => {
+    counts[type] = pitches.filter((pitch) => pitch.pitch_type === type).length
+    return counts
+  }, {})
   const firstPitchStrikes = plateAppearances.length
     ? pitches.filter((pitch) => pitch.count_balls_before === 0 && pitch.count_strikes_before === 0 && pitch.result !== 'ball' && pitch.result !== 'hbp').length / plateAppearances.length
     : 0
@@ -588,6 +635,13 @@ export function summarizePitchMix(plateAppearances = [], pitches = []) {
     firstPitchStrikeRate: firstPitchStrikes,
     pitchesPerInning: 0,
     pitchesPerBatter: plateAppearances.length ? total / plateAppearances.length : 0,
+    trackedPitches: tracked.length,
+    trackingCoverage: total ? tracked.length / total : null,
+    averageVelocityMph: averageTracked('pitch_speed_mph'),
+    maxVelocityMph: tracked.length ? Math.max(...tracked.map((pitch) => Number(pitch.pitch_speed_mph))) : null,
+    averageHorizontalMovementUnits: averageTracked('pitch_horizontal_chord_deviation_units', { absolute: true }),
+    averageVerticalMovementUnits: averageTracked('pitch_vertical_chord_deviation_units', { absolute: true }),
+    pitchTypeCounts,
   }
 }
 
@@ -1646,15 +1700,6 @@ export function buildHeadToHead(games = [], playerOneId, playerTwoId) {
 // which can't see an out that happened to a runner other than the batter
 // (e.g. a 1B where a preceding runner is thrown out stretching for an extra
 // base: the batter's own result is a hit, but a real out still occurred).
-export function calculateOutsForPa(result, outsOnPlay = null) {
-  if (outsOnPlay != null) return Number(outsOnPlay)
-  if (result === 'TP') return 3
-  if (result === 'DP') return 2
-  if (result === 'FC') return 1  // lead runner is out; batter reaches safely
-  if (outResults.has(result)) return 1
-  return 0
-}
-
 // League constants for 3-inning / 9-out games.
 export function computeLeagueConstants(allPAs = [], allStints = []) {
   const totalPA = allPAs.length || 1
@@ -1920,22 +1965,35 @@ export function abbreviateSeasonName(name) {
 // plateAppearances (e.g. from fieldingHistory/allTimeFielding, already aggregated elsewhere).
 // position: numeric position code (1-9, matching POSITION_LABELS) the runs-above-average
 // positional adjustment should be applied for — omit to skip Rpos (e.g. pitchers batting).
+// baserunningRuns/fieldingRuns: opportunity-model outputs from advancedDefense.js. When present,
+// these replace the legacy zero-baserunning and range/error fallbacks below.
 // rangeRuns: this character's summarizeFieldingRange() total (fieldingRange.js), already in the
 // same "runs" unit as everything else here — pass it whenever it's available (it qualifies, i.e.
 // enough rangeable chances were recorded) to use it as Rfield instead of the cruder error-rate-only
 // formula below, which has no concept of how hard a chance was to reach in the first place. Omit
 // (or pass null) to fall back to the error-rate formula, e.g. for scopes too small for Range Runs
 // to qualify.
-export function summarizeValueBatting(plateAppearances = [], leagueConstants = {}, { chances = 0, errors = 0, position = null, rangeRuns = null } = {}) {
+export function summarizeValueBatting(plateAppearances = [], leagueConstants = {}, {
+  chances = 0,
+  errors = 0,
+  position = null,
+  rangeRuns = null,
+  fieldingRuns = null,
+  baserunningRuns = null,
+} = {}) {
   const { lgwOBA = 0.320, lgFieldPct = 0.95 } = leagueConstants
   const pa = plateAppearances.length
   const { woba } = summarizeAdvancedBatting(plateAppearances, leagueConstants)
 
   const rbat = pa > 0 ? ((woba - lgwOBA) / WOBA_SCALE) * pa : 0
-  const rbaser = 0 // no stolen-base/caught-stealing event data exists to derive this from
+  const rbaser = baserunningRuns != null ? Number(baserunningRuns) : 0
 
   const fieldPct = chances > 0 ? (chances - errors) / chances : lgFieldPct
-  const rfield = rangeRuns != null ? rangeRuns : (chances > 0 ? (fieldPct - lgFieldPct) * chances * 3 : 0)
+  const rfield = fieldingRuns != null
+    ? Number(fieldingRuns)
+    : rangeRuns != null
+      ? rangeRuns
+      : (chances > 0 ? (fieldPct - lgFieldPct) * chances * 3 : 0)
 
   const rpos = (position != null && POSITION_ADJUSTMENTS_PER_100_PA[position] != null)
     ? (POSITION_ADJUSTMENTS_PER_100_PA[position] * (pa / 100))
@@ -1949,6 +2007,10 @@ export function summarizeValueBatting(plateAppearances = [], leagueConstants = {
   return { rbat: round2(rbat), rbaser: round2(rbaser), rfield: round2(rfield), rpos: round2(rpos), raa: round2(raa), waa: round2(waa), rar: round2(rar), war: round2(war) }
 }
 
+// Team Defensive Efficiency Ratio: the share of fieldable balls in play on
+// which the defense recorded at least one out. Strikeouts, walks, HBP, and
+// over-the-fence/home-run results never enter the denominator; reached-on-error
+// remains a failed conversion rather than disappearing from the sample.
 // ─── Splits (home/away, regular season vs postseason, vs L/R) ───────────────────────────────
 // Tags each PA with isHome/isPostseason from the same game/season_schedule metadata already
 // used for franchise history + game logs (useTeamProfileData). Tournament games have no explicit
@@ -1984,9 +2046,14 @@ export function tagPasWithGameContext(tournamentPas = [], seasonPas = [], { game
 }
 
 export function buildPitchParticipantIndex(pitches = []) {
-  return pitches.reduce((index, pitch) => {
+  const orderedPitches = dedupeStatRows(pitches, 'pitches').sort((a, b) => (
+    Number(a.pitch_number_pa || 0) - Number(b.pitch_number_pa || 0)
+    || new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    || Number(a.id || 0) - Number(b.id || 0)
+  ))
+  return orderedPitches.reduce((index, pitch) => {
     if (pitch?.pa_id == null) return index
-    const key = String(pitch.pa_id)
+    const key = getStatPaKey(pitch)
     const current = index[key] || {}
     index[key] = {
       pitcherName: pitch.pitcher_id || current.pitcherName || null,
@@ -2068,7 +2135,7 @@ export function enrichPasWithPitchingContext(
     let pitcherId = pa.pitcher_id ?? null
 
     if (pitcherId == null) {
-      const pitchPitcherName = pitchParticipantsByPaId[String(pa.id)]?.pitcherName
+      const pitchPitcherName = pitchParticipantsByPaId[getStatPaKey(pa)]?.pitcherName
       if (pitchPitcherName) pitcherId = charactersByName[pitchPitcherName]?.id ?? null
     }
 

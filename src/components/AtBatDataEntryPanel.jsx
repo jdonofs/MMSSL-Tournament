@@ -17,6 +17,7 @@ const TRAJECTORY_OPTIONS = ['G', 'L', 'F', 'B']
 const PITCH_TYPE_OPTIONS = [
   { value: 'fastball', label: 'Fastball' },
   { value: 'curveball', label: 'Curveball' },
+  { value: 'knuckleball', label: 'Knuckleball' },
   { value: 'changeup', label: 'Changeup' },
 ]
 // Star pitch is tracked on its own is_star_pitch column, not pitch_type — but

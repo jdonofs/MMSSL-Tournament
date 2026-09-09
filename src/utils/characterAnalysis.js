@@ -1,4 +1,5 @@
 import talentProfiles from '../data/characterTalentProfiles.json'
+import { characterNameKey } from './characterNames.js'
 import { buildCharacterIntrinsics } from './statsCalculator'
 import { getChemistry } from '../data/chemistry'
 import { isMiiCharacter } from './mii'
@@ -47,11 +48,19 @@ export function normalizeCharacterTalentKey(name = '') {
     .trim()
 }
 
-const TALENT_KEY_ALIASES = {
-  'koopa':            'koopa troopa',
-  'paratroopa':       'koopa paratroopa',
-  'red koopa':        'red koopa troopa',
-  'green paratroopa': 'green koopa paratroopa',
+// The four aliases this file used to keep of its own ("koopa" -> "koopa
+// troopa" and three like it) are now four of the eleven in
+// src/utils/characterNames.js, reached through talentKeyForName below. The
+// profile table is keyed in the game's vocabulary; callers ask in the site's.
+const TALENT_KEY_BY_NAME_KEY = new Map(
+  Object.keys(talentProfiles).map((name) => [characterNameKey(name), normalizeCharacterTalentKey(name)]),
+)
+
+/** The profile table's key for a name in any vocabulary, or ''. */
+function talentKeyForName(name) {
+  const direct = normalizeCharacterTalentKey(name)
+  if (talentProfilesByKey[direct]) return direct
+  return TALENT_KEY_BY_NAME_KEY.get(characterNameKey(name)) || ''
 }
 
 function resolveCharacterTalentKey(character) {
@@ -60,7 +69,7 @@ function resolveCharacterTalentKey(character) {
   const directKey = normalizeCharacterTalentKey(character.name)
   if (talentProfilesByKey[directKey]) return directKey
 
-  const aliasKey = normalizeCharacterTalentKey(TALENT_KEY_ALIASES[directKey] || '')
+  const aliasKey = talentKeyForName(character.name)
   if (aliasKey && talentProfilesByKey[aliasKey]) return aliasKey
 
   if (isMiiCharacter(character)) {
@@ -413,12 +422,15 @@ function isTierReferenceProfileKey(key = '') {
 }
 
 export function getCharacterTalentProfile(name) {
-  return talentProfilesByKey[normalizeCharacterTalentKey(name)] || null
+  return talentProfilesByKey[talentKeyForName(name)] || null
 }
 
 function partnerStrength(partnerName) {
+  // CHEMISTRY_NAME_MAP still decides which member of a family stands in for the
+  // family ("pianta" means the blue one); talentKeyForName then handles the
+  // spelling, which is what the map was quietly doing for "koopa" alone.
   let key = normalizeCharacterTalentKey(partnerName)
-  key = CHEMISTRY_NAME_MAP[key] || key
+  key = CHEMISTRY_NAME_MAP[key] || talentKeyForName(partnerName) || key
   const p = talentProfilesByKey[key]
   if (!p) return null
   // Use batting + pitching average as proxy for how impactful a partner is

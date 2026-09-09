@@ -1,17 +1,16 @@
 """Record ball coordinates during play so each park's real fence can be measured.
 
-The stadium geometry the spray charts use (wallRefs in
-tracker_field_projection.mjs) is three hand-tapped points per park -- LF pole,
-CF, RF pole -- with `dist` values of unknown provenance, and everything between
-those three angles is linear interpolation. That models a real fence curve as
-two straight chords, and it is why hit_x/hit_y, estimateTrackerWallDistance and
-the robbed-home-run check are all approximate.
+The original stadium geometry used three hand-tapped points per park -- LF
+pole, CF, RF pole -- and interpolated between them. Measured parks now keep a
+dense world-coordinate fence in parkGeometry.js and derive the three artwork
+references from it; this collector is how the remaining parks can be moved to
+the same measured path.
 
 The ball's own coordinates can settle it. A ball that strikes the wall stops
 being a guess about the fence and becomes a measurement of it, in the same
 world units every tracked distance already uses -- so the fence and the hit
-distances end up on one scale by construction, whatever a "foot" turns out to
-be worth.
+distances end up on one scale by construction. World units are metres; feet are
+only a display conversion at the edge.
 
 This script is deliberately a separate Dolphin reader rather than another
 patch to the tracker executable: no rebuild/verify cycle, nothing that can
@@ -49,7 +48,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from probe_ball_memory import BALL_POINTER_SLOT, FALLBACK_OFFSET, hook, resolve_offset
+from probe_ball_memory import (
+    BALL_POINTER_SLOT,
+    FALLBACK_OFFSET,
+    hook,
+    plausible_position,
+    resolve_offset,
+)
 
 # Matches the park keys in tracker_field_projection.mjs. Restricting the flag to
 # this list keeps a typo from quietly starting a session whose samples no
@@ -66,6 +71,15 @@ PARK_KEYS = (
     "luigis_mansion",
     "generic_field",
 )
+
+# Matches derive_fence_geometry.py. Only ever used to label the live readout --
+# every stored sample stays in units -- but the label has to be right, because
+# placing presses adaptively means comparing it against a park's reference
+# distances while still out on the field. World coordinates use metres: the
+# measured base paths cluster around 27u, and raw flight gravity is 9.9316u/s^2.
+METERS_PER_UNIT = 1.0
+FEET_PER_METER = 3.280839895013123
+FEET_PER_UNIT = METERS_PER_UNIT * FEET_PER_METER
 
 SAMPLE_HZ = 120
 # While a hold is in progress the coordinates stop changing; write anyway at
@@ -248,6 +262,48 @@ def open_writer(park: str, mode: str):
     return path, handle, writer
 
 
+def lock_offset(dme) -> int:
+    """Block until the coordinate offset is known good, before any recording.
+
+    The offset is chosen PER STADIUM LOAD, not once per build -- switching
+    parks moves it (Bowser Castle came up 0x558 against a 0x720 seed), so
+    FALLBACK_OFFSET is wrong more often than right and there is nothing to
+    "update" it to.
+
+    resolve_offset() only matches at a pitch reset, and a press or landmark
+    session never returns to one -- the ball is carried from the first press to
+    the last. So starting mid-play silently takes the stale fallback and reads
+    (0, 0, 0) forever: a full Bowser Castle session wrote 4301 all-zero rows
+    with nothing printed and nothing raised. Waiting a few seconds here for a
+    real signature match is the whole cost of never doing that again.
+    """
+    warned = False
+    while True:
+        try:
+            pointer = int.from_bytes(dme.read_bytes(BALL_POINTER_SLOT, 4), "big")
+            if pointer:
+                offset = resolve_offset(dme, pointer)
+                if offset is not None:
+                    x, y, z = struct.unpack(">fff", dme.read_bytes(pointer + offset, 12))
+                    if plausible_position(x, y, z):
+                        print(f"coordinate offset  0x{offset:03X}  (pitch-reset signature)")
+                        if offset != FALLBACK_OFFSET:
+                            print(
+                                f"                   differs from the 0x{FALLBACK_OFFSET:03X} seed"
+                                f" -- expected, the offset is chosen per\n"
+                                f"                   stadium load. Nothing to update; the tracker"
+                                f" exe resolves it the same way."
+                            )
+                        return offset
+        except Exception:
+            pass
+        if not warned:
+            print("\nWaiting for a pitch reset to calibrate -- stand at the plate between")
+            print("pitches with the ball on the mound. Recording starts once it locks.")
+            warned = True
+        time.sleep(0.25)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -280,6 +336,7 @@ def main() -> int:
     print(f"park     {args.park}")
     print(f"mode     {args.mode}")
     print(f"writing  {path}")
+    locked_offset = lock_offset(dme)
     if args.mode == "landmark":
         print("\nCarry the ball and stand still on each landmark in turn -- home plate,")
         print("first, second, third, the pitcher's rubber. Hold about a second on each.")
@@ -295,7 +352,7 @@ def main() -> int:
         print("holding it. Watch samples= climb to confirm the ball is tracking you.")
         print("Keep the run continuous; the coverage bar fills as you go. Ctrl-C when done.\n")
 
-    coordinate_offset = None
+    coordinate_offset = locked_offset
     last_coordinates = None
     last_change_ns = time.perf_counter_ns()
     last_write_ns = 0
@@ -317,7 +374,11 @@ def main() -> int:
                 # builds/loads, so it is found from the pitch-reset signature
                 # rather than hardcoded, and re-found if the feed freezes.
                 if coordinate_offset is None:
-                    coordinate_offset = resolve_offset(dme, pointer) or FALLBACK_OFFSET
+                    # Falls back to the offset locked at startup, not the
+                    # module constant: the constant is the value that was
+                    # already proven stale, and re-taking it mid-session would
+                    # turn a recoverable freeze into silent zeros.
+                    coordinate_offset = resolve_offset(dme, pointer) or locked_offset
                 raw = dme.read_bytes(pointer + coordinate_offset, 12)
                 x, y, z = struct.unpack(">fff", raw)
             except Exception:
@@ -371,7 +432,7 @@ def main() -> int:
                         print(
                             f"  press #{wall_hits:<3} angle={press_angle:+6.1f}deg"
                             f"  radius={press_radius:6.2f}u"
-                            f"  ({press_radius * 3:5.1f} ft)"
+                            f"  ({press_radius * FEET_PER_UNIT:5.1f} ft)"
                             f"  n={held_samples}"
                         )
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Gauge } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import {
   buildCharacterIntrinsics,
@@ -32,23 +32,27 @@ import {
   summarizeHitDistance,
   wouldBeHrElsewhere,
 } from '../utils/hitDistanceStats'
-import { summarizeExpectedBatting } from '../utils/expectedStats'
+import { summarizeExpectedBatting, summarizeExpectedPitching } from '../utils/expectedStats'
+import { MIN_RANGE_CHANCES } from '../utils/fieldingRange'
+import { buildScopeOptions, getHistoryEntryLabel, sortHistoryEntries } from '../utils/characterScopes'
+import { selectPitchesForPlateAppearances } from '../utils/statReconciliation'
 import useCharacterProfileData from '../hooks/useCharacterProfileData'
+import useCharacterMetaFallback from '../hooks/useCharacterMeta'
 import useCharacterExtras from '../hooks/useCharacterExtras'
 import useLoggedInRosterNames from '../hooks/useLoggedInRosterNames'
 import CharacterPortrait from '../components/CharacterPortrait'
 import StatIcon from '../components/StatIcon'
 import PlayerTag from '../components/PlayerTag'
 import TeamLogo from '../components/TeamLogo'
-import SprayChart from '../components/SprayChart'
-import RollingStatChart from '../components/RollingStatChart'
 import EntityPageSidebar from '../components/EntityPageSidebar'
 import StatTable from '../components/StatTable'
 import StatLabel from '../components/StatLabel'
+import StatFallbackLegend from '../components/StatFallbackLegend'
 import AdvancedStatsPanel from '../components/AdvancedStatsPanel'
 import { chemBreakdown, getChemistry, isChemistryNameOnRoster } from '../data/chemistry'
 import { getTeamShortName, getTeamAbbreviation, buildSeasonTeamIdentity, buildPlayerTeamIdentity } from '../utils/teamIdentity'
 import { buildScorebookPath } from '../utils/scorebookRouting'
+import '../styles/stats-pages.css'
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
 
@@ -63,25 +67,7 @@ function formatPercent(value, digits = 0, fallback = '-') {
 }
 
 function selectPitchesForPas(pitches = [], plateAppearances = []) {
-  const seasonPaKeys = new Set()
-  const tournamentPaKeys = new Set()
-  plateAppearances.forEach((pa) => {
-    if (pa?.id == null) return
-    const key = `${String(pa.game_id)}:${String(pa.id)}`
-    if (pa.season_id != null) seasonPaKeys.add(key)
-    else tournamentPaKeys.add(key)
-  })
-  if (!seasonPaKeys.size && !tournamentPaKeys.size) return []
-  return pitches.filter((pitch) => {
-    if (pitch?.pa_id == null) return false
-    const key = `${String(pitch.game_id)}:${String(pitch.pa_id)}`
-    return pitch.season_id != null ? seasonPaKeys.has(key) : tournamentPaKeys.has(key)
-  })
-}
-function formatSignedInt(value) {
-  if (!Number.isFinite(value)) return '—'
-  const sign = value > 0 ? '+' : ''
-  return `${sign}${value}`
+  return selectPitchesForPlateAppearances(pitches, plateAppearances)
 }
 
 // ─── Style helpers ────────────────────────────────────────────────────────────
@@ -110,16 +96,6 @@ function getCharacterClassAccent(characterClass) {
 function isPitchingAllZero(p) {
   return !hasPitchingStatLine(p)
 }
-function getHistoryEntryLabel(entry = {}) {
-  if (entry.sourceLabel) return entry.sourceLabel
-  if (entry.eventType === 'tournament') return `MST ${entry.eventNumber}`
-  if (entry.eventType === 'season') return String(entry.eventNumber)
-  return entry.tournamentNumber ? `MST ${entry.tournamentNumber}` : 'Unknown'
-}
-function sortHistoryEntries(a, b) {
-  if ((a.sortGroup || 0) !== (b.sortGroup || 0)) return (a.sortGroup || 0) - (b.sortGroup || 0)
-  return (b.sortValue || 0) - (a.sortValue || 0)
-}
 function allZeroPct(...rates) {
   return rates.every((r) => !r || r === 0)
 }
@@ -132,15 +108,6 @@ function matchesScope(entry, scope) {
   const entryType = entry.eventType || entry.sourceType
   const entryId = entry.eventId ?? entry.tournamentId ?? entry.seasonId
   return entryType === scope.type && String(entryId) === String(scope.id)
-}
-
-// The population max/min (computed once, roster/game-wide) and a character's own displayed value
-// can come from slightly different history scopes (see useCharacterExtras vs useCharacterProfileData),
-// so a character who genuinely IS the league's best can still land a hair above the computed max.
-// Floor the scale to the character's own value so their bar can always reach 100% when they're it.
-function floorMax(populationMax, value, fallback = 100) {
-  const base = Number.isFinite(populationMax) ? populationMax : fallback
-  return Number.isFinite(value) ? Math.max(base, value) : base
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -213,24 +180,10 @@ function MetricList({ items = [] }) {
   )
 }
 
-function SkillSectionCard({ title, score, scoreMin = 0, scoreMedian, scoreMax = 100, items }) {
-  return (
-    <div style={{ borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', padding: '0.7rem 0.8rem', display: 'grid', gap: 8 }}>
-      <div style={{ display: 'grid', gap: 5 }}>
-        <div style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em' }}>{title}</div>
-        <ScoreBar label={`${title} Score`} value={Math.round(score)} min={scoreMin} median={scoreMedian ?? 50} max={scoreMax} />
-      </div>
-      <MetricList items={items} />
-    </div>
-  )
-}
-
 function StarIcon({ size = 12 }) {
   return <img src="/Star.png" alt="Star" style={{ height: size, width: size, verticalAlign: 'middle', display: 'inline-block' }} />
 }
 
-// One team-ownership chip: logo + team name + the event it was for, linking to that team's
-// page for that specific season/tournament (not just whichever team currently owns them).
 function TeamHistoryChip({ row }) {
   const name = getTeamShortName(row.identity) || row.playerName || 'Unknown'
   return (
@@ -341,15 +294,16 @@ function FieldingRangeTable({ fieldingRangeByPosition }) {
             <tr key={row.position}>
               <td>{POSITION_LABELS[Number(row.position)] || row.position}</td>
               <td>{row.chances}</td>
-              <td>{row.qualifies ? row.actualConversions : '—'}</td>
-              <td>{row.qualifies ? row.expectedConversions : '—'}</td>
-              <td>{row.qualifies && row.rangeRuns != null ? (row.rangeRuns > 0 ? `+${row.rangeRuns}` : row.rangeRuns) : '—'}</td>
-              <td>{row.qualifies && row.rangeFactorPlus != null ? row.rangeFactorPlus : '—'}</td>
-              <td>{row.qualifies && row.confidence != null ? `${row.confidence}%` : '—'}</td>
+              <td>{row.qualifies ? row.actualConversions : '--'}</td>
+              <td>{row.qualifies ? row.expectedConversions : '--'}</td>
+              <td>{row.qualifies && row.rangeRuns != null ? (row.rangeRuns > 0 ? `+${row.rangeRuns}` : row.rangeRuns) : '--'}</td>
+              <td>{row.qualifies && row.rangeFactorPlus != null ? row.rangeFactorPlus : '--'}</td>
+              <td>{row.qualifies && row.confidence != null ? `${row.confidence}%` : '--'}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      <StatFallbackLegend note={`Range stats need at least ${MIN_RANGE_CHANCES} rangeable chances at a position.`} />
     </div>
   )
 }
@@ -365,7 +319,6 @@ function Section({ id, title, subtitle, children }) {
 }
 
 const SECTION_LINKS = [
-  { id: 'overview', label: 'Overview' },
   { id: 'stats', label: 'Standard Stats' },
   { id: 'value', label: 'Value Batting' },
   { id: 'advanced-stats', label: 'Advanced Stats' },
@@ -378,7 +331,6 @@ const SECTION_LINKS = [
   { id: 'fielding', label: 'Fielding' },
   { id: 'splits', label: 'Splits' },
   { id: 'park-factors', label: 'Park Factors' },
-  { id: 'chart', label: 'Trends' },
   { id: 'awards', label: 'Awards' },
   { id: 'transactions', label: 'Transactions' },
   { id: 'chemistry', label: 'Chemistry' },
@@ -391,43 +343,6 @@ const BACK_BUTTON_STYLE = {
   justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 6,
   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 8,
   color: '#CBD5E1', padding: '0.4rem 0.75rem', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-}
-
-// ─── Fallback meta fetch (direct URL load / refresh — no router state) ───────
-
-function useCharacterMetaFallback(characterId, hasPreset) {
-  const [meta, setMeta] = useState(null)
-
-  useEffect(() => {
-    if (hasPreset || !characterId) return undefined
-    let cancelled = false
-
-    async function load() {
-      const [{ data: charactersData }, { data: playersData }, { data: draftPicksData }] = await Promise.all([
-        supabase.from('characters').select('*').order('name'),
-        supabase.from('players').select('*'),
-        supabase.from('draft_picks').select('*'),
-      ])
-      if (cancelled) return
-
-      const characters = charactersData || []
-      const allCharactersById = Object.fromEntries(characters.map((c) => [c.name, c]))
-      const character = characters.find((c) => String(c.id) === String(characterId)) || null
-      const playersById = Object.fromEntries((playersData || []).map((p) => [p.id, p]))
-      const picksForCharacter = (draftPicksData || []).filter((p) => String(p.character_id) === String(characterId) && p.player_id)
-      const pick = picksForCharacter[picksForCharacter.length - 1] || null
-      const currentOwner = pick ? { player_id: pick.player_id } : null
-
-      if (!cancelled) {
-        setMeta({ character, allCharactersById, playersById, identitiesByPlayerId: {}, currentOwner })
-      }
-    }
-
-    load()
-    return () => { cancelled = true }
-  }, [characterId, hasPreset])
-
-  return meta
 }
 
 const BACK_TO_STORAGE_PREFIX = 'sluggers-character-back:'
@@ -491,6 +406,7 @@ export default function CharacterPage() {
   const {
     fieldingHistory, allTimeFielding, fieldingByPosition, fieldingHistoryByPosition,
     starHitFieldingHistoryByPosition, fieldingRangeByPosition, parkFactorRows, teamHistory, transactions, awardRows, statMedians, statMaxes, statMins,
+    advancedFielding, advancedBaserunning, advancedValueByEventKey,
   } = extras
 
   const [gamelogStatType, setGamelogStatType] = useState('batting')
@@ -505,6 +421,7 @@ export default function CharacterPage() {
     currentTournamentBatting, currentTournamentPitching, allTimeBatting, allTimePitching,
     allPitches, battingHistory, pitchingHistory, gameHistory, pitchingGameHistory,
     fieldingGameHistory, expectedOutcomeModel, leagueConstants, leagueBattingPas = [], runEvents = [],
+    errorMessage: profileErrorMessage = '',
     tournamentIdByGameId = {},
     playersById: gamelogPlayersById = {}, seasonTeamsById = {},
   } = profileData
@@ -525,15 +442,33 @@ export default function CharacterPage() {
 
   if (!id) return null
 
+  // meta === null means the identity fetch is still in flight; meta with a null character means it
+  // came back and this id isn't a character. Collapsing the two left an unknown/deleted id sitting
+  // on "Loading character…" forever with no way to tell it apart from a slow load.
   if (!character) {
+    const isStillLoading = meta === null
     return (
       <div style={{ display: 'grid', gap: 16 }}>
         <button type="button" onClick={handleBack} style={BACK_BUTTON_STYLE}>
           <ArrowLeft size={16} /> Back
         </button>
-        <section className="panel" style={{ padding: 18 }}>
-          <p className="muted" style={{ margin: 0 }}>Loading character…</p>
-        </section>
+        {isStillLoading ? (
+          <section className="panel entity-status-panel">
+            <h1 className="entity-status-title">Loading character…</h1>
+            <div className="entity-status-progress" />
+          </section>
+        ) : (
+          <section className="panel entity-status-panel entity-status-error">
+            <h1 className="entity-status-title">Character not found</h1>
+            <p className="entity-status-body">
+              No character matches id <strong>{id}</strong>. It may have been removed, or the link may be out of date.
+            </p>
+            <div className="entity-status-actions">
+              <button className="entity-status-button entity-status-button-primary" onClick={handleBack} type="button">Go back</button>
+              <Link className="entity-status-button" to="/stats">Browse all characters</Link>
+            </div>
+          </section>
+        )}
       </div>
     )
   }
@@ -575,31 +510,7 @@ export default function CharacterPage() {
   const teamLabel = (playerId) => getTeamShortName(identitiesByPlayerId[playerId]) || playersById[playerId]?.name || 'Unknown'
 
   // ─── Sidebar: Career + one link per season/tournament this character has data in ──────────
-  const scopeOptionsMap = new Map()
-  battingHistory.forEach((entry) => {
-    const type = entry.eventType
-    const eid = entry.eventId
-    if (!type || eid == null) return
-    const key = `${type}:${eid}`
-    if (!scopeOptionsMap.has(key)) scopeOptionsMap.set(key, { type, id: eid, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue })
-  })
-  pitchingHistory.filter((entry) => (entry.innings || 0) > 0).forEach((entry) => {
-    const type = entry.sourceType
-    const eid = entry.tournamentId ?? entry.seasonId
-    if (!type || eid == null) return
-    const key = `${type}:${eid}`
-    if (!scopeOptionsMap.has(key)) scopeOptionsMap.set(key, { type, id: eid, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue })
-  })
-  // A character who only fielded (no batting PAs, no pitching innings) in an event would
-  // otherwise be missing that event's sidebar link entirely — fieldingHistory covers that case.
-  fieldingHistory.forEach((entry) => {
-    const type = entry.eventType
-    const eid = entry.eventId
-    if (!type || eid == null) return
-    const key = `${type}:${eid}`
-    if (!scopeOptionsMap.has(key)) scopeOptionsMap.set(key, { type, id: eid, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue })
-  })
-  const scopeOptions = [...scopeOptionsMap.values()].sort(sortHistoryEntries)
+  const scopeOptions = buildScopeOptions(battingHistory, pitchingHistory, fieldingHistory)
   const scopeLinks = [
     { to: `/character/${id}/career`, label: 'Career' },
     ...scopeOptions.map((opt) => ({ to: `/character/${id}/${opt.type}/${opt.id}`, label: opt.label })),
@@ -676,8 +587,10 @@ export default function CharacterPage() {
   const primaryPositionCode = appearances.positions[0] ? POSITION_CODES[appearances.positions[0].position] : null
 
   // ─── Year-by-year fielding, broken out by position (Baseball-Reference style) ──────────────
+  // One row per position per event, so the row key has to include the position — eventKey alone
+  // repeats for a character who played several spots in the same season.
   const fieldingHistoryRows = fieldingHistoryByPosition
-    .map((entry) => ({ ...entry, label: getHistoryEntryLabel(entry) }))
+    .map((entry) => ({ ...entry, label: getHistoryEntryLabel(entry), rowKey: `${entry.eventKey || `${entry.eventType}:${entry.eventId}`}:${entry.position}` }))
     .filter((row) => isCareer || matchesScope(row, scope))
     .sort(sortHistoryEntries)
   const fieldingHistoryColumns = [
@@ -695,7 +608,7 @@ export default function CharacterPage() {
   ]
 
   const starHitFieldingHistoryRows = starHitFieldingHistoryByPosition
-    .map((entry) => ({ ...entry, label: getHistoryEntryLabel(entry) }))
+    .map((entry) => ({ ...entry, label: getHistoryEntryLabel(entry), rowKey: `${entry.eventKey || `${entry.eventType}:${entry.eventId}`}:${entry.position}` }))
     .filter((row) => isCareer || matchesScope(row, scope))
     .sort(sortHistoryEntries)
   const starHitFieldingHistoryColumns = [
@@ -711,10 +624,13 @@ export default function CharacterPage() {
   const valueBattingRows = battingHistoryForScope
     .map((entry) => {
       const fieldingForEvent = fieldingByEventKey.get(entry.eventKey)
+      const advancedForEvent = advancedValueByEventKey?.[entry.eventKey]
       const vb = summarizeValueBatting(entry.rawPas || [], leagueConstants, {
         chances: fieldingForEvent?.chances || 0,
         errors: fieldingForEvent?.errors || 0,
         position: primaryPositionCode,
+        fieldingRuns: advancedForEvent?.fieldingRuns ?? null,
+        baserunningRuns: advancedForEvent?.baserunningRuns ?? null,
       })
       const xb = expectedRowFor(entry.rawPas || [])
       return { eventKey: entry.eventKey, eventId: entry.eventId, eventType: entry.eventType, label: getHistoryEntryLabel(entry), sortGroup: entry.sortGroup, sortValue: entry.sortValue, ...vb, ...xb }
@@ -730,11 +646,16 @@ export default function CharacterPage() {
       errors: allTimeFielding?.errors || 0,
       position: primaryPositionCode,
       rangeRuns: fieldingRangeByPosition?.qualifies ? fieldingRangeByPosition.totalRangeRuns : null,
+      fieldingRuns: advancedFielding && (advancedFielding.fieldingOpportunities || advancedFielding.armOpportunities || advancedFielding.doublePlayOpportunities)
+        ? advancedFielding.fieldingRunValue
+        : null,
+      baserunningRuns: advancedBaserunning?.opportunities ? advancedBaserunning.baserunningRunValue : null,
     }),
     ...expectedRowFor(allTimeBatting.rawPas || []),
   } : null
   const valueBattingColumns = [
     ...seasonColumn,
+    { key: 'sampleSize', label: 'BIP', render: (r) => formatInteger(r.sampleSize) },
     { key: 'rbat', label: 'Rbat' },
     { key: 'rbaser', label: 'Rbaser' },
     { key: 'rfield', label: 'Rfield' },
@@ -742,7 +663,7 @@ export default function CharacterPage() {
     { key: 'raa', label: 'RAA' },
     { key: 'waa', label: 'WAA' },
     { key: 'rar', label: 'RAR' },
-    { key: 'war', label: 'WAR' },
+    { key: 'war', label: 'Legacy WAR' },
     { key: 'xBA', label: 'xBA', render: (r) => formatDecimal(r.xBA) },
     { key: 'xSLG', label: 'xSLG', render: (r) => formatDecimal(r.xSLG) },
     { key: 'xwOBA', label: 'xwOBA', render: (r) => formatDecimal(r.xwOBA) },
@@ -766,9 +687,19 @@ export default function CharacterPage() {
     .sort(sortHistoryEntries)
   const advancedBattingCareerRow = isCareer ? { label: 'Career', ...summarizeAdvancedBatting(allTimeBatting.rawPas || [], leagueConstants) } : null
   const advancedPitchingRows = pitchingTableRows
-    .map((entry) => ({ ...pitchingRowMeta(entry), hasInningsPitched: (entry.innings || 0) > 0, ...summarizeAdvancedPitching(entry.rawStints || [], leagueConstants, { plateAppearances: entry.rawPas || [] }) }))
+    .map((entry) => ({
+      ...pitchingRowMeta(entry),
+      hasInningsPitched: (entry.innings || 0) > 0,
+      ...summarizeAdvancedPitching(entry.rawStints || [], leagueConstants, { plateAppearances: entry.rawPas || [] }),
+      ...summarizeExpectedPitching(entry.rawPas || [], expectedOutcomeModel),
+    }))
     .sort(sortHistoryEntries)
-  const advancedPitchingCareerRow = isCareer ? { label: 'Career', hasInningsPitched: (allTimePitching.innings || 0) > 0, ...summarizeAdvancedPitching(allTimePitching.rawStints || [], leagueConstants, { plateAppearances: allTimePitching.rawPas || [] }) } : null
+  const advancedPitchingCareerRow = isCareer ? {
+    label: 'Career',
+    hasInningsPitched: (allTimePitching.innings || 0) > 0,
+    ...summarizeAdvancedPitching(allTimePitching.rawStints || [], leagueConstants, { plateAppearances: allTimePitching.rawPas || [] }),
+    ...summarizeExpectedPitching(allTimePitching.rawPas || [], expectedOutcomeModel),
+  } : null
 
   // Star Hit (batting) — resultBreakdown/slashLine come along nested on each row from summarizeStarHits
   const starHitRows = battingHistoryForScope
@@ -1081,29 +1012,6 @@ export default function CharacterPage() {
     { label: 'vs LHB', eventType: null, ...pitchingSplits.vsLHB },
   ]
 
-  const battingSkillItems = talentAnalysis ? [
-    { key: 'power', label: 'Power', value: talentAnalysis.rawMetrics?.batting?.power, min: statMins?.power ?? 0, median: statMedians?.power ?? 50, digits: 1, max: floorMax(statMaxes?.power, talentAnalysis.rawMetrics?.batting?.power) },
-    { key: 'contact', label: 'Contact', value: talentAnalysis.rawMetrics?.batting?.contact, min: statMins?.contact ?? 0, median: statMedians?.contact ?? 50, digits: 1, max: floorMax(statMaxes?.contact, talentAnalysis.rawMetrics?.batting?.contact) },
-    { key: 'plateCoverage', label: 'Plate Coverage', value: talentAnalysis.rawMetrics?.batting?.plateCoverage, min: statMins?.plateCoverage ?? 0, median: statMedians?.plateCoverage ?? 50, max: floorMax(statMaxes?.plateCoverage, talentAnalysis.rawMetrics?.batting?.plateCoverage) },
-    { key: 'contactPerfectWindow', label: 'Contact Window', value: talentAnalysis.rawMetrics?.batting?.contactPerfectWindow, min: statMins?.contactPerfectWindow ?? 0, median: statMedians?.contactPerfectWindow ?? 50, max: floorMax(statMaxes?.contactPerfectWindow, talentAnalysis.rawMetrics?.batting?.contactPerfectWindow) },
-    { key: 'baserunning', label: 'Baserunning', value: talentAnalysis.rawMetrics?.batting?.baserunning, min: statMins?.baserunning ?? 0, median: statMedians?.baserunning ?? 50, digits: 1, max: floorMax(statMaxes?.baserunning, talentAnalysis.rawMetrics?.batting?.baserunning) },
-  ] : []
-  const pitchingSkillItems = talentAnalysis ? [
-    { key: 'velocity', label: 'Velocity', value: talentAnalysis.rawMetrics?.pitching?.velocity, min: statMins?.velocity ?? 0, median: statMedians?.velocity ?? 50, digits: 1, max: floorMax(statMaxes?.velocity, talentAnalysis.rawMetrics?.pitching?.velocity) },
-    { key: 'curve', label: 'Curve', value: talentAnalysis.rawMetrics?.pitching?.curve, min: statMins?.curve ?? 0, median: statMedians?.curve ?? 50, max: floorMax(statMaxes?.curve, talentAnalysis.rawMetrics?.pitching?.curve) },
-    { key: 'staminaMetric', label: 'Stamina', value: talentAnalysis.rawMetrics?.pitching?.stamina, min: statMins?.staminaMetric ?? 0, median: statMedians?.staminaMetric ?? 50, max: floorMax(statMaxes?.staminaMetric, talentAnalysis.rawMetrics?.pitching?.stamina) },
-    { key: 'velocityIndex', label: 'Velocity Index', value: effectiveIntrinsics.velocityIndex, min: statMins?.velocityIndex ?? 0, median: statMedians?.velocityIndex ?? 80, max: floorMax(statMaxes?.velocityIndex, effectiveIntrinsics.velocityIndex, 160) },
-    { key: 'breakIndex', label: 'Break Index', value: effectiveIntrinsics.breakIndex, min: statMins?.breakIndex ?? 0, median: statMedians?.breakIndex ?? 50, max: floorMax(statMaxes?.breakIndex, effectiveIntrinsics.breakIndex) },
-    { key: 'staminaRaw', label: 'Raw Stamina', value: effectiveIntrinsics.stamina, min: statMins?.stamina ?? 0, median: statMedians?.stamina ?? 50, max: floorMax(statMaxes?.stamina, effectiveIntrinsics.stamina) },
-  ] : []
-  const fieldingSkillItems = talentAnalysis ? [
-    { key: 'catchCoverage', label: 'Catch Coverage', value: talentAnalysis.rawMetrics?.fielding?.catchCoverage, min: statMins?.catchCoverage ?? 0, median: statMedians?.catchCoverage ?? 50, max: floorMax(statMaxes?.catchCoverage, talentAnalysis.rawMetrics?.fielding?.catchCoverage) },
-    { key: 'fieldingMetric', label: 'Fielding', value: talentAnalysis.rawMetrics?.fielding?.fielding, min: statMins?.fieldingMetric ?? 0, median: statMedians?.fieldingMetric ?? 50, max: floorMax(statMaxes?.fieldingMetric, talentAnalysis.rawMetrics?.fielding?.fielding) },
-    { key: 'armStrength', label: 'Arm Strength', value: talentAnalysis.rawMetrics?.fielding?.armStrength, min: statMins?.armStrength ?? 0, median: statMedians?.armStrength ?? 50, max: floorMax(statMaxes?.armStrength, talentAnalysis.rawMetrics?.fielding?.armStrength) },
-    { key: 'mobility', label: 'Mobility', value: talentAnalysis.rawMetrics?.fielding?.mobility, min: statMins?.mobility ?? 0, median: statMedians?.mobility ?? 50, max: floorMax(statMaxes?.mobility, talentAnalysis.rawMetrics?.fielding?.mobility) },
-    { key: 'baseDefense', label: 'Base Defense', value: talentAnalysis.rawMetrics?.fielding?.baseDefense, min: statMins?.baseDefense ?? 0, median: statMedians?.baseDefense ?? 50, max: floorMax(statMaxes?.baseDefense, talentAnalysis.rawMetrics?.fielding?.baseDefense) },
-  ] : []
-
   const pitchingEmpty = isPitchingAllZero(showPitching)
   const hasStandardBattingRows = battingTableRows.length > 0
   const hasStandardPitchingRows = !(pitchingEmpty && pitchingTableRows.length === 0)
@@ -1139,20 +1047,6 @@ export default function CharacterPage() {
   }
   const hasBatting = rawPasBatting.length > 0
   const hasPitching = rawStintsPitching.length > 0
-
-  // ─── Rolling stat chart (Trends) ────────────────────────────────────────────
-  const ROLLING_WINDOW = 15
-  const rollingChartPoints = (() => {
-    if (rawPasBatting.length < ROLLING_WINDOW) return []
-    const points = []
-    for (let i = ROLLING_WINDOW - 1; i < rawPasBatting.length; i++) {
-      const windowPas = rawPasBatting.slice(i - ROLLING_WINDOW + 1, i + 1)
-      const s = summarizeBatting(windowPas)
-      s.ops = s.obp + s.slg
-      points.push({ value: s.ops, xLabel: `PA ${i + 1}` })
-    }
-    return points
-  })()
 
   // Resolves who a game-log row's game was against. `pa.batting_team_id`/`defensive_team_id`
   // and `pa.isHome` (tagged onto every PA in useCharacterProfileData via tagPasWithGameContext)
@@ -1324,6 +1218,15 @@ export default function CharacterPage() {
         <ArrowLeft size={16} /> Back
       </button>
 
+      {/* The stat fetch can fail independently of the character identity fetch, in which case the
+          header still renders but every table below it is empty — say so instead of showing a
+          career of zeroes. */}
+      {profileErrorMessage ? (
+        <div className="entity-stale-banner" role="status">
+          <span>Stats couldn&apos;t be loaded: {profileErrorMessage} The tables below are incomplete.</span>
+        </div>
+      ) : null}
+
       {/* Header */}
       <section className="panel" style={{ padding: '1.25rem 1.4rem', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 0 }}>
@@ -1366,6 +1269,17 @@ export default function CharacterPage() {
             </div>
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
+          <Link
+            to={`/character/${id}/${isCareer ? '' : `${scope.type}/${scope.id}/`}scouting`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none',
+              background: 'rgba(59,130,246,0.14)', border: '1px solid rgba(59,130,246,0.4)',
+              borderRadius: 10, color: '#93C5FD', padding: '0.5rem 0.8rem', fontSize: 13, fontWeight: 700,
+            }}
+          >
+            <Gauge size={15} /> Scouting Report
+          </Link>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 10, padding: '0.45rem 0.7rem' }}>
           {[
             { stat: 'batting', value: battingRating },
@@ -1378,6 +1292,7 @@ export default function CharacterPage() {
               <span style={{ color: '#F8FAFC', fontSize: 18, fontWeight: 800, lineHeight: 1.2, marginTop: 2 }}>{value}</span>
             </div>
           ))}
+          </div>
         </div>
       </section>
 
@@ -1385,49 +1300,6 @@ export default function CharacterPage() {
         <EntityPageSidebar title={character.name} scopeLinks={scopeLinks} sectionLinks={SECTION_LINKS} />
 
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
-          {/* Overview */}
-          {talentAnalysis && (
-            <Section id="overview" title="Overview">
-              <div style={{ display: 'grid', gap: 12 }}>
-                <div style={{ background: '#1E2E44', borderRadius: 10, padding: '0.55rem 0.65rem' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 6 }}>
-                    {[
-                      { label: 'Bat OVR', displayValue: talentAnalysis.displayRatings.batting, tier: talentAnalysis.battingTier, impact: talentAnalysis.skillImpact?.batting },
-                      { label: 'Pitch OVR', displayValue: talentAnalysis.displayRatings.pitching, tier: talentAnalysis.pitchingTier, impact: talentAnalysis.skillImpact?.pitching },
-                      { label: 'Field OVR', displayValue: talentAnalysis.displayRatings.fielding, tier: talentAnalysis.fieldingTier, impact: talentAnalysis.skillImpact?.fielding },
-                      { label: 'Speed OVR', displayValue: talentAnalysis.displayRatings.speed, tier: talentAnalysis.speedTier, impact: talentAnalysis.skillImpact?.speed },
-                    ].map(({ label, displayValue, tier, impact }) => {
-                      const ts = getTierBadgeStyle(tier)
-                      const hasPerformance = impact && impact.performance !== 0
-                      const performanceColor = hasPerformance ? (impact.performance > 0 ? '#22C55E' : '#F87171') : '#64748B'
-                      return (
-                        <div key={label} style={{ borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', padding: '0.4rem 0.55rem' }}>
-                          <div style={{ color: '#94A3B8', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 2 }}>{label}</div>
-                          <div style={{ fontSize: 20, fontWeight: 800, color: '#F8FAFC', lineHeight: 1 }}>{displayValue}</div>
-                          <div style={{ marginTop: 2 }}><span style={{ fontSize: 10, fontWeight: 800, color: ts.color }}>{getTalentTierMeta(tier).label}</span></div>
-                          {hasPerformance ? (
-                            <div style={{ marginTop: 2 }}>
-                              <span style={{ color: '#64748B', fontSize: 9 }}>
-                                {impact.base}
-                                <span style={{ color: performanceColor, fontWeight: 700 }}> {formatSignedInt(impact.performance)}</span>
-                              </span>
-                            </div>
-                          ) : null}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-                  <SkillSectionCard title="Batting" score={talentAnalysis.displayRatings.batting} scoreMin={statMins?.offense ?? 0} scoreMedian={statMedians?.offense ?? 50} scoreMax={Math.max(statMaxes?.offense ?? 100, talentAnalysis.displayRatings.batting)} items={battingSkillItems} />
-                  <SkillSectionCard title="Pitching" score={talentAnalysis.displayRatings.pitching} scoreMin={statMins?.pitching ?? 0} scoreMedian={statMedians?.pitching ?? 50} scoreMax={Math.max(statMaxes?.pitching ?? 100, talentAnalysis.displayRatings.pitching)} items={pitchingSkillItems} />
-                  <SkillSectionCard title="Fielding" score={talentAnalysis.displayRatings.fielding} scoreMin={statMins?.defense ?? 0} scoreMedian={statMedians?.defense ?? 50} scoreMax={Math.max(statMaxes?.defense ?? 100, talentAnalysis.displayRatings.fielding)} items={fieldingSkillItems} />
-                  <SkillSectionCard title="Speed" score={talentAnalysis.displayRatings.speed} scoreMin={statMins?.speed ?? 0} scoreMedian={statMedians?.speed ?? 50} scoreMax={Math.max(statMaxes?.speed ?? 100, talentAnalysis.displayRatings.speed)} items={[]} />
-                </div>
-              </div>
-            </Section>
-          )}
-
           {/* Standard Stats */}
           <Section id="stats" title="Standard Stats">
             <div style={{ display: 'grid', gap: 12 }}>
@@ -1537,7 +1409,6 @@ export default function CharacterPage() {
                     {wouldBeHrCount} of {character.name}'s non-homers would have left the yard in at least one other stadium.
                   </p>
                 ) : null}
-                <SprayChart plateAppearances={rawPasBatting} height={320} />
               </div>
             )}
           </Section>
@@ -1611,16 +1482,6 @@ export default function CharacterPage() {
                     rows={parkFactorRows}
                   />
                 )}
-            </div>
-          </Section>
-
-          {/* Trends */}
-          <Section id="chart" title="Trends">
-            <div style={{ display: 'grid', gap: 8 }}>
-              <div style={{ color: '#475569', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>
-                Rolling OPS (trailing {ROLLING_WINDOW} PA)
-              </div>
-              <RollingStatChart points={rollingChartPoints} color="#EAB308" />
             </div>
           </Section>
 

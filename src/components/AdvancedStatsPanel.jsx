@@ -29,6 +29,7 @@ const BATTING_COLUMNS = [
 
 const PITCHING_COLUMNS = [
   SEASON_COLUMN,
+  { key: 'sampleSize', label: 'BIP', render: (r) => Number.isFinite(r.sampleSize) ? r.sampleSize : '-' },
   { key: 'fip', label: 'FIP', render: (r) => (r.hasInningsPitched ? formatDecimal(r.fip, 2) : '-') },
   { key: 'eraMinus', label: 'ERA-', render: (r) => (r.hasInningsPitched ? formatIndex(r.eraMinus) : '-') },
   { key: 'fipMinus', label: 'FIP-', render: (r) => (r.hasInningsPitched ? formatIndex(r.fipMinus) : '-') },
@@ -36,6 +37,9 @@ const PITCHING_COLUMNS = [
   { key: 'kPct', label: 'K%', render: (r) => formatPct(r.kPct) },
   { key: 'bbPct', label: 'BB%', render: (r) => formatPct(r.bbPct) },
   { key: 'babipAllowed', label: 'BABIP', render: (r) => formatDecimal(r.babipAllowed) },
+  { key: 'xBAAllowed', label: 'xBAA', render: (r) => formatDecimal(r.xBAAllowed) },
+  { key: 'xSLGAllowed', label: 'xSLGA', render: (r) => formatDecimal(r.xSLGAllowed) },
+  { key: 'xwOBAAllowed', label: 'xwOBAA', render: (r) => formatDecimal(r.xwOBAAllowed) },
 ]
 
 const toggleButtonStyle = (active) => ({

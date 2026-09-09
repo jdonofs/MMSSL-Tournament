@@ -5,6 +5,7 @@ import useTeamProfileData from '../hooks/useTeamProfileData'
 import EntityPageSidebar from '../components/EntityPageSidebar'
 import StatTable from '../components/StatTable'
 import SortableTable from '../components/SortableTable'
+import StatFallbackLegend from '../components/StatFallbackLegend'
 import SprayChart from '../components/SprayChart'
 import PercentileBar from '../components/PercentileBar'
 import TeamLogo from '../components/TeamLogo'
@@ -14,6 +15,7 @@ import { getTeamShortName } from '../utils/teamIdentity'
 import { shortenCharacterName } from '../utils/mii'
 import { buildScorebookPath } from '../utils/scorebookRouting'
 import { MIN_RANGE_CHANCES } from '../utils/fieldingRange'
+import '../styles/stats-pages.css'
 
 const GRADE_COLORS = { S: '#EAB308', A: '#22C55E', B: '#3B82F6', C: '#94A3B8', D: '#F97316', F: '#EF4444' }
 
@@ -177,17 +179,17 @@ const FIELDING_COLUMNS = [
     label: 'RngR',
     render: (row) => (row.rangeable >= MIN_RANGE_CHANCES && row.rangeRuns != null
       ? (row.rangeRuns > 0 ? `+${row.rangeRuns}` : row.rangeRuns)
-      : '—'),
+      : '--'),
   },
   {
     key: 'rangeFactorPlus',
     label: 'Range+',
-    render: (row) => (row.rangeable >= MIN_RANGE_CHANCES && row.rangeFactorPlus != null ? row.rangeFactorPlus : '—'),
+    render: (row) => (row.rangeable >= MIN_RANGE_CHANCES && row.rangeFactorPlus != null ? row.rangeFactorPlus : '--'),
   },
   {
     key: 'rangeConfidence',
     label: 'Rng Conf',
-    render: (row) => (row.rangeable >= MIN_RANGE_CHANCES && row.rangeConfidence != null ? `${row.rangeConfidence}%` : '—'),
+    render: (row) => (row.rangeable >= MIN_RANGE_CHANCES && row.rangeConfidence != null ? `${row.rangeConfidence}%` : '--'),
   },
 ]
 
@@ -306,6 +308,7 @@ const ADVANCED_BATTING_COLUMNS = [
 
 const ADVANCED_PITCHING_COLUMNS = [
   { key: 'label', label: 'Player', render: (row) => <PlayerCell row={row} /> },
+  { key: 'sampleSize', label: 'BIP', render: (row) => formatInteger(row.sampleSize) },
   { key: 'fip', label: 'FIP', render: (row) => (row.hasInningsPitched ? formatDecimal(row.fip, 2) : '-') },
   { key: 'eraMinus', label: 'ERA-', render: (row) => (row.hasInningsPitched ? formatIndex(row.eraMinus) : '-') },
   { key: 'fipMinus', label: 'FIP-', render: (row) => (row.hasInningsPitched ? formatIndex(row.fipMinus) : '-') },
@@ -313,10 +316,14 @@ const ADVANCED_PITCHING_COLUMNS = [
   { key: 'kPct', label: 'K%', render: (row) => formatPercent(row.kPct) },
   { key: 'bbPct', label: 'BB%', render: (row) => formatPercent(row.bbPct) },
   { key: 'babipAllowed', label: 'BABIP', render: (row) => formatDecimal(row.babipAllowed) },
+  { key: 'xBAAllowed', label: 'xBAA', render: (row) => formatDecimal(row.xBAAllowed) },
+  { key: 'xSLGAllowed', label: 'xSLGA', render: (row) => formatDecimal(row.xSLGAllowed) },
+  { key: 'xwOBAAllowed', label: 'xwOBAA', render: (row) => formatDecimal(row.xwOBAAllowed) },
 ]
 
 const EXPECTED_COLUMNS = [
   { key: 'label', label: 'Player', render: (row) => <PlayerCell row={row} /> },
+  { key: 'sampleSize', label: 'BIP', render: (row) => formatInteger(row.sampleSize) },
   { key: 'avg', label: 'AVG', render: (row) => formatDecimal(row.avg) },
   { key: 'xBA', label: 'xBA', render: (row) => formatDecimal(row.xBA) },
   { key: 'slg', label: 'SLG', render: (row) => formatDecimal(row.slg) },
@@ -434,7 +441,7 @@ export default function TeamPage() {
   const isCareer = scope.type === 'career'
 
   const {
-    loading, player, identity, record, rosterCharacters, scopeOptions, transactions, gameLog,
+    loading, errorMessage, player, identity, record, rosterCharacters, scopeOptions, transactions, gameLog,
     franchiseHistory, franchiseSummary, topPlayers, draftValue, draftValueSummary, tables, battingRawPas,
   } = useTeamProfileData(playerId, scope)
 
@@ -446,8 +453,32 @@ export default function TeamPage() {
         <button type="button" onClick={handleBack} style={BACK_BUTTON_STYLE}>
           <ArrowLeft size={16} /> Back
         </button>
-        <section className="panel" style={{ padding: 18 }}>
-          <p className="muted" style={{ margin: 0 }}>Loading team…</p>
+        <section className="panel entity-status-panel">
+          <h1 className="entity-status-title">Loading team…</h1>
+          <div className="entity-status-progress" />
+        </section>
+      </div>
+    )
+  }
+
+  // The load finished and no player owns this id. Every downstream value defaults to zero, so
+  // without this the page rendered a convincing empty franchise — "Team", owner Unknown, 0-6 —
+  // for a URL that simply doesn't exist.
+  if (!player) {
+    return (
+      <div style={{ display: 'grid', gap: 16 }}>
+        <button type="button" onClick={handleBack} style={BACK_BUTTON_STYLE}>
+          <ArrowLeft size={16} /> Back
+        </button>
+        <section className="panel entity-status-panel entity-status-error">
+          <h1 className="entity-status-title">{errorMessage ? 'Team stats unavailable' : 'Team not found'}</h1>
+          <p className="entity-status-body">
+            {errorMessage || <>No team matches id <strong>{playerId}</strong>. It may have been removed, or the link may be out of date.</>}
+          </p>
+          <div className="entity-status-actions">
+            <button className="entity-status-button entity-status-button-primary" onClick={handleBack} type="button">Go back</button>
+            <MiddleClickLink className="entity-status-button" to="/stats">Browse all teams</MiddleClickLink>
+          </div>
         </section>
       </div>
     )
@@ -614,6 +645,12 @@ export default function TeamPage() {
       <button type="button" onClick={handleBack} style={BACK_BUTTON_STYLE}>
         <ArrowLeft size={16} /> Back
       </button>
+
+      {errorMessage ? (
+        <div className="entity-stale-banner" role="status">
+          Stats couldn&apos;t be refreshed: {errorMessage} The tables below retain the last complete snapshot.
+        </div>
+      ) : null}
 
       {/* Header */}
       <section className="panel" style={{ padding: '1.25rem 1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
@@ -822,7 +859,12 @@ export default function TeamPage() {
                     ? <StatTable columns={PITCHING_COLUMNS} rows={tables.standardPitchingRows} careerRow={tables.standardPitchingCareerRow} onRowClick={characterRowClick} />
                     : noData)
                   : (tables.hasFielding
-                    ? <StatTable columns={FIELDING_COLUMNS} rows={tables.standardFieldingRows} careerRow={tables.standardFieldingCareerRow} onRowClick={characterRowClick} />
+                    ? (
+                      <>
+                        <StatTable columns={FIELDING_COLUMNS} rows={tables.standardFieldingRows} careerRow={tables.standardFieldingCareerRow} onRowClick={characterRowClick} />
+                        <StatFallbackLegend note={`RngR / Range+ / Rng Conf need at least ${MIN_RANGE_CHANCES} rangeable chances.`} />
+                      </>
+                    )
                     : noData)}
             </div>
           </Section>

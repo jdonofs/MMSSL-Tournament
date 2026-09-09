@@ -1,10 +1,10 @@
 import { buildBettingEntityLabel } from './oddsEngine.js'
 import { getPlayerSkillProfile } from './teamIdentity.js'
-import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from './gameRules.js'
+import { DEFAULT_REGULATION_INNINGS, DEFAULT_MERCY_RULE_DIFFERENTIAL, normalizeRegulationInnings, normalizeMercyRuleDifferential } from './gameRules.js'
 import { isCreditedHit } from './creditedHit.js'
-
-const DEFAULT_AVG_DISTANCE_FT = 220
-const DEFAULT_HARD_HIT_RATE = 0.18
+import { buildLeagueOutcomeShape, summarizeCompletedGameScoring } from './teamStrengthModel.js'
+import { buildAppliedStadiumModel } from './stadiumOdds.js'
+import { buildBattingOrder } from './propModel.js'
 
 // Kept local so this shared odds-context builder remains Node-compatible for
 // the tracker bridge. Importing the UI-oriented stats/hit-distance modules
@@ -44,125 +44,123 @@ function standardDeviation(values) {
   return Math.sqrt(variance)
 }
 
+const isHomeRunPA = (entry) => isCreditedHit(entry) && (entry.result === 'HR' || entry.result === 'IPHR')
+
+/**
+ * Counts, not rates.
+ *
+ * The pricing model shrinks a rate toward a prior, and to do that honestly it
+ * needs the numerator and the denominator, not a ratio whose sample size has
+ * already been thrown away. Rates are still reported for consumers that expect
+ * the old shape.
+ */
 function buildPlayerHistoricalSummary({
   completedGames,
   completedPAs,
   completedPitching,
   playerId = null,
   characterId = null,
-  stadiumId = null,
-  isNight = null,
 }) {
-  const scopedGameIds = new Set(
-    completedGames
-      .filter((game) => {
-        if (stadiumId != null && String(game.stadium_id) !== String(stadiumId)) return false
-        if (isNight != null && Boolean(game.is_night) !== Boolean(isNight)) return false
-        return true
-      })
-      .map((game) => game.id),
-  )
-  const relevantGames = completedGames.filter(
-    (game) => {
-      if (stadiumId != null || isNight != null) {
-        if (!scopedGameIds.has(game.id)) return false
-      }
-      if (!playerId) return true
-      return game.team_a_player_id === playerId || game.team_b_player_id === playerId
-    },
-  )
+  const relevantGames = completedGames.filter((game) => {
+    if (!playerId) return true
+    return game.team_a_player_id === playerId || game.team_b_player_id === playerId
+  })
   const relevantPAs = completedPAs.filter((entry) => {
-    if ((stadiumId != null || isNight != null) && !scopedGameIds.has(entry.game_id)) return false
     if (playerId && entry.player_id !== playerId) return false
     return characterId ? entry.character_id === characterId : true
   })
   const relevantPitching = completedPitching.filter((entry) => {
-    if ((stadiumId != null || isNight != null) && !scopedGameIds.has(entry.game_id)) return false
     if (playerId && entry.player_id !== playerId) return false
     return characterId ? entry.character_id === characterId : true
   })
 
-  const totalPas = relevantPAs.length || 1
-  const totalInnings = relevantPitching.reduce((sum, entry) => sum + inningsAsDecimal(entry.innings_pitched), 0)
+  const plateAppearances = relevantPAs.length
+  const denominator = plateAppearances || 1
+  const hits = relevantPAs.filter(isCreditedHit).length
+  const homeRuns = relevantPAs.filter(isHomeRunPA).length
+  const strikeoutsAtBat = relevantPAs.filter((entry) => entry.result === 'K').length
+
+  const innings = relevantPitching.reduce((sum, entry) => sum + inningsAsDecimal(entry.innings_pitched), 0)
   const strikeouts = relevantPitching.reduce((sum, entry) => sum + Number(entry.strikeouts || 0), 0)
+  const hitsAllowed = relevantPitching.reduce((sum, entry) => sum + Number(entry.hits_allowed || 0), 0)
+  const walksAllowed = relevantPitching.reduce((sum, entry) => sum + Number(entry.walks || 0), 0)
+  // Batters faced is not stored. Outs recorded plus the runners a pitcher put on
+  // is the closest thing the schema supports, and it is the right denominator
+  // for a strikeout rate; an inning is not an exposure. It omits reached-on-
+  // error and hit-by-pitch, which the pitching stint does not record.
+  const battersFaced = (innings * 3) + hitsAllowed + walksAllowed
+
+  // Half innings batted: each completed game contributes the innings that were
+  // actually played for this side. Used only for the single player-level run
+  // offset, which is capped and hard-shrunk.
+  const halfInningsBatted = relevantGames.reduce((sum, game) => sum + normalizeRegulationInnings(
+    game.final_inning ?? game.current_inning ?? game.innings,
+    DEFAULT_REGULATION_INNINGS,
+  ), 0)
+  const runsScored = relevantGames.reduce((sum, game) => {
+    if (game.team_a_player_id === playerId) return sum + Number(game.team_a_runs || 0)
+    if (game.team_b_player_id === playerId) return sum + Number(game.team_b_runs || 0)
+    return sum
+  }, 0)
+
   const distanceProfile = summarizeHitDistance(relevantPAs)
 
   return {
     gamesPlayed: relevantGames.length,
     winRate: relevantGames.length ? relevantGames.filter((game) => game.winner_player_id === playerId).length / relevantGames.length : 0.5,
-    avg: relevantPAs.filter(isCreditedHit).length / totalPas,
-    hitRate: relevantPAs.filter(isCreditedHit).length / totalPas,
-    hrRate: relevantPAs.filter((entry) => isCreditedHit(entry) && (entry.result === 'HR' || entry.result === 'IPHR')).length / totalPas,
-    kRate: relevantPAs.filter((entry) => entry.result === 'K').length / totalPas,
-    strikeoutsPerInning: totalInnings > 0 ? strikeouts / totalInnings : 0,
+    plateAppearances,
+    hits,
+    homeRuns,
+    strikeoutsAtBat,
+    strikeouts,
+    battersFaced,
+    inningsPitched: innings,
+    halfInningsBatted,
+    runsScored,
+    // Rates retained for consumers that read the old shape.
+    avg: hits / denominator,
+    hitRate: hits / denominator,
+    hrRate: homeRuns / denominator,
+    kRate: strikeoutsAtBat / denominator,
+    strikeoutsPerInning: innings > 0 ? strikeouts / innings : 0,
     strikeoutsPerGame: relevantPitching.length ? strikeouts / relevantPitching.length : 0,
-    plateAppearances: relevantPAs.length,
-    avgDistance: distanceProfile.avgDistance ?? DEFAULT_AVG_DISTANCE_FT,
-    hardHitRate: distanceProfile.hardHitRate ?? DEFAULT_HARD_HIT_RATE,
+    avgDistance: distanceProfile.avgDistance,
+    hardHitRate: distanceProfile.hardHitRate,
+    hitDistanceSample: distanceProfile.sampleSize,
   }
 }
 
-function blendHistoricalSummaries(parts = []) {
-  const totalWeight = parts.reduce((sum, part) => sum + Number(part.weight || 0), 0) || 1
-  const blend = (key, fallback = 0) => parts.reduce((sum, part) => sum + Number(part.summary?.[key] ?? fallback) * Number(part.weight || 0), 0) / totalWeight
-  const maxOf = (key) => Math.max(0, ...parts.map((part) => Number(part.summary?.[key] || 0)))
+/**
+ * One entity's history, as two properly nested samples.
+ *
+ * The old builder averaged six overlapping summaries — player+character,
+ * character, player, and all three again scoped to the stadium — with weights
+ * that summed above one, so a single plate appearance could be counted up to six
+ * times. Here the (player, character) pair is the specific sample and the
+ * character-across-all-players sample is the group it is shrunk toward; the
+ * pricing model does that shrinkage. Stadium-scoped copies are gone: the park is
+ * already applied once, as a park factor.
+ */
+function buildEntityHistoricalProfile({ completedGames, completedPAs, completedPitching, playerId, characterId }) {
+  const pair = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, playerId, characterId })
+  const character = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, characterId })
   return {
-    gamesPlayed: Math.round(blend('gamesPlayed')),
-    winRate: blend('winRate', 0.5),
-    avg: blend('avg', 0.25),
-    hitRate: blend('hitRate', 0.25),
-    hrRate: blend('hrRate', 0.03),
-    kRate: blend('kRate', 1.0),
-    strikeoutsPerInning: blend('strikeoutsPerInning', 0),
-    strikeoutsPerGame: blend('strikeoutsPerGame', 0),
-    plateAppearances: Math.round(blend('plateAppearances')),
-    samplePlateAppearances: maxOf('plateAppearances'),
-    sampleGamesPlayed: maxOf('gamesPlayed'),
-    avgDistance: blend('avgDistance', DEFAULT_AVG_DISTANCE_FT),
-    hardHitRate: blend('hardHitRate', DEFAULT_HARD_HIT_RATE),
-  }
-}
-
-function buildEntityHistoricalProfile({
-  completedGames,
-  completedPAs,
-  completedPitching,
-  playerId,
-  characterId,
-  stadiumId,
-  isNight,
-}) {
-  const playerCharacter = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, playerId, characterId })
-  const playerOnly = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, playerId })
-  const characterOnly = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, characterId })
-  const stadiumPlayerCharacter = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, playerId, characterId, stadiumId, isNight })
-  const stadiumPlayerOnly = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, playerId, stadiumId, isNight })
-  const stadiumCharacterOnly = buildPlayerHistoricalSummary({ completedGames, completedPAs, completedPitching, characterId, stadiumId, isNight })
-
-  const weights = [
-    { summary: playerCharacter, weight: 0.42 + Math.min(playerCharacter.plateAppearances / 60, 0.28) },
-    { summary: characterOnly, weight: 0.22 + Math.min(characterOnly.plateAppearances / 120, 0.18) },
-    { summary: playerOnly, weight: 0.18 + Math.min(playerOnly.plateAppearances / 120, 0.14) },
-    { summary: stadiumPlayerCharacter, weight: Math.min(stadiumPlayerCharacter.plateAppearances / 16, 0.28) },
-    { summary: stadiumCharacterOnly, weight: Math.min(stadiumCharacterOnly.plateAppearances / 32, 0.18) },
-    { summary: stadiumPlayerOnly, weight: Math.min(stadiumPlayerOnly.plateAppearances / 32, 0.14) },
-  ].filter((part) => part.weight > 0)
-
-  return {
-    ...blendHistoricalSummaries(weights),
-    playerCharacter,
-    playerOnly,
-    characterOnly,
-    stadiumPlayerCharacter,
-    stadiumPlayerOnly,
-    stadiumCharacterOnly,
+    ...pair,
+    character: {
+      plateAppearances: character.plateAppearances,
+      hits: character.hits,
+      homeRuns: character.homeRuns,
+      strikeouts: character.strikeouts,
+      battersFaced: character.battersFaced,
+      gamesPlayed: character.gamesPlayed,
+    },
   }
 }
 
 // PART C/E — sums wagered money and potential payout liability per market/side
 // from currently-open bets on this game, keyed the same way as buildOddsRowKey
-// (`${bet_type}::${target_entity || 'game'}`), so the odds engine can apply
-// volume-based line movement and liability caps.
+// (`${bet_type}::${target_entity || 'game'}`), so the pricing layer can balance
+// the book. This is EXPOSURE, never evidence about the game.
 function buildMarketVolume(gameBets = []) {
   const volume = {}
   gameBets
@@ -196,6 +194,22 @@ function buildHeadToHeadSummary(homePlayerId, awayPlayerId, completedGames = [])
   }
 }
 
+// The runs already recorded in inning 1, and whether that window has closed.
+// A first-inning market whose answer is on the record must be closed rather than
+// priced, and the model can only know that if the context carries it.
+function summarizeFirstInning(gamePAs = [], currentInning = 1) {
+  const inningOnePAs = gamePAs.filter((pa) => Number(pa.inning || 0) === 1)
+  const runs = inningOnePAs.reduce((sum, pa) => {
+    const isHomer = pa.result === 'HR' || pa.result === 'IPHR'
+    return sum + Number(pa.rbi || 0) + (pa.run_scored && !isHomer ? 1 : 0)
+  }, 0)
+  return {
+    firstInningRunsRecorded: runs,
+    firstInningComplete: Number(currentInning || 1) > 1,
+    firstInningPlateAppearances: inningOnePAs.length,
+  }
+}
+
 export function buildOddsGenerationContext({
   game,
   draftPicks,
@@ -211,10 +225,13 @@ export function buildOddsGenerationContext({
   currentInning = null,
   scores = null,
   totalInnings = DEFAULT_REGULATION_INNINGS,
+  mercyRule = null,
+  mercyRuleDifferential = null,
   bets = [],
   liabilityCap = null,
   expectedPitcherByPlayer = {},
   oddsWeights = null,
+  liveState = null,
 }) {
   if (!game) return null
 
@@ -229,6 +246,8 @@ export function buildOddsGenerationContext({
     average: average(completedTotals, 0),
     stdDev: standardDeviation(completedTotals),
   }
+
+  const regulationInnings = normalizeRegulationInnings(totalInnings, DEFAULT_REGULATION_INNINGS)
 
   const margins = completedGames
     .filter((g) => g.team_a_runs != null && g.team_b_runs != null)
@@ -253,9 +272,9 @@ export function buildOddsGenerationContext({
       .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0]?.character_id
   }
 
-  // PART G — live prop placement needs the player's CURRENT in-game progress
-  // toward the prop line (kSoFar/hitsSoFar/hrSoFar), so odds at placement
-  // reflect "how much more do they need" rather than re-deriving from scratch.
+  // Live prop placement needs the player's CURRENT in-game progress toward the
+  // prop line, so odds at placement reflect "how much more do they need" rather
+  // than re-deriving from scratch.
   const toRoster = (playerId, currentPitcherId, opposingPlayerId) =>
     gamePicks
       .filter((entry) => entry.player_id === playerId && entry.character_id)
@@ -273,7 +292,7 @@ export function buildOddsGenerationContext({
           entityLabel: buildBettingEntityLabel(character, player),
           paSoFar: ownPAs.length,
           hitsSoFar: ownPAs.filter(isCreditedHit).length,
-          hrSoFar: ownPAs.filter((pa) => isCreditedHit(pa) && (pa.result === 'HR' || pa.result === 'IPHR')).length,
+          hrSoFar: ownPAs.filter(isHomeRunPA).length,
           kSoFar: currentPitcherId === entry.character_id
             ? gamePAs.filter((pa) => pa.player_id === opposingPlayerId && pa.result === 'K').length
             : 0,
@@ -289,7 +308,7 @@ export function buildOddsGenerationContext({
   const homeRoster = toRoster(game.team_b_player_id, homePitcherId, game.team_a_player_id)
   const homePlayer = playersById[game.team_b_player_id]
   const awayPlayer = playersById[game.team_a_player_id]
-  const liveInning = Number(currentInning ?? Math.max(...gamePAs.map((entry) => Number(entry.inning || 1)), 1))
+  const liveInning = Number(currentInning ?? liveState?.currentInning ?? game.current_inning ?? Math.max(...gamePAs.map((entry) => Number(entry.inning || 1)), 1))
   const scoreA = Number(scores?.a ?? game.team_a_runs ?? 0)
   const scoreB = Number(scores?.b ?? game.team_b_runs ?? 0)
   const stadium = stadiumsById[game.stadium_id] || null
@@ -300,6 +319,25 @@ export function buildOddsGenerationContext({
     String(entry.game_id) !== String(game.id),
   )
 
+  // League level and shape, read from the competition's own completed games and
+  // recorded plate appearances rather than from a hardcoded baseline.
+  const leagueShape = buildLeagueOutcomeShape(completedPAs)
+  const leagueScoring = summarizeCompletedGameScoring(completedGames, regulationInnings)
+  const leagueModel = {
+    shape: leagueShape.shape,
+    shapeSource: leagueShape.source,
+    strikeoutRate: leagueShape.strikeoutRate,
+    plateAppearances: leagueShape.plateAppearances,
+    meanTotal: leagueScoring.meanTotal,
+    sampleSize: leagueScoring.sampleSize,
+  }
+
+  const stadiumModel = buildAppliedStadiumModel(stadium, isNight, scopedStadiumLog, {
+    leagueMeanRuns: leagueScoring.meanTotal,
+  })
+
+  const firstInning = summarizeFirstInning(gamePAs, liveInning)
+
   const playerProps = {
     historicalByEntity: {},
     gameState: {
@@ -308,20 +346,33 @@ export function buildOddsGenerationContext({
       scoreDiff: scoreB - scoreA,
       homePitcherId,
       awayPitcherId,
+      ...firstInning,
     },
+    liveState: liveState || null,
     historicalTotals,
+    leagueModel,
+    stadiumModel,
     headToHead: buildHeadToHeadSummary(game.team_b_player_id, game.team_a_player_id, completedGames),
     runLineData,
     stadium,
     isNight,
     stadiumGameLog: scopedStadiumLog,
-    totalInnings: normalizeRegulationInnings(totalInnings, DEFAULT_REGULATION_INNINGS),
+    totalInnings: regulationInnings,
+    mercyRule: mercyRule == null ? (game.mercy_rule !== false) : Boolean(mercyRule),
+    mercyRuleDifferential: normalizeMercyRuleDifferential(
+      mercyRuleDifferential ?? game.mercy_rule_differential,
+      DEFAULT_MERCY_RULE_DIFFERENTIAL,
+    ),
+    battingOrder: {
+      home: buildBattingOrder({ roster: homeRoster, gamePAs, playerId: game.team_b_player_id }),
+      away: buildBattingOrder({ roster: awayRoster, gamePAs, playerId: game.team_a_player_id }),
+    },
     marketVolume: buildMarketVolume(bets.filter((bet) => String(bet.game_id) === String(game.id))),
     ...(liabilityCap != null ? { liabilityCap } : {}),
-    // Calibrated char_stats_weight/historical_weight/live_weight from
-    // odds_engine_weights, recomputed after every resolved game based on
-    // actual prediction accuracy — lets the live win-probability model get
-    // more accurate over time instead of using fixed weights forever.
+    // Retained for the legacy model, which reads calibrated source weights from
+    // `odds_engine_weights`. The game model does not use them: those weights are
+    // fitted from a Brier score computed over placed tickets only, scored
+    // against side A's probability whichever side the ticket took.
     ...(oddsWeights ? { weights: oddsWeights } : {}),
   }
 
@@ -332,8 +383,6 @@ export function buildOddsGenerationContext({
       completedPitching,
       playerId: entry.playerId,
       characterId: entry.id,
-      stadiumId: game.stadium_id,
-      isNight,
     })
   })
 
@@ -345,8 +394,10 @@ export function buildOddsGenerationContext({
       current_inning: liveInning,
     },
     stadium,
+    stadiumModel,
     stadiumGameLog: scopedStadiumLog,
     isNight,
+    leagueModel,
     homeRoster,
     awayRoster,
     homeHistorical: {
@@ -356,6 +407,7 @@ export function buildOddsGenerationContext({
         completedPitching,
         playerId: game.team_b_player_id,
       }),
+      playerName: homePlayer?.name || null,
       skillProfile: getPlayerSkillProfile(homePlayer),
     },
     awayHistorical: {
@@ -365,6 +417,7 @@ export function buildOddsGenerationContext({
         completedPitching,
         playerId: game.team_a_player_id,
       }),
+      playerName: awayPlayer?.name || null,
       skillProfile: getPlayerSkillProfile(awayPlayer),
     },
     playerProps,

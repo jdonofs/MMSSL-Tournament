@@ -1,0 +1,146 @@
+{
+  "fixture_version": "stats-reconciliation-v1",
+  "provenance": {
+    "hand_tallied": true,
+    "recorded_game_reference": "sluggers-stat-tracker-advanced-stats-dev/output/Monsters vs Fireballs - 2026-09-05 15-08-29.xlsx",
+    "recorded_game_sha256": "6AA0CB067EE1DA98215AECA5822A49021E585C2A470070B3549602F86D8238A6",
+    "recorded_game_location": "Stats sheet, row 2; values read directly against row 1 headers",
+    "recorded_observation": "The retained reference line includes Red Pianta: 1 PA, 1 HR, 1 R, 1 RBI, 4 TB. The fixture's IPHR row preserves the same hit/HR/TB semantics while exercising the persisted IPHR code path.",
+    "expected_totals_are_literal": true
+  },
+  "recorded_game_excerpt": {
+    "sheet": "Stats",
+    "row": 2,
+    "box_score": { "team": "Monsters", "character": "Red Pianta", "pa": 1, "ab": 1, "runs": 1, "hits": 1, "rbi": 1, "home_runs": 1, "total_bases": 4 },
+    "persisted_pa_projection": { "id": 501, "game_id": 501, "status": "complete", "result": "HR", "player_id": "recorded-monsters", "character_id": 1, "rbi": 1, "run_scored": true }
+  },
+  "players": [
+    { "id": "player-a", "name": "Alpha" },
+    { "id": "player-b", "name": "Bravo" },
+    { "id": "player-c", "name": "Charlie" },
+    { "id": "player-d", "name": "Delta" }
+  ],
+  "characters": [
+    { "id": 1, "name": "Red Pianta" },
+    { "id": 2, "name": "Yellow Yoshi" },
+    { "id": 3, "name": "Green Paratroopa" },
+    { "id": 4, "name": "Bowser" },
+    { "id": 9, "name": "Magikoopa" },
+    { "id": 10, "name": "Mario" },
+    { "id": 11, "name": "Luigi" },
+    { "id": 12, "name": "Peach" },
+    { "id": 20, "name": "Catcher" },
+    { "id": 21, "name": "First Base" },
+    { "id": 22, "name": "Second Base" },
+    { "id": 23, "name": "Third Base" },
+    { "id": 24, "name": "Shortstop" },
+    { "id": 25, "name": "Center Field" }
+  ],
+  "games": [
+    { "id": 7, "tournament_id": 101, "status": "complete", "stats_source": "tracker", "team_a_player_id": "player-a", "team_b_player_id": "player-b", "winner_player_id": "player-a", "team_a_runs": 4, "team_b_runs": 0 },
+    { "id": 8, "tournament_id": 101, "status": "active", "stats_source": "tracker", "team_a_player_id": "player-a", "team_b_player_id": "player-b" },
+    { "id": 9, "tournament_id": 101, "status": "active", "stats_source": "tracker", "team_a_player_id": "player-a", "team_b_player_id": "player-b", "reopened_at": "2026-09-05T14:00:00Z" },
+    { "id": 10, "tournament_id": 101, "status": "excluded", "stats_source": "tracker", "team_a_player_id": "player-a", "team_b_player_id": "player-b" },
+    { "id": 11, "tournament_id": 101, "status": "abandoned", "stats_source": "tracker", "team_a_player_id": "player-a", "team_b_player_id": "player-b" },
+    { "id": 12, "tournament_id": 102, "status": "complete", "stats_source": "tracker", "team_a_player_id": "player-c", "team_b_player_id": "player-d", "winner_player_id": "player-d", "team_a_runs": 0, "team_b_runs": 0 }
+  ],
+  "season_teams": [
+    { "id": 301, "season_id": 201, "player_id": "player-c" },
+    { "id": 302, "season_id": 201, "player_id": "player-d" }
+  ],
+  "season_schedule": [
+    { "id": 7, "season_id": 201, "status": "completed", "stats_source": "tracker", "away_team_id": 301, "home_team_id": 302, "winner_team_id": 301, "away_score": 2, "home_score": 0 },
+    { "id": 8, "season_id": 201, "status": "in_progress", "stats_source": "tracker", "away_team_id": 301, "home_team_id": 302 },
+    { "id": 9, "season_id": 201, "status": "scheduled", "stats_source": "tracker", "away_team_id": 301, "home_team_id": 302 }
+  ],
+  "plate_appearances": [
+    { "id": 1, "game_id": 7, "pa_number": 1, "tracker_contact_seq": 1001, "player_id": "player-a", "character_id": 1, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "1B", "rbi": 0, "run_scored": false, "is_official_ab": true, "is_error": false },
+    { "id": 2, "game_id": 7, "pa_number": 2, "player_id": "player-a", "character_id": 2, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "BB", "rbi": 0, "run_scored": false, "is_official_ab": false, "is_error": false },
+    { "id": 3, "game_id": 7, "pa_number": 3, "player_id": "player-a", "character_id": 3, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "HBP", "rbi": 0, "run_scored": false, "is_official_ab": false, "is_error": false },
+    { "id": 4, "game_id": 7, "pa_number": 4, "tracker_contact_seq": 1004, "player_id": "player-a", "character_id": 1, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "IPHR", "rbi": 3, "run_scored": true, "is_official_ab": true, "is_error": false },
+    { "id": 5, "game_id": 7, "pa_number": 5, "tracker_contact_seq": 1005, "player_id": "player-a", "character_id": 2, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "2B", "rbi": 0, "run_scored": false, "is_official_ab": true, "is_error": false },
+    { "id": 6, "game_id": 7, "pa_number": 6, "player_id": "player-a", "character_id": 1, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "K", "strikeout_type": "KS", "rbi": 0, "run_scored": false, "is_official_ab": true, "is_error": false },
+    { "id": 7, "game_id": 7, "pa_number": 7, "tracker_contact_seq": 1007, "player_id": "player-a", "character_id": 2, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 2, "result": "SF", "hit_notation": "F8", "hit_location": 8, "outs_on_play": 1, "rbi": 1, "run_scored": false, "is_official_ab": false, "is_error": false },
+    { "id": 8, "game_id": 7, "pa_number": 8, "tracker_contact_seq": 1008, "player_id": "player-a", "character_id": 1, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 2, "result": "ROE", "error_notation": "G5-E5", "hit_location": 5, "error_position": 5, "error_character": "Third Base", "is_error": true, "outs_on_play": 0, "rbi": 0, "run_scored": false, "is_official_ab": true },
+    { "id": 9, "game_id": 7, "pa_number": 9, "tracker_contact_seq": 1009, "player_id": "player-a", "character_id": 3, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 2, "result": "SH", "hit_notation": "G5-3", "hit_location": 5, "outs_on_play": 1, "rbi": 0, "run_scored": false, "is_official_ab": false, "is_error": false },
+    { "id": 10, "game_id": 7, "pa_number": 10, "tracker_contact_seq": 1010, "player_id": "player-a", "character_id": 3, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 2, "result": "FC", "hit_notation": "G6-4", "hit_location": 6, "outs_on_play": 1, "rbi": 0, "run_scored": false, "is_official_ab": true, "is_error": false },
+    { "id": 11, "game_id": 7, "pa_number": 11, "tracker_contact_seq": 1011, "player_id": "player-a", "character_id": 2, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 2, "result": "DP", "hit_notation": "G6-4-3", "hit_location": 6, "outs_on_play": 2, "rbi": 0, "run_scored": false, "is_official_ab": true, "is_error": false },
+    { "id": 99, "game_id": 7, "pa_number": 1, "tracker_contact_seq": 1001, "player_id": "player-a", "character_id": 1, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "1B", "rbi": 0, "run_scored": false, "is_official_ab": true, "is_error": false, "updated_at": "2026-09-05T13:00:00Z" },
+    { "id": 80, "game_id": 8, "pa_number": 1, "tracker_contact_seq": 8001, "player_id": "player-a", "character_id": 1, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "HR", "rbi": 4, "run_scored": true, "is_official_ab": true, "is_error": false },
+    { "id": 90, "game_id": 9, "pa_number": 1, "tracker_contact_seq": 9001, "player_id": "player-a", "character_id": 1, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "HR", "rbi": 1, "run_scored": true, "is_official_ab": true, "is_error": false },
+    { "id": 100, "game_id": 10, "pa_number": 1, "tracker_contact_seq": 10001, "player_id": "player-a", "character_id": 1, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "HR", "rbi": 1, "run_scored": true, "is_official_ab": true, "is_error": false },
+    { "id": 110, "game_id": 11, "pa_number": 1, "tracker_contact_seq": 11001, "player_id": "player-a", "character_id": 1, "pitcher_player_id": "player-b", "pitcher_id": 9, "defensive_team_id": "player-b", "inning": 1, "result": "HR", "rbi": 1, "run_scored": true, "is_official_ab": true, "is_error": false },
+    { "id": 120, "game_id": 12, "pa_number": 1, "player_id": "player-d", "character_id": 4, "pitcher_player_id": "player-c", "pitcher_id": 11, "defensive_team_id": "player-c", "inning": 1, "result": "BB", "rbi": 0, "run_scored": false, "is_official_ab": false, "is_error": false, "created_at": "2026-09-05T15:00:04Z" }
+  ],
+  "season_plate_appearances": [
+    { "id": 1, "game_id": 7, "season_id": 201, "pa_number": 1, "tracker_contact_seq": 2001, "player_id": "player-c", "character_id": 1, "pitcher_player_id": "player-d", "pitcher_id": 12, "defensive_team_id": 302, "inning": 1, "result": "HR", "rbi": 1, "run_scored": true, "is_official_ab": true, "is_error": false },
+    { "id": 2, "game_id": 7, "season_id": 201, "pa_number": 2, "player_id": "player-c", "character_id": 1, "pitcher_player_id": "player-d", "pitcher_id": 12, "defensive_team_id": 302, "inning": 1, "result": "BB", "rbi": 0, "run_scored": false, "is_official_ab": false, "is_error": false },
+    { "id": 3, "game_id": 7, "season_id": 201, "pa_number": 3, "tracker_contact_seq": 2003, "player_id": "player-c", "character_id": 4, "pitcher_player_id": "player-d", "pitcher_id": 12, "defensive_team_id": 302, "inning": 1, "result": "3B", "rbi": 0, "run_scored": false, "is_official_ab": true, "is_error": false },
+    { "id": 4, "game_id": 7, "season_id": 201, "pa_number": 4, "tracker_contact_seq": 2004, "player_id": "player-c", "character_id": 4, "pitcher_player_id": "player-d", "pitcher_id": 12, "defensive_team_id": 302, "inning": 1, "result": "GO", "hit_notation": "G6-3", "hit_location": 6, "outs_on_play": 1, "rbi": 1, "run_scored": false, "is_official_ab": true, "is_error": false },
+    { "id": 8, "game_id": 8, "season_id": 201, "pa_number": 1, "tracker_contact_seq": 2801, "player_id": "player-c", "character_id": 1, "pitcher_player_id": "player-d", "pitcher_id": 12, "defensive_team_id": 302, "inning": 1, "result": "HR", "rbi": 4, "run_scored": true, "is_official_ab": true, "is_error": false }
+  ],
+  "runs_scored": [
+    { "id": 1, "game_id": 7, "pa_id": 4, "scoring_player_id": "player-a", "scoring_character_id": 1, "charged_to_pitcher_id": 9, "is_earned_run": true },
+    { "id": 2, "game_id": 7, "pa_id": 4, "scoring_player_id": "player-a", "scoring_character_id": 2, "charged_to_pitcher_id": 9, "is_earned_run": true },
+    { "id": 3, "game_id": 7, "pa_id": 4, "scoring_player_id": "player-a", "scoring_character_id": 3, "charged_to_pitcher_id": 9, "is_earned_run": true },
+    { "id": 4, "game_id": 7, "pa_id": 7, "scoring_player_id": "player-a", "scoring_character_id": 3, "charged_to_pitcher_id": 9, "is_earned_run": true },
+    { "id": 44, "game_id": 7, "pa_id": 7, "scoring_player_id": "player-a", "scoring_character_id": 3, "charged_to_pitcher_id": 9, "is_earned_run": true, "row_kind": "summary" },
+    { "id": 80, "game_id": 8, "pa_id": 80, "scoring_player_id": "player-a", "scoring_character_id": 1, "charged_to_pitcher_id": 9, "is_earned_run": true }
+  ],
+  "season_runs_scored": [
+    { "id": 1, "game_id": 7, "season_id": 201, "pa_id": 1, "scoring_player_id": "player-c", "scoring_character_id": 1, "charged_to_pitcher_id": 12, "is_earned_run": null },
+    { "id": 2, "game_id": 7, "season_id": 201, "pa_id": 4, "scoring_player_id": "player-c", "scoring_character_id": 1, "charged_to_pitcher_id": 12, "is_earned_run": null }
+  ],
+  "pitching_stints": [
+    { "id": 1, "game_id": 7, "player_id": "player-b", "character_id": 9, "innings_pitched": 2, "hits_allowed": 3, "runs_allowed": 4, "earned_runs": 4, "walks": 1, "strikeouts": 1, "hr_allowed": 1, "created_at": "2026-09-05T12:00:00Z" },
+    { "id": 2, "game_id": 12, "player_id": "player-c", "character_id": 10, "innings_pitched": 0, "hits_allowed": 0, "runs_allowed": 0, "earned_runs": 0, "walks": 0, "strikeouts": 0, "hr_allowed": 0, "created_at": "2026-09-05T15:00:00Z" },
+    { "id": 3, "game_id": 12, "player_id": "player-c", "character_id": 11, "innings_pitched": 0, "hits_allowed": 0, "runs_allowed": 0, "earned_runs": 0, "walks": 1, "strikeouts": 0, "hr_allowed": 0, "created_at": "2026-09-05T15:00:02Z" }
+  ],
+  "season_pitching_stints": [
+    { "id": 1, "game_id": 7, "season_id": 201, "player_id": "player-d", "character_id": 12, "innings_pitched": 0.1, "hits_allowed": 2, "runs_allowed": 2, "earned_runs": null, "walks": 1, "strikeouts": 0, "hr_allowed": 1, "created_at": "2026-09-05T16:00:00Z" }
+  ],
+  "pitches": [
+    { "id": 1, "game_id": 7, "pa_id": 1, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Red Pianta", "result": "in_play" },
+    { "id": 2, "game_id": 7, "pa_id": 2, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Yellow Yoshi", "result": "ball" },
+    { "id": 3, "game_id": 7, "pa_id": 3, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Green Paratroopa", "result": "hbp" },
+    { "id": 4, "game_id": 7, "pa_id": 4, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Red Pianta", "result": "in_play" },
+    { "id": 5, "game_id": 7, "pa_id": 5, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Yellow Yoshi", "result": "in_play" },
+    { "id": 6, "game_id": 7, "pa_id": 6, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Red Pianta", "result": "swinging_miss" },
+    { "id": 7, "game_id": 7, "pa_id": 7, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Yellow Yoshi", "result": "in_play" },
+    { "id": 8, "game_id": 7, "pa_id": 8, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Red Pianta", "result": "in_play" },
+    { "id": 9, "game_id": 7, "pa_id": 9, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Green Paratroopa", "result": "in_play" },
+    { "id": 10, "game_id": 7, "pa_id": 10, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Green Paratroopa", "result": "in_play" },
+    { "id": 11, "game_id": 7, "pa_id": 11, "pitch_number_pa": 1, "pitcher_id": "Magikoopa", "batter_id": "Yellow Yoshi", "result": "in_play" },
+    { "id": 101, "game_id": 12, "pa_id": 120, "pitch_number_pa": 1, "pitcher_id": "Mario", "batter_id": "Bowser", "result": "ball", "created_at": "2026-09-05T15:00:01Z" },
+    { "id": 102, "game_id": 12, "pa_id": 120, "pitch_number_pa": 2, "pitcher_id": "Mario", "batter_id": "Bowser", "result": "ball", "created_at": "2026-09-05T15:00:02Z" },
+    { "id": 103, "game_id": 12, "pa_id": 120, "pitch_number_pa": 3, "pitcher_id": "Luigi", "batter_id": "Bowser", "result": "ball", "created_at": "2026-09-05T15:00:03Z" },
+    { "id": 104, "game_id": 12, "pa_id": 120, "pitch_number_pa": 4, "pitcher_id": "Luigi", "batter_id": "Bowser", "result": "ball", "created_at": "2026-09-05T15:00:04Z" }
+  ],
+  "season_pitches": [
+    { "id": 1, "game_id": 7, "season_id": 201, "pa_id": 1, "pitch_number_pa": 1, "pitcher_id": "Peach", "batter_id": "Red Pianta", "result": "in_play" },
+    { "id": 2, "game_id": 7, "season_id": 201, "pa_id": 2, "pitch_number_pa": 1, "pitcher_id": "Peach", "batter_id": "Red Pianta", "result": "ball" },
+    { "id": 3, "game_id": 7, "season_id": 201, "pa_id": 3, "pitch_number_pa": 1, "pitcher_id": "Peach", "batter_id": "Bowser", "result": "in_play" },
+    { "id": 4, "game_id": 7, "season_id": 201, "pa_id": 4, "pitch_number_pa": 1, "pitcher_id": "Peach", "batter_id": "Bowser", "result": "in_play" }
+  ],
+  "game_fielders": [
+    { "id": 1, "game_id": 7, "team_id": "player-b", "player_id": "player-b", "character": "Catcher", "position": 2, "inning_from": 1 },
+    { "id": 2, "game_id": 7, "team_id": "player-b", "player_id": "player-b", "character": "First Base", "position": 3, "inning_from": 1 },
+    { "id": 3, "game_id": 7, "team_id": "player-b", "player_id": "player-b", "character": "Second Base", "position": 4, "inning_from": 1 },
+    { "id": 4, "game_id": 7, "team_id": "player-b", "player_id": "player-b", "character": "Third Base", "position": 5, "inning_from": 1 },
+    { "id": 5, "game_id": 7, "team_id": "player-b", "player_id": "player-b", "character": "Shortstop", "position": 6, "inning_from": 1 },
+    { "id": 6, "game_id": 7, "team_id": "player-b", "player_id": "player-b", "character": "Center Field", "position": 8, "inning_from": 1 }
+  ],
+  "season_game_fielders": [
+    { "id": 1, "game_id": 7, "season_id": 201, "team_id": 302, "character": "Shortstop", "position": 6, "inning_from": 1 },
+    { "id": 2, "game_id": 7, "season_id": 201, "team_id": 302, "character": "First Base", "position": 3, "inning_from": 1 }
+  ],
+  "expected": {
+    "tournament_101_team_alpha": { "games": 1, "pa": 11, "ab": 7, "hits": 3, "walks": 1, "hbp": 1, "strikeouts": 1, "total_bases": 7, "runs": 4, "rbi": 4, "avg": 0.42857142857142855, "obp": 0.5, "slg": 1, "ops": 1.5 },
+    "season_201_team_charlie": { "games": 1, "pa": 4, "ab": 3, "hits": 2, "walks": 1, "hbp": 0, "strikeouts": 0, "total_bases": 7, "runs": 2, "rbi": 2, "avg": 0.6666666666666666, "obp": 0.75, "slg": 2.3333333333333335, "ops": 3.0833333333333335 },
+    "career_character_red_pianta": { "games": 2, "pa": 6, "ab": 5, "hits": 3, "walks": 1, "hbp": 0, "strikeouts": 1, "total_bases": 9, "runs": 3, "rbi": 4, "avg": 0.6, "obp": 0.6666666666666666, "slg": 1.8, "ops": 2.466666666666667 },
+    "tournament_101_pitcher_magikoopa": { "games": 1, "outs": 6, "innings": 2, "pitches": 11, "hits_allowed": 3, "walks": 1, "runs_allowed": 4, "earned_runs": 4, "strikeouts": 1 },
+    "season_201_pitcher_peach": { "games": 1, "outs": 1, "innings": 0.1, "pitches": 4, "hits_allowed": 2, "walks": 1, "runs_allowed": 2, "earned_runs": null, "strikeouts": 0 },
+    "tournament_101_defense_bravo": { "errors": 1, "putouts": 5, "assists": 4, "der_opportunities": 7, "der_outs_converted": 4, "defensive_efficiency": 0.5714285714285714 },
+    "recorded_reference_red_pianta": { "pa": 1, "ab": 1, "hits": 1, "home_runs": 1, "runs": 1, "rbi": 1, "total_bases": 4, "avg": 1, "obp": 1, "slg": 4, "ops": 5 }
+  }
+}

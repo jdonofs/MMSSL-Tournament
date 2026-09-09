@@ -33,10 +33,9 @@ const Admin = lazy(() => import('./pages/Admin'))
 const TeamProfile = lazy(() => import('./pages/TeamProfile'))
 const TeamPage = lazy(() => import('./pages/TeamPage'))
 const CharacterPage = lazy(() => import('./pages/CharacterPage'))
+const CharacterScoutingReport = lazy(() => import('./pages/CharacterScoutingReport'))
 const AtBatEditor = lazy(() => import('./pages/AtBatEditor'))
 const VideoTimestamps = lazy(() => import('./pages/VideoTimestamps'))
-const TrackerAtBatTest = lazy(() => import('./pages/TrackerAtBatTest'))
-const TrackerAtBatPreview = lazy(() => import('./pages/TrackerAtBatPreview'))
 import { SeasonProvider, useSeason } from './context/SeasonContext'
 import { TournamentProvider, useTournament } from './context/TournamentContext'
 import { UnsavedChangesProvider } from './context/UnsavedChangesContext'
@@ -137,12 +136,13 @@ const router = createBrowserRouter([
           { path: '/character/:id/career', element: <CharacterPage /> },
           { path: '/character/:id/season/:seasonId', element: <CharacterPage /> },
           { path: '/character/:id/tournament/:tournamentId', element: <CharacterPage /> },
+          { path: '/character/:id/scouting', element: <CharacterScoutingReport /> },
+          { path: '/character/:id/season/:seasonId/scouting', element: <CharacterScoutingReport /> },
+          { path: '/character/:id/tournament/:tournamentId/scouting', element: <CharacterScoutingReport /> },
           { path: '/admin', element: <Admin /> },
           { path: '/admin/video-timestamps', element: <VideoTimestamps /> },
           { path: '/at-bat/:source/:id', element: <AtBatEditor /> },
           { path: '/tracker-editor/:source/:gameId', element: <AtBatEditor /> },
-          { path: '/tracker-test', element: <TrackerAtBatTest /> },
-          { path: '/tracker-preview', element: <TrackerAtBatPreview /> },
         ],
       },
       { path: '*', element: <Navigate to="/" replace /> },

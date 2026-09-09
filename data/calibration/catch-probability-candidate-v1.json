@@ -1,0 +1,360 @@
+{
+  "artifact_schema_version": "sluggers-catch-probability-artifact-v1",
+  "model_version": "sluggers-catch-probability-candidate-v1",
+  "opportunity_definition_version": "sluggers-of-airborne-opportunity-v1",
+  "status": "rejected",
+  "model_type": "regularized_logistic",
+  "feature_schema": [
+    "park",
+    "position",
+    "start_depth_units",
+    "start_angle_deg",
+    "projected_distance_units",
+    "projected_landing_seconds",
+    "projected_required_speed_ups",
+    "projected_direction"
+  ],
+  "feature_names": [
+    "intercept",
+    "start_depth_z",
+    "abs_start_angle_z",
+    "projected_required_speed_z",
+    "projected_time_z",
+    "position_CF",
+    "position_RF",
+    "park_daisy_cruiser",
+    "park_mario_stadium",
+    "park_peach_ice_garden",
+    "park_wario_city",
+    "park_yoshi_park",
+    "direction_back_left",
+    "direction_back_right",
+    "direction_in",
+    "direction_in_left",
+    "direction_in_right"
+  ],
+  "lambda": 0.1,
+  "standardization": {
+    "start_depth": {
+      "mean": 71.88846134958966,
+      "scale": 3.4677122722373883
+    },
+    "abs_start_angle": {
+      "mean": 17.26061372998272,
+      "scale": 14.55777195523514
+    },
+    "projected_required_speed": {
+      "mean": 9.302503699959315,
+      "scale": 4.144806409381437
+    },
+    "projected_landing_seconds": {
+      "mean": 2.1931384578313255,
+      "scale": 0.5446986964501912
+    }
+  },
+  "categories": {
+    "parks": [
+      "bowser_jr_playroom",
+      "daisy_cruiser",
+      "mario_stadium",
+      "peach_ice_garden",
+      "wario_city",
+      "yoshi_park"
+    ],
+    "positions": [
+      "LF",
+      "CF",
+      "RF"
+    ],
+    "directions": [
+      "back",
+      "back_left",
+      "back_right",
+      "in",
+      "in_left",
+      "in_right"
+    ]
+  },
+  "supported_parks": [
+    "bowser_jr_playroom",
+    "daisy_cruiser",
+    "mario_stadium",
+    "peach_ice_garden",
+    "wario_city",
+    "yoshi_park"
+  ],
+  "supported_positions": [
+    "LF",
+    "CF",
+    "RF"
+  ],
+  "coefficients": [
+    1.0236609756942427,
+    -0.11579812567390702,
+    0.11579812567388367,
+    -1.5081163248149976,
+    1.5817722658083855,
+    0.3227543041615958,
+    -0.029504227655115872,
+    0.24282099681113428,
+    -0.5927967858404156,
+    -0.13780200478888172,
+    -0.6274137764646397,
+    0.7500887818372721,
+    0.5255437180192118,
+    2.3838906057198255,
+    -1.0866731232915547,
+    -1.4670402488680196,
+    -1.9635249916474444
+  ],
+  "activation_decision": {
+    "decision": "reject",
+    "checks": {
+      "eligible_sample": false,
+      "failures": false,
+      "final_test_sample": false,
+      "final_test_failures": false,
+      "session_dominance": true,
+      "park_dominance": true,
+      "calibration": false,
+      "brier_improvement": true,
+      "probability_bin_coverage": false,
+      "grouped_uncertainty": true,
+      "sensitivity": false,
+      "no_post_outcome_predictors": true,
+      "predictor_family_coverage": true
+    },
+    "failed_checks": [
+      "eligible_sample",
+      "failures",
+      "final_test_sample",
+      "final_test_failures",
+      "calibration",
+      "probability_bin_coverage",
+      "sensitivity"
+    ],
+    "diagnostics": {
+      "session": {
+        "counts": {
+          "bowser_castle-20260904T011909Z": 38,
+          "bowser_castle-20260905T005948Z": 23,
+          "bowser_jr_playroom-20260828T155225Z": 23,
+          "daisy_cruiser-20260904T202047Z": 25,
+          "dk_jungle-20260904T161731Z": 29,
+          "luigis_mansion-20260904T171123Z": 13,
+          "mario_stadium-20260831T174649Z": 11,
+          "mario_stadium-20260904T213725Z": 40,
+          "peach_ice_garden-20260904T152214Z": 29,
+          "wario_city-20260904T144308Z": 23,
+          "yoshi_park-20260831T134815Z": 6,
+          "yoshi_park-20260831T140742Z": 26
+        },
+        "maximum_share": 0.13986013986013987,
+        "dominant": "mario_stadium-20260904T213725Z"
+      },
+      "park": {
+        "counts": {
+          "bowser_castle": 61,
+          "bowser_jr_playroom": 23,
+          "daisy_cruiser": 25,
+          "dk_jungle": 29,
+          "luigis_mansion": 13,
+          "mario_stadium": 51,
+          "peach_ice_garden": 29,
+          "wario_city": 23,
+          "yoshi_park": 32
+        },
+        "maximum_share": 0.21328671328671328,
+        "dominant": "bowser_castle"
+      },
+      "relative_brier_improvement": 0.3212019202521857,
+      "populated_probability_bins": 1,
+      "sensitivity_changes": [
+        {
+          "name": "exclude_assisted_movement",
+          "absolute_brier_change": 0.12112875633271768
+        },
+        {
+          "name": "exclude_dive_leap_reach",
+          "absolute_brier_change": 0.06846217165267046
+        },
+        {
+          "name": "include_wall_plays",
+          "absolute_brier_change": 0.00016650799234496638
+        },
+        {
+          "name": "include_special_mechanics",
+          "absolute_brier_change": 0.0009037483115428985
+        }
+      ]
+    }
+  },
+  "analysis_date": "2026-09-05",
+  "training_data_fingerprint_sha256": "a069433b2a534b64719cab66957d820e03d9abd84a7f6613e54b6a6bdb67b4ee",
+  "split_manifest_fingerprint_sha256": "9ae9391000e67b9e56d38db31e4b2db5009190477d71809cc209565c51d65de9",
+  "training_counts": {
+    "opportunities": 166,
+    "catches": 127,
+    "failures": 39,
+    "sessions": [
+      "bowser_jr_playroom-20260828T155225Z",
+      "daisy_cruiser-20260904T202047Z",
+      "mario_stadium-20260904T213725Z",
+      "peach_ice_garden-20260904T152214Z",
+      "wario_city-20260904T144308Z",
+      "yoshi_park-20260831T140742Z"
+    ],
+    "related_capture_groups": [
+      "bowser_jr_playroom-20260828T155225Z",
+      "daisy_cruiser-20260904T202047Z",
+      "mario_stadium-20260904T213725Z",
+      "peach_ice_garden-20260904T152214Z",
+      "wario_city-20260904T144308Z",
+      "yoshi_park-20260831T140742Z"
+    ]
+  },
+  "validation_counts": {
+    "opportunities": 69,
+    "catches": 45,
+    "failures": 24,
+    "sessions": [
+      "bowser_castle-20260905T005948Z",
+      "dk_jungle-20260904T161731Z",
+      "mario_stadium-20260831T174649Z",
+      "yoshi_park-20260831T134815Z"
+    ],
+    "related_capture_groups": [
+      "bowser_castle-20260905T005948Z",
+      "dk_jungle-20260904T161731Z",
+      "mario_stadium-20260831T174649Z",
+      "yoshi_park-20260831T134815Z"
+    ]
+  },
+  "held_out_test_counts": {
+    "opportunities": 51,
+    "catches": 39,
+    "failures": 12,
+    "sessions": [
+      "bowser_castle-20260904T011909Z",
+      "luigis_mansion-20260904T171123Z"
+    ],
+    "related_capture_groups": [
+      "bowser_castle-20260904T011909Z",
+      "luigis_mansion-20260904T171123Z"
+    ]
+  },
+  "held_out_results": {
+    "n": 51,
+    "catches": 39,
+    "failures": 12,
+    "brier": 0.12213676394564109,
+    "log_loss": 0.3709003379455884,
+    "ece": 0.1062253588924418,
+    "auc": 0.8717948717948718,
+    "calibration": [
+      {
+        "low": 0,
+        "high": 0.1,
+        "n": 2,
+        "mean_probability": 0.09162392428885437,
+        "catch_rate": 0
+      },
+      {
+        "low": 0.1,
+        "high": 0.2,
+        "n": 1,
+        "mean_probability": 0.16354144980108828,
+        "catch_rate": 0
+      },
+      {
+        "low": 0.2,
+        "high": 0.3,
+        "n": 1,
+        "mean_probability": 0.24409348176877504,
+        "catch_rate": 1
+      },
+      {
+        "low": 0.3,
+        "high": 0.4,
+        "n": 3,
+        "mean_probability": 0.3595373849193484,
+        "catch_rate": 0.3333333333333333
+      },
+      {
+        "low": 0.4,
+        "high": 0.5,
+        "n": 4,
+        "mean_probability": 0.4560669668623287,
+        "catch_rate": 0.5
+      },
+      {
+        "low": 0.5,
+        "high": 0.6,
+        "n": 0,
+        "mean_probability": null,
+        "catch_rate": null
+      },
+      {
+        "low": 0.6,
+        "high": 0.7,
+        "n": 4,
+        "mean_probability": 0.639860320375141,
+        "catch_rate": 1
+      },
+      {
+        "low": 0.7,
+        "high": 0.8,
+        "n": 9,
+        "mean_probability": 0.7555035140023205,
+        "catch_rate": 0.5555555555555556
+      },
+      {
+        "low": 0.8,
+        "high": 0.9,
+        "n": 7,
+        "mean_probability": 0.8524400892556635,
+        "catch_rate": 0.8571428571428571
+      },
+      {
+        "low": 0.9,
+        "high": 1,
+        "n": 20,
+        "mean_probability": 0.9606278260067448,
+        "catch_rate": 1
+      }
+    ]
+  },
+  "exclusions": {
+    "missing_pitch_release_start": 576,
+    "missing_preoutcome_flight_projection": 1649,
+    "missing_primary_fielder": 576,
+    "not_defensible_airborne_label": 1548,
+    "not_fair_ball": 592,
+    "not_primary_outfielder": 1552,
+    "operator_annotation": 189,
+    "session_not_join_validated": 1613,
+    "special_or_redirected_mechanic": 600,
+    "unresolved_fielding_evidence": 4,
+    "wall_play": 35
+  },
+  "collection_target": {
+    "additional_eligible_opportunities": 214,
+    "additional_failures": 25,
+    "reserve_new_test_opportunities": 100,
+    "reserve_new_test_failures": 20,
+    "priority_contexts": [
+      "6_to_8 projected required speed with both outcomes",
+      "successful catches above 8 projected required speed"
+    ],
+    "park_sessions": {
+      "bowser_jr_playroom": 1,
+      "daisy_cruiser": 1,
+      "dk_jungle": 1,
+      "luigis_mansion": 1,
+      "peach_ice_garden": 1,
+      "wario_city": 1,
+      "wario_stadium": 2
+    }
+  },
+  "reproducibility_command": "node scripts/calibrate_catch_probability.mjs --refresh-features"
+}

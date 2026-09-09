@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { GENERIC_FIELD_CONFIG, STADIUM_CONFIGS, STADIUM_KEY_LABELS, projectDistanceAngleToSpot } from './FieldPlayBuilder'
 import { isBarrel } from '../utils/hitDistanceStats'
 import { buildAtBatPath } from '../utils/scorebookRouting'
+import { FEET_PER_UNIT, clampToFairTerritory, worldToPolar } from '../utils/parkGeometry'
 
 // Devices with a fine pointer and real hover (mouse/trackpad) can preview a
 // dot on hover, so a click can afford to jump straight to the at-bat page.
@@ -28,6 +29,26 @@ const DOT_COLORS = {
 const OUT_DOT_COLOR = '#94A3B8'
 const ERROR_DOT_COLOR = '#06B6D4'
 const ALL_PARKS_KEY = '__all__'
+
+function normalizedHitGeometry(pa) {
+  if (pa.hit_world_x != null && pa.hit_world_z != null) {
+    const point = pa.hit_position_estimated
+      ? clampToFairTerritory(pa.hit_world_x, pa.hit_world_z)
+      : { x: Number(pa.hit_world_x), z: Number(pa.hit_world_z) }
+    const polar = point && worldToPolar(point.x, point.z)
+    if (polar) {
+      return {
+        distanceFeet: polar.distanceUnits * FEET_PER_UNIT,
+        angleDeg: polar.angleDeg,
+      }
+    }
+  }
+  const distanceFeet = Number(pa.hit_distance_ft)
+  const angleDeg = Number(pa.hit_angle_deg)
+  return Number.isFinite(distanceFeet) && Number.isFinite(angleDeg)
+    ? { distanceFeet, angleDeg }
+    : null
+}
 
 const LEGEND_ITEMS = [
   { label: 'Single', color: DOT_COLORS['1B'] },
@@ -154,7 +175,7 @@ export default function SprayChart({ plateAppearances = [], initialStadiumKey = 
   }, [plateAppearances])
 
   const allParksPas = useMemo(
-    () => plateAppearances.filter((pa) => pa.hit_distance_ft != null && pa.hit_angle_deg != null),
+    () => plateAppearances.filter((pa) => normalizedHitGeometry(pa) != null),
     [plateAppearances],
   )
 
@@ -178,7 +199,10 @@ export default function SprayChart({ plateAppearances = [], initialStadiumKey = 
     if (isAllParks) {
       return allParksPas
         .map((pa) => {
-          const spot = projectDistanceAngleToSpot(Number(pa.hit_distance_ft), Number(pa.hit_angle_deg), GENERIC_FIELD_CONFIG)
+          const geometry = normalizedHitGeometry(pa)
+          const spot = geometry && projectDistanceAngleToSpot(
+            geometry.distanceFeet, geometry.angleDeg, GENERIC_FIELD_CONFIG,
+          )
           return spot ? { ...pa, hit_x: spot.x, hit_y: spot.y } : null
         })
         .filter(Boolean)

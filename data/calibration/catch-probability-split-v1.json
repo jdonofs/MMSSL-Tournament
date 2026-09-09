@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "seed": "sluggers-catch-probability-v1-held-out-20260905",
+  "strategy": "entire related-capture groups; deterministic sha256 order; 60/20/20 greedy count targets",
+  "by_session": {
+    "wario_city-20260904T144308Z": "train",
+    "daisy_cruiser-20260904T202047Z": "train",
+    "bowser_jr_playroom-20260828T155225Z": "train",
+    "mario_stadium-20260904T213725Z": "train",
+    "yoshi_park-20260831T140742Z": "train",
+    "peach_ice_garden-20260904T152214Z": "train",
+    "mario_stadium-20260831T174649Z": "validation",
+    "yoshi_park-20260831T134815Z": "validation",
+    "bowser_castle-20260905T005948Z": "validation",
+    "dk_jungle-20260904T161731Z": "validation",
+    "bowser_castle-20260904T011909Z": "test",
+    "luigis_mansion-20260904T171123Z": "test"
+  },
+  "partitions": {
+    "train": {
+      "opportunities": 166,
+      "catches": 127,
+      "failures": 39,
+      "sessions": [
+        "bowser_jr_playroom-20260828T155225Z",
+        "daisy_cruiser-20260904T202047Z",
+        "mario_stadium-20260904T213725Z",
+        "peach_ice_garden-20260904T152214Z",
+        "wario_city-20260904T144308Z",
+        "yoshi_park-20260831T140742Z"
+      ],
+      "related_capture_groups": [
+        "bowser_jr_playroom-20260828T155225Z",
+        "daisy_cruiser-20260904T202047Z",
+        "mario_stadium-20260904T213725Z",
+        "peach_ice_garden-20260904T152214Z",
+        "wario_city-20260904T144308Z",
+        "yoshi_park-20260831T140742Z"
+      ]
+    },
+    "validation": {
+      "opportunities": 69,
+      "catches": 45,
+      "failures": 24,
+      "sessions": [
+        "bowser_castle-20260905T005948Z",
+        "dk_jungle-20260904T161731Z",
+        "mario_stadium-20260831T174649Z",
+        "yoshi_park-20260831T134815Z"
+      ],
+      "related_capture_groups": [
+        "bowser_castle-20260905T005948Z",
+        "dk_jungle-20260904T161731Z",
+        "mario_stadium-20260831T174649Z",
+        "yoshi_park-20260831T134815Z"
+      ]
+    },
+    "test": {
+      "opportunities": 51,
+      "catches": 39,
+      "failures": 12,
+      "sessions": [
+        "bowser_castle-20260904T011909Z",
+        "luigis_mansion-20260904T171123Z"
+      ],
+      "related_capture_groups": [
+        "bowser_castle-20260904T011909Z",
+        "luigis_mansion-20260904T171123Z"
+      ]
+    }
+  }
+}

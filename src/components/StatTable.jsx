@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import StatLabel from './StatLabel'
+import '../styles/stats-pages.css'
 
 // Generic year-by-year stat table (Baseball-Reference style): one row per season/tournament
 // event, an optional bolded Career total row, and a small type pill (Season/Tournament) per row
@@ -84,22 +85,33 @@ export default function StatTable({ columns, rows, careerRow, onRowClick, showTy
         <thead>
           <tr>
             {columns.map((col) => (
+              // The sort control is a real <button> rather than a click handler on the <th> so it
+              // can be tabbed to and fired with Enter/Space; aria-sort tells a screen reader which
+              // column is ordering the table and which way.
               <th
                 key={col.key}
-                onClick={() => handleHeaderClick(col)}
-                style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                scope="col"
+                aria-sort={sort?.key === col.key ? (sort.direction === 1 ? 'ascending' : 'descending') : 'none'}
+                style={{ userSelect: 'none', whiteSpace: 'nowrap' }}
               >
-                <StatLabel label={col.label} />
-                {sort?.key === col.key ? (sort.direction === 1 ? ' ▲' : ' ▼') : ''}
+                <button className="stat-sort-button" onClick={() => handleHeaderClick(col)} type="button">
+                  <StatLabel label={col.label} />
+                  <span aria-hidden="true" className="stat-sort-caret">
+                    {sort?.key === col.key ? (sort.direction === 1 ? '▲' : '▼') : ''}
+                  </span>
+                </button>
               </th>
             ))}
-            {awardColumn && <th key="__award">Awards</th>}
+            {awardColumn && <th key="__award" scope="col">Awards</th>}
           </tr>
         </thead>
         <tbody>
           {sortedRows.map((row, i) => (
             <tr
-              key={row.eventKey || row.characterId || i}
+              // eventKey alone collides whenever one event contributes several rows — a character
+              // who played three positions in one season yields three rows all keyed "season:37".
+              // Callers with that shape pass an explicit rowKey.
+              key={row.rowKey || row.eventKey || row.characterId || i}
               style={{
                 background: i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'transparent',
                 cursor: onRowClick ? 'pointer' : 'default',

@@ -95,13 +95,15 @@ export function AuthProvider({ children }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      // TOKEN_REFRESHED fires whenever the tab regains focus/visibility, for
-      // the same signed-in user. Re-running setLoading(true) + re-resolving
-      // the player on every one of these caused the whole app to flash a
-      // loading state (feeling like a forced refresh) every time someone
-      // switched tabs. Only treat it as a real session change if the user
-      // actually changed.
-      if (event === 'TOKEN_REFRESHED' && nextSession?.user?.id === sessionRef.current?.user?.id) {
+      // Supabase can emit SIGNED_IN when an existing session is re-established
+      // (including on tab refocus), then broadcasts it to every same-origin tab.
+      // TOKEN_REFRESHED is likewise session maintenance. Neither event should
+      // blank and remount the app when the signed-in user has not changed.
+      const isSameUserSession = Boolean(
+        nextSession?.user?.id
+        && nextSession.user.id === sessionRef.current?.user?.id,
+      )
+      if (isSameUserSession && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
         setSession(nextSession || null)
         sessionRef.current = nextSession || null
         return

@@ -1,0 +1,28 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260828T182145Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260828T182145Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260828T182145Z.bin",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "recorded_utc": "20260828T182145Z",
+  "frames": 107316,
+  "missed_frames": 0,
+  "duration_seconds": 4341.394,
+  "checksum_sha256": "622b302c7d8141c725546f24c12f02b1de619f046a7b4336ceaafe2960312a1d",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 60,
+    "plays_seen": 95,
+    "plays_emitted": 95,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260828T182145Z.live.jsonl",
+    "mean_feed_ms": 0.0656,
+    "max_feed_ms": 3.994,
+    "max_play_build_ms": 64.4,
+    "replay_duplicates": 1
+  }
+}

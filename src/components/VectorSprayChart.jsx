@@ -13,6 +13,7 @@ import {
   infieldCorners,
   parkMaxRadius,
   standsHeightUnits,
+  worldLandingToImagePercentAtHeight,
   worldToImagePercent,
   worldToImagePercentAtHeight,
   worldToPolar,
@@ -255,7 +256,7 @@ function positionFor(pa) {
 
 function HitTooltip({ pa, position, onClose, stadiumLabel, characterName }) {
   const flipUp = position.y > VIEWBOX * 0.55
-  const distance = pa.hit_distance_ft
+  const distance = pa.hit_distance_ft == null ? null : Number(pa.hit_distance_ft)
   const polar = worldToPolar(
     pa.hit_world_x ?? HOME_PLATE.x,
     pa.hit_world_z ?? HOME_PLATE.z,
@@ -263,6 +264,17 @@ function HitTooltip({ pa, position, onClose, stadiumLabel, characterName }) {
   const measuredDistance = pa.hit_world_x != null && polar
     ? Math.round(polar.distanceUnits * FEET_PER_UNIT)
     : null
+  const impactHeight = Number(pa.hit_world_y)
+  // Live preview supplies the flag explicitly. A newly persisted wall-impact
+  // HR has no metadata column for it, but remains unambiguous: its stored carry
+  // is materially beyond the horizontal radius of an elevated measured impact.
+  const projectedDistance = Number.isFinite(distance) && (
+    pa.hit_distance_is_projected === true
+    || (
+      Number.isFinite(impactHeight) && impactHeight > 1
+      && measuredDistance != null && distance > measuredDistance + 3
+    )
+  )
 
   return (
     <div
@@ -297,9 +309,17 @@ function HitTooltip({ pa, position, onClose, stadiumLabel, characterName }) {
       <div style={{ fontWeight: 700, marginBottom: 4, paddingRight: 10 }}>{resultLabelFor(pa)}</div>
       {characterName ? <div>Character: {characterName}</div> : null}
       {stadiumLabel ? <div>Stadium: {stadiumLabel}</div> : null}
-      {measuredDistance != null
-        ? <div>Distance: {measuredDistance} ft</div>
-        : distance != null ? <div>Distance: {distance} ft</div> : null}
+      {projectedDistance
+        ? <div>Projected distance: {Math.round(distance)} ft</div>
+        : measuredDistance != null
+          ? <div>Distance: {measuredDistance} ft</div>
+          : Number.isFinite(distance) ? <div>Distance: {distance} ft</div> : null}
+      {projectedDistance && measuredDistance != null
+        ? <div>Wall impact: {measuredDistance} ft from home</div>
+        : null}
+      {projectedDistance && Number.isFinite(impactHeight)
+        ? <div>Impact height: {Math.round(impactHeight * FEET_PER_UNIT)} ft</div>
+        : null}
       {pa.exit_velocity_mph != null ? <div>Exit Velo: {pa.exit_velocity_mph} mph</div> : null}
       {pa.launch_angle_deg != null ? <div>Launch Angle: {pa.launch_angle_deg}°</div> : null}
       {pa.exit_velocity_mph != null && pa.launch_angle_deg != null
@@ -383,9 +403,22 @@ export default function VectorSprayChart({
         // only the surface it is drawn on changes.
         const point = showImage
           ? (() => {
-              const percent = worldToImagePercentAtHeight(
-                activeKey, world.x, world.z, world.height || 0,
-              )
+              // A live tracked hit explicitly says whether its endpoint is
+              // hidden behind the wall artwork. Do not derive that from HR:
+              // the result arrives after the endpoint and used to make one dot
+              // visibly jump from its measured wall contact into the lava.
+              // Older persisted rows have no flag, so preserve their previous
+              // HR behaviour as a compatibility fallback only.
+              const isHomeRun = pa.result === 'HR' || pa.result === 'IPHR'
+              const revealOccludedLanding = pa.hit_reveal_occluded_landing
+                ?? isHomeRun
+              const percent = revealOccludedLanding
+                ? worldLandingToImagePercentAtHeight(
+                    activeKey, world.x, world.z, world.height || 0,
+                  )
+                : worldToImagePercentAtHeight(
+                    activeKey, world.x, world.z, world.height || 0,
+                  )
               return percent ? { x: (percent.x / 100) * VIEWBOX, y: (percent.y / 100) * VIEWBOX } : null
             })()
           : projector.project(world.x, world.z)

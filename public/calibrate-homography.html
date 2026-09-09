@@ -221,7 +221,11 @@
       clicks = []
       wallClicks = []
       ballClicks = []
-      img.src = PARK_IMAGES[key].image
+      // Cache-busted deliberately. Stadium artwork gets REPLACED when a park's
+      // framing turns out to cut off where balls actually land, and a browser
+      // serving the stale copy is invisible -- you calibrate happily against
+      // the old picture and the fit is quietly wrong. Cheap on a local file.
+      img.src = `${PARK_IMAGES[key].image}?v=${Date.now()}`
       render()
     }
 
@@ -292,7 +296,7 @@
       return fitVerticalVanishing(matrix, balls.map((ball, index) => ({
         world: { x: ball.x, z: ball.z, height: ball.y },
         image: ballClicks[index],
-      })))
+      })), { allowVanishing: true })
     }
 
     function verticalFit(matrix) {
@@ -541,6 +545,16 @@
           const fenceHere = fenceRadiusAt(park, angle)
           return fenceHere == null ? null : depth - fenceHere
         }).filter((value) => value != null)
+        depthNote = `<br /><span style="color:${worst < 0.5 ? '#86efac' : '#f87171'}">`
+          + `worst pair off by ${worst.toFixed(2)}%</span>`
+          + `<br /><span style="color:${spread > 25 ? '#86efac' : '#fbbf24'}">`
+          + `depth spread ${spread.toFixed(0)}u ${spread > 25
+            ? '(good)' : '— pairs are too close together; click one near a foul pole AND one at dead centre'}</span>`
+        // Appended, not assigned. This line used to be built with += above and
+        // then clobbered by the assignment that is now above it, so the one
+        // number that explains an offset pink line was computed every render
+        // and never shown -- while the prose at the top of the page promised
+        // "the panel reports it in feet".
         if (offsets.length) {
           const mean = offsets.reduce((sum, value) => sum + value, 0) / offsets.length
           const worstOffset = offsets.reduce((max, v) => (Math.abs(v) > Math.abs(max) ? v : max), 0)
@@ -551,11 +565,6 @@
             + `${ok ? '' : ' — the fence and the painted wall disagree; the pink LINE follows the fence, not your clicks'}`
             + '</span>'
         }
-        depthNote = `<br /><span style="color:${worst < 0.5 ? '#86efac' : '#f87171'}">`
-          + `worst pair off by ${worst.toFixed(2)}%</span>`
-          + `<br /><span style="color:${spread > 25 ? '#86efac' : '#fbbf24'}">`
-          + `depth spread ${spread.toFixed(0)}u ${spread > 25
-            ? '(good)' : '— pairs are too close together; click one near a foul pole AND one at dead centre'}</span>`
       }
       const usingBalls = Boolean(ballVerticalFit(fit.matrix))
       if (usingBalls) {

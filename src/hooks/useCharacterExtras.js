@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
+import { fetchSupersededTrackingPlayIds, onlyActiveTrackingFacts } from '../utils/activeTrackingVersions'
 import {
   abbreviateSeasonName,
   aggregateFieldingHistoryByEvent,
@@ -26,6 +27,10 @@ import { buildPlayerTeamIdentity, buildSeasonTeamIdentity } from '../utils/teamI
 import { buildExpectedOutcomeModel, summarizeExpectedBatting } from '../utils/expectedStats'
 import { getStadiumNameByKey } from '../utils/stadiums'
 import { normalizeSeasonRowsByGameId } from '../utils/seasonGameIds'
+import { dedupeStatRows, getStatGameKey, reconcileStatSource } from '../utils/statReconciliation'
+import { summarizeAdvancedBaserunning, summarizeAdvancedFielding } from '../utils/advancedDefense'
+import { buildMeasuredIndex, buildMinedIndex } from '../utils/measuredAttributes'
+import { characterNameKey } from '../utils/characterNames'
 
 function createDefaultExtras() {
   return {
@@ -39,6 +44,9 @@ function createDefaultExtras() {
     starHitFieldingByPosition: { positions: [], totalChances: 0, totalErrors: 0, fieldingPct: null },
     starHitFieldingHistoryByPosition: [],
     fieldingRangeByPosition: { positions: [], totalRangeable: 0, totalRangeRuns: null },
+    advancedFielding: null,
+    advancedBaserunning: null,
+    advancedValueByEventKey: {},
     parkFactorRows: [],
     teamHistory: [],
     transactions: [],
@@ -49,6 +57,8 @@ function createDefaultExtras() {
     statMaxes: null,
     statMins: null,
     analysesByCharacterId: {},
+    measuredByCharacterId: {},
+    minedByCharacterId: {},
   }
 }
 
@@ -178,7 +188,9 @@ function buildLeaguePerformanceIndex(battingRows = [], expectedModel = null) {
   Object.entries(byCharacter).forEach(([charId, pas]) => {
     // Number(null) is 0 (finite!), so PAs with no tracked exit velocity (walks, strikeouts, etc.)
     // must be excluded by a null check before the finite check, or they'd average in as 0 mph.
-    const withEv = pas.filter((pa) => pa.exit_velocity_mph != null && Number.isFinite(Number(pa.exit_velocity_mph)) && !pa.star_hit_used)
+    const withEv = pas.filter((pa) => pa.exit_velocity_mph != null
+      && Number.isFinite(Number(pa.exit_velocity_mph))
+      && !(pa.star_hit_connected === true || (pa.star_hit_connected == null && pa.star_hit_used)))
     const swings = pas.filter((pa) => pa.result != null)
     const expected = expectedModel ? summarizeExpectedBatting(pas, expectedModel) : null
     result[charId] = {
@@ -189,6 +201,9 @@ function buildLeaguePerformanceIndex(battingRows = [], expectedModel = null) {
       kRate: battedBallRate(swings, (pa) => pa.result === 'K'),
       bbRate: battedBallRate(swings, (pa) => pa.result === 'BB'),
       xwoba: expected?.sampleSize ? expected.xwOBA : null,
+      // Sample counts so the Scouting Report can print an `n` beside every measured value.
+      exitVeloSamples: withEv.length,
+      paSamples: swings.length,
     }
   })
   return result
@@ -201,6 +216,7 @@ function buildLeaguePerformanceIndex(battingRows = [], expectedModel = null) {
 export default function useCharacterExtras(character, scope = null) {
   const cacheKey = getCacheKey(character?.id, scope)
   const [extras, setExtras] = useState(() => (cacheKey && extrasCache.has(cacheKey) ? extrasCache.get(cacheKey) : createDefaultExtras()))
+  const loadGenerationRef = useRef(0)
 
   useEffect(() => {
     if (!cacheKey) {
@@ -219,6 +235,8 @@ export default function useCharacterExtras(character, scope = null) {
     let cancelled = false
 
     async function load() {
+      const generation = loadGenerationRef.current + 1
+      loadGenerationRef.current = generation
       setExtras((current) => ({ ...current, loading: true }))
 
       const [
@@ -227,16 +245,20 @@ export default function useCharacterExtras(character, scope = null) {
         tournamentFieldingPasResult, seasonFieldingPasResult,
         gameFieldersResult, seasonGameFieldersResult,
         tournamentRunEventsResult, seasonRunEventsResult,
-        gamesResult, tournamentsResult, seasonsResult,
+        gamesResult, seasonScheduleResult, tournamentsResult, seasonsResult,
         charactersResult, seasonTeamsResult,
         draftPicksResult,
         tournamentTradeProposalsResult, tournamentTradeMovesResult,
         seasonTradeProposalsResult, seasonTradeMovesResult,
         seasonWaiversResult, seasonRosterResult,
         playersResult,
+        trackingThrowsResult, runnerOpportunitiesResult,
+        doublePlayOpportunitiesResult, fieldingOpportunitiesResult,
+        movementMetricsResult, pitchesResult, seasonPitchesResult,
+        activeVersionsResult,
       ] = await Promise.all([
-        fetchAllRows(() => supabase.from('plate_appearances').select('character_id,pitcher_id,result,exit_velocity_mph,launch_angle_deg,star_hit_used,game_id,hit_stadium_key,is_error,run_scored')),
-        fetchAllRows(() => supabase.from('season_plate_appearances').select('character_id,pitcher_id,result,exit_velocity_mph,launch_angle_deg,star_hit_used,season_id,game_id,hit_stadium_key,is_error,run_scored')),
+        fetchAllRows(() => supabase.from('plate_appearances').select('*')),
+        fetchAllRows(() => supabase.from('season_plate_appearances').select('*')),
         fetchAllRows(() => supabase.from('pitching_stints').select('*')),
         fetchAllRows(() => supabase.from('season_pitching_stints').select('*')),
         fetchAllRows(() => supabase.from('plate_appearances').select('game_id,character_id,hit_location,hit_notation,error_notation,error_position,error_character,is_error,is_nice_play,inning,defensive_team_id,result,outs_on_play,star_hit_used,is_buddy_jump,buddy_jump_assist_position,buddy_jump_putout_position,hit_distance_ft,hit_angle_deg,hit_stadium_key,fielded_x,fielded_y,hang_time_sec,contact_video_sec,fielded_video_sec')),
@@ -245,7 +267,8 @@ export default function useCharacterExtras(character, scope = null) {
         fetchAllRows(() => supabase.from('season_game_fielders').select('*')),
         fetchAllRows(() => supabase.from('runs_scored').select('*')),
         fetchAllRows(() => supabase.from('season_runs_scored').select('*')),
-        fetchAllRows(() => supabase.from('games').select('id,tournament_id')),
+        fetchAllRows(() => supabase.from('games').select('id,tournament_id,status')),
+        fetchAllRows(() => supabase.from('season_schedule').select('id,season_id,status')),
         fetchAllRows(() => supabase.from('tournaments').select('id,tournament_number').order('tournament_number')),
         fetchAllRows(() => supabase.from('seasons').select('id,name,created_at').order('created_at')),
         fetchAllRows(() => supabase.from('characters').select('*')),
@@ -258,21 +281,79 @@ export default function useCharacterExtras(character, scope = null) {
         fetchAllRows(() => supabase.from('season_waivers').select('*')),
         fetchAllRows(() => supabase.from('season_roster').select('character_name,team_id,acquired_via,created_at,season_id')),
         fetchAllRows(() => supabase.from('players').select('*')),
+        fetchAllRows(() => supabase.from('tracking_throws').select('*')),
+        fetchAllRows(() => supabase.from('runner_opportunities').select('*')),
+        fetchAllRows(() => supabase.from('double_play_opportunities').select('*')),
+        fetchAllRows(() => supabase.from('fielding_opportunities').select('*')),
+        // movement_metrics is where sprint speed, home-to-first, the 90-ft split and the
+        // jump/reaction/burst trio live. Stats.jsx has always read it; the character page never
+        // has, which is why none of those numbers could appear on a character until now.
+        fetchAllRows(() => supabase.from('movement_metrics').select('*')),
+        // Measured pitch velocity and break. Keyed by pitcher NAME, resolved below.
+        fetchAllRows(() => supabase.from('pitches').select('id,game_id,pa_id,pitch_number_pa,pitcher_id,pitch_speed_mph,pitch_horizontal_chord_deviation_units,pitch_vertical_chord_deviation_units,pitch_tracking_status')),
+        fetchAllRows(() => supabase.from('season_pitches').select('id,game_id,season_id,pa_id,pitch_number_pa,pitcher_id,pitch_speed_mph,pitch_horizontal_chord_deviation_units,pitch_vertical_chord_deviation_units,pitch_tracking_status')),
+        // Tracking plays that are no longer the authoritative version of
+        // themselves. Resolves to { data: Set, error } like every read above,
+        // and is checked with them below: a page that cannot tell an active
+        // version from a superseded one keeps the numbers it already had
+        // rather than showing a fielding line built from both. See
+        // src/utils/activeTrackingVersions.js.
+        fetchSupersededTrackingPlayIds(supabase),
       ])
 
-      if (cancelled) return
+      if (cancelled || generation !== loadGenerationRef.current) return
 
-      const tournamentBattingPas = tournamentBattingResult.data || []
-      const seasonBattingPas = normalizeSeasonRowsByGameId(seasonBattingResult.data || [])
-      const tournamentStints = tournamentPitchingStintsResult.data || []
-      const seasonStints = normalizeSeasonRowsByGameId(seasonPitchingStintsResult.data || [])
-      const tournamentFieldingPas = tournamentFieldingPasResult.data || []
-      const seasonFieldingPas = normalizeSeasonRowsByGameId(seasonFieldingPasResult.data || [])
-      const gameFielders = gameFieldersResult.data || []
-      const seasonGameFielders = normalizeSeasonRowsByGameId(seasonGameFieldersResult.data || [])
-      const tournamentRunEvents = tournamentRunEventsResult.data || []
-      const seasonRunEvents = normalizeSeasonRowsByGameId(seasonRunEventsResult.data || [])
+      const results = [
+        tournamentBattingResult, seasonBattingResult,
+        tournamentPitchingStintsResult, seasonPitchingStintsResult,
+        tournamentFieldingPasResult, seasonFieldingPasResult,
+        gameFieldersResult, seasonGameFieldersResult,
+        tournamentRunEventsResult, seasonRunEventsResult,
+        gamesResult, seasonScheduleResult, tournamentsResult, seasonsResult,
+        charactersResult, seasonTeamsResult, draftPicksResult,
+        trackingThrowsResult, runnerOpportunitiesResult, doublePlayOpportunitiesResult,
+        fieldingOpportunitiesResult, movementMetricsResult, pitchesResult, seasonPitchesResult,
+        activeVersionsResult,
+      ]
+      if (results.some((result) => result?.error)) {
+        if (!cancelled && generation === loadGenerationRef.current) {
+          setExtras((current) => ({ ...current, loading: false }))
+        }
+        return
+      }
+
       const games = gamesResult.data || []
+      const seasonSchedule = seasonScheduleResult.data || []
+      const officialTournament = reconcileStatSource({
+        games,
+        plateAppearances: tournamentBattingResult.data || [],
+        pitchingStints: tournamentPitchingStintsResult.data || [],
+        pitches: pitchesResult.data || [],
+        runs: tournamentRunEventsResult.data || [],
+        gameFielders: gameFieldersResult.data || [],
+      })
+      const officialSeason = reconcileStatSource({
+        games: seasonSchedule,
+        plateAppearances: seasonBattingResult.data || [],
+        pitchingStints: seasonPitchingStintsResult.data || [],
+        pitches: seasonPitchesResult.data || [],
+        runs: seasonRunEventsResult.data || [],
+        gameFielders: seasonGameFieldersResult.data || [],
+      })
+      const tournamentBattingPas = officialTournament.plateAppearances
+      const seasonBattingPas = normalizeSeasonRowsByGameId(officialSeason.plateAppearances)
+      const tournamentStints = officialTournament.pitchingStints
+      const seasonStints = normalizeSeasonRowsByGameId(officialSeason.pitchingStints)
+      const tournamentFieldingPas = reconcileStatSource({
+        games, plateAppearances: tournamentFieldingPasResult.data || [],
+      }).plateAppearances
+      const seasonFieldingPas = normalizeSeasonRowsByGameId(reconcileStatSource({
+        games: seasonSchedule, plateAppearances: seasonFieldingPasResult.data || [],
+      }).plateAppearances)
+      const gameFielders = officialTournament.gameFielders
+      const seasonGameFielders = normalizeSeasonRowsByGameId(officialSeason.gameFielders)
+      const tournamentRunEvents = officialTournament.runs
+      const seasonRunEvents = normalizeSeasonRowsByGameId(officialSeason.runs)
       const tournaments = tournamentsResult.data || []
       const seasons = seasonsResult.data || []
       const characters = charactersResult.data || []
@@ -285,6 +366,30 @@ export default function useCharacterExtras(character, scope = null) {
       const seasonWaivers = seasonWaiversResult.data || []
       const seasonRosterRaw = seasonRosterResult.data || []
       const players = playersResult.data || []
+      const completedGameKeys = new Set([
+        ...officialTournament.games,
+        ...officialSeason.games,
+      ].map(getStatGameKey))
+      const selectAdvancedRows = (rows) => dedupeStatRows(rows || [])
+        .filter((row) => completedGameKeys.has(getStatGameKey(row)))
+      // Only the active version of a tracking session. A superseded version and
+      // an unfinished replacement both keep their facts, and counting either
+      // beside the active one showed the same play twice on a character page.
+      const trackingThrows = selectAdvancedRows(
+        onlyActiveTrackingFacts(trackingThrowsResult.data, activeVersionsResult.data))
+      const runnerOpportunities = selectAdvancedRows(runnerOpportunitiesResult.data)
+      const doublePlayOpportunities = selectAdvancedRows(doublePlayOpportunitiesResult.data)
+      const fieldingOpportunities = selectAdvancedRows(
+        onlyActiveTrackingFacts(fieldingOpportunitiesResult.data, activeVersionsResult.data))
+      const movementMetrics = selectAdvancedRows(
+        onlyActiveTrackingFacts(movementMetricsResult.data, activeVersionsResult.data))
+      // Season and tournament pitches are the same measurement in two tables; the Scouting
+      // Report treats them as one population, exactly as the batting side already does. The
+      // competition tag is what lets eventKeyForAdvancedRow scope them below.
+      const allPitchRows = [
+        ...officialTournament.pitches.map((row) => ({ ...row, competition_type: 'tournament' })),
+        ...officialSeason.pitches.map((row) => ({ ...row, competition_type: 'season' })),
+      ]
 
       const charactersByName = Object.fromEntries(characters.map((c) => [c.name, c]))
       const seasonTeamPlayerById = Object.fromEntries(seasonTeams.map((t) => [t.id, t.player_id]))
@@ -293,6 +398,40 @@ export default function useCharacterExtras(character, scope = null) {
       const playerNameById = Object.fromEntries(players.map((p) => [p.id, p.name]))
       const tournamentById = Object.fromEntries(tournaments.map((t) => [String(t.id), t]))
       const seasonById = Object.fromEntries(seasons.map((s) => [String(s.id), s]))
+      const tournamentIdByGameId = Object.fromEntries(games.map((game) => [String(game.id), game.tournament_id]))
+      const seasonIdByGameId = Object.fromEntries((seasonBattingResult.data || []).map((pa) => [String(pa.game_id), pa.season_id]))
+      const advancedBundle = { throws: trackingThrows, runnerOpportunities, doublePlayOpportunities, fieldingOpportunities }
+      const advancedFielding = summarizeAdvancedFielding(advancedBundle, 'character')[String(character.id)] || null
+      const advancedBaserunning = summarizeAdvancedBaserunning(runnerOpportunities, 'character')[String(character.id)] || null
+      const eventKeyForAdvancedRow = (row) => {
+        if (row.competition_type === 'season') {
+          const seasonId = seasonIdByGameId[String(row.game_id)]
+          return seasonId == null ? null : `season:${seasonId}`
+        }
+        const tournamentId = tournamentIdByGameId[String(row.game_id)]
+        return tournamentId == null ? null : `tournament:${tournamentId}`
+      }
+      const advancedBundlesByEventKey = new Map()
+      const addAdvancedRows = (key, rows) => rows.forEach((row) => {
+        const eventKey = eventKeyForAdvancedRow(row)
+        if (!eventKey) return
+        if (!advancedBundlesByEventKey.has(eventKey)) advancedBundlesByEventKey.set(eventKey, { throws: [], runnerOpportunities: [], doublePlayOpportunities: [], fieldingOpportunities: [] })
+        advancedBundlesByEventKey.get(eventKey)[key].push(row)
+      })
+      addAdvancedRows('throws', trackingThrows)
+      addAdvancedRows('runnerOpportunities', runnerOpportunities)
+      addAdvancedRows('doublePlayOpportunities', doublePlayOpportunities)
+      addAdvancedRows('fieldingOpportunities', fieldingOpportunities)
+      const advancedValueByEventKey = Object.fromEntries([...advancedBundlesByEventKey].map(([eventKey, bundle]) => {
+        const fielding = summarizeAdvancedFielding(bundle, 'character')[String(character.id)] || null
+        const baserunning = summarizeAdvancedBaserunning(bundle.runnerOpportunities, 'character')[String(character.id)] || null
+        return [eventKey, {
+          fieldingRuns: fielding && (fielding.fieldingOpportunities || fielding.armOpportunities || fielding.doublePlayOpportunities)
+            ? fielding.fieldingRunValue
+            : null,
+          baserunningRuns: baserunning?.opportunities ? baserunning.baserunningRunValue : null,
+        }]
+      }))
 
       // Percentile snapshot: league-wide batted-ball performance per character.
       const allLeagueBattingRows = [...tournamentBattingPas, ...seasonBattingPas]
@@ -507,6 +646,42 @@ export default function useCharacterExtras(character, scope = null) {
         characters, battingHistoryAllByCharacter, pitchingHistoryAllByCharacter, fieldingByCharacter,
       )
 
+      // Measured vs mined. Both are built cast-wide, not for this character alone: a percentile
+      // needs the whole population to rank against, and the delta between the two sides is the
+      // entire point of the raw-values table.
+      //
+      // Unlike leaguePerformanceByCharacterId above -- which is deliberately career-wide, because
+      // the percentile snapshot compares careers -- these ARE scope-filtered. The Scouting
+      // Report's scope picker has to move the measured numbers, or picking a season would leave
+      // every tracker value showing career totals under a season heading.
+      const scopeKey = scope?.type && scope?.id != null ? `${scope.type}:${scope.id}` : null
+      const trackerRowInScope = (row) => !scopeKey || eventKeyForAdvancedRow(row) === scopeKey
+      const battingRowInScope = (pa) => {
+        if (!scopeKey) return true
+        if (pa.season_id != null) return `season:${pa.season_id}` === scopeKey
+        const tournamentId = tournamentIdByGameId[String(pa.game_id)]
+        return tournamentId != null && `tournament:${tournamentId}` === scopeKey
+      }
+      const scopedLeaguePerformance = scopeKey
+        ? buildLeaguePerformanceIndex(allLeagueBattingRows.filter(battingRowInScope), leagueExpectedModel)
+        : leaguePerformanceByCharacterId
+
+      const characterIdByNameKey = new Map()
+      characters.forEach((c) => {
+        const key = characterNameKey(c.name)
+        if (key && !characterIdByNameKey.has(key)) characterIdByNameKey.set(key, String(c.id))
+      })
+      const measuredByCharacterId = buildMeasuredIndex({
+        movementRows: movementMetrics.filter(trackerRowInScope),
+        fieldingRows: fieldingOpportunities.filter(trackerRowInScope),
+        throwRows: trackingThrows.filter(trackerRowInScope),
+        runnerRows: runnerOpportunities.filter(trackerRowInScope),
+        pitchRows: allPitchRows.filter(trackerRowInScope),
+        leaguePerformanceByCharacterId: scopedLeaguePerformance,
+        characterIdByNameKey,
+      })
+      const minedByCharacterId = buildMinedIndex(characters, analysesByCharacterId)
+
       const nextExtras = {
         loading: false,
         leaguePerformanceByCharacterId,
@@ -518,6 +693,9 @@ export default function useCharacterExtras(character, scope = null) {
         starHitFieldingByPosition,
         starHitFieldingHistoryByPosition,
         fieldingRangeByPosition,
+        advancedFielding,
+        advancedBaserunning,
+        advancedValueByEventKey,
         parkFactorRows,
         teamHistory,
         transactions,
@@ -528,9 +706,12 @@ export default function useCharacterExtras(character, scope = null) {
         statMaxes,
         statMins,
         analysesByCharacterId,
+        measuredByCharacterId,
+        minedByCharacterId,
       }
+      if (cancelled || generation !== loadGenerationRef.current) return
       extrasCache.set(cacheKey, nextExtras)
-      if (!cancelled) setExtras(nextExtras)
+      setExtras(nextExtras)
     }
 
     load()
@@ -547,9 +728,20 @@ export default function useCharacterExtras(character, scope = null) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'runs_scored' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_runs_scored' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracking_throws' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'runner_opportunities' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'double_play_opportunities' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fielding_opportunities' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movement_metrics' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitches' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitches' }, load)
       .subscribe()
 
-    return () => { cancelled = true; supabase.removeChannel(channel) }
+    return () => {
+      cancelled = true
+      loadGenerationRef.current += 1
+      supabase.removeChannel(channel)
+    }
   }, [character?.id, character?.name, cacheKey])
 
   return extras

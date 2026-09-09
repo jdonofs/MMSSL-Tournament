@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import StatLabel from './StatLabel'
+import '../styles/stats-pages.css'
 
 // Generic click-header-to-sort table for bespoke (non stat-progression) tables — Franchise
 // History, Draft Value, Game Log — that render arbitrary per-column JSX (buttons, colored spans)
@@ -50,13 +51,26 @@ export default function SortableTable({ columns, rows, rowKey, onRowClick, rowSt
         <thead>
           <tr>
             {columns.map((col) => (
+              // Sortable headers render a real <button> so they're reachable by keyboard;
+              // non-sortable ones stay plain text rather than an inert click target.
               <th
                 key={col.key}
-                onClick={col.sortable === false ? undefined : () => handleHeaderClick(col)}
-                style={{ cursor: col.sortable === false ? 'default' : 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                scope="col"
+                aria-sort={col.sortable === false
+                  ? undefined
+                  : sort?.key === col.key ? (sort.direction === 1 ? 'ascending' : 'descending') : 'none'}
+                style={{ userSelect: 'none', whiteSpace: 'nowrap' }}
               >
-                <StatLabel label={col.label} />
-                {sort?.key === col.key ? (sort.direction === 1 ? ' ▲' : ' ▼') : ''}
+                {col.sortable === false ? (
+                  <StatLabel label={col.label} />
+                ) : (
+                  <button className="stat-sort-button" onClick={() => handleHeaderClick(col)} type="button">
+                    <StatLabel label={col.label} />
+                    <span aria-hidden="true" className="stat-sort-caret">
+                      {sort?.key === col.key ? (sort.direction === 1 ? '▲' : '▼') : ''}
+                    </span>
+                  </button>
+                )}
               </th>
             ))}
           </tr>

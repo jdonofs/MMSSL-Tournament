@@ -1,50 +1,8 @@
-// Server-safe subset of FieldPlayBuilder's calibrated stadium geometry. The
-// tracker bridge runs directly in Node and cannot import a JSX component, but
-// it must use the same home-plate and LF/CF/RF reference points so tracked
-// distance/angle values land on the exact same field-image coordinate system
-// as a manual tap in the At-Bat Editor.
-export const TRACKER_STADIUM_FIELD_GEOMETRY = {
-  mario_stadium: {
-    homePlate: { x: 50.0, y: 92.9 },
-    wallRefs: [{ x: 18.0, y: 44.2, dist: 259 }, { x: 50.6, y: 21.7, dist: 317 }, { x: 82.8, y: 44.6, dist: 259 }],
-  },
-  yoshi_park: {
-    homePlate: { x: 50.2, y: 94.2 },
-    wallRefs: [{ x: 10.4, y: 49.0, dist: 253 }, { x: 50.3, y: 25.2, dist: 324 }, { x: 89.4, y: 48.7, dist: 254 }],
-  },
-  wario_city: {
-    homePlate: { x: 50.1, y: 94.1 },
-    wallRefs: [{ x: 15.8, y: 41.8, dist: 292 }, { x: 51.4, y: 28.3, dist: 297 }, { x: 86.9, y: 43.2, dist: 289 }],
-  },
-  dk_jungle: {
-    homePlate: { x: 50.2, y: 92.6 },
-    wallRefs: [{ x: 15.4, y: 40.8, dist: 274 }, { x: 50.1, y: 19.2, dist: 323 }, { x: 83.9, y: 39.4, dist: 275 }],
-  },
-  bowser_castle: {
-    homePlate: { x: 49.6, y: 92.8 },
-    wallRefs: [{ x: 13.8, y: 44.7, dist: 278 }, { x: 49.2, y: 24.2, dist: 334 }, { x: 84.4, y: 43.8, dist: 277 }],
-  },
-  bowser_jr_playroom: {
-    homePlate: { x: 49.8, y: 92.6 },
-    wallRefs: [{ x: 13.3, y: 44.2, dist: 262 }, { x: 50.3, y: 20.8, dist: 328 }, { x: 86.0, y: 44.3, dist: 264 }],
-  },
-  daisy_cruiser: {
-    homePlate: { x: 50.3, y: 93.9 },
-    wallRefs: [{ x: 24.7, y: 62.5, dist: 232 }, { x: 50.3, y: 37.9, dist: 328 }, { x: 75.3, y: 61.7, dist: 231 }],
-  },
-  peach_ice_garden: {
-    homePlate: { x: 50.0, y: 93.0 },
-    wallRefs: [{ x: 13.3, y: 41.6, dist: 314 }, { x: 50.9, y: 18.0, dist: 402 }, { x: 86.6, y: 42.9, dist: 313 }],
-  },
-  luigis_mansion: {
-    homePlate: { x: 49.9, y: 90.4 },
-    wallRefs: [{ x: 13.6, y: 47.8, dist: 282 }, { x: 49.7, y: 27.4, dist: 351 }, { x: 85.8, y: 48.9, dist: 287 }],
-  },
-  generic_field: {
-    homePlate: { x: 49.9, y: 90.4 },
-    wallRefs: [{ x: 9.4, y: 52.3, dist: 272 }, { x: 50.6, y: 22.1, dist: 334 }, { x: 90.4, y: 52.2, dist: 272 }],
-  },
-}
+// Server-safe geometry shared with FieldPlayBuilder. Re-export the historical
+// tracker name for callers while keeping the values in one source of truth.
+import { STADIUM_FIELD_GEOMETRY } from '../src/utils/stadiumFieldGeometry.js'
+
+export const TRACKER_STADIUM_FIELD_GEOMETRY = STADIUM_FIELD_GEOMETRY
 
 export function projectTrackerFieldSpot(distanceFeet, angleDegrees, stadiumKey) {
   const config = TRACKER_STADIUM_FIELD_GEOMETRY[stadiumKey]
@@ -82,6 +40,45 @@ export function projectTrackerFieldSpot(distanceFeet, angleDegrees, stadiumKey) 
   }
 }
 
+// Forward transform used by the editor when a scorer taps a location on the
+// field image. Keeping a Node-safe copy here lets data migrations recompute a
+// stored distance from the original hit_x/hit_y coordinates with exactly the
+// same stadium calibration as new plate appearances.
+export function estimateTrackerHitDistanceFeet(spot, stadiumKey) {
+  const config = TRACKER_STADIUM_FIELD_GEOMETRY[stadiumKey]
+  const x = Number(spot?.x)
+  const y = Number(spot?.y)
+  if (!config || !Number.isFinite(x) || !Number.isFinite(y)) return null
+
+  const dx = x - config.homePlate.x
+  const dy = y - config.homePlate.y
+  const imageDistance = Math.sqrt((dx * dx) + (dy * dy))
+  if (imageDistance < 1) return null
+  const angle = Math.atan2(dx, -dy)
+
+  const refs = config.wallRefs.map((ref) => {
+    const refDx = ref.x - config.homePlate.x
+    const refDy = ref.y - config.homePlate.y
+    return {
+      angle: Math.atan2(refDx, -refDy),
+      scale: Math.sqrt((refDx * refDx) + (refDy * refDy)) / ref.dist,
+    }
+  }).sort((left, right) => left.angle - right.angle)
+
+  let scale = null
+  if (angle <= refs[0].angle) scale = refs[0].scale
+  else if (angle >= refs[refs.length - 1].angle) scale = refs[refs.length - 1].scale
+  else {
+    for (let index = 0; index < refs.length - 1; index += 1) {
+      if (angle < refs[index].angle || angle > refs[index + 1].angle) continue
+      const fraction = (angle - refs[index].angle) / (refs[index + 1].angle - refs[index].angle)
+      scale = refs[index].scale * (1 - fraction) + refs[index + 1].scale * fraction
+      break
+    }
+  }
+  return scale ? Math.round(imageDistance / scale) : null
+}
+
 const MPH_TO_FEET_PER_SECOND = 1.4666667
 const STANDARD_GRAVITY_FT_PER_SEC2 = 32.174
 // Contact happens roughly bat height above the ground; distance is not very
@@ -99,16 +96,16 @@ const ASSUMED_CONTACT_HEIGHT_FEET = 3
 //
 // Chosen by leave-one-out cross-validation rather than in-sample fit:
 //
-//   c0 + c1*v + c2*a + c3*a^2                     LOO 31.4 ft
-//   c0 + c1*v + c2*sin(a) + c3*v*sin(2a)          LOO 29.9 ft
-//   c0 + c1*v + c2*a + c3*a^2 + c4*v*a            LOO 29.8 ft
-//   this one, adding v*a^2                        LOO 25.1 ft
+//   c0 + c1*v + c2*a + c3*a^2                     LOO 30.7 ft
+//   c0 + c1*v + c2*sin(a) + c3*v*sin(2a)          LOO 29.3 ft
+//   c0 + c1*v + c2*a + c3*a^2 + c4*v*a            LOO 29.2 ft
+//   this one, adding v*a^2                        LOO 24.6 ft
 //
 // Sanity checked beyond the score: distance peaks at 35 degrees, rises
 // monotonically with exit velocity, and residual bias is flat across the range
 // (+20 ft under 150, 0 ft beyond 330 -- the deep end is where it gets used).
 //
-// LIMITS. Trained on 76-117 mph and 48-396 ft from one park, and applied to
+// LIMITS. Trained on 74-114 mph and 47-388 ft from one park, and applied to
 // balls that outran tracking, which are by definition deeper than anything in
 // the training set. Exit velocity is also skewed hard: 71 of the 98 sit between
 // 105 and 115 mph. Treat the result as a good estimate, not a measurement.
@@ -117,8 +114,13 @@ const ASSUMED_CONTACT_HEIGHT_FEET = 3
 // had spliced together, turning 4 real contacts into "45". scripts/
 // extract_batted_balls.mjs now bounds records properly and is tested against
 // exactly that failure.)
+// The original fit used 90/26.84 ft per unit for both its velocities and its
+// target distances. Moving both axes to 1 metre/unit is an exact linear change
+// of variables: c0/c2/c3 scale by the new-to-old ratio, while terms containing
+// velocity do not because their input and output scale cancel. This preserves
+// every prediction in raw game units without introducing a second fit.
 const DISTANCE_COEFFICIENTS = [
-  30.0025866, 0.811115553, -21.1718510, 0.380001446, 0.337470128, -0.00566511042,
+  29.3551117, 0.811115553, -20.7149490, 0.371800773, 0.337470128, -0.00566511042,
 ]
 
 export function estimateTrackerBattedBallDistanceFeet(exitVelocityMph, launchAngleDeg) {

@@ -55,7 +55,7 @@ export default function TournamentGameSessionProvider({ children }) {
         { data: gamesData, error: gamesError }, { data: playersData, error: playersError }, { data: lineupsData, error: lineupsError },
         { data: charsData, error: charsError }, { data: picksData, error: picksError }, { data: pasData, error: pasError }, { data: pitchData, error: pitchingError },
         pitchRowsResult, { data: fieldersData, error: fieldersError }, { data: runsData, error: runsError }, { data: inningScoresData, error: inningScoresError },
-        { data: stadiumsData }, { data: stadiumLogData },
+        { data: stadiumsData }, { data: stadiumLogData }, { data: savedTeamLineupsData },
       ] = await Promise.all([
         fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.games).select('*')),
         fetchAllRows(() => supabase.from('players').select('*')),
@@ -72,6 +72,9 @@ export default function TournamentGameSessionProvider({ children }) {
         fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.inningScores).select('*').order('inning')),
         fetchAllRows(() => supabase.from('stadiums').select('*')),
         fetchAllRows(() => supabase.from(TOURNAMENT_TABLES.stadiumGameLog).select('*').order('created_at')),
+        tournament?.id
+          ? supabase.from('team_lineups').select('player_id, lineup_order, fielding_positions').eq('tournament_id', tournament.id)
+          : Promise.resolve({ data: [], error: null }),
       ])
 
       return {
@@ -101,6 +104,7 @@ export default function TournamentGameSessionProvider({ children }) {
         inningScores: inningScoresData || [],
         stadiums: stadiumsData || [],
         stadiumGameLog: stadiumLogData || [],
+        savedTeamLineups: savedTeamLineupsData || [],
       }
     },
     getRoster: async () => [],
