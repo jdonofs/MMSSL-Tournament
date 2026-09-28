@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-19T00:02:44.388Z",
+  "competition": "season",
+  "game_id": 2811,
+  "games_table": "season_schedule",
+  "stadium": "Peach Ice Garden",
+  "launcher_pid": 29152,
+  "handoff_signal": "C:\\Users\\jdono\\AppData\\Local\\Temp\\mss-autogame-29152-1789776136294.live",
+  "stages": {
+    "bridge_ready": true,
+    "match_live": "confirmed",
+    "handed_off": true,
+    "gameplay_hold": "readers_ready",
+    "capture_recording": true,
+    "capture_disabled": false
+  },
+  "timings_ms": {
+    "bridge_ready": 2161,
+    "handoff": 21032,
+    "gameplay_held": 6900,
+    "capture_after_handoff": 0,
+    "collector_first_frames_seconds": 0.487
+  },
+  "capture": {
+    "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260919T000243Z",
+    "frames": 30,
+    "missed_frames": 0,
+    "bytes_on_disk": 19403,
+    "collector_pid": 27248,
+    "park": "peach_ice_garden",
+    "reason": null
+  },
+  "tracker_log": "C:\\Users\\jdono\\Sluggers\\sluggers-stat-tracker-advanced-stats-dev\\preview-sessions\\bridge-2026-09-18_20-02-17.log"
+}

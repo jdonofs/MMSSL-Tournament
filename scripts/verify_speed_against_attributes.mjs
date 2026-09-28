@@ -86,6 +86,12 @@ function collect() {
     map.get(key).push(value)
   }
   for (const file of fs.readdirSync(TRACKING_DIR).filter((n) => n.endsWith('.plays.jsonl'))) {
+    const stem = file.slice(0, -'.plays.jsonl'.length)
+    const headerPath = path.join(TRACKING_DIR, `${stem}.json`)
+    if (fs.existsSync(headerPath)) {
+      const header = JSON.parse(fs.readFileSync(headerPath, 'utf8'))
+      if (header.calibration_excluded === true) continue
+    }
     for (const line of fs.readFileSync(path.join(TRACKING_DIR, file), 'utf8').split('\n')) {
       if (!line.trim()) continue
       const play = JSON.parse(line)
@@ -103,7 +109,7 @@ function collect() {
       }
       // A Buddy Throw is a chemistry pair's output, not one player's arm.
       for (const record of play.throws || []) {
-        if (!record.peak_speed_mph || record.buddy_throw) continue
+        if (record.is_throw === false || !record.peak_speed_mph || record.buddy_throw) continue
         push(throwing, record.thrower_character, record.peak_speed_mph)
       }
     }

@@ -10,6 +10,7 @@ import {
   validateTrackerAlignment,
   validateTrackerBattingOrder,
 } from '../scripts/tracker_alignment.mjs'
+import { fielderCoversPa, fielderIsCurrent, planFielderStintChange } from '../src/utils/fielderStints.js'
 
 const FIREBALLS = [
   ['Yoshi', 'CF'],
@@ -158,4 +159,43 @@ test('extracts both ordered lineups and defensive maps from a completed workbook
   assert.equal(parsed[1].fielding.P, 'Wario')
   assert.equal(parsed[1].fielding.C, 'Bowser')
   assert.ok(parsed.every((alignment) => validateTrackerAlignment(alignment).valid))
+})
+
+test('a mid-inning position change closes the old stint at the last play instead of deleting it', () => {
+  // Game 2766: Toadette caught PA 1 in RF, then Red Pianta moved to RF, all
+  // in the top of the first. Deleting her inning-1 row gave him both catches.
+  const toadetteRf = { id: 't', character: 'Toadette', position: 9, inning_from: 1, inning_to: null }
+  const plan = planFielderStintChange([toadetteRf], { currentInning: 1, lastPa: { pa_number: 1, inning: 1 } })
+  assert.deepEqual(plan.toDelete, [])
+  assert.deepEqual(plan.toClose, [toadetteRf])
+  assert.deepEqual(plan.closeWith, { inning_to: 1, pa_to: 1 })
+  assert.deepEqual(plan.newRowBounds, { inning_from: 1, pa_from: 2 })
+
+  const closed = { ...toadetteRf, ...plan.closeWith }
+  const redPianta = { id: 'r', character: 'Red Pianta', position: 9, ...plan.newRowBounds, inning_to: null }
+  assert.ok(fielderCoversPa(closed, { inning: 1, pa_number: 1 }))
+  assert.ok(!fielderCoversPa(redPianta, { inning: 1, pa_number: 1 }))
+  assert.ok(fielderCoversPa(redPianta, { inning: 1, pa_number: 2 }))
+  assert.ok(!fielderCoversPa(closed, { inning: 1, pa_number: 2 }))
+  assert.ok(!fielderIsCurrent(closed, 1))
+  assert.ok(fielderIsCurrent(redPianta, 1))
+})
+
+test('a position change at an inning boundary keeps the inning-only rows', () => {
+  const early = { id: 'e', position: 9, inning_from: 1, inning_to: null }
+  const thisInning = { id: 'n', position: 3, inning_from: 3, inning_to: null }
+  const plan = planFielderStintChange([early, thisInning], { currentInning: 3, lastPa: { pa_number: 12, inning: 2 } })
+  assert.deepEqual(plan.toClose, [early])
+  assert.deepEqual(plan.toDelete, [thisInning])
+  assert.deepEqual(plan.closeWith, { inning_to: 2 })
+  assert.deepEqual(plan.newRowBounds, { inning_from: 3 })
+  // Before the first plate appearance of the game there is nothing to keep.
+  assert.deepEqual(planFielderStintChange([early], { currentInning: 1, lastPa: null }).toDelete, [early])
+})
+
+test('a second change before the next play replaces the stint that never covered one', () => {
+  const unused = { id: 'u', position: 9, inning_from: 1, inning_to: null, pa_from: 2 }
+  const plan = planFielderStintChange([unused], { currentInning: 1, lastPa: { pa_number: 1, inning: 1 } })
+  assert.deepEqual(plan.toDelete, [unused])
+  assert.deepEqual(plan.toClose, [])
 })

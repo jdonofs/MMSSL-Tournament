@@ -44,7 +44,7 @@ from derive_player_metrics import (
     PlayDeriver,
     locked_fielder,
 )
-from player_tracking_io import SnapshotBuilder, dumps_play
+from player_tracking_io import PROP_TRANSLATION, SnapshotBuilder, dumps_play
 
 # Every real capture so far has resolved to +0x004, and by a decisive margin
 # (9,234 lock frames against 3,993 for the runner-up in the widest one). It is
@@ -53,11 +53,20 @@ from player_tracking_io import SnapshotBuilder, dumps_play
 DEFAULT_POSITION_OFFSET = 0x004
 
 # How many frames of a fielder standing exactly on the ball are needed before
-# the offset is believed. The five archived sessions produce between 4,978 and
-# 19,844 of them, and the pitcher holding the ball between pitches supplies
-# them long before the first batted ball -- so this clears within the first
-# plate appearance of a real game or it is not going to.
-CONFIRM_LOCK_FRAMES = 60
+# the offset is believed.
+#
+# THE PITCHER SUPPLIES NONE. This used to say the pitcher holding the ball
+# between pitches cleared it before the first batted ball; measured across 45
+# sessions, 43 have zero lock frames before first contact. The first play a
+# fielder touches has to confirm it alone, and it supplies 36-241 frames. At 60,
+# 11 of those 45 first plays fell short (36-59) -- yoshi_park-20260911T164801Z
+# PA1 had 59 -- and sat withheld until the NEXT fielded play, which is exactly
+# what the operator kept seeing. 30 clears every one of them inside its own play.
+#
+# It costs the check nothing. A wrong seed reading random floats never matches
+# the ball to 0.05u at all, so 30 is as decisive against it as 60; the one real
+# alternative position field (+0x38) locks often enough to pass either.
+CONFIRM_LOCK_FRAMES = 30
 
 # If that many plays have gone by with no lock at all, the offset is wrong (or
 # the ball pointer is stale) and live derivation gives up for the session. The
@@ -90,12 +99,27 @@ class LiveDerivation:
                  fps: float = GAME_FRAME_RATE,
                  state_size: int | None = None, extra_regions=(),
                  barrel_address: int | None = None, barrel_cannons=(),
-                 park: str | None = None):
+                 train_address: int | None = None,
+                 freezie_address: int | None = None, freezie_count: int = 0,
+                 freezie_stride: int = 0, freezie_translation=(),
+                 freezie_active_offset: int | None = None,
+                 prop_transforms=(), prop_translation=PROP_TRANSLATION,
+                 park: str | None = None, is_night: bool | None = None):
         self.builder = SnapshotBuilder(
             state_base=state_base, actors=actors, fields=fields,
             state_fields=state_fields, position_offset=position_offset,
             state_size=state_size, extra_regions=extra_regions,
             barrel_address=barrel_address, barrel_cannons=barrel_cannons,
+            train_address=train_address,
+            freezie_address=freezie_address, freezie_count=freezie_count,
+            freezie_stride=freezie_stride,
+            freezie_translation=freezie_translation,
+            freezie_active_offset=freezie_active_offset,
+            # Wario City's placed props, through the same builder for the same
+            # reason the barrel is: two derivations that disagreed about where
+            # a stadium object stood would be worse than one that cannot see it.
+            prop_transforms=prop_transforms,
+            prop_translation=prop_translation,
             # The ball-frame convention has been identical in every capture and
             # is not what live derivation is at risk from; the position offset
             # is. Postgame re-fits both from the recording either way.
@@ -110,7 +134,7 @@ class LiveDerivation:
             max_workers=1, thread_name_prefix='play-build')
         sys.setswitchinterval(GIL_SWITCH_SECONDS)
         self.deriver = PlayDeriver(fps=fps, build_executor=self._executor,
-                                   park=park)
+                                   park=park, is_night=is_night)
         # PITCHES ARE NOT GATED ON THE CALIBRATION. Everything a pitch record
         # holds -- the count, the batter, how they offered -- is read from the
         # state scalars, which do not depend on the position offset at all. A

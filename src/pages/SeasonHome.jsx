@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
+import { readCachedResult, invalidateCachedResult } from '../utils/asyncResultCache'
+import { createRefreshCoordinator } from '../utils/refreshCoordinator'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
 import CompetitionOverviewTables from '../components/CompetitionOverviewTables'
@@ -57,6 +59,7 @@ export default function SeasonHome() {
     }
 
     let isActive = true
+    const historyCachePrefix = `season-power-history:${allSeasons.map((season) => season.id).sort().join(',')}:${currentSeason.id}`
 
     const loadRankingsData = async () => {
       if (isActive) {
@@ -80,36 +83,43 @@ export default function SeasonHome() {
         { data: pastSeasonsPaData, error: pastSeasonsPaError },
         { data: pastSeasonsPitchingData, error: pastSeasonsPitchingError },
         { data: pastSeasonsFieldersData, error: pastSeasonsFieldersError },
-        { data: seasonPitchesData },
-        { data: tournamentPitchesData },
+        { data: seasonPitchesData, error: seasonPitchesError },
+        { data: tournamentPitchesData, error: tournamentPitchesError },
       ] = await Promise.all([
         fetchAllRows(() => supabase.from('season_roster').select('*').eq('season_id', currentSeason.id).order('created_at')),
         fetchAllRows(() => supabase.from('characters').select('*').order('name')),
         fetchAllRows(() => supabase.from('season_plate_appearances').select('*').eq('season_id', currentSeason.id).order('created_at')),
         fetchAllRows(() => supabase.from('season_pitching_stints').select('*').eq('season_id', currentSeason.id).order('created_at')),
         fetchAllRows(() => supabase.from('season_game_fielders').select('*').eq('season_id', currentSeason.id).order('created_at')),
-        fetchAllRows(() => supabase.from('plate_appearances').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('pitching_stints').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('game_fielders').select('*').order('created_at')),
+        readCachedResult(`${historyCachePrefix}:tournament-pa`, () => fetchAllRows(() => supabase.from('plate_appearances').select('*').order('created_at'))),
+        readCachedResult(`${historyCachePrefix}:tournament-pitching`, () => fetchAllRows(() => supabase.from('pitching_stints').select('*').order('created_at'))),
+        readCachedResult(`${historyCachePrefix}:tournament-fielders`, () => fetchAllRows(() => supabase.from('game_fielders').select('*').order('created_at'))),
         // A GM's performance in seasons other than the one being viewed is part of their real
         // history too — not just their pre-season-era tournament stats. Without this, "history"
         // for a fresh season only reflects old tournament data and ignores how the GM actually
         // performed last season. Scoped to `otherSeasonIds` (seasons that still exist) rather than
         // just excluding the current season, so a deleted season's stats never resurface as history.
         otherSeasonIds.length
-          ? fetchAllRows(() => supabase.from('season_plate_appearances').select('*').in('season_id', otherSeasonIds).order('created_at'))
+          ? readCachedResult(`${historyCachePrefix}:past-season-pa`, () => fetchAllRows(() => supabase.from('season_plate_appearances').select('*').in('season_id', otherSeasonIds).order('created_at')))
           : Promise.resolve({ data: [] }),
         otherSeasonIds.length
-          ? fetchAllRows(() => supabase.from('season_pitching_stints').select('*').in('season_id', otherSeasonIds).order('created_at'))
+          ? readCachedResult(`${historyCachePrefix}:past-season-pitching`, () => fetchAllRows(() => supabase.from('season_pitching_stints').select('*').in('season_id', otherSeasonIds).order('created_at')))
           : Promise.resolve({ data: [] }),
         otherSeasonIds.length
-          ? fetchAllRows(() => supabase.from('season_game_fielders').select('*').in('season_id', otherSeasonIds).order('created_at'))
+          ? readCachedResult(`${historyCachePrefix}:past-season-fielders`, () => fetchAllRows(() => supabase.from('season_game_fielders').select('*').in('season_id', otherSeasonIds).order('created_at')))
           : Promise.resolve({ data: [] }),
-        fetchAllRows(() => supabase.from('season_pitches').select('game_id,pitcher_id')),
-        fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id')),
+        Promise.all([
+          fetchAllRows(() => supabase.from('season_pitches').select('game_id,pitcher_id').eq('season_id', currentSeason.id)),
+          otherSeasonIds.length
+            ? readCachedResult(`${historyCachePrefix}:past-season-pitches`, () => fetchAllRows(() => supabase.from('season_pitches').select('game_id,pitcher_id').in('season_id', otherSeasonIds)))
+            : Promise.resolve({ data: [], error: null }),
+        ]).then(([current, past]) => (current.error || past.error
+          ? { data: null, error: current.error || past.error }
+          : { data: [...(current.data || []), ...(past.data || [])], error: null })),
+        readCachedResult(`${historyCachePrefix}:tournament-pitches`, () => fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id'))),
       ])
 
-      const error = rosterError || charactersError || paError || pitchingError || fieldersError || historicalPaError || historicalPitchingError || historicalFieldersError || pastSeasonsPaError || pastSeasonsPitchingError || pastSeasonsFieldersError
+      const error = rosterError || charactersError || paError || pitchingError || fieldersError || historicalPaError || historicalPitchingError || historicalFieldersError || pastSeasonsPaError || pastSeasonsPitchingError || pastSeasonsFieldersError || seasonPitchesError || tournamentPitchesError
       if (!isActive) return
 
       if (error) {
@@ -142,22 +152,54 @@ export default function SeasonHome() {
       setRankingsLoading(false)
     }
 
-    loadRankingsData()
+    const refreshCoordinator = createRefreshCoordinator({
+      run: loadRankingsData,
+      delayMs: 500,
+      maxWaitMs: 1500,
+      isPaused: () => document.visibilityState === 'hidden',
+    })
+    const refresh = () => refreshCoordinator.request()
+    const invalidateTournamentHistory = () => {
+      ;['tournament-pa', 'tournament-pitching', 'tournament-fielders', 'tournament-pitches']
+        .forEach((suffix) => invalidateCachedResult(`${historyCachePrefix}:${suffix}`))
+      refresh()
+    }
+    const invalidateAllHistory = () => {
+      ;['tournament-pa', 'tournament-pitching', 'tournament-fielders', 'tournament-pitches',
+        'past-season-pa', 'past-season-pitching', 'past-season-fielders', 'past-season-pitches']
+        .forEach((suffix) => invalidateCachedResult(`${historyCachePrefix}:${suffix}`))
+      refreshCoordinator.request({ immediate: true })
+    }
+    refreshCoordinator.request({ immediate: true })
+    let hasSubscribed = false
 
     const channel = supabase
       .channel(`season-home-rankings-${currentSeason.id}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster', filter: `season_id=eq.${currentSeason.id}` }, loadRankingsData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances', filter: `season_id=eq.${currentSeason.id}` }, loadRankingsData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints', filter: `season_id=eq.${currentSeason.id}` }, loadRankingsData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders', filter: `season_id=eq.${currentSeason.id}` }, loadRankingsData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams', filter: `season_id=eq.${currentSeason.id}` }, loadRankingsData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, loadRankingsData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, loadRankingsData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, loadRankingsData)
-      .subscribe()
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster', filter: `season_id=eq.${currentSeason.id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances', filter: `season_id=eq.${currentSeason.id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints', filter: `season_id=eq.${currentSeason.id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders', filter: `season_id=eq.${currentSeason.id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams', filter: `season_id=eq.${currentSeason.id}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, invalidateTournamentHistory)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, invalidateTournamentHistory)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, invalidateTournamentHistory)
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (hasSubscribed) invalidateAllHistory()
+        hasSubscribed = true
+      })
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') invalidateAllHistory()
+    }
+    const handleOnline = invalidateAllHistory
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('online', handleOnline)
 
     return () => {
       isActive = false
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('online', handleOnline)
+      refreshCoordinator.dispose()
       supabase.removeChannel(channel)
     }
   }, [currentSeason?.id, allSeasons.length])

@@ -12,16 +12,12 @@
 //   3. sets that game to stats_source='tracker' if it is not already
 //   4. starts the tracker bridge     (scripts/live_tracker_bridge.mjs)
 //   5. drives MSS's menus and writes both teams  (scripts/mss_autoteam.py)
+//   6. at game end, waits for the workbook upload and 60 Hz gimmick/advanced
+//      ingest, then exits only after the website-visible game is finalized
 //
-// Steps 4 and 5 overlap on purpose, and the overlap is the only interesting
-// part of this file. The bridge's own startup -- signing in, loading the
-// roster, repairing live state -- takes seconds, and none of them need the
-// game to exist yet; the tracker .exe is the only piece that does, because it
-// reads the live match out of memory as it initialises. So the bridge is
-// started early and told to hold its .exe (TRACKER_LAUNCH_SIGNAL), autoteam
-// blocks until the match reaches its first pitch (--wait-for-live), and the
-// signal file is written the moment it reports that. The tracker then starts
-// against a live game with none of the sign-in latency in front of it.
+// The bridge prepares before autoteam drives the menus. It holds its tracker
+// .exe until autoteam reports the first pitch (--wait-for-live), since the .exe
+// reads the live match out of memory as it initialises.
 //
 // FIVE STAGES, AND THEY ARE NOT THE SAME CLAIM. A running process is not a
 // ready one, and this file is careful about which of these it has actually
@@ -622,6 +618,7 @@ export async function exportLineup(entry, options, io) {
   const outPath = path.resolve(options.lineup || 'lineup.json')
   const childEnv = {
     ...io.childEnv,
+    ...(io.exportAccessToken ? { MSS_EXPORT_ACCESS_TOKEN: io.exportAccessToken } : {}),
     MSS_GAME_ID: String(entry.id),
     // Which of the two tables that id came from. Without it the exporter
     // repeats the same first-hit-wins search and can resolve a shared id to
@@ -694,8 +691,11 @@ export async function main(deps = {}) {
     paths: { exporter: EXPORTER, autoteam: AUTOTEAM, bridge: BRIDGE, ...deps.paths },
     onSignal: deps.onSignal || ((name, handler) => process.on(name, handler)),
     offSignal: deps.offSignal || ((name, handler) => process.off(name, handler)),
+    onControl: deps.onControl || ((handler) => process.on('message', handler)),
+    offControl: deps.offControl || ((handler) => process.off('message', handler)),
     onExit: deps.onExit || ((handler) => process.once('exit', handler)),
     exit: deps.exit || ((code) => process.exit(code)),
+    fetch: deps.fetch || ((...args) => fetch(...args)),
     bridgeReadyTimeoutMs: Number(
       deps.bridgeReadyTimeoutMs
       ?? env.MSS_AUTOGAME_BRIDGE_READY_TIMEOUT_MS
@@ -720,18 +720,23 @@ export async function main(deps = {}) {
     return 0
   }
   requireConfig(env)
+  log('Loading games…')
+  const setupStartedAt = Date.now()
 
   const supabase = deps.supabase
     || (deps.createSupabase || ((url, key) => createClient(url, key)))(
       env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY,
     )
 
-  const { error: authError } = await supabase.auth.signInWithPassword({
+  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
     email: env.TRACKER_BRIDGE_EMAIL, password: env.TRACKER_BRIDGE_PASSWORD,
   })
   if (authError) throw new Error(`Supabase sign-in failed: ${authError.message}`)
+  io.exportAccessToken = authData?.session?.access_token || null
+  const signedInAt = Date.now()
 
   const candidates = await fetchCandidates(supabase)
+  const gamesListedAt = Date.now()
   if (!candidates.length && !options.gameId) {
     throw new Error('No games are waiting to be played in either table.')
   }
@@ -743,6 +748,7 @@ export async function main(deps = {}) {
   } finally {
     ask.close?.()
   }
+  const gamePickedAt = Date.now()
 
   const where = `${entry.competition}${entry.round ? ` ${entry.round}` : ''}`
   log(entry.away && entry.home
@@ -751,6 +757,9 @@ export async function main(deps = {}) {
 
   if (options.dryRun) {
     const outPath = await exportLineup(entry, options, io)
+    log(`  setup timings: sign-in ${signedInAt - setupStartedAt} ms, game list `
+      + `${gamesListedAt - signedInAt} ms, selection ${gamePickedAt - gamesListedAt} ms, `
+      + `lineup ${Date.now() - gamePickedAt} ms`)
     log(`\nDry run: wrote ${outPath}. No database row and no emulator was touched.`)
     return 0
   }
@@ -760,11 +769,16 @@ export async function main(deps = {}) {
   if (!options.noTracker) assertNoRunningBridge(entry, io)
 
   const lineupPath = await exportLineup(entry, options, io)
+  const lineupExportedAt = Date.now()
   log(`  lineup exported to ${lineupPath}`)
 
   if (!options.noClaim && await claimGame(supabase, entry)) {
     log(`  set stats_source='tracker' on ${entry.source.gamesTable} ${entry.id}`)
   }
+  log(`  setup timings: sign-in ${signedInAt - setupStartedAt} ms, game list `
+    + `${gamesListedAt - signedInAt} ms, selection ${gamePickedAt - gamesListedAt} ms, `
+    + `lineup ${lineupExportedAt - gamePickedAt} ms, claim `
+    + `${Date.now() - lineupExportedAt} ms`)
 
   return runLaunch({ entry, options, io, lineupPath })
 }
@@ -803,6 +817,7 @@ async function runLaunch({ entry, options, io, lineupPath }) {
     gameplayHold: null,
     gameplayHeldMs: null,
     cancelled: false,
+    bridgeStopRequested: false,
     // What each stage actually cost, in wall-clock milliseconds. Printed at
     // the handoff because the one number nobody has ever had is how long the
     // gap between "go" and "frames on disk" really is.
@@ -864,12 +879,32 @@ async function runLaunch({ entry, options, io, lineupPath }) {
   }
 
   const onSignal = () => {
+    // Past the handoff, exiting would not leave the bridge running: on Windows
+    // node puts every child it spawns in a job object that is killed when this
+    // process exits, so the bridge -- and the postgame calibration, derivation
+    // and ingest it runs as ITS children -- went with it. Season games 2811 and
+    // 2812 lost their postgame tracking to a Stop pressed after the final out.
+    // So the first stop asks the bridge to save and stop, and this process
+    // waits for it (see the finally in runLaunch). A second one forces the exit.
+    if (bridgeStillWaiting() && !state.bridgeStopRequested) {
+      state.cancelled = true
+      state.bridgeStopRequested = true
+      logError(`\n[autogame] cancelled during ${state.stage}.`)
+      stopAutoteam()
+      logError('[autogame] the match was already live: asking the bridge to save its work and stop, '
+        + 'and waiting for it. Its postgame derivation and ingest can take a couple of minutes.')
+      requestBridgeShutdown(entry, io).catch((error) => {
+        logError(`[autogame] could not ask the bridge to stop (${error.message}); `
+          + 'stop it with Ctrl+C in its own window, or stop again here to force it.')
+      })
+      return
+    }
     state.cancelled = true
     logError(`\n[autogame] cancelled during ${state.stage}.`)
     stopAutoteam()
     if (state.handedOff) {
-      logError('[autogame] the match was already live, so the bridge and its tracker '
-        + 'have been left running. Stop them with Ctrl+C in their own window.')
+      logError('[autogame] stopping without waiting for the bridge. On Windows that ends the '
+        + 'bridge and its tracker as well, and any postgame work still running is lost.')
     } else {
       stopBridge()
       logError('[autogame] the tracker was not started; nothing is recording this game.')
@@ -882,6 +917,10 @@ async function runLaunch({ entry, options, io, lineupPath }) {
   }
   io.onSignal('SIGINT', onSignal)
   io.onSignal('SIGTERM', onSignal)
+  const onControl = (message) => {
+    if (message?.type === 'stop') onSignal()
+  }
+  io.onControl(onControl)
 
   try {
     if (!options.noTracker) {
@@ -892,6 +931,11 @@ async function runLaunch({ entry, options, io, lineupPath }) {
         env: {
           ...io.childEnv,
           TRACKER_GAME_ID: String(entry.id),
+          // AutoTeam and the 60 Hz collector need the same Python environment.
+          // A shell's default `python` can drive the menus while lacking numpy,
+          // which otherwise kills the collector only after the match is live.
+          TRACKER_PLAYER_PYTHON: io.env.TRACKER_PLAYER_PYTHON
+            || options.python || io.env.MSS_PYTHON || 'python',
           // Same reason as MSS_GAME_TABLE on the exporter: the bridge would
           // otherwise resolve a shared id by searching the two tables in a
           // fixed order, and could write a season game's plate appearances
@@ -1021,11 +1065,12 @@ async function runLaunch({ entry, options, io, lineupPath }) {
     // here on this process exists only to hold the signal file's cleanup and to
     // pass Ctrl+C along.
     state.stage = 'game in progress'
-    return await new Promise((resolve) => {
-      if (state.bridge.exitCode !== null) resolve(state.bridge.exitCode ?? 0)
-      else state.bridge.on('exit', (code) => resolve(code ?? 0))
-    })
+    const bridgeCode = await bridgeExit(state)
+    return state.cancelled ? 130 : bridgeCode
   } finally {
+    // Every ending past the handoff -- a stop, a failed autoteam, a throw --
+    // outlives the bridge rather than taking it down (see onSignal).
+    if (bridgeStillWaiting()) await bridgeExit(state)
     // One exit path for every ending. Before this existed, a spawn error on
     // the python child threw straight past the bridge and left it running --
     // holding a tracker it would launch, five minutes later, into a menu.
@@ -1034,6 +1079,7 @@ async function runLaunch({ entry, options, io, lineupPath }) {
     cleanupFiles()
     io.offSignal('SIGINT', onSignal)
     io.offSignal('SIGTERM', onSignal)
+    io.offControl(onControl)
   }
 }
 
@@ -1071,6 +1117,30 @@ async function waitForBridgeReady(state, readyPath, io) {
 // been released and a bridge is writing the game's statistics. Losing the 60 Hz
 // capture costs the fielding and baserunning half of one game; stopping here
 // would cost all of it.
+function bridgeExit(state) {
+  return new Promise((resolve) => {
+    if (state.bridge.exitCode !== null) resolve(state.bridge.exitCode ?? 0)
+    else state.bridge.once('exit', (code) => resolve(code ?? 0))
+  })
+}
+
+// The bridge's preview surface is the one way in from outside that runs its
+// clean shutdown. A kill() on Windows is a TerminateProcess and skips it.
+async function requestBridgeShutdown(entry, io) {
+  const port = Number(io.env.TRACKER_BRIDGE_PREVIEW_PORT ?? 4317)
+  if (!(port > 0)) throw new Error('its preview surface is disabled (TRACKER_BRIDGE_PREVIEW_PORT=0)')
+  const response = await io.fetch(`http://127.0.0.1:${port}/shutdown`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gameId: entry.id, table: entry.source.gamesTable }),
+    signal: AbortSignal.timeout(5000),
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.error || `it answered ${response.status}`)
+  }
+}
+
 async function waitForCaptureRecording(state, recordingPath, io) {
   const startedAt = Date.now()
   const deadline = startedAt + io.recordingTimeoutMs

@@ -4,6 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { ingestPlayerTrackingSession } from '../scripts/ingest_player_tracking.mjs'
+import { createLiveTrackingPersistence } from '../scripts/tracker_live_tracking_persistence.mjs'
+import { onlyActiveTrackingFacts, supersededTrackingPlayIds } from '../src/utils/activeTrackingVersions.js'
 import { createTrackerFakeSupabase } from './helpers/trackerFakeSupabase.mjs'
 
 function writeFixture(dir, { competitionType = 'tournament', quarantined = false, playCount = 1 } = {}) {
@@ -77,6 +79,134 @@ test('tournament dry-run writes the complete raw fact set and is safe to repeat'
   assert.equal(client.db.tracking_sessions[0].source_id, 3)
 })
 
+test('postgame ingest restates mixed slap and charge evidence pitch by pitch', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-ingest-swings-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const common = {
+    inning: 1, inning_half: 0, batter_id: 2, batter: 'Donkey Kong', batter_index: 0,
+    offer: 'swing', swing_mode_source: 'swing_charge_frames_rise',
+    plate_x_units: 0.2, plate_y_units: 1.0, plate_z_units: 0.01,
+    pitch_zone: 'in', pitch_zone_source: 'horizontal_zone_v1', is_chase: false,
+  }
+  fs.writeFileSync(`${stem}.pitches.jsonl`, [
+    {
+      ...common, pitch_timer: 80, pitch_in_pa: 1, outcome: 'strike', contact: false,
+      swing_mode: 'charge', swing_charge_frames: 21,
+      swing_charge_release_timing_frames: 33,
+      fielding_star_meter_spent: 50,
+    },
+    {
+      ...common, pitch_timer: 100, pitch_in_pa: 2, outcome: 'contact', contact: true,
+      swing_mode: 'slap', swing_charge_frames: 0,
+      swing_charge_release_timing_frames: null,
+    },
+  ].map(JSON.stringify).join('\n'))
+
+  const tables = initialTables()
+  tables.pitches = [
+    { id: 'pitch-1', game_id: 12, pa_id: 50, pitch_number_pa: 1, result: 'swinging_miss' },
+    { id: 'pitch-2', game_id: 12, pa_id: 50, pitch_number_pa: 2, result: 'in_play', is_star_pitch: true },
+  ]
+  const client = createTrackerFakeSupabase(tables)
+  const result = await ingestPlayerTrackingSession(client, {
+    session: stem, recompute: false, warn: () => {},
+  })
+
+  assert.equal(result.pitchEvidenceRows, 2)
+  assert.equal(client.db.pitches[0].result, 'swinging_miss', 'scoring result is not rewritten')
+  assert.equal(client.db.pitches[0].swing_mode, 'charge')
+  assert.equal(client.db.pitches[0].swing_charge_frames, 21)
+  assert.equal(client.db.pitches[0].is_star_pitch, true)
+  assert.equal(client.db.pitches[1].result, 'in_play', 'scoring result is not rewritten')
+  assert.equal(client.db.pitches[1].swing_mode, 'slap')
+  assert.equal(client.db.pitches[1].swing_charge_frames, 0)
+  assert.equal(client.db.pitches[1].is_star_pitch, true, 'absent meter evidence does not erase a live flag')
+})
+
+test('ingestion does not persist a knocked-loose ball as a throw fact', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-ingest-loose-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const plays = fs.readFileSync(`${stem}.plays.jsonl`, 'utf8').split('\n').map(JSON.parse)
+  plays[0].throws.unshift({
+    sequence: 1, is_throw: false, event_type: 'knocked_loose',
+    thrower_position: 'P', thrower_character_id: 2,
+    receiver_position: 'C', receiver_character_id: 2, peak_speed_mph: 20,
+  })
+  plays[0].throws[1].sequence = 2
+  fs.writeFileSync(`${stem}.plays.jsonl`, plays.map(JSON.stringify).join('\n'))
+  const client = createTrackerFakeSupabase(initialTables())
+  const result = await ingestPlayerTrackingSession(client, {
+    session: stem, recompute: false, warn: () => {},
+  })
+  assert.equal(result.throws, 1)
+  assert.equal(client.db.tracking_throws.length, 1)
+  assert.equal(client.db.tracking_throws[0].throw_sequence, 2)
+})
+
+test('ingestion carries normalized gimmick luck into the tracking play quality', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-ingest-gimmick-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const play = JSON.parse(fs.readFileSync(`${stem}.plays.jsonl`, 'utf8'))
+  play.table_stuns = [{ by: 'P', character_id: 2, frame: 112, t: 1.2 }]
+  fs.writeFileSync(`${stem}.plays.jsonl`, JSON.stringify(play))
+
+  const tables = initialTables()
+  tables.plate_appearances[0].pitcher_player_id = 'def-owner'
+  tables.plate_appearances[0].pitcher_id = 31
+  const client = createTrackerFakeSupabase(tables)
+  await ingestPlayerTrackingSession(client, { session: stem, recompute: false, warn: () => {} })
+
+  const [event] = client.db.tracking_plays[0].quality.gimmick_events
+  assert.equal(event.type, 'table_stun')
+  assert.equal(event.beneficiary_player_id, 'batter-owner')
+  assert.equal(event.unlucky_player_id, 'def-owner')
+  assert.equal(event.affected_position, 'P')
+  assert.equal(event.affected_character_id, 31)
+})
+
+test('ingestion persists descriptive stadium incidents beside the luck events', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-ingest-incidents-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const play = JSON.parse(fs.readFileSync(`${stem}.plays.jsonl`, 'utf8'))
+  // PRODUCER-SHAPED. A freeze as derive_player_metrics.py writes one, and a
+  // manhole knockdown under the deriver's own `manhole_water` spelling -- the
+  // two populations the site could not see at all.
+  play.freezes = [{ by: 'C', character_id: 2, character: 'Donkey Kong', t: 1.0, frames: 120, seconds: 2.002 }]
+  play.knockdowns = [{ by: 'P', character_id: 2, character: 'Donkey Kong', t: 0.5, frame: 130, frames: 79, hazard: 'manhole_water' }]
+  fs.writeFileSync(`${stem}.plays.jsonl`, JSON.stringify(play))
+
+  const tables = initialTables()
+  tables.plate_appearances[0].pitcher_player_id = 'def-owner'
+  tables.plate_appearances[0].pitcher_id = 31
+  const client = createTrackerFakeSupabase(tables)
+  await ingestPlayerTrackingSession(client, { session: stem, recompute: false, warn: () => {} })
+
+  const { stadium_incidents: incidents, gimmick_events: luck } = client.db.tracking_plays[0].quality
+  assert.equal(incidents.length, 2, 'the freeze and the knockdown are both incidents')
+  const freeze = incidents.find((row) => row.type === 'player_freeze')
+  const manhole = incidents.find((row) => row.type === 'manhole_water_knockdown')
+  assert.ok(freeze && manhole)
+  // The victim is the character the stadium actually touched, resolved at game
+  // time -- never the beneficiary or unlucky side of the luck event.
+  assert.equal(freeze.victim.position, 'C')
+  assert.equal(freeze.victim.characterId, 31)
+  assert.equal(freeze.victim.playerId, 'def-owner')
+  assert.equal(freeze.duration_seconds, 2.002)
+  // A freeze that carried only a relative time still got an absolute frame.
+  assert.ok(Number.isFinite(freeze.frame))
+  assert.equal(manhole.cause.confidence, 'flag_named')
+
+  // The freeze reaches the descriptive contract and, correctly, NOT luck: the
+  // deriver never named what froze him in this capture.
+  assert.ok(!luck.some((row) => row.type === 'player_freeze'))
+  assert.ok(luck.some((row) => row.type === 'manhole_water_knockdown'),
+    'the manhole knockdown now survives the alias that used to drop it')
+})
+
 test('season dry-run maps season team ids back to player ids consistently', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-ingest-s-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
@@ -86,6 +216,35 @@ test('season dry-run maps season team ids back to player ids consistently', asyn
   assert.equal(client.db.tracking_sessions[0].competition_type, 'season')
   assert.equal(client.db.tracking_sessions[0].source_id, 7)
   assert.ok(client.db.fielding_opportunities.every((row) => row.fielder_player_id === 'def-owner'))
+})
+
+test('a mid-inning position change does not hand the earlier play to the new fielder', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-ingest-move-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir, { competitionType: 'season' })
+  const tables = initialTables('season')
+  tables.season_plate_appearances[0].defensive_team_id = 101
+  // Game 2766: Toadette caught one in RF, then Red Pianta moved to RF in the
+  // same inning. The bridge rewrites the inning-1 rows, so the scorebook now
+  // says Red Pianta held the position the capture saw Donkey Kong play.
+  tables.season_game_fielders = [
+    // The batting side is listed first and fields the same character, so a
+    // lookup that ignores the team credits the wrong owner.
+    { id: 9, game_id: 12, team_id: 202, character: 'Donkey Kong', position: 1, inning_from: 1 },
+    { id: 1, game_id: 12, team_id: 101, character: 'Red Pianta', position: 1, inning_from: 1 },
+    { id: 2, game_id: 12, team_id: 101, character: 'Donkey Kong', position: 3, inning_from: 1 },
+    { id: 3, game_id: 12, team_id: 101, character: 'Toadette', position: 2, inning_from: 1 },
+  ]
+  tables.characters.push({ id: 71, name: 'Red Pianta' }, { id: 56, name: 'Toadette' })
+  tables.season_teams.push({ id: 202, player_id: 'bat-owner' })
+  const client = createTrackerFakeSupabase(tables)
+  await ingestPlayerTrackingSession(client, { session: stem, recompute: false, warn: () => {} })
+  const pitcher = client.db.fielding_opportunities.find((row) => row.position === 'P')
+  assert.equal(pitcher.fielder_character_id, 31, 'the capture saw Donkey Kong at P')
+  assert.equal(pitcher.fielder_player_id, 'def-owner')
+  const [throwRow] = client.db.tracking_throws
+  assert.equal(throwRow.thrower_character_id, 31)
+  assert.equal(throwRow.thrower_player_id, 'def-owner')
 })
 
 test('interrupted child-row insertion resumes without deleting committed facts', async (t) => {
@@ -319,6 +478,28 @@ test('a changed replacement is built beside the completed session and takes over
     (row) => String(row.tracking_session_id) === String(previous.id)).length, 2)
   assert.equal(client.db.tracking_plays.filter(
     (row) => String(row.tracking_session_id) === String(current.id)).length, 2)
+})
+
+// Season game 2814: a plate appearance written out of order left six plays
+// unjoined, and after renumbering it the same files re-ingested as "already
+// complete". The join reads the plate appearances, which the checksum cannot see.
+test('an explicit replace rebuilds an unchanged capture against corrected plate appearances', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-ingest-replace-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const client = installSessionVersioning(createTrackerFakeSupabase(initialTables()))
+  const first = await ingestPlayerTrackingSession(client, { session: stem, recompute: false, warn: () => {} })
+  const unchanged = await ingestPlayerTrackingSession(installSessionVersioning(client.restart()),
+    { session: stem, recompute: false, warn: () => {} })
+  assert.equal(unchanged.alreadyComplete, true)
+
+  const replaced = await ingestPlayerTrackingSession(installSessionVersioning(client.restart()), {
+    session: stem, recompute: false, replace: true, warn: () => {},
+  })
+  assert.equal(replaced.status, 'ingested')
+  assert.equal(String(replaced.replacedSessionId), String(first.trackingSessionId))
+  const active = client.db.tracking_sessions.filter((row) => row.is_active)
+  assert.deepEqual(active.map((row) => String(row.id)), [String(replaced.trackingSessionId)])
 })
 
 test('a replacement that fails halfway leaves the previous version active', async (t) => {
@@ -575,6 +756,29 @@ test('a lost activation response is resumed rather than re-ingested', async (t) 
   assert.equal(client.db.tracking_sessions.find((row) => row.is_active !== false).quality.derived_stage, null)
 })
 
+test('a retry promotes raw_ingested before activating the saved facts', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-ingest-status-resume-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const client = installSessionVersioning(createTrackerFakeSupabase(initialTables(), {
+    failures: [{ table: 'tracking_sessions', action: 'update', mode: 'before',
+      when: ({ payload }) => payload?.status === 'ingested', times: 1 }],
+  }))
+  await assert.rejects(ingestPlayerTrackingSession(client, {
+    session: stem, recompute: false, warn: () => {},
+  }), (error) => error?.message === 'failure before write')
+  assert.equal(client.db.tracking_sessions[0].status, 'raw_ingested')
+  assert.equal(client.db.tracking_sessions[0].quality.derived_stage, 'activate')
+
+  const playCount = client.db.tracking_plays.length
+  await ingestPlayerTrackingSession(installSessionVersioning(client.restart()), {
+    session: stem, recompute: false, warn: () => {},
+  })
+  assert.equal(client.db.tracking_sessions[0].status, 'ingested')
+  assert.equal(client.db.tracking_sessions[0].quality.derived_stage, null)
+  assert.equal(client.db.tracking_plays.length, playCount)
+})
+
 test('a first ingest applies its official links through the fenced function too', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-ingest-first-links-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
@@ -661,6 +865,11 @@ test('a first ingest whose activation never committed is retried with its measur
   assert.deepEqual(staged.runner_opportunities, [{
     id: 91, runner_x: 17, runner_z: 29, runner_speed_mps: 8,
     tracking_throw_id: client.db.tracking_throws[0].id,
+    // The opportunity carried no responsible fielder, so the pass also stages
+    // the fielder who first secured the ball.
+    responsible_fielder_player_id: 'def-owner',
+    responsible_fielder_character_id: 31,
+    responsible_fielder_position: '1',
   }], 'the first attempt did stage the measurements; the transaction is what failed')
   const session = client.db.tracking_sessions[0]
   assert.equal(session.is_active !== false, true,
@@ -732,4 +941,220 @@ test('a first ingest whose direct official-link writes failed is finished by the
     'measurements included')
   assert.equal(client.db.runner_opportunities[0].tracking_play_id, client.db.tracking_plays[0].id)
   assert.equal(client.db.tracking_sessions[0].quality.derived_stage, null)
+})
+
+// ── Live tracking facts ──────────────────────────────────────────────────────
+//
+// The bridge writes each joined play during the game into a `live` session
+// version, through the same row writer the postgame ingest uses, and the
+// postgame ingest replaces that version.
+
+function fixturePlays(stem) {
+  return fs.readFileSync(`${stem}.plays.jsonl`, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+}
+
+function liveWriter(client, logs = []) {
+  return createLiveTrackingPersistence({
+    supabase: client, competitionType: 'tournament', gameId: 12, sourceId: 3,
+    log: (message) => logs.push(message),
+  })
+}
+
+const joinedToFirstPa = () => ({ status: 'joined', pa_number: 1 })
+
+test('live facts are written once per joined play, and only once its plate appearance is saved', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-live-write-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir, { playCount: 2 })
+  const [fair, second] = fixturePlays(stem)
+  const foul = { ...second, batted_ball_class: 'foul', fair_or_foul: 'foul' }
+  const client = installSessionVersioning(createTrackerFakeSupabase(initialTables()))
+  const writer = liveWriter(client)
+  const joins = new Map([[fair.contact_timer, { status: 'joined', pa_number: 1 }]])
+  const saved = new Map()
+  const sync = () => writer.sync({
+    stem,
+    capture: { frames: 600, missed_frames: 0 },
+    plays: [fair, foul],
+    joinFor: (play) => joins.get(play.contact_timer) || { status: 'pending' },
+    plateAppearanceFor: (paNumber) => saved.get(paNumber),
+  })
+
+  assert.equal((await sync()).written, 0, 'a fair ball waits for its plate appearance')
+  assert.equal(client.db.tracking_sessions.length, 0, 'and no session is opened for nothing')
+
+  saved.set(1, client.db.plate_appearances[0])
+  joins.set(foul.contact_timer, { status: 'joined', pa_number: 1 })
+  assert.equal((await sync()).written, 2)
+  assert.equal((await sync()).written, 0, 'a play is written once')
+
+  const [session] = client.db.tracking_sessions
+  assert.equal(session.status, 'live')
+  assert.equal(client.db.tracking_plays.length, 2)
+  const byFrame = new Map(client.db.tracking_plays.map((row) => [row.contact_frame, row]))
+  assert.equal(byFrame.get(fair.contact_timer).pa_id, 50)
+  assert.equal(byFrame.get(foul.contact_timer).pa_id, null, 'a foul is never the at-bat outcome')
+  assert.equal(client.db.fielding_opportunities.length, 4)
+  assert.equal(client.db.movement_metrics.length, 6)
+  assert.equal(client.db.tracking_throws.length, 2)
+  assert.equal(client.db.plate_appearances[0].tracking_session_id, undefined,
+    'official links wait for the fenced postgame activation')
+})
+
+test('a live writer stops at the quarantine threshold', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-live-threshold-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const client = installSessionVersioning(createTrackerFakeSupabase(initialTables()))
+  const result = await liveWriter(client).sync({
+    stem, capture: { frames: 900, missed_frames: 100 }, plays: fixturePlays(stem),
+    joinFor: joinedToFirstPa, plateAppearanceFor: () => client.db.plate_appearances[0],
+  })
+  assert.equal(result.written, 0)
+  assert.equal(client.db.tracking_plays.length, 0)
+})
+
+test('the postgame ingest supersedes the live version and readers see only the postgame facts', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-live-replace-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir, { playCount: 2 })
+  const plays = fixturePlays(stem)
+  const client = installSessionVersioning(createTrackerFakeSupabase(initialTables()))
+  const writer = liveWriter(client)
+  await writer.sync({
+    stem, capture: {}, plays: [plays[0]],
+    joinFor: joinedToFirstPa, plateAppearanceFor: () => client.db.plate_appearances[0],
+  })
+  const liveId = writer.sessionId
+  assert.ok(liveId)
+
+  const postgame = await ingestPlayerTrackingSession(
+    installSessionVersioning(client.restart()), { session: stem, recompute: false, warn: () => {} })
+  assert.equal(String(postgame.replacedSessionId), String(liveId), 'a live version is replaced whatever its checksum')
+  const live = client.db.tracking_sessions.find((row) => String(row.id) === String(liveId))
+  const current = client.db.tracking_sessions.find((row) => String(row.id) === String(postgame.trackingSessionId))
+  assert.equal(live.is_active, false)
+  assert.equal(current.is_active, true)
+  assert.equal(current.status, 'ingested')
+
+  const excluded = supersededTrackingPlayIds(client.db.tracking_sessions, client.db.tracking_plays)
+  const visible = onlyActiveTrackingFacts(client.db.fielding_opportunities, excluded)
+  assert.equal(visible.length, 4, 'two postgame plays of two fielders, and no live duplicates')
+
+  // A bridge restarted after the postgame pass writes nothing more.
+  const lateWriter = liveWriter(client.restart())
+  const result = await lateWriter.sync({
+    stem, capture: {}, plays,
+    joinFor: joinedToFirstPa, plateAppearanceFor: () => client.db.plate_appearances[0],
+  })
+  assert.equal(result.written, 0)
+  assert.match(String(lateWriter.disabledReason), /already ingested/)
+})
+
+test('a quarantined postgame capture still retires the live version it replaces', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-live-quarantine-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const client = installSessionVersioning(createTrackerFakeSupabase(initialTables()))
+  const writer = liveWriter(client)
+  await writer.sync({
+    stem, capture: {}, plays: fixturePlays(stem),
+    joinFor: joinedToFirstPa, plateAppearanceFor: () => client.db.plate_appearances[0],
+  })
+  assert.equal(client.db.tracking_plays.length, 1)
+  writeFixture(dir, { quarantined: true })
+  const postgame = await ingestPlayerTrackingSession(
+    installSessionVersioning(client.restart()), { session: stem, recompute: false, warn: () => {} })
+  assert.equal(postgame.status, 'quarantined')
+  const live = client.db.tracking_sessions.find((row) => String(row.id) === String(writer.sessionId))
+  const current = client.db.tracking_sessions.find((row) => String(row.id) === String(postgame.trackingSessionId))
+  assert.equal(live.is_active, false, 'the live facts from the failed capture are no longer active')
+  assert.equal(current.is_active, true)
+  assert.equal(current.status, 'quarantined')
+  const excluded = supersededTrackingPlayIds(client.db.tracking_sessions, client.db.tracking_plays)
+  assert.equal(onlyActiveTrackingFacts(client.db.fielding_opportunities, excluded).length, 0)
+})
+
+test('live facts are not written to a database that cannot supersede them', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-live-legacy-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const client = createTrackerFakeSupabase(initialTables())
+  const legacy = {
+    from(table) {
+      if (table !== 'tracking_sessions') return client.from(table)
+      return {
+        select: () => ({
+          limit: async () => ({
+            data: null,
+            error: { code: '42703', message: 'column tracking_sessions.is_active does not exist' },
+          }),
+        }),
+      }
+    },
+  }
+  const writer = liveWriter(legacy)
+  const result = await writer.sync({
+    stem, capture: {}, plays: fixturePlays(stem),
+    joinFor: joinedToFirstPa, plateAppearanceFor: () => client.db.plate_appearances[0],
+  })
+  assert.equal(result.written, 0)
+  assert.match(String(writer.disabledReason), /does not version tracking sessions/)
+  assert.equal(client.db.tracking_plays.length, 0)
+})
+
+test('a live catch is scored against the other games already in the database', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-live-model-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir)
+  const [play] = fixturePlays(stem)
+  // The fixture's catch, given a distance and a hang time so it is modelled,
+  // and four earlier chances in the same bucket in another game: three caught.
+  const measured = {
+    ...play,
+    hang_time_s: 1.2,
+    caught_in_flight: true,
+    fielders: { ...play.fielders, P: { ...play.fielders.P, distance_to_landing_units: 8 } },
+  }
+  const tables = initialTables()
+  tables.fielding_opportunities = [0, 1, 2, 3].map((index) => ({
+    id: 1000 + index, tracking_play_id: 5000 + index, competition_type: 'tournament', game_id: 99,
+    position: 'P', is_primary: true, actual_out: index < 3,
+    distance_needed_m: 8, opportunity_seconds: 1.2, quality: {},
+  }))
+  const client = installSessionVersioning(createTrackerFakeSupabase(tables))
+  await liveWriter(client).sync({
+    stem, capture: {}, plays: [measured],
+    joinFor: joinedToFirstPa, plateAppearanceFor: () => client.db.plate_appearances[0],
+  })
+  const row = client.db.fielding_opportunities.find((entry) => entry.is_primary && entry.game_id === 12)
+  assert.equal(row.actual_out, true)
+  // Three catches in four chances, shrunk toward the position's own 3/4.
+  assert.ok(Math.abs(row.expected_out_probability - 0.75) < 1e-9)
+  assert.ok(Math.abs(row.outs_above_average - 0.25) < 1e-9)
+  assert.equal(row.star_difficulty, 2)
+})
+
+test('a superseded version is finished history, not a replacement to resume', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-superseded-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const stem = writeFixture(dir, { competitionType: 'season' })
+  const client = installSessionVersioning(createTrackerFakeSupabase(initialTables('season')))
+
+  await ingestPlayerTrackingSession(client, { session: stem, recompute: false, warn: () => {} })
+  const second = await ingestPlayerTrackingSession(client, {
+    session: stem, recompute: false, replace: true, warn: () => {},
+  })
+  // A third pass must build v3 beside v2, not reach back past it into v1 --
+  // which is also inactive, also 'ingested', and carries the same checksum.
+  const third = await ingestPlayerTrackingSession(client, {
+    session: stem, recompute: false, replace: true, warn: () => {},
+  })
+  assert.notEqual(third.trackingSessionId, second.trackingSessionId)
+  assert.equal(third.replacedSessionId, second.trackingSessionId)
+  assert.equal(third.status, 'ingested')
+  const versions = client.db.tracking_sessions
+  assert.equal(versions.length, 3)
+  assert.equal(versions.filter((row) => row.is_active !== false).length, 1)
+  assert.equal(versions.find((row) => row.id === third.trackingSessionId).is_active !== false, true)
 })

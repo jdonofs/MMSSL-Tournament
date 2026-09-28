@@ -23,7 +23,7 @@
 // three foul balls produces four plays and one plate appearance, so the join is
 // many-to-one by design, and only the fair ball is the at-bat's outcome.
 
-import { normalizeCharacterName } from './tracker_character_ids.mjs'
+import { normalizeCharacterName, rosterCharacterName } from './tracker_character_ids.mjs'
 
 export const JOIN_STATUSES = Object.freeze([
   'joined', 'pending', 'ambiguous', 'orphaned', 'mismatch',
@@ -36,8 +36,11 @@ const NAME_ALIASES = {
   redkoopatroopa: 'redkoopa',
 }
 
+// The capture names every Mii plain "Mii"; the tracker log names the shirt,
+// "Orange Mii (M)". Both fold to the roster's family name, or every Mii play is
+// orphaned (both of Orange Mii's contacts in season game 2767 were).
 function nameKey(value) {
-  const normalized = normalizeCharacterName(value)
+  const normalized = normalizeCharacterName(rosterCharacterName(value))
   return NAME_ALIASES[normalized] || normalized
 }
 
@@ -100,7 +103,9 @@ const NO_CONTACT_RESULTS = new Set(['BB', 'HBP', 'K'])
  * got, so a play that has simply overtaken the log is `pending` rather than
  * `orphaned` -- the difference between "not yet" and "never".
  */
-export function joinPlayToAtBat(play, atBats = [], { latestInning = null, latestHalf = null } = {}) {
+export function joinPlayToAtBat(play, atBats = [], {
+  latestInning = null, latestHalf = null, batterOccurrence = null,
+} = {}) {
   const half = halfFromPlay(play)
   const batter = nameKey(play?.batter)
   const evidence = {
@@ -148,7 +153,28 @@ export function joinPlayToAtBat(play, atBats = [], { latestInning = null, latest
     ? countCandidates.filter((atBat) => atBat.outs_before_pa != null
       && Number(atBat.outs_before_pa) === playOuts)
     : []
-  const narrowed = byOuts.length ? byOuts : countCandidates
+  let narrowed = byOuts.length ? byOuts : countCandidates
+
+  // COUNT AND OUTS ARE NOT ENOUGH WHEN A LINEUP BATS AROUND. The 2026-09-12
+  // DK Jungle game sent 18 batters to the plate in the first inning. Nine of
+  // those PAs had the same batter, count and outs as an earlier trip, so both
+  // otherwise healthy plays were marked ambiguous.
+  //
+  // A whole-session join has one additional fact an isolated play does not:
+  // chronology. Fair contact closes a PA, while any fouls immediately before
+  // it belong to that PA. That makes the first group of contacts for a batter
+  // their first PA in the half-inning, the second group their second, and so
+  // on. `joinSession` supplies that zero-based occurrence. Keep the isolated
+  // API conservative -- without it, the same two candidates remain ambiguous.
+  const chronologicalCandidates = isFairPlay(play) || play?.batted_ball_class === 'foul'
+    ? candidates.filter((atBat) => !NO_CONTACT_RESULTS.has(atBat.result))
+    : candidates
+  if (chronologicalCandidates.length > 1 && Number.isInteger(batterOccurrence)
+    && batterOccurrence >= 0 && batterOccurrence < chronologicalCandidates.length) {
+    const chronological = [...chronologicalCandidates]
+      .sort((left, right) => Number(left.pa_number) - Number(right.pa_number))
+    narrowed = [chronological[batterOccurrence]]
+  }
 
   if (narrowed.length > 1) {
     return {
@@ -190,7 +216,9 @@ export function joinPlayToAtBat(play, atBats = [], { latestInning = null, latest
     status: 'joined',
     pa_number: atBat.pa_number,
     candidate_pa_numbers: [atBat.pa_number],
-    reason: byOuts.length
+    reason: candidates.length > 1 && Number.isInteger(batterOccurrence)
+      ? `matched PA ${atBat.pa_number} as this batter's appearance ${batterOccurrence + 1} in the half-inning`
+      : byOuts.length
       ? `matched PA ${atBat.pa_number} on inning, half, batter, the ${count} count and ${playOuts} outs`
       : byCount.length
       ? `matched PA ${atBat.pa_number} on inning, half, batter and the ${count} count`
@@ -209,10 +237,40 @@ export function joinPlayToAtBat(play, atBats = [], { latestInning = null, latest
  * resolved by picking the later.
  */
 export function joinSession(plays = [], atBats = [], options = {}) {
-  const joins = plays.map((play) => ({
-    play,
-    join: joinPlayToAtBat(play, atBats, options),
-  }))
+  // Chronology is proof only when this play set accounts for every
+  // contact-producing trip by that batter. A partial capture containing one
+  // of two repeat trips cannot say whether it saw the first or second and must
+  // remain ambiguous. Strikeouts, walks and HBP do not require a measured
+  // batted ball and are excluded from the expected total.
+  const fairTotals = new Map()
+  for (const play of plays) {
+    if (!isFairPlay(play)) continue
+    const key = `${play?.inning}|${halfFromPlay(play)}|${nameKey(play?.batter)}`
+    fairTotals.set(key, (fairTotals.get(key) || 0) + 1)
+  }
+  const contactPaTotals = new Map()
+  for (const atBat of atBats) {
+    if (NO_CONTACT_RESULTS.has(atBat?.result)) continue
+    const key = `${atBat?.inning}|${atBat?.half}|${nameKey(atBat?.batter_name)}`
+    contactPaTotals.set(key, (contactPaTotals.get(key) || 0) + 1)
+  }
+  const completedByBatter = new Map()
+  const joins = plays.map((play) => {
+    const key = `${play?.inning}|${halfFromPlay(play)}|${nameKey(play?.batter)}`
+    const batterOccurrence = completedByBatter.get(key) || 0
+    const chronologyComplete = fairTotals.get(key) === contactPaTotals.get(key)
+    const entry = {
+      play,
+      join: joinPlayToAtBat(play, atBats, {
+        ...options,
+        batterOccurrence: chronologyComplete ? batterOccurrence : null,
+      }),
+    }
+    // Fouls remain in the current appearance. Every fair class ends it, even
+    // if the other feed later proves the result or join itself inconsistent.
+    if (isFairPlay(play)) completedByBatter.set(key, batterOccurrence + 1)
+    return entry
+  })
   const byPa = new Map()
   for (const entry of joins) {
     if (entry.join.status !== 'joined') continue

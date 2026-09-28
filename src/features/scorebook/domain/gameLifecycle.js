@@ -78,11 +78,13 @@ export function buildGameReopenPatch({ isSeasonGame, scores, clearedLiveState })
 
 export function buildGameResetPatch({ isSeasonGame }) {
   const sourceFields = isSeasonGame
-    ? { status: 'scheduled', home_score: null, away_score: null, winner_team_id: null }
-    : { status: 'pending', team_a_runs: 0, team_b_runs: 0, winner_player_id: null }
+    ? { status: 'scheduled', home_score: null, away_score: null, winner_team_id: null, stadium: null }
+    : { status: 'pending', team_a_runs: 0, team_b_runs: 0, winner_player_id: null, stadium_id: null }
 
   return {
     ...sourceFields,
+    is_night: false,
+    video_url: null,
     live_state: {},
     final_inning: null,
     is_extra_innings: false,

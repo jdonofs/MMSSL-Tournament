@@ -154,6 +154,7 @@ declare
   highest integer;
   slot integer;
   shifted integer := 0;
+  fielder_table text;
   retried boolean := false;
   new_pa_id bigint;
   columns text;
@@ -166,10 +167,12 @@ begin
     pa_table := 'season_plate_appearances';
     pitch_table := 'season_pitches';
     run_table := 'season_runs_scored';
+    fielder_table := 'season_game_fielders';
   elsif p_competition_type = 'tournament' then
     pa_table := 'plate_appearances';
     pitch_table := 'pitches';
     run_table := 'runs_scored';
+    fielder_table := 'game_fielders';
   else
     raise exception 'competition type must be tournament or season, not %', p_competition_type;
   end if;
@@ -244,6 +247,21 @@ begin
     get diagnostics shifted = row_count;
     execute format('update %I set pa_number = pa_number - 999999 where game_id = $1 and pa_number >= 1000000',
                    pa_table) using unresolved.game_id;
+
+    -- A position change made mid-inning bounds its fielder rows by pa_number
+    -- (20260918120000), so the bounds move with the plate appearances they
+    -- name. A play inserted AT a stint's first PA joins that later stint;
+    -- anywhere earlier moves both bounds. Absent columns (an older schema, the
+    -- in-process test database) mean there is nothing to move.
+    if shifted > 0 and exists (
+      select 1 from information_schema.columns c
+       where c.table_schema = 'public' and c.table_name = fielder_table and c.column_name = 'pa_from'
+    ) then
+      execute format('update %I set pa_to = pa_to + 1 where game_id = $1 and pa_to >= $2', fielder_table)
+        using unresolved.game_id, slot;
+      execute format('update %I set pa_from = pa_from + 1 where game_id = $1 and pa_from > $2', fielder_table)
+        using unresolved.game_id, slot;
+    end if;
 
     select string_agg(quote_ident(c.column_name), ', ' order by c.column_name),
            string_agg('r.' || quote_ident(c.column_name), ', ' order by c.column_name)

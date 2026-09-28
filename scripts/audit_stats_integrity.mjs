@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { isCreditedHit } from '../src/utils/creditedHit.js'
 import { reconcileStatSource } from '../src/utils/statReconciliation.js'
+import { fielderCoversPa } from '../src/utils/fielderStints.js'
 
 const VALID_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'BB', 'HBP', 'K', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
 const ZERO_RBI_RESULTS = new Set(['FC', 'ROE', 'DP', 'TP'])
@@ -578,8 +579,7 @@ function auditFielding({ scope, pas, fielders }) {
   const findFielder = (pa, positionNumber) => fielders.find((fielder) => (
     String(fielder.game_id) === String(pa.game_id)
     && Number(fielder.position) === Number(positionNumber)
-    && Number(fielder.inning_from || 1) <= Number(pa.inning || 1)
-    && (fielder.inning_to == null || Number(fielder.inning_to) >= Number(pa.inning || 1))
+    && fielderCoversPa(fielder, pa)
     && String(fielder.team_id) === String(pa.defensive_team_id)
   ))
 

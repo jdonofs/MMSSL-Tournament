@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-16T20:12:28.509Z",
+  "competition": "season",
+  "game_id": 2751,
+  "games_table": "season_schedule",
+  "stadium": "Daisy Cruiser",
+  "launcher_pid": 1428,
+  "handoff_signal": "C:\\Users\\jdono\\AppData\\Local\\Temp\\mss-autogame-1428-1789589525400.live",
+  "stages": {
+    "bridge_ready": true,
+    "match_live": "confirmed",
+    "handed_off": true,
+    "gameplay_hold": "readers_ready",
+    "capture_recording": false,
+    "capture_disabled": false
+  },
+  "timings_ms": {
+    "bridge_ready": 2281,
+    "handoff": 22303,
+    "gameplay_held": 700,
+    "capture_after_handoff": 1,
+    "collector_first_frames_seconds": null
+  },
+  "capture": {
+    "stem": null,
+    "frames": null,
+    "missed_frames": null,
+    "bytes_on_disk": null,
+    "collector_pid": null,
+    "park": null,
+    "reason": "the collector exited with code 1 before it captured anything"
+  },
+  "tracker_log": "C:\\Users\\jdono\\Sluggers\\sluggers-stat-tracker-advanced-stats-dev\\preview-sessions\\bridge-2026-09-16_16-12-06.log"
+}

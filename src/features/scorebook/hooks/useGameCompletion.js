@@ -6,7 +6,7 @@ import {
   reopenGameBets,
   resolveGameBets,
 } from '../../../utils/betResolution'
-import { derivePitchingDecisions, groupRunsByPaId } from '../../../utils/pitchingDecisions'
+import { decideGamePitchingFlags } from '../../../utils/pitchingDecisions'
 import { getPersistedLiveStateValue } from '../domain/liveState'
 import {
   buildGameCompletionPatch,
@@ -28,6 +28,7 @@ import {
   advanceTournamentBracket,
   reopenTournamentBracket,
 } from '../services/bracketService'
+import { stopLocalTrackerForGame } from '../services/localTrackerControl'
 
 export default function useGameCompletion({
   betResolutionConfig,
@@ -77,6 +78,7 @@ export default function useGameCompletion({
       // reset before anything is deleted. Empty tables are skipped so the
       // client never attempts a DELETE it is not permitted to perform.
       const ordered = [
+        scorebookTables.trackerLiveStats,
         scorebookTables.bettingLedger,
         scorebookTables.bets,
         scorebookTables.settlements,
@@ -89,7 +91,6 @@ export default function useGameCompletion({
         scorebookTables.lineups,
         scorebookTables.inningScores,
         scorebookTables.stadiumGameLog,
-        scorebookTables.trackerLiveStats,
       ].filter(Boolean)
       // Count everything first, and delete nothing yet. Two reasons to look
       // before touching anything:
@@ -117,6 +118,22 @@ export default function useGameCompletion({
           + 'that never happened. Nothing was changed.',
         )
       }
+
+      // Stop all local writers before deleting rows. The first count pass is
+      // only a preflight; refresh it after shutdown so no late row is missed.
+      await stopLocalTrackerForGame({
+        gameId: selectedGame.id,
+        table: isSeasonGame ? 'season_schedule' : 'games',
+      })
+      counts.clear()
+      for (const table of ordered) {
+        const { count, error } = await countGameScopedRows({ table, gameId: selectedGame.id })
+        if (error) throw new Error(`${table} could not be read after stopping the tracker: ${error.message}. Nothing was changed.`)
+        if (count) counts.set(table, count)
+      }
+      if (counts.has(scorebookTables.bets)) {
+        throw new Error('A bet was placed while the tracker was stopping. Clear it before resetting. Nothing was changed.')
+      }
   
       for (const [table, count] of counts) {
         const { error } = await deleteGameScopedRows({ table, gameId: selectedGame.id })
@@ -127,6 +144,9 @@ export default function useGameCompletion({
             + 'before playing it.',
           )
         }
+        const { count: remaining, error: verifyError } = await countGameScopedRows({ table, gameId: selectedGame.id })
+        if (verifyError) throw new Error(`${table} could not be verified after deletion: ${verifyError.message}. The reset is incomplete.`)
+        if (remaining) throw new Error(`${table} still has ${remaining} row(s) for this game after deletion. The reset is incomplete; the game status was not changed.`)
       }
   
       // The two sources spell "not played yet" differently, and season games
@@ -138,6 +158,10 @@ export default function useGameCompletion({
         patch: buildGameResetPatch({ isSeasonGame }),
       })
       if (gameError) throw gameError
+
+      try {
+        window.sessionStorage.removeItem(`sluggers-game-started:${isSeasonGame ? 'season_schedule' : 'games'}:${selectedGame.id}`)
+      } catch { /* Session storage may be disabled. */ }
   
       // Reload rather than patching state. The scorebook loader deliberately
       // keeps its local rows when a refetch comes back empty (so a lagging
@@ -254,64 +278,27 @@ export default function useGameCompletion({
     // at all. There's no innings-pitched requirement for a win here (that's an
     // MLB starter-specific rule, not applicable to these short games); the only
     // innings-based check is the save's own "3 full innings" qualifying clause.
+    // decideGamePitchingFlags ignores flags already on the stints: this is the authoritative
+    // moment they get decided, including a re-completion after a reopen. The tracker bridge
+    // calls the same function when it completes a game.
     try {
-      const sortedStints = [...gamePitching].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-      const sideForPlayerId = (pid) => (
-        String(pid) === String(selectedGame.team_a_player_id) ? 'A'
-          : String(pid) === String(selectedGame.team_b_player_id) ? 'B'
-            : null
-      )
-      const winnerSide = resolved ? sideForPlayerId(resolved) : null
-      // Deliberately not passing through s.win/s.loss/s.save here — derivePitchingDecisions
-      // honors any already-true flag as final and skips recomputing it, which is right for
-      // the season/tournament-wide recompute (don't clobber a correctly-decided game) but
-      // wrong here: this *is* the authoritative moment those flags get decided for this game,
-      // so it needs to always reconstruct fresh from this game's own play-by-play — including
-      // when re-completing after a reopen, so a previous bad computation doesn't stick around.
-      const decisionStints = sortedStints.map((s) => ({
-        id: s.id,
-        characterId: s.character_id,
-        playerId: s.player_id,
-        side: sideForPlayerId(s.player_id),
-        createdAt: s.created_at,
-        inningsPitched: s.innings_pitched,
-        win: false,
-        loss: false,
-        save: false,
-      }))
-      const decisionPas = [...gamePAs]
-        .sort((a, b) => (Number(a.pa_number || 0) - Number(b.pa_number || 0)) || new Date(a.created_at || 0) - new Date(b.created_at || 0))
-        .map((pa) => ({
-          id: pa.id,
-          side: sideForPlayerId(pa.player_id),
-          createdAt: pa.created_at,
-          result: pa.result,
-          rbi: pa.rbi,
-          run_scored: pa.run_scored,
-          pitcherCharacterId: pa.pitcher_id ?? null,
-          pitcherPlayerId: pa.pitcher_player_id ?? null,
-        }))
-      const { winStint, lossStint, saveStint } = winnerSide
-        ? derivePitchingDecisions({ pas: decisionPas, runsByPaId: groupRunsByPaId(gameRuns), stints: decisionStints, winnerSide })
-        : { winStint: null, lossStint: null, saveStint: null }
-      const winLossUpdates = []
-      sortedStints.forEach((s) => {
-        const isWin = winStint?.id === s.id
-        const isLoss = lossStint?.id === s.id
-        const isSave = saveStint?.id === s.id
-        if (Boolean(s.win) !== isWin || Boolean(s.loss) !== isLoss || Boolean(s.save) !== isSave) {
-          winLossUpdates.push(updatePitchingStint({
-            tables: scorebookTables,
-            stintId: s.id,
-            patch: { win: isWin, loss: isLoss, save: isSave },
-          }))
-        }
+      const { winStintId, lossStintId, saveStintId, updates } = decideGamePitchingFlags({
+        stints: gamePitching,
+        pas: gamePAs,
+        runs: gameRuns,
+        teamAPlayerId: selectedGame.team_a_player_id,
+        teamBPlayerId: selectedGame.team_b_player_id,
+        winnerPlayerId: resolved,
       })
-      await Promise.all(winLossUpdates)
-      if (winLossUpdates.length) {
+      await Promise.all(updates.map(({ id, patch }) => updatePitchingStint({
+        tables: scorebookTables,
+        stintId: id,
+        patch,
+      })))
+      if (updates.length) {
         setPitchingStints((cur) => cur.map((s) => (
           String(s.game_id) === String(selectedGame.id)
-            ? { ...s, win: winStint?.id === s.id, loss: lossStint?.id === s.id, save: saveStint?.id === s.id }
+            ? { ...s, win: winStintId === s.id, loss: lossStintId === s.id, save: saveStintId === s.id }
             : s
         )))
       }
@@ -352,7 +339,21 @@ export default function useGameCompletion({
       pushToast({ title: 'Reopen failed', message: error.message, type: 'error' })
       return
     }
-  
+
+    // Bets are reversed before anything else treats the game as reopened. The
+    // row is already off `complete`, so the betting tab's recovery pass will not
+    // re-settle it underneath this. A failure stops here with the confirm still
+    // open, and confirming again repeats both writes, which reopenGameBets makes
+    // safe whichever of its own writes committed. Carrying on used to announce a
+    // reopen that left tickets credited, and built season standings from a ledger
+    // still holding the old payout.
+    try {
+      await reopenGameBets(selectedGame.id, betResolutionConfig)
+    } catch (bettingError) {
+      pushToast({ title: 'Bet reopen failed', message: `${bettingError.message} Confirm reopen again to retry.`, type: 'error' })
+      return
+    }
+
     const reopenedGame = {
       ...selectedGame,
       status: 'active',

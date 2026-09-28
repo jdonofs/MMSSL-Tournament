@@ -1,0 +1,38 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260911T152720Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260911T152720Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260911T152720Z.bin",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "recorded_utc": "20260911T152720Z",
+  "park": "daisy_cruiser",
+  "stadium_byte": 7,
+  "day_night_bytes": [
+    0,
+    0
+  ],
+  "is_night": false,
+  "frames": 64511,
+  "missed_frames": 72,
+  "duration_seconds": 3654.655,
+  "checksum_sha256": "bfc0452cf06b406ed531869bcb97c010f0ec220aab5ce286ad7bebb28f7b02cd",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 60,
+    "plays_seen": 67,
+    "plays_emitted": 67,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260911T152720Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260911T152720Z.pitches.jsonl",
+    "mean_feed_ms": 0.3859,
+    "max_feed_ms": 35.655,
+    "max_play_build_ms": 229.2,
+    "replay_duplicates": 0,
+    "pitches_emitted": 101,
+    "pitch_replay_increments": 11
+  }
+}

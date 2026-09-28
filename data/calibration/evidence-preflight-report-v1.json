@@ -1,0 +1,278 @@
+{
+  "schema": "sluggers-evidence-preflight",
+  "version": 1,
+  "runs": {
+    "synthetic": {
+      "passed": true,
+      "checks": {
+        "collector_started": true,
+        "capture_complete": true,
+        "schema_v3_comprehensive": true,
+        "no_region_overlaps": true,
+        "missed_frames_within_threshold": true,
+        "metadata_recorded": true,
+        "declared_sides_agree_with_memory": true,
+        "both_ports_raw_button_edges_with_timers": true,
+        "ports_independent": true,
+        "both_star_meters_change_independently": true,
+        "pitch_windows_synchronized": true,
+        "all_evidence_streams_observed": true,
+        "pitch_charge_still_reported_unobserved": true,
+        "memory_probe_copies_taken": true,
+        "crash_preserves_partial_evidence": true,
+        "encode_cost_within_budget": true
+      },
+      "capture": {
+        "frames": 1021,
+        "duration_s": 17.025,
+        "fps": 59.97,
+        "bytes_per_frame_read": 113068,
+        "bytes_on_disk_per_frame_fake": 195,
+        "frame_timing": {
+          "missed_frames": 0,
+          "gap_count": 0,
+          "longest_gap_frames": 0,
+          "longest_gap_after_timer": null,
+          "first_timer": 100016,
+          "last_timer": 101036,
+          "timer_regressions": 0,
+          "gaps_recorded": 0,
+          "gaps_truncated": false
+        },
+        "regions": [
+          [
+            "state_block",
+            "0x900d4e00",
+            28480
+          ],
+          [
+            "wiimote_1_input",
+            "0x80784cd8",
+            1336
+          ],
+          [
+            "wiimote_2_input",
+            "0x80785210",
+            1336
+          ],
+          [
+            "yoshi_train_position",
+            "0x811f84dc",
+            12
+          ],
+          [
+            "barrel_components",
+            "0x92ae57c0",
+            384
+          ],
+          [
+            "barrel_transform",
+            "0x92af5400",
+            512
+          ],
+          [
+            "freezie_objects",
+            "0x92a3e000",
+            8192
+          ],
+          [
+            "input_globals_pre",
+            "0x80784000",
+            3288
+          ],
+          [
+            "wiimote_3_input",
+            "0x80785748",
+            1336
+          ],
+          [
+            "wiimote_4_input",
+            "0x80785c80",
+            1336
+          ],
+          [
+            "input_globals_post",
+            "0x807861b8",
+            5704
+          ],
+          [
+            "game_globals",
+            "0x80794000",
+            5120
+          ],
+          [
+            "match_setup",
+            "0x811f7600",
+            512
+          ],
+          [
+            "team_globals",
+            "0x81317800",
+            18432
+          ],
+          [
+            "state_extension_low",
+            "0x900d0000",
+            19968
+          ],
+          [
+            "state_extension_high",
+            "0x900dbd40",
+            17088
+          ],
+          [
+            "replay_state",
+            "0x91135610",
+            32
+          ]
+        ],
+        "probe_copies": 12
+      },
+      "evidence_summary": {
+        "kind": "summary",
+        "frames": 1021,
+        "records": {
+          "session": 1,
+          "side_ports": 1,
+          "button_edge": 32,
+          "pitch_window": 3,
+          "star_meter_change": 2
+        },
+        "ports_recorded": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "port_changed_alone_frames": {
+          "1": 15,
+          "2": 8,
+          "3": 0,
+          "4": 0
+        },
+        "ports_changed_together_frames": 997,
+        "button_held_frames": {
+          "1": 90,
+          "2": 70,
+          "3": 0,
+          "4": 0
+        },
+        "star_meter_change_count": {
+          "away": 1,
+          "home": 1
+        },
+        "swing_onset_peak_port_by_half": {},
+        "frame_timing": {
+          "missed_frames": 0,
+          "gap_count": 0,
+          "longest_gap_frames": 0,
+          "longest_gap_after_timer": null,
+          "first_timer": 100016,
+          "last_timer": 101036,
+          "timer_regressions": 0,
+          "gaps_recorded": 0,
+          "gaps_truncated": false,
+          "gaps": []
+        }
+      },
+      "crash": {
+        "killed_after_ready_s": 6.0,
+        "frames_readable": 484,
+        "last_timer": 100498,
+        "header_frames": null,
+        "capture_complete": false,
+        "progress": null
+      },
+      "encode_cost": {
+        "source_capture": "mario_stadium-20260925T165659Z",
+        "frames": 600,
+        "frame_bytes": 113068,
+        "compressed_bytes_per_frame": 7610,
+        "encode_ms_mean": 1.113,
+        "encode_ms_p99": 1.491,
+        "assumption": "1,500 appended bytes change every frame (pessimistic)"
+      },
+      "note": "Fake Dolphin: timing and churn are not the real game's. It proves the code path, not the game.",
+      "recorded_utc": "2026-09-28T14:36:23Z"
+    },
+    "offline": {
+      "passed": true,
+      "captures": {
+        "mario_stadium-20260922T003239Z": {
+          "capture_schema_version": 2,
+          "profile": null,
+          "frames_read": 16064,
+          "header_frames": 16064,
+          "all_frames_read": true,
+          "records": {
+            "session": 1,
+            "swing_onset": 36,
+            "pitch_window": 31,
+            "clock_stall": 1
+          },
+          "ports_recorded": [],
+          "star_meter_change_count": null,
+          "swing_onset_peak_port_by_half": {}
+        },
+        "mario_stadium-20260925T123759Z": {
+          "capture_schema_version": 2,
+          "profile": null,
+          "frames_read": 25683,
+          "header_frames": 25683,
+          "all_frames_read": true,
+          "records": {
+            "session": 1,
+            "clock_stall": 1,
+            "controller_state": 15,
+            "button_edge": 1016,
+            "swing_onset": 42,
+            "pitch_window": 33,
+            "frame_gap": 3
+          },
+          "ports_recorded": [
+            1,
+            2
+          ],
+          "star_meter_change_count": null,
+          "swing_onset_peak_port_by_half": {
+            "half0_port1": 4,
+            "half0_port2": 20,
+            "half1_port1": 15,
+            "half1_port2": 3
+          }
+        },
+        "mario_stadium-20260925T165659Z": {
+          "capture_schema_version": 2,
+          "profile": null,
+          "frames_read": 34019,
+          "header_frames": 34019,
+          "all_frames_read": true,
+          "records": {
+            "session": 1,
+            "button_edge": 606,
+            "swing_onset": 53,
+            "pitch_window": 41,
+            "star_meter_change": 52,
+            "clock_stall": 2,
+            "controller_state": 48
+          },
+          "ports_recorded": [
+            1,
+            2
+          ],
+          "star_meter_change_count": {
+            "away": 17,
+            "home": 35
+          },
+          "swing_onset_peak_port_by_half": {
+            "half0_port1": 5,
+            "half0_port2": 33,
+            "half1_port1": 12,
+            "half1_port2": 2
+          }
+        }
+      },
+      "recorded_utc": "2026-09-28T14:11:39Z"
+    }
+  }
+}

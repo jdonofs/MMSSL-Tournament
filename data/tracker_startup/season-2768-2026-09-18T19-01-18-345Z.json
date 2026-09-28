@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-18T19:01:18.345Z",
+  "competition": "season",
+  "game_id": 2768,
+  "games_table": "season_schedule",
+  "stadium": "DK Jungle",
+  "launcher_pid": 5056,
+  "handoff_signal": "C:\\Users\\jdono\\AppData\\Local\\Temp\\mss-autogame-5056-1789758055585.live",
+  "stages": {
+    "bridge_ready": true,
+    "match_live": "confirmed",
+    "handed_off": true,
+    "gameplay_hold": "readers_ready",
+    "capture_recording": true,
+    "capture_disabled": false
+  },
+  "timings_ms": {
+    "bridge_ready": 2056,
+    "handoff": 21207,
+    "gameplay_held": 1400,
+    "capture_after_handoff": 0,
+    "collector_first_frames_seconds": 0.477
+  },
+  "capture": {
+    "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\dk_jungle-20260918T190117Z",
+    "frames": 30,
+    "missed_frames": 0,
+    "bytes_on_disk": 18928,
+    "collector_pid": 26360,
+    "park": "dk_jungle",
+    "reason": null
+  },
+  "tracker_log": "C:\\Users\\jdono\\Sluggers\\sluggers-stat-tracker-advanced-stats-dev\\preview-sessions\\bridge-2026-09-18_15-00-56.log"
+}

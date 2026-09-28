@@ -1,0 +1,44 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260919T002240Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260919T002240Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260919T002240Z.bin",
+  "game_id": "2813",
+  "competition_type": "season",
+  "source_id": "75",
+  "recorded_utc": "20260919T002240Z",
+  "park": "bowser_jr_playroom",
+  "stadium_byte": 8,
+  "day_night_bytes": [
+    0,
+    0
+  ],
+  "is_night": false,
+  "frames": 30292,
+  "missed_frames": 2,
+  "duration_seconds": 514.062,
+  "checksum_sha256": "0e0425721476ac6f561f15391ab29a04a15221cfd4304094f8a210a42ebd7ae6",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 30,
+    "plays_seen": 25,
+    "plays_emitted": 25,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260919T002240Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260919T002240Z.pitches.jsonl",
+    "mean_feed_ms": 0.1156,
+    "max_feed_ms": 5.078,
+    "max_play_build_ms": 93.1,
+    "replay_duplicates": 2,
+    "pitches_emitted": 50,
+    "pitch_replay_increments": 4
+  },
+  "capture_recovery": {
+    "reason": "trimmed at first out-of-region fielder pointer after final score",
+    "original_stream": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_jr_playroom-20260919T002240Z.pre-recovery.bin",
+    "first_invalid_frame": 30293,
+    "first_invalid_elapsed_seconds": 514.079
+  }
+}

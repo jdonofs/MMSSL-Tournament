@@ -130,6 +130,18 @@ def read_contacts(stem):
     return contacts
 
 
+def calibration_excluded(stem):
+    """Whether the capture was deliberately played outside calibration rules."""
+    header = stem.with_suffix(".json")
+    if not header.exists():
+        return False
+    try:
+        return json.loads(header.read_text(encoding="utf-8")).get(
+            "calibration_excluded") is True
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
 def export_session(stem):
     contacts = read_contacts(stem)
     wanted = set(contacts)
@@ -186,6 +198,10 @@ def main():
     rows = []
     for stem in stems:
         if not stem.with_suffix(".bin").exists():
+            continue
+        if calibration_excluded(stem):
+            print(f"[catch-features] excluding {stem.name} (calibration_excluded)",
+                  flush=True)
             continue
         print(f"[catch-features] {stem.name}", flush=True)
         rows.extend(export_session(stem))

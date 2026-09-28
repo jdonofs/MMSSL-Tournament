@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-22T00:32:40.373Z",
+  "competition": "season",
+  "game_id": 2946,
+  "games_table": "season_schedule",
+  "stadium": "Mario Stadium",
+  "launcher_pid": 25544,
+  "handoff_signal": "C:\\Users\\jdono\\AppData\\Local\\Temp\\mss-autogame-25544-1790037131883.live",
+  "stages": {
+    "bridge_ready": true,
+    "match_live": "confirmed",
+    "handed_off": true,
+    "gameplay_hold": "readers_ready",
+    "capture_recording": true,
+    "capture_disabled": false
+  },
+  "timings_ms": {
+    "bridge_ready": 8752,
+    "handoff": 27436,
+    "gameplay_held": 900,
+    "capture_after_handoff": 0,
+    "collector_first_frames_seconds": 0.486
+  },
+  "capture": {
+    "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\mario_stadium-20260922T003239Z",
+    "frames": 30,
+    "missed_frames": 0,
+    "bytes_on_disk": 15949,
+    "collector_pid": 28148,
+    "park": "mario_stadium",
+    "reason": null
+  },
+  "tracker_log": "C:\\Users\\jdono\\Sluggers\\sluggers-stat-tracker-advanced-stats-dev\\preview-sessions\\bridge-2026-09-21_20-32-19.log"
+}

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-22T21:49:05.252Z",
+  "competition": "season",
+  "game_id": 2948,
+  "games_table": "season_schedule",
+  "stadium": "Luigi's Mansion",
+  "launcher_pid": 5028,
+  "handoff_signal": "C:\\Users\\jdono\\AppData\\Local\\Temp\\mss-autogame-5028-1790113717491.live",
+  "stages": {
+    "bridge_ready": true,
+    "match_live": "confirmed",
+    "handed_off": true,
+    "gameplay_hold": "readers_ready",
+    "capture_recording": true,
+    "capture_disabled": false
+  },
+  "timings_ms": {
+    "bridge_ready": 8023,
+    "handoff": 26708,
+    "gameplay_held": 900,
+    "capture_after_handoff": 0,
+    "collector_first_frames_seconds": 0.478
+  },
+  "capture": {
+    "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\luigis_mansion-20260922T214904Z",
+    "frames": 30,
+    "missed_frames": 0,
+    "bytes_on_disk": 16469,
+    "collector_pid": 2440,
+    "park": "luigis_mansion",
+    "reason": null
+  },
+  "tracker_log": "C:\\Users\\jdono\\Sluggers\\sluggers-stat-tracker-advanced-stats-dev\\preview-sessions\\bridge-2026-09-22_17-48-44.log"
+}

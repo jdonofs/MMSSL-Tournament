@@ -62,11 +62,13 @@ export async function replayRecording(world, competitionType, {
   toLine = null,
   replayLines = null,
   completionTimeoutMs = 90_000,
+  // Edits the recorded log before it is fed: an event the recording lacks.
+  transformLines = (lines) => lines,
 } = {}) {
   const recording = RECORDINGS[competitionType]
   const tables = SCORING_TABLES[competitionType]
   const directory = existingDirectory || makeRunDirectory()
-  const allLines = readTrackerLogLines(recording.trackerLog)
+  const allLines = transformLines(readTrackerLogLines(recording.trackerLog))
   const lines = allLines.slice(fromLine, toLine == null ? allLines.length : toLine)
   const messages = []
   const originalLog = console.log

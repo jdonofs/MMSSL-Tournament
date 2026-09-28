@@ -1,49 +1,59 @@
 {
-  "generatedAt": "2026-09-07T23:44:44.040Z",
+  "generatedAt": "2026-09-12T15:06:36.327Z",
   "game": {
     "id": null,
     "table": "calibration",
     "sourceId": null,
-    "stadium": "Peach Ice Garden",
-    "stadiumIndex": 4,
-    "isNight": false,
+    "stadium": "DK Jungle",
+    "stadiumIndex": 5,
+    "isNight": true,
     "homeAwaySwapped": false,
     "calibration": {
       "chemistryMode": "neutral",
       "pitcherRotation": {
         "away": [
-          "Light-Blue Yoshi"
+          "Yellow Pianta"
         ],
         "home": [
-          "Blue Toad"
+          "Birdo"
         ]
       },
-      "percentCompleteBefore": 98.1,
+      "percentCompleteBefore": 100,
       "stadiumTest": {
         "schemaVersion": 1,
         "status": "evidence_collection_only",
-        "variant": "day",
+        "variant": "night",
         "repeatTarget": 3,
         "annotationNoteFormat": "stadium_event=<objective id>; outcome=<what happened>; control=<yes|no>",
         "objectives": [
           {
-            "id": "freezie_ball_collision",
-            "instruction": "Hit a Freezie and label the ball response.",
+            "id": "root_slowdown",
+            "instruction": "Roll a ball across roots and label the slowdown interval.",
             "annotationCategory": "stadium_event"
           },
           {
-            "id": "freezie_break",
-            "instruction": "Break a Freezie and label whether any player was frozen.",
+            "id": "barrel_collision",
+            "instruction": "Trigger and label a barrel collision.",
             "annotationCategory": "stadium_event"
           },
           {
-            "id": "freezie_player_freeze",
-            "instruction": "Freeze a fielder and label the affected player.",
+            "id": "flower_gas",
+            "instruction": "Trigger flower gas and label the affected player and recovery.",
             "annotationCategory": "stadium_event"
           },
           {
-            "id": "freezie_near_miss_control",
-            "instruction": "Label a nearby ball that does not touch a Freezie.",
+            "id": "hazard_near_miss_control",
+            "instruction": "Label a similar play with no stadium interaction.",
+            "annotationCategory": "stadium_event"
+          },
+          {
+            "id": "flaming_barrel_collision",
+            "instruction": "Trigger and label a flaming-barrel collision or burn.",
+            "annotationCategory": "stadium_event"
+          },
+          {
+            "id": "dk_statue_pow",
+            "instruction": "Trigger and label the DK-statue POW stun.",
             "annotationCategory": "stadium_event"
           }
         ]
@@ -64,87 +74,87 @@
     "slots": [
       {
         "battingSlot": 0,
-        "fieldingSlot": 5,
-        "positionId": "shortStop",
-        "charIndex": 40,
-        "siteName": "Goomba",
-        "characterId": 65,
+        "fieldingSlot": 4,
+        "positionId": "thirdBase",
+        "charIndex": 55,
+        "siteName": "Blooper",
+        "characterId": 15,
         "miiColor": null
       },
       {
         "battingSlot": 1,
-        "fieldingSlot": 0,
-        "positionId": "pitcher",
-        "charIndex": 69,
-        "siteName": "Light-Blue Yoshi",
-        "characterId": 46,
+        "fieldingSlot": 7,
+        "positionId": "centerField",
+        "charIndex": 59,
+        "siteName": "Blue Kritter",
+        "characterId": 16,
         "miiColor": null
       },
       {
         "battingSlot": 2,
-        "fieldingSlot": 8,
-        "positionId": "rightField",
-        "charIndex": 70,
-        "siteName": "Pink Yoshi",
-        "characterId": 50,
+        "fieldingSlot": 0,
+        "positionId": "pitcher",
+        "charIndex": 23,
+        "siteName": "Yellow Pianta",
+        "characterId": 72,
         "miiColor": null
       },
       {
         "battingSlot": 3,
-        "fieldingSlot": 6,
-        "positionId": "leftField",
-        "charIndex": 48,
-        "siteName": "Dry Bones",
-        "characterId": 37,
+        "fieldingSlot": 2,
+        "positionId": "firstBase",
+        "charIndex": 44,
+        "siteName": "Blue Shy Guy",
+        "characterId": 31,
         "miiColor": null
       },
       {
         "battingSlot": 4,
-        "fieldingSlot": 4,
-        "positionId": "thirdBase",
-        "charIndex": 65,
-        "siteName": "Baby DK",
-        "characterId": 12,
+        "fieldingSlot": 5,
+        "positionId": "shortStop",
+        "charIndex": 9,
+        "siteName": "Bowser",
+        "characterId": 17,
         "miiColor": null
       },
       {
         "battingSlot": 5,
         "fieldingSlot": 3,
         "positionId": "secondBase",
-        "charIndex": 24,
-        "siteName": "Blue Noki",
-        "characterId": 30,
+        "charIndex": 6,
+        "siteName": "Yoshi",
+        "characterId": 10,
         "miiColor": null
       },
       {
         "battingSlot": 6,
-        "fieldingSlot": 7,
-        "positionId": "centerField",
-        "charIndex": 50,
-        "siteName": "Dark Bones",
-        "characterId": 19,
+        "fieldingSlot": 1,
+        "positionId": "catcher",
+        "charIndex": 68,
+        "siteName": "Yellow Yoshi",
+        "characterId": 62,
         "miiColor": null
       },
       {
         "battingSlot": 7,
-        "fieldingSlot": 1,
-        "positionId": "catcher",
-        "charIndex": 31,
-        "siteName": "Green Toad",
-        "characterId": 44,
+        "fieldingSlot": 8,
+        "positionId": "rightField",
+        "charIndex": 21,
+        "siteName": "Blue Pianta",
+        "characterId": 63,
         "miiColor": null
       },
       {
         "battingSlot": 8,
-        "fieldingSlot": 2,
-        "positionId": "firstBase",
-        "charIndex": 35,
-        "siteName": "Green Magikoopa",
-        "characterId": 66,
+        "fieldingSlot": 6,
+        "positionId": "leftField",
+        "charIndex": 64,
+        "siteName": "Baby Daisy",
+        "characterId": 13,
         "miiColor": null
       }
     ],
-    "captainSlot": 0
+    "captainSlot": 7
   },
   "home": {
     "label": "Home",
@@ -153,26 +163,26 @@
     "slots": [
       {
         "battingSlot": 0,
-        "fieldingSlot": 7,
-        "positionId": "centerField",
-        "charIndex": 8,
-        "siteName": "Baby Luigi",
-        "characterId": 27,
+        "fieldingSlot": 6,
+        "positionId": "leftField",
+        "charIndex": 19,
+        "siteName": "Bowser Jr.",
+        "characterId": 8,
         "miiColor": null
       },
       {
         "battingSlot": 1,
         "fieldingSlot": 1,
         "positionId": "catcher",
-        "charIndex": 22,
-        "siteName": "Red Pianta",
-        "characterId": 71,
+        "charIndex": 51,
+        "siteName": "Blue Dry Bones",
+        "characterId": 29,
         "miiColor": null
       },
       {
         "battingSlot": 2,
-        "fieldingSlot": 0,
-        "positionId": "pitcher",
+        "fieldingSlot": 7,
+        "positionId": "centerField",
         "charIndex": 29,
         "siteName": "Blue Toad",
         "characterId": 32,
@@ -180,59 +190,59 @@
       },
       {
         "battingSlot": 3,
-        "fieldingSlot": 8,
-        "positionId": "rightField",
-        "charIndex": 45,
-        "siteName": "Yellow Shy Guy",
-        "characterId": 60,
+        "fieldingSlot": 5,
+        "positionId": "shortStop",
+        "charIndex": 14,
+        "siteName": "Boo",
+        "characterId": 34,
         "miiColor": null
       },
       {
         "battingSlot": 4,
-        "fieldingSlot": 5,
-        "positionId": "shortStop",
-        "charIndex": 59,
-        "siteName": "Blue Kritter",
-        "characterId": 16,
+        "fieldingSlot": 4,
+        "positionId": "thirdBase",
+        "charIndex": 53,
+        "siteName": "Boomerang Bro",
+        "characterId": 35,
         "miiColor": null
       },
       {
         "battingSlot": 5,
-        "fieldingSlot": 4,
-        "positionId": "thirdBase",
-        "charIndex": 39,
-        "siteName": "Dixie Kong",
-        "characterId": 64,
+        "fieldingSlot": 3,
+        "positionId": "secondBase",
+        "charIndex": 7,
+        "siteName": "Baby Mario",
+        "characterId": 28,
         "miiColor": null
       },
       {
         "battingSlot": 6,
-        "fieldingSlot": 2,
-        "positionId": "firstBase",
-        "charIndex": 12,
-        "siteName": "Koopa",
-        "characterId": 68,
+        "fieldingSlot": 0,
+        "positionId": "pitcher",
+        "charIndex": 17,
+        "siteName": "Birdo",
+        "characterId": 6,
         "miiColor": null
       },
       {
         "battingSlot": 7,
-        "fieldingSlot": 3,
-        "positionId": "secondBase",
-        "charIndex": 47,
-        "siteName": "Gray Shy Guy",
-        "characterId": 39,
+        "fieldingSlot": 2,
+        "positionId": "firstBase",
+        "charIndex": 63,
+        "siteName": "Baby Peach",
+        "characterId": 14,
         "miiColor": null
       },
       {
         "battingSlot": 8,
-        "fieldingSlot": 6,
-        "positionId": "leftField",
-        "charIndex": 61,
-        "siteName": "Brown Kritter",
-        "characterId": 18,
+        "fieldingSlot": 8,
+        "positionId": "rightField",
+        "charIndex": 30,
+        "siteName": "Yellow Toad",
+        "characterId": 61,
         "miiColor": null
       }
     ],
-    "captainSlot": 0
+    "captainSlot": 11
   }
 }

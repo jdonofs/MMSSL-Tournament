@@ -852,10 +852,8 @@ export default function Roster() {
       })
       .subscribe()
 
-    // Realtime postgres_changes can silently fail to deliver in some
-    // environments (and browsers throttle/suspend websockets on backgrounded
-    // tabs), so poll for the saved lineup as a fallback to guarantee it stays
-    // in sync even if the live channel above never fires.
+    // Reconcile when the tab returns or the connection comes back; healthy
+    // visible tabs rely on the row-level Realtime update above and do not poll.
     const syncFromDb = () => {
       // Skip the fallback poll's actual work while backgrounded — a background tab has no
       // realtime channel throttling to work around yet, and polling every 5s regardless of
@@ -878,13 +876,14 @@ export default function Roster() {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') syncFromDb()
     }
+    const handleOnline = () => syncFromDb()
     document.addEventListener('visibilitychange', handleVisibility)
-    const pollInterval = setInterval(syncFromDb, 5000)
+    window.addEventListener('online', handleOnline)
 
     return () => {
       supabase.removeChannel(channel)
       document.removeEventListener('visibilitychange', handleVisibility)
-      clearInterval(pollInterval)
+      window.removeEventListener('online', handleOnline)
     }
   }, [selectedTournamentId, selectedTeamId, reconcileSavedLineup])
 

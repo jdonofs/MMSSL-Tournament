@@ -54,7 +54,7 @@ It excludes hitting- and pitching-only metrics, private club models, and third-p
 ### What production already captures
 
 - Plate-appearance result, outs on play, base occupancy before the play, exact runner destinations where resolvable, and separately persisted runs scored.
-- Fielder position spans, putout/assist chains, errors, and bobbles. Nice Plays remain a manual edit because no general dive/exceptional-play signal is available.
+- Fielder position spans, putout/assist chains, errors, and bobbles. Nice Plays are set when the first fielder to secure the ball dove (`catch_type` 3) and the play recorded an out (`trackerPlayIsNicePlay`); the At-Bat editor can still toggle one.
 - Hit endpoint, first fielded location, hang time, hit world coordinates, exit velocity, launch angle, and batted-ball trajectory.
 - Conventional fielding totals: putouts, assists, errors, chances, fielding percentage, and Range Factor per game.
 - A local Range Runs model based on the first fielder, generic position origins, hit/fielded location, hang time, positional difficulty tiers, and local conversion rates.

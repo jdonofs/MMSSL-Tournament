@@ -284,8 +284,10 @@ class FlagSuppress:
             raise SystemExit(
                 f"Set the flag at 0x{self.flag:08X} but 0x{self.store:08X} still "
                 f"reads {current:08X} instead of {NOP:08X}.\n"
-                "The conditional Gecko code is not installed or not enabled -- "
-                "see SUPPRESS_FLAG in this file for the six lines to add."
+                "Enable cheats in Dolphin and enable the Input Suppression "
+                "code in this game's Properties > Gecko Codes, then restart "
+                "the game. If the code is missing, see SUPPRESS_FLAG in "
+                "this file for its six lines."
             )
         print(f"  suppression on  (0x{self.store:08X} -> NOP via Gecko)")
         return self

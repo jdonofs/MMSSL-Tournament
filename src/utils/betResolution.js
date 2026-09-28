@@ -465,36 +465,101 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
   return updates
 }
 
+const REVERSIBLE_BET_TYPES = ['moneyline', 'run_line', 'over_under', 'first_inning_run', 'k_prop', 'hr_prop', 'hit_prop']
+
+async function loadSettledLedgerRows(betIds, config) {
+  if (!betIds.length) return []
+  const { data, error } = await config.supabaseClient
+    .from(config.ledgerTable)
+    .select('*')
+    .in('bet_id', betIds)
+    .like('reason', `${BET_SETTLED_REASON_PREFIX}:%`)
+  if (error) throw error
+  return data || []
+}
+
+// Success has to mean the reopened bets and the ledger agree, and nothing here
+// holds a lock. A settlement can grade these bets again between the status
+// write and the delete, and the delete then takes the credit that settlement
+// just paid. Reading the ledger and then the statuses after the delete catches
+// it: the newer settlement's rows are rebuilt from its own statuses and the
+// reopen fails, rather than returning with a won ticket nobody was paid for.
+// The same read catches a delete that reported success and removed nothing.
+async function confirmReopenedLedger(gameId, betIds, config) {
+  if (!betIds.length) return
+  const settledRows = await loadSettledLedgerRows(betIds, config)
+  const { data, error } = await config.supabaseClient
+    .from(config.betsTable)
+    .select('*')
+    .in('id', betIds)
+  if (error) throw error
+
+  const bets = data || []
+  const stillResolved = bets.filter((bet) => RESOLVED_STATUSES.includes(bet.status))
+  if (stillResolved.length) {
+    await syncLedger(stillResolved, config)
+    throw new Error(
+      `reopening game ${gameId} did not take: ${stillResolved.map(describeBet).join(', ')} still read as settled `
+      + '(a settlement ran during the reopen, or the status change did not apply). Its ledger rows were left '
+      + 'matching that settlement; reopen again to reverse it.',
+    )
+  }
+  const openIds = new Set(bets.filter((bet) => bet.status === 'open' || bet.status === 'pending').map((bet) => String(bet.id)))
+  const leftover = settledRows.filter((row) => openIds.has(String(row.bet_id)))
+  if (leftover.length) {
+    throw new Error(
+      `reopening game ${gameId} left ${leftover.length} settled ledger row(s) on open bet(s) `
+      + `${[...new Set(leftover.map((row) => row.bet_id))].join(', ')}; the delete did not remove them`,
+    )
+  }
+}
+
+// Reopening is two writes, statuses back to open and then the settled ledger
+// rows removed, and the first used to erase the only evidence that the second
+// was still owed: a retry after a failed or timed-out delete looked for
+// won/lost/void bets, found none, and returned success with the payout still
+// credited. Each pass now reads both sides. Resolved bets are reopened, and a
+// settled row still held by any reversible bet on this game is removed whether
+// or not this pass reopened it — an open bet can only hold one because an
+// earlier reopen or rollback stopped halfway. Whichever write committed, running
+// this again finishes the job.
 export async function reopenGameBets(gameId, config = {}) {
   const resolvedConfig = buildResolutionConfig(config)
-  const reversibleTypes = ['moneyline', 'run_line', 'over_under', 'first_inning_run', 'k_prop', 'hr_prop', 'hit_prop']
-  const { data: resolvedBets, error } = await resolvedConfig.supabaseClient
+  const { data: reversibleBets, error } = await resolvedConfig.supabaseClient
     .from(resolvedConfig.betsTable)
     .select('*')
     .eq('game_id', gameId)
-    .in('bet_type', reversibleTypes)
-    .in('status', ['won', 'lost', 'void'])
+    .in('bet_type', REVERSIBLE_BET_TYPES)
+    .in('status', SETTLEABLE_STATUSES)
 
   if (error) throw error
 
-  const updates = (resolvedBets || []).map((bet) => ({
-    id: bet.id,
-    status: 'open',
-    result_correct: null,
-    resolved_at: null,
-  }))
+  const bets = reversibleBets || []
+  const updates = bets
+    .filter((bet) => RESOLVED_STATUSES.includes(bet.status))
+    .map((bet) => ({
+      id: bet.id,
+      status: 'open',
+      result_correct: null,
+      resolved_at: null,
+    }))
+  await updateBets(updates, resolvedConfig)
 
-  if (updates.length) {
-    await updateBets(updates, resolvedConfig)
-    const betIds = updates.map((bet) => bet.id)
+  const betIds = bets.map((bet) => bet.id)
+  const staleRows = await loadSettledLedgerRows(betIds, resolvedConfig)
+  if (staleRows.length) {
     const { error: ledgerError } = await resolvedConfig.supabaseClient
       .from(resolvedConfig.ledgerTable)
       .delete()
-      .in('bet_id', betIds)
+      .in('bet_id', [...new Set(staleRows.map((row) => row.bet_id))])
       .like('reason', `${BET_SETTLED_REASON_PREFIX}:%`)
     if (ledgerError) throw ledgerError
   }
+  await confirmReopenedLedger(gameId, betIds, resolvedConfig)
 
+  // Calibration rows go last. By here the balance change is done and confirmed,
+  // so a retry after this step fails finds a ledger that already agrees and
+  // writes nothing to it.
   if (resolvedConfig.enableCalibrationLogging && resolvedConfig.oddsCalibrationTable) {
     const { error: calibrationError } = await resolvedConfig.supabaseClient.from(resolvedConfig.oddsCalibrationTable).delete().eq('game_id', gameId)
     if (calibrationError) throw calibrationError

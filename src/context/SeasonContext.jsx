@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
+import { createRefreshCoordinator } from '../utils/refreshCoordinator'
 import useRealtimeEnabled from '../hooks/useRealtimeEnabled'
 import { buildSeasonStandings } from '../utils/competitionStandings'
 import { readLocalStorageItem, removeLocalStorageItem, writeLocalStorageItem } from '../utils/localStorage'
@@ -13,6 +14,10 @@ import {
 
 const SeasonContext = createContext(null)
 const STORAGE_KEY = 'sluggers-selected-season'
+
+function replaceRowsIfChanged(setter, rows) {
+  setter((current) => (JSON.stringify(current) === JSON.stringify(rows) ? current : rows))
+}
 
 export function SeasonProvider({ children }) {
   const realtimeEnabled = useRealtimeEnabled()
@@ -153,23 +158,71 @@ export function SeasonProvider({ children }) {
   useEffect(() => {
     if (!realtimeEnabled || !selectedSeasonId) return undefined
 
+    const dirtySlices = new Set()
+    const refreshDirtySlices = async () => {
+      const slices = [...dirtySlices]
+      dirtySlices.clear()
+      const results = await Promise.all(slices.map(async (slice) => {
+        if (slice === 'schedule') return [slice, await fetchAllRows(() => supabase.from('season_schedule').select('*').eq('season_id', selectedSeasonId).order('round_number'))]
+        if (slice === 'teams') return [slice, await fetchAllRows(() => supabase.from('season_teams').select('*').eq('season_id', selectedSeasonId).order('created_at'))]
+        return [slice, await fetchAllRows(() => supabase.from('season_betting_ledger').select('*').eq('season_id', selectedSeasonId).order('created_at'))]
+      }))
+      for (const [slice, result] of results) {
+        if (result.error) throw result.error
+        if (slice === 'schedule') replaceRowsIfChanged(setSchedule, result.data || [])
+        else if (slice === 'teams') replaceRowsIfChanged(setSeasonTeams, result.data || [])
+        else replaceRowsIfChanged(setSeasonBettingLedger, result.data || [])
+      }
+    }
+    const refreshCoordinator = createRefreshCoordinator({
+      run: refreshDirtySlices,
+      delayMs: 150,
+      maxWaitMs: 750,
+      isPaused: () => document.visibilityState === 'hidden',
+    })
+    const invalidate = (slice) => {
+      dirtySlices.add(slice)
+      refreshCoordinator.request()
+    }
+    const invalidateAll = ({ immediate = false } = {}) => {
+      dirtySlices.add('schedule')
+      dirtySlices.add('teams')
+      dirtySlices.add('ledger')
+      refreshCoordinator.request({ immediate })
+    }
+    let hasSubscribed = false
     const channel = supabase
       .channel(`season-live-${selectedSeasonId}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_schedule', filter: `season_id=eq.${selectedSeasonId}` }, () => {
-        refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
+        invalidate('schedule')
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams', filter: `season_id=eq.${selectedSeasonId}` }, () => {
-        refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
+        invalidate('teams')
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_betting_ledger', filter: `season_id=eq.${selectedSeasonId}` }, () => {
-        refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
+        invalidate('ledger')
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster', filter: `season_id=eq.${selectedSeasonId}` }, () => {
-        refreshSeasons(selectedSeasonId, { silent: true }).catch(() => {})
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (hasSubscribed) invalidateAll({ immediate: true })
+        hasSubscribed = true
       })
-      .subscribe()
 
-    return () => supabase.removeChannel(channel)
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      invalidateAll({ immediate: true })
+      refreshCoordinator.resume()
+    }
+    const handleOnline = () => invalidateAll({ immediate: true })
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('online', handleOnline)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('online', handleOnline)
+      refreshCoordinator.dispose()
+      supabase.removeChannel(channel)
+    }
   }, [realtimeEnabled, selectedSeasonId])
 
   const viewedSeason = allSeasons.find((season) => String(season.id) === String(selectedSeasonId)) || null

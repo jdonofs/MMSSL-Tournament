@@ -103,6 +103,17 @@ export function onlyActiveTrackingFacts(rows, supersededPlayIds) {
   return (rows || []).filter((row) => !supersededPlayIds.has(String(row?.tracking_play_id)))
 }
 
+/** Drop tracking_plays rows whose own ids belong to an inactive version. */
+export function onlyActiveTrackingPlays(rows, supersededPlayIds) {
+  if (supersededPlayIds != null && !(supersededPlayIds instanceof Set)) {
+    throw new TypeError(
+      'onlyActiveTrackingPlays needs the Set of superseded play ids, not the fetch result.',
+    )
+  }
+  if (!supersededPlayIds?.size) return rows || []
+  return (rows || []).filter((row) => !supersededPlayIds.has(String(row?.id)))
+}
+
 /**
  * Ask the database which tracking plays are no longer authoritative.
  *

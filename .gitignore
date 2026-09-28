@@ -33,21 +33,33 @@ lineup.json
 # (.plays.jsonl) and the session headers are small and are left tracked.
 data/player_tracking/*.bin
 
+# One-time MEM2 copies taken at the start and end of a Wario City session, so
+# the arrow and manhole objects can be searched for offline without replaying
+# the game. 16 MB each, regenerable only by playing again -- same trade as the
+# frames above, and read only by the stadium-object analysis.
+data/player_tracking/*.memdump.zlib
+data/player_tracking/*.memdump-end.zlib
+
+# Whole-memory copies taken by memory_probe.py at throws and knockdowns, for
+# values the 60 Hz capture does not contain. Megabytes per copy, research only.
+data/player_tracking/*.probe/
+
 # Raw stadium memory-probe dumps. Per-frame object/signal captures written by
 # probe_stadium_objects.py and probe_stadium_signals.py -- dk_objects.jsonl
-# alone is 1.1 GB. Regenerable by re-running the probe against Dolphin, and
-# read by nothing; the findings live in docs/tracker-validation-console.md.
+# alone is 1.1 GB and is read by probe_stadium_objects.py --analyze. Ignored
+# research captures may be unique: re-running a probe or retaining findings
+# in docs/tracker-validation-console.md does not recover the same observations.
 data/calibration/dk_*.jsonl
 data/calibration/stadium_objects.jsonl
 data/calibration/stadium_signals.jsonl
 
-# Built tracker binaries. ~10 MB per release; v1-v25 are already in history so
-# they stay, but new builds are local. Force-add (git add -f) to ship one.
+# Built tracker binaries. ~10 MB per release; historical builds remain in Git
+# history, but new builds are local. Force-add (git add -f) to ship one.
 sluggers-stat-tracker-advanced-stats-dev/*.exe
 
-# Raw per-game logs from that tracker -- 58 MB across the folder and read by
-# nothing in this repo. The .xlsx sitting next to each one is the actual
-# output and stays tracked.
+# Raw per-game tracker logs are read by extract_batted_balls.mjs and
+# projection_error.mjs. Ignored logs may contain unique observations and must
+# not be treated as disposable; tracked .xlsx outputs cannot restore them.
 sluggers-stat-tracker-advanced-stats-dev/output/*.log
 
 # Scratch: review logs, screenshots, one-off repro scripts and fixtures.
@@ -59,3 +71,4 @@ __pycache__/
 
 # Chromium/Electron stderr noise from the desktop shell.
 /debug.log
+data/tracker_bridge_state/logs/

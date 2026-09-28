@@ -5,6 +5,7 @@ import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { fetchAllRows } from '../utils/fetchAllRows'
+import { writePitchesWithSchemaFallback } from '../utils/pitchWriteCompatibility'
 import FieldPlayBuilder, { FIELD_POSITIONS, STADIUM_CONFIGS, estimateHitDistance, estimateHitAngle, estimateWallDistanceAtAngle } from '../components/FieldPlayBuilder'
 import YouTubePlayer from '../components/YouTubePlayer'
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt'
@@ -15,7 +16,8 @@ import { estimateExitVelocity, exitVelocityDistanceFt, ROBBED_HR_WALL_MARGIN_FT 
 import { shouldShowFieldedLocation } from '../utils/fieldedLocation'
 import { battedBallResults, calculateOutsForPa, inningsPitchedFromOuts, isCreditedHit } from '../utils/statsCalculator'
 import { deriveGameStateAtIndex } from '../utils/trackerGameState'
-import { runnerAssignmentsForSave } from '../features/scorebook/domain/plateAppearance'
+import { nextPaNumber, runnerAssignmentsForSave } from '../features/scorebook/domain/plateAppearance'
+import { fielderCoversPa } from '../utils/fielderStints.js'
 import { undoLatestPlateAppearance } from '../features/scorebook/services/plateAppearanceService'
 import { syncRunnerOpportunities } from '../utils/runnerOpportunityPersistence'
 import { getStadiumKeyByName } from '../utils/stadiums'
@@ -177,6 +179,17 @@ function runnerEntriesSnapshot(entries) {
   return JSON.stringify(serializeRunnerEntries(entries))
 }
 
+function numericId(value) {
+  if (value == null || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function requiredRows(result, label) {
+  if (result?.error) throw new Error(`Could not load ${label}: ${result.error.message || 'unknown error'}`)
+  return result?.data
+}
+
 // Every field the draft can touch for the current at-bat — compared against
 // the saved PA to detect unsaved changes (used for the leave-page guard).
 const DIRTY_CHECK_FIELDS = Object.keys(emptyDraft())
@@ -223,14 +236,44 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   const paIdParam = paIdProp ?? params.id ?? null
   const source = rawSource === 'season' ? 'season' : 'tournament'
   const tables = TABLES[source]
+  const targetGameId = numericId(gameIdParam)
+  const targetPaId = gameIdParam == null ? paIdParam : null
+  const targetKey = gameIdParam != null
+    ? `${source}:game:${String(gameIdParam)}`
+    : targetPaId != null
+      ? `${source}:pa:${String(targetPaId)}`
+      : `${source}:none`
   // `player`, not `authUser`: corrected_by / resolved_by reference players(id),
   // which is the identity the rest of the scorebook records people by.
   const { isScorekeeper, player } = useAuth()
   const { pushToast } = useToast()
   const canEdit = Boolean(isScorekeeper)
 
+  const mountedRef = useRef(false)
+  const targetKeyRef = useRef(targetKey)
+  const targetGenerationRef = useRef(0)
+  const loadRequestRef = useRef(0)
+  const activeLoadRef = useRef(null)
+  const loadedSnapshotRef = useRef(null)
+  const deepLinkSelectionRef = useRef(null)
+  if (targetKeyRef.current !== targetKey) {
+    targetKeyRef.current = targetKey
+    targetGenerationRef.current += 1
+    loadRequestRef.current += 1
+    loadedSnapshotRef.current = null
+    deepLinkSelectionRef.current = null
+  }
+
   const [loading, setLoading] = useState(true)
-  const [resolvedGameId, setResolvedGameId] = useState(gameIdParam ? Number(gameIdParam) : null)
+  const [loadError, setLoadError] = useState(null)
+  const [retryTarget, setRetryTarget] = useState(0)
+  const [resolvedTarget, setResolvedTarget] = useState(() => (
+    targetGameId == null ? null : { targetKey, source, gameId: targetGameId, targetPaId: null }
+  ))
+  const resolvedTargetRef = useRef(resolvedTarget)
+  resolvedTargetRef.current = resolvedTarget
+  const resolvedGameId = resolvedTarget?.targetKey === targetKey ? resolvedTarget.gameId : null
+  const [loadedSnapshot, setLoadedSnapshot] = useState(null)
   const [game, setGame] = useState(null)
   const [lineups, setLineups] = useState([])
   const [pas, setPas] = useState([])
@@ -252,29 +295,123 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   const [saving, setSaving] = useState(false)
   const savingRef = useRef(false)
 
+  function targetIsCurrent(identity) {
+    return Boolean(
+      mountedRef.current
+      && identity
+      && identity.targetKey === targetKeyRef.current
+      && identity.generation === targetGenerationRef.current
+    )
+  }
+
+  function loadIsCurrent(request) {
+    return Boolean(
+      targetIsCurrent(request)
+      && request.requestId === loadRequestRef.current
+      && activeLoadRef.current?.requestId === request.requestId
+    )
+  }
+
+  function clearLoadedData() {
+    setGame(null)
+    setLineups([])
+    setPas([])
+    setPitchesByPaId({})
+    setPitchingStints([])
+    setRunsScoredRows([])
+    setUnresolvedPlays([])
+    setResolvingPlay(null)
+    setGameFielderRows([])
+    setSeasonTeamRows([])
+    setCharactersById({})
+    setPlayersById({})
+    setStadiumsById({})
+    setPageIndex(0)
+  }
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      targetGenerationRef.current += 1
+      loadRequestRef.current += 1
+      activeLoadRef.current = null
+      loadedSnapshotRef.current = null
+      deepLinkSelectionRef.current = null
+    }
+  }, [])
+
   // A deep-link by PA id (e.g. from a spray chart) only tells us the game
   // indirectly — resolve it once, then hand off to the normal gameId-driven
   // load below. Re-resolves if the target PA id itself changes (a fresh
   // deep link while this component instance is already mounted).
   useEffect(() => {
+    const identity = {
+      targetKey,
+      generation: targetGenerationRef.current,
+      source,
+      targetPaId: targetPaId == null ? null : String(targetPaId),
+    }
+    loadRequestRef.current += 1
+    activeLoadRef.current = null
+    loadedSnapshotRef.current = null
+    deepLinkSelectionRef.current = null
+    setLoadedSnapshot(null)
+    setResolvedTarget(null)
+    setLoading(true)
+    setLoadError(null)
+    clearLoadedData()
+
+    if (gameIdParam != null) {
+      if (targetGameId == null) {
+        setLoadError({ targetKey, message: 'The game link is invalid. Check the game ID and try again.' })
+        setLoading(false)
+        return undefined
+      }
+      setResolvedTarget({ ...identity, gameId: targetGameId })
+      return undefined
+    }
+
+    if (targetPaId == null) {
+      setLoadError({ targetKey, message: 'No game or at-bat was selected.' })
+      setLoading(false)
+      return undefined
+    }
+
     let cancelled = false
-    if (gameIdParam) { setResolvedGameId(Number(gameIdParam)); return undefined }
-    if (!paIdParam) return undefined
-    supabase.from(tables.pa).select('game_id').eq('id', paIdParam).maybeSingle().then(({ data }) => {
-      if (!cancelled) setResolvedGameId(data?.game_id ?? null)
-    })
+    const resolveDeepLink = async () => {
+      try {
+        const result = await supabase.from(TABLES[source].pa).select('game_id').eq('id', targetPaId).maybeSingle()
+        if (cancelled || !targetIsCurrent(identity)) return
+        if (result.error) throw new Error(`Could not resolve the at-bat link: ${result.error.message || 'unknown error'}`)
+        const gameId = numericId(result.data?.game_id)
+        if (gameId == null) throw new Error('The linked at-bat was not found. It may have been deleted.')
+        setResolvedTarget({ ...identity, gameId })
+      } catch (error) {
+        if (cancelled || !targetIsCurrent(identity)) return
+        setLoadError({ targetKey, message: error.message || 'Could not resolve the at-bat link.' })
+        setLoading(false)
+      }
+    }
+    void resolveDeepLink()
     return () => { cancelled = true }
-  }, [gameIdParam, paIdParam, tables])
+    // retryTarget intentionally restarts resolution after an actionable error.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetKey, retryTarget])
 
   // Applied once per deep-linked PA id, right after that PA's page shows up
   // in the freshly loaded list — cleared afterward so normal Prev/Next
   // browsing isn't yanked back to it.
-  const targetPaIdRef = useRef(paIdParam)
-  targetPaIdRef.current = paIdParam
-
-  async function loadAll() {
-    if (!resolvedGameId) return
+  async function loadAll(identity = resolvedTargetRef.current) {
+    if (!identity || !targetIsCurrent(identity) || identity.gameId == null) return false
+    const request = { ...identity, requestId: ++loadRequestRef.current }
+    activeLoadRef.current = request
+    loadedSnapshotRef.current = null
+    setLoadedSnapshot(null)
     setLoading(true)
+    setLoadError(null)
+    const requestTables = TABLES[request.source]
+    try {
     // Fetched alone first (not in the Promise.all below) because the
     // season_teams query needs its season_id to scope by — a player can sit
     // on a different team in every season, so an unscoped fetch keyed by
@@ -282,34 +419,52 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     // player_id last happened to load with (this was the actual cause of
     // fielder portraits going missing on the field diagram: the defensive
     // team id resolved to a team from an unrelated season).
-    const { data: gameRowOnly } = await supabase.from(tables.games).select('*').eq('id', resolvedGameId).maybeSingle()
-    const [{ data: gameRow }, { data: lineupRows }, { data: paRows }, { data: stintRows }, { data: characterRows }, { data: playerRows }, { data: seasonTeamData }, { data: runRows }, { data: fielderRows }, { data: stadiumRows }] = await Promise.all([
-      Promise.resolve({ data: gameRowOnly }),
-      supabase.from(tables.lineups).select('*').eq('game_id', resolvedGameId).order('batting_order'),
-      fetchAllRows(() => supabase.from(tables.pa).select('*').eq('game_id', resolvedGameId)),
-      supabase.from(tables.pitchingStints).select('*').eq('game_id', resolvedGameId).order('created_at'),
+    const gameResult = await supabase.from(requestTables.games).select('*').eq('id', request.gameId).maybeSingle()
+    const gameRowOnly = requiredRows(gameResult, 'the game')
+    if (!loadIsCurrent(request)) return false
+    if (!gameRowOnly) {
+      const snapshot = { ...request }
+      activeLoadRef.current = null
+      loadedSnapshotRef.current = snapshot
+      clearLoadedData()
+      setLoadedSnapshot(snapshot)
+      setLoading(false)
+      return true
+    }
+    if (String(gameRowOnly.id) !== String(request.gameId)) throw new Error('The game response did not match the selected game.')
+
+    const results = await Promise.all([
+      Promise.resolve({ data: gameRowOnly, error: null }),
+      supabase.from(requestTables.lineups).select('*').eq('game_id', request.gameId).order('batting_order'),
+      fetchAllRows(() => supabase.from(requestTables.pa).select('*').eq('game_id', request.gameId)),
+      supabase.from(requestTables.pitchingStints).select('*').eq('game_id', request.gameId).order('created_at'),
       supabase.from('characters').select('id,name'),
       supabase.from('players').select('id,name'),
-      source === 'season' && gameRowOnly?.season_id != null
+      request.source === 'season' && gameRowOnly.season_id != null
         ? supabase.from('season_teams').select('id,player_id').eq('season_id', gameRowOnly.season_id)
-        : Promise.resolve({ data: null }),
-      fetchAllRows(() => supabase.from(tables.runsScored).select('*').eq('game_id', resolvedGameId)),
-      fetchAllRows(() => supabase.from(tables.gameFielders).select('*').eq('game_id', resolvedGameId)),
+        : Promise.resolve({ data: null, error: null }),
+      fetchAllRows(() => supabase.from(requestTables.runsScored).select('*').eq('game_id', request.gameId)),
+      fetchAllRows(() => supabase.from(requestTables.gameFielders).select('*').eq('game_id', request.gameId)),
       supabase.from('stadiums').select('id,name'),
     ])
+    const labels = ['the game', 'lineups', 'plate appearances', 'pitching stints', 'characters', 'players', 'season teams', 'runs scored', 'game fielders', 'stadiums']
+    const [gameRow, lineupRows, paRows, stintRows, characterRows, playerRows, seasonTeamData, runRows, fielderRows, stadiumRows]
+      = results.map((result, index) => requiredRows(result, labels[index]))
+    if (!loadIsCurrent(request)) return false
     // Deliberately not inside the Promise.all above: a deployment without the
     // migration answers this with "no such table", and that must not take the
     // whole editor down with it.
     const unresolved = await fetchUnresolvedPlays(supabase, {
-      competitionType: source, gameId: Number(resolvedGameId),
+      competitionType: request.source, gameId: Number(request.gameId),
     })
-    setUnresolvedPlays(unresolved.rows)
+    if (unresolved.error) throw new Error(`Could not load unresolved plays: ${unresolved.error.message || 'unknown error'}`)
+    if (!loadIsCurrent(request)) return false
     // deriveOffense (gameRules.js) expects games-table-shaped team_a_player_id/
     // team_b_player_id — season_schedule instead carries away_team_id/
     // home_team_id pointing at season_teams, so normalize into the same shape
     // here (same translation Scorebook.jsx's session provider does before
     // ever handing a season game row to deriveOffense).
-    const normalizedGame = gameRow && source === 'season'
+    const normalizedGame = gameRow && request.source === 'season'
       ? (() => {
           const playerIdByTeamId = Object.fromEntries((seasonTeamData || []).map((t) => [String(t.id), t.player_id]))
           return {
@@ -320,9 +475,30 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
         })()
       : gameRow
     const orderedPas = (paRows || []).slice().sort((a, b) => Number(a.pa_number) - Number(b.pa_number))
-    const { data: pitchRows } = orderedPas.length
-      ? await fetchAllRows(() => supabase.from(tables.pitches).select('*').in('pa_id', orderedPas.map((p) => p.id)))
-      : { data: [] }
+    const pitchResult = orderedPas.length
+      ? await fetchAllRows(() => supabase.from(requestTables.pitches).select('*').in('pa_id', orderedPas.map((p) => p.id)))
+      : { data: [], error: null }
+    const pitchRows = requiredRows(pitchResult, 'pitches')
+    if (!loadIsCurrent(request)) return false
+    const scopedCollections = [
+      ['lineup', lineupRows],
+      ['plate appearance', orderedPas],
+      ['pitching stint', stintRows],
+      ['run-scored', runRows],
+      ['game-fielder', fielderRows],
+    ]
+    for (const [label, rows] of scopedCollections) {
+      if ((rows || []).some((row) => String(row.game_id) !== String(request.gameId))) {
+        throw new Error(`A ${label} response did not match the selected game.`)
+      }
+    }
+    const paIds = new Set(orderedPas.map((pa) => String(pa.id)))
+    if ((pitchRows || []).some((pitch) => !paIds.has(String(pitch.pa_id)))) {
+      throw new Error('A pitch response did not match the selected game.')
+    }
+    if (request.targetPaId != null && !orderedPas.some((pa) => String(pa.id) === String(request.targetPaId))) {
+      throw new Error('The linked at-bat was not found in its game. It may have been deleted.')
+    }
     const grouped = {}
     for (const row of (pitchRows || [])) {
       const key = String(row.pa_id)
@@ -333,6 +509,8 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
       grouped[key].sort((a, b) => Number(a.pitch_number_pa) - Number(b.pitch_number_pa))
     })
 
+    if (!loadIsCurrent(request)) return false
+    setUnresolvedPlays(unresolved.rows)
     setGame(normalizedGame || null)
     setLineups(lineupRows || [])
     setPas(orderedPas)
@@ -344,46 +522,55 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     setCharactersById(Object.fromEntries((characterRows || []).map((c) => [String(c.id), c])))
     setPlayersById(Object.fromEntries((playerRows || []).map((p) => [String(p.id), p])))
     setStadiumsById(Object.fromEntries((stadiumRows || []).map((s) => [String(s.id), s])))
-    if (targetPaIdRef.current) {
-      const targetIndex = orderedPas.findIndex((p) => String(p.id) === String(targetPaIdRef.current))
-      if (targetIndex !== -1) setPageIndex(targetIndex)
-      targetPaIdRef.current = null
+    if (request.targetPaId != null && deepLinkSelectionRef.current !== request.targetKey) {
+      setPageIndex(orderedPas.findIndex((p) => String(p.id) === String(request.targetPaId)))
+      deepLinkSelectionRef.current = request.targetKey
     } else {
       setPageIndex((current) => Math.min(current, orderedPas.length))
     }
+    const snapshot = { ...request }
+    activeLoadRef.current = null
+    loadedSnapshotRef.current = snapshot
+    setLoadedSnapshot(snapshot)
     setLoading(false)
+    return true
+    } catch (error) {
+      if (!loadIsCurrent(request)) return false
+      console.error(error)
+      activeLoadRef.current = null
+      loadedSnapshotRef.current = null
+      clearLoadedData()
+      setLoadedSnapshot(null)
+      setLoadError({ targetKey: request.targetKey, message: error.message || 'Could not load the selected game.' })
+      setLoading(false)
+      return false
+    }
   }
 
   useEffect(() => {
-    let cancelled = false
-    loadAll().catch((err) => {
-      if (!cancelled) {
-        console.error(err)
-        setLoading(false)
-      }
-    })
-    return () => { cancelled = true }
+    if (resolvedTarget?.targetKey === targetKey) void loadAll(resolvedTarget)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedGameId, source])
+  }, [resolvedTarget, targetKey])
 
   // Realtime: a fresh at-bat inserted by the tracker bridge, or a lineup/
   // fielding change made in Scorebook, while this page is open should show
   // up without a manual refresh.
   useEffect(() => {
-    if (!resolvedGameId) return undefined
+    if (!resolvedTarget || resolvedTarget.targetKey !== targetKey) return undefined
+    const identity = resolvedTarget
     const reloadUnlessSaving = () => {
-      if (!savingRef.current) loadAll()
+      if (!savingRef.current && targetIsCurrent(identity)) void loadAll(identity)
     }
     const channel = supabase
-      .channel(`at-bat-editor-${source}-${resolvedGameId}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: tables.lineups, filter: `game_id=eq.${resolvedGameId}` }, reloadUnlessSaving)
-      .on('postgres_changes', { event: '*', schema: 'public', table: tables.gameFielders, filter: `game_id=eq.${resolvedGameId}` }, reloadUnlessSaving)
-      .on('postgres_changes', { event: '*', schema: 'public', table: tables.pa, filter: `game_id=eq.${resolvedGameId}` }, reloadUnlessSaving)
-      .on('postgres_changes', { event: '*', schema: 'public', table: tables.pitches, filter: `game_id=eq.${resolvedGameId}` }, reloadUnlessSaving)
+      .channel(`at-bat-editor-${identity.source}-${identity.gameId}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES[identity.source].lineups, filter: `game_id=eq.${identity.gameId}` }, reloadUnlessSaving)
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES[identity.source].gameFielders, filter: `game_id=eq.${identity.gameId}` }, reloadUnlessSaving)
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES[identity.source].pa, filter: `game_id=eq.${identity.gameId}` }, reloadUnlessSaving)
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES[identity.source].pitches, filter: `game_id=eq.${identity.gameId}` }, reloadUnlessSaving)
       .subscribe()
     return () => supabase.removeChannel(channel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedGameId, source])
+  }, [resolvedTarget, targetKey])
 
   // WHERE THE ANSWER GOES, AND WHAT IT IS ANSWERED IN.
   //
@@ -430,17 +617,17 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     const defensiveTeamId = source === 'season'
       ? teamIdByPlayerId?.[String(derived.pitchingPlayerId)] ?? null
       : derived.pitchingPlayerId
+    // The PA this page shows: a saved one, the slot a correction is being
+    // inserted at (it takes that slot's number), or the next one to be written.
+    const shownPa = pas[correctionSlot == null ? pageIndex : correctionSlot]
+    const shownAt = { inning: derived.inning, pa_number: shownPa ? shownPa.pa_number : nextPaNumber(pas) }
     return gameFielderRows.reduce((acc, row) => {
-      if (
-        String(row.team_id) === String(defensiveTeamId) &&
-        Number(row.inning_from || 1) <= Number(derived.inning) &&
-        (row.inning_to == null || Number(row.inning_to) >= Number(derived.inning))
-      ) {
+      if (String(row.team_id) === String(defensiveTeamId) && fielderCoversPa(row, shownAt)) {
         acc[String(row.position)] = row
       }
       return acc
     }, {})
-  }, [gameFielderRows, derived, source, teamIdByPlayerId])
+  }, [gameFielderRows, derived, source, teamIdByPlayerId, pas, pageIndex, correctionSlot])
 
   // A correction is always a NEW plate appearance, even though its slot sits in
   // the middle of the list: the row at that index is the at-bat it goes BEFORE.
@@ -448,6 +635,14 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   const currentPa = isCorrecting ? null : (pas[pageIndex] || null)
   const isNewPage = isCorrecting || pageIndex === pas.length
   const isLastPage = !isCorrecting && pageIndex === pas.length - 1
+  const snapshotMatchesTarget = Boolean(
+    loadedSnapshot
+    && loadedSnapshot === loadedSnapshotRef.current
+    && targetIsCurrent(loadedSnapshot)
+    && loadedSnapshot.source === source
+    && String(loadedSnapshot.gameId) === String(resolvedGameId)
+    && !activeLoadRef.current
+  )
 
   // Prefer the PA's own recorded stadium (the park a past hit was actually
   // measured against) but fall back to the game's current stadium — without
@@ -824,7 +1019,10 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
 
     const existingRows = rows.filter((pitch) => pitch.id != null && originalIds.has(String(pitch.id)))
     const updateResults = await Promise.all(existingRows.map((pitch) => (
-      supabase.from(tables.pitches).update(valuesFor(pitch)).eq('id', pitch.id)
+      writePitchesWithSchemaFallback(
+        (payload) => supabase.from(tables.pitches).update(payload).eq('id', pitch.id),
+        valuesFor(pitch),
+      )
     )))
     const updateError = updateResults.find((result) => result.error)?.error
     if (updateError) throw updateError
@@ -842,7 +1040,10 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
         pa_id: savedPa.id,
         pitch_number_game: ++nextPitchNumberGame,
       }))
-      const { error } = await supabase.from(tables.pitches).insert(insertPayload)
+      const { error } = await writePitchesWithSchemaFallback(
+        (payload) => supabase.from(tables.pitches).insert(payload),
+        insertPayload,
+      )
       if (error) throw error
     }
   }
@@ -1048,7 +1249,7 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   // saved to diverge from — it only counts as dirty once the user has
   // actually started entering something (a result, or a queued pitch).
   const dirtyFields = (() => {
-    if (loading || !derived) return []
+    if (loading || !snapshotMatchesTarget || !derived) return []
     if (!currentPa) return [
       ...(draft.result ? ['result'] : []),
       ...(draftPitches.length ? ['pitches'] : []),
@@ -1106,12 +1307,48 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     }
   }
 
+  function writableSnapshot(action) {
+    const currentResolved = resolvedTargetRef.current
+    const paMatches = !currentPa || String(currentPa.game_id) === String(loadedSnapshot?.gameId)
+    const rowsMatch = pas.every((pa) => String(pa.game_id) === String(loadedSnapshot?.gameId))
+    const correctionMatches = !resolvingPlay || (
+      String(resolvingPlay.game_id) === String(loadedSnapshot?.gameId)
+      && (!resolvingPlay.competition_type || resolvingPlay.competition_type === loadedSnapshot?.source)
+    )
+    const valid = snapshotMatchesTarget
+      && loadedSnapshot === loadedSnapshotRef.current
+      && targetIsCurrent(loadedSnapshot)
+      && !activeLoadRef.current
+      && !loading
+      && !loadError
+      && game
+      && String(game.id) === String(loadedSnapshot.gameId)
+      && currentResolved?.targetKey === loadedSnapshot.targetKey
+      && currentResolved.source === loadedSnapshot.source
+      && String(currentResolved.gameId) === String(loadedSnapshot.gameId)
+      && paMatches
+      && rowsMatch
+      && correctionMatches
+
+    if (!valid) {
+      pushToast({
+        title: `${action} unavailable`,
+        message: 'Wait for the selected game to finish loading, then try again.',
+        type: 'error',
+      })
+      return null
+    }
+    return loadedSnapshot
+  }
+
   useImperativeHandle(ref, () => ({
     save: () => saveAtBat(),
     discard: () => discardDraft(),
   }))
 
   async function saveAtBat() {
+    const writeIdentity = writableSnapshot('Save')
+    if (!writeIdentity || savingRef.current) return
     if (!draft.result || !draftBatter?.characterId || !outcome) {
       pushToast({ title: 'Pick a batter and a result first', type: 'error' })
       return
@@ -1123,7 +1360,7 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
         game_id: resolvedGameId,
         player_id: draftBatter.playerId, character_id: draftBatter.characterId,
         pitcher_id: draftPitcher?.characterId ?? null, pitcher_player_id: draftPitcher?.playerId ?? null,
-        inning: derived.inning, pa_number: currentPa ? currentPa.pa_number : pas.length + 1,
+        inning: derived.inning, pa_number: currentPa ? currentPa.pa_number : nextPaNumber(pas),
         result: outcome.finalResult,
         outs_on_play: outcome.outsOnPlay,
         rbi: draft.rbi,
@@ -1196,12 +1433,12 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
           note: `Recorded in the At-Bat editor as ${outcome.finalResult}`,
         })
         if (error) throw error
-        setResolvingPlay(null)
+        if (targetIsCurrent(writeIdentity)) setResolvingPlay(null)
         pushToast({ title: data?.retried ? 'Correction completed' : 'Correction recorded', type: 'success' })
         await recomputeGameScore()
         await recomputePitchingStintsForGame()
-        await loadAll()
-        setPageIndex(Math.max(0, Number(data?.pa_number || 1) - 1))
+        const refreshed = await loadAll(writeIdentity)
+        if (refreshed && targetIsCurrent(writeIdentity)) setPageIndex(Math.max(0, Number(data?.pa_number || 1) - 1))
         return
       }
 
@@ -1264,8 +1501,8 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
         ? { title: 'At-bat saved; baserunning stats need a refresh', message: baserunningError.message, type: 'error' }
         : { title: currentPa ? 'At-bat updated' : 'At-bat added', type: 'success' })
       const newAtBatIndex = pas.length
-      await loadAll()
-      if (!currentPa) setPageIndex(newAtBatIndex)
+      const refreshed = await loadAll(writeIdentity)
+      if (refreshed && !currentPa && targetIsCurrent(writeIdentity)) setPageIndex(newAtBatIndex)
     } catch (err) {
       pushToast({ title: 'Save failed', message: err.message, type: 'error' })
     } finally {
@@ -1289,6 +1526,8 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   }
 
   async function deleteLatest() {
+    const writeIdentity = writableSnapshot('Delete')
+    if (!writeIdentity || savingRef.current) return
     if (!currentPa || !isLastPage) return
     if (!window.confirm(`Delete this at-bat (${nameFor(currentPa.character_id, currentPa.player_id)}, ${formatPaResultLabel(currentPa)})? This cannot be undone.`)) return
     savingRef.current = true
@@ -1303,8 +1542,8 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     await recomputeGameScore()
     await recomputePitchingStintsForGame()
     pushToast({ title: 'At-bat deleted', type: 'success' })
-    setPageIndex((i) => Math.max(0, i - 1))
-    await loadAll()
+    if (targetIsCurrent(writeIdentity)) setPageIndex((i) => Math.max(0, i - 1))
+    await loadAll(writeIdentity)
     savingRef.current = false
     setSaving(false)
   }
@@ -1313,6 +1552,8 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   // quickly reset and re-tracked from scratch. Reuses the same per-PA undo RPC as
   // deleteLatest (newest-first) so score/pitching-stint recompute stays correct.
   async function deleteAllAtBats() {
+    const writeIdentity = writableSnapshot('Delete all')
+    if (!writeIdentity || savingRef.current) return
     if (!pas.length) return
     if (!window.confirm(`Delete all ${pas.length} at-bats for this game? This cannot be undone.`)) return
     savingRef.current = true
@@ -1326,8 +1567,8 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
       await recomputeGameScore()
       await recomputePitchingStintsForGame()
       pushToast({ title: 'All at-bats deleted', type: 'success' })
-      setPageIndex(0)
-      await loadAll()
+      if (targetIsCurrent(writeIdentity)) setPageIndex(0)
+      await loadAll(writeIdentity)
     } catch (err) {
       pushToast({ title: 'Delete all failed', message: err.message, type: 'error' })
     } finally {
@@ -1336,8 +1577,19 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
     }
   }
 
-  if (loading) {
+  const currentLoadError = loadError?.targetKey === targetKey ? loadError.message : null
+  if (loading || (!snapshotMatchesTarget && !currentLoadError)) {
     return <div className="page-shell"><section className="panel"><p className="muted" style={{ margin: 0 }}>Loading…</p></section></div>
+  }
+  if (currentLoadError) {
+    return (
+      <div className="page-shell">
+        <section className="panel" data-testid="at-bat-load-error">
+          <p style={{ marginTop: 0 }}>{currentLoadError}</p>
+          <button type="button" className="ghost-button" onClick={() => setRetryTarget((attempt) => attempt + 1)}>Try again</button>
+        </section>
+      </div>
+    )
   }
   if (!game) {
     return <div className="page-shell"><section className="panel"><p className="muted" style={{ margin: 0 }}>Game not found.</p></section></div>
@@ -1359,7 +1611,12 @@ const AtBatEditor = forwardRef(function AtBatEditor({ source: sourceProp, gameId
   )
 
   return (
-    <div className={`at-bat-editor-shell${embedded ? ' at-bat-editor-embedded' : ''}`}>
+    <div
+      className={`at-bat-editor-shell${embedded ? ' at-bat-editor-embedded' : ''}`}
+      data-competition-source={loadedSnapshot.source}
+      data-game-id={loadedSnapshot.gameId}
+      data-load-request={loadedSnapshot.requestId}
+    >
       {!embedded ? (
         <Link to="#" className="at-bat-back-link" onClick={(e) => { e.preventDefault(); if (window.history.length > 1) window.history.back(); else window.close() }}>
           <ArrowLeft size={16} /> Back to game

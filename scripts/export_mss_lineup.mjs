@@ -78,14 +78,20 @@ const BRIDGE_PASSWORD = env.TRACKER_BRIDGE_PASSWORD
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   throw new Error('Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY (check .env).')
 }
-if (!BRIDGE_EMAIL || !BRIDGE_PASSWORD) {
+if ((!BRIDGE_EMAIL || !BRIDGE_PASSWORD) && !env.MSS_EXPORT_ACCESS_TOKEN) {
   throw new Error(
     'Missing TRACKER_BRIDGE_EMAIL / TRACKER_BRIDGE_PASSWORD. Reuse the '
     + '.env.tracker-bridge file the tracker bridge already reads.',
   )
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+// The launcher has just signed in to pick the game. Reuse that session for
+// this child process instead of paying for the same login again. Standalone
+// exports still sign in normally.
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+  env.MSS_EXPORT_ACCESS_TOKEN
+    ? { accessToken: async () => env.MSS_EXPORT_ACCESS_TOKEN }
+    : undefined)
 
 // Mirrors the tracker bridge: a tournament game and a season game live in
 // different tables but describe the same thing, so both are searched.
@@ -96,6 +102,9 @@ const SOURCES = [
     teamLineups: 'team_lineups',
     teamLineupsSourceField: 'tournament_id',
     sourceIdField: 'tournament_id',
+    sourceTable: 'tournaments',
+    // TournamentGameSessionProvider: mercy is on unless the tournament says false.
+    mercyDefault: true,
     openStatuses: ['pending', 'active'],
   },
   {
@@ -104,6 +113,9 @@ const SOURCES = [
     teamLineups: 'season_team_lineups',
     teamLineupsSourceField: 'season_id',
     sourceIdField: 'season_id',
+    sourceTable: 'seasons',
+    // SeasonGameSessionProvider: mercy is off unless explicitly true.
+    mercyDefault: false,
     openStatuses: ['scheduled', 'in_progress'],
   },
 ]
@@ -639,6 +651,20 @@ async function resolveStadium(row) {
   return null
 }
 
+// `games` has no innings or mercy_rule column at all, and a season_schedule row
+// may leave them null, so reading only the game row sent every tournament game
+// to MSS as 3 innings whatever the tournament was set to. The scorebook resolves
+// game row first, then the season/tournament; this does the same.
+async function resolveRules(source, row) {
+  const { data: parent, error } = await supabase
+    .from(source.sourceTable).select('innings, mercy_rule')
+    .eq('id', row[source.sourceIdField]).maybeSingle()
+  if (error) throw error
+  const innings = normalizeRegulationInnings(row.innings ?? parent?.innings, 3)
+  const mercyRule = row.mercy_rule ?? parent?.mercy_rule ?? source.mercyDefault
+  return { innings, mercy: mercyRule === true ? 1 : 0 }
+}
+
 // An unset stadium used to fall back to index 0, which is Mario Stadium -- a
 // real park, silently substituted for the one the schedule meant. That is the
 // worst possible failure here: the run looks like it worked and the game is
@@ -664,11 +690,13 @@ function resolveStadiumIndex(stadiumName) {
 }
 
 async function main() {
-  const { data: auth, error: authError } = await supabase.auth.signInWithPassword({
-    email: BRIDGE_EMAIL, password: BRIDGE_PASSWORD,
-  })
-  if (authError || !auth?.session) {
-    throw new Error(`Supabase sign-in failed: ${authError?.message || 'no session'}`)
+  if (!env.MSS_EXPORT_ACCESS_TOKEN) {
+    const { data: auth, error: authError } = await supabase.auth.signInWithPassword({
+      email: BRIDGE_EMAIL, password: BRIDGE_PASSWORD,
+    })
+    if (authError || !auth?.session) {
+      throw new Error(`Supabase sign-in failed: ${authError?.message || 'no session'}`)
+    }
   }
 
   const { row, source } = await resolveTargetGame()
@@ -701,8 +729,12 @@ async function main() {
   ])
   const logoKeyByPlayerId = seasonLogoKeys.size ? seasonLogoKeys : tournamentLogoKeys
 
-  if (!awayLineup) awayLineup = await deriveLineup(source, sourceId, awayPlayerId, characterIdByName)
-  if (!homeLineup) homeLineup = await deriveLineup(source, sourceId, homePlayerId, characterIdByName)
+  const [resolvedAwayLineup, resolvedHomeLineup] = await Promise.all([
+    awayLineup || deriveLineup(source, sourceId, awayPlayerId, characterIdByName),
+    homeLineup || deriveLineup(source, sourceId, homePlayerId, characterIdByName),
+  ])
+  awayLineup = resolvedAwayLineup
+  homeLineup = resolvedHomeLineup
 
   for (const [label, lineup, playerId] of [['Away', awayLineup, awayPlayerId], ['Home', homeLineup, homePlayerId]]) {
     const who = playerNameById.get(String(playerId)) || playerId
@@ -743,8 +775,7 @@ async function main() {
 
   // The site models innings and the mercy rule; it has no concept of stars or
   // items, so those keep MSS's own defaults unless overridden.
-  const innings = normalizeRegulationInnings(row.innings, 3)
-  const mercy = (row.mercy_rule ?? true) === true ? 1 : 0
+  const { innings, mercy } = await resolveRules(source, row)
   const stars = env.MSS_STARS != null ? Number(env.MSS_STARS) : 1
   const items = env.MSS_ITEMS != null ? Number(env.MSS_ITEMS) : 1
 

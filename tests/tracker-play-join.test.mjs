@@ -53,6 +53,39 @@ test('two at-bats by the same batter in one half-inning are AMBIGUOUS, never gue
   assert.deepEqual(result.candidate_pa_numbers, [3, 9])
 })
 
+test('a whole-session join uses contact order when the lineup bats around', () => {
+  const plays = [
+    trackingPlay({ contact_timer: 100, batter: 'Luigi', balls: 0, strikes: 0 }),
+    trackingPlay({ contact_timer: 200, batter: 'Mario', balls: 0, strikes: 0 }),
+    trackingPlay({ contact_timer: 300, batter: 'Luigi', balls: 0, strikes: 0 }),
+  ]
+  const session = joinSession(plays, [
+    atBat({ pa_number: 1, batter_name: 'Luigi' }),
+    atBat({ pa_number: 2, batter_name: 'Mario' }),
+    atBat({ pa_number: 3, batter_name: 'Luigi' }),
+  ], { latestInning: 1, latestHalf: 'top' })
+
+  assert.deepEqual(session.joins.map((entry) => entry.join.pa_number), [1, 2, 3])
+  assert.equal(session.tally.joined, 3)
+})
+
+test('fouls share the batter occurrence with the fair ball that follows', () => {
+  const plays = [
+    trackingPlay({ contact_timer: 100, batted_ball_class: 'foul', balls: 0, strikes: 0 }),
+    trackingPlay({ contact_timer: 200, batted_ball_class: 'fair_in_play', balls: 0, strikes: 1 }),
+    trackingPlay({ contact_timer: 300, batted_ball_class: 'foul', balls: 0, strikes: 0 }),
+    trackingPlay({ contact_timer: 400, batted_ball_class: 'fair_in_play', balls: 0, strikes: 1 }),
+  ]
+  const repeated = [
+    atBat({ pa_number: 3, pitches: pitchSequence(['foul', 'in_play']) }),
+    atBat({ pa_number: 12, pitches: pitchSequence(['foul', 'in_play']) }),
+  ]
+  const session = joinSession(plays, repeated, { latestInning: 1, latestHalf: 'top' })
+
+  assert.deepEqual(session.joins.map((entry) => entry.join.pa_number), [3, 3, 12, 12])
+  assert.equal(session.tally.joined, 4)
+})
+
 test('the count discriminates between two at-bats the coarse key cannot', () => {
   const play = trackingPlay({ balls: 2, strikes: 1 })
   const result = joinPlayToAtBat(play, [
@@ -109,6 +142,13 @@ test('a play struck at a count the plate appearance never saw is a MISMATCH', ()
 test('the game spelling and the roster spelling of one character still join', () => {
   const play = trackingPlay({ batter: 'Koopa Troopa' })
   const result = joinPlayToAtBat(play, [atBat({ batter_name: 'Koopa' })],
+    { latestInning: 1, latestHalf: 'top' })
+  assert.equal(result.status, 'joined')
+})
+
+test('the capture\'s plain "Mii" joins the tracker\'s shirt-coloured Mii', () => {
+  const play = trackingPlay({ batter: 'Mii' })
+  const result = joinPlayToAtBat(play, [atBat({ batter_name: 'Orange Mii (M)' })],
     { latestInning: 1, latestHalf: 'top' })
   assert.equal(result.status, 'joined')
 })

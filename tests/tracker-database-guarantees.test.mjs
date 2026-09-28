@@ -91,6 +91,64 @@ test('every tracker migration applies to a database that has the tables', { skip
     'tracking_sessions_stem_version_uidx',
     'tracking_throws_play_sequence_uidx',
   ])
+  for (const table of ['pitches', 'season_pitches']) {
+    const columns = await db.rows(
+      `select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = $1
+          and column_name in ('swing_mode', 'plate_x_units', 'pitch_zone', 'is_chase')
+        order by column_name`, [table])
+    assert.deepEqual(columns.map((row) => row.column_name), [
+      'is_chase', 'pitch_zone', 'plate_x_units', 'swing_mode',
+    ])
+  }
+})
+
+test('the batter-runner can be recorded only after its migration, and the plate is a valid origin', { skip }, async (t) => {
+  // Only the constrained columns: the baseline models this table trimmed to
+  // the ones the tracker writes through it.
+  const insert = (db) => db.one(
+    `insert into runner_opportunities (competition_type, game_id, pa_id, runner_id, origin_base, target_base)
+     values ('season', 1, 1, 'batter', 'plate', 'second')
+     returning runner_id, origin_base`, [])
+
+  // Without it, production's own check constraints refuse the row -- which is
+  // exactly what the first backfill attempt hit.
+  const before = await freshWorld(t, {
+    migrations: TRACKER_MIGRATIONS.filter((name) => name !== '20260922120000_batter_runner_opportunities.sql'),
+  })
+  await assert.rejects(insert(before.db), /runner_opportunities_origin_base_check/)
+
+  const after = await freshWorld(t)
+  const row = await insert(after.db)
+  assert.equal(row.runner_id, 'batter')
+  assert.equal(row.origin_base, 'plate')
+  // The bases a runner already on one can start from still work.
+  await after.db.one(
+    `insert into runner_opportunities (competition_type, game_id, pa_id, runner_id, origin_base, target_base)
+     values ('season', 1, 2, 'first', 'first', 'third')
+     returning id`, [])
+  // And a value neither side ever uses is still refused.
+  await assert.rejects(after.db.one(
+    `insert into runner_opportunities (competition_type, game_id, pa_id, runner_id, origin_base, target_base)
+     values ('season', 1, 3, 'batter', 'dugout', 'second')
+     returning id`, []), /runner_opportunities_origin_base_check/)
+})
+
+test('unplayed games and new games use automated tracking while live games keep their source', { skip }, async (t) => {
+  const db = await createTrackerTestDatabase({
+    beforeMigrations: async (handle) => {
+      await handle.exec("insert into games (id, status) values (8001, 'pending'), (8002, 'active'), (8003, 'complete')")
+      await handle.exec("insert into season_schedule (id, status) values (8001, 'scheduled'), (8002, 'active'), (8003, 'complete')")
+    },
+  })
+  t.after(() => db.close())
+
+  await db.exec('insert into games (id) values (8004)')
+  await db.exec('insert into season_schedule (id) values (8004)')
+  for (const table of ['games', 'season_schedule']) {
+    const rows = await db.rows(`select id, stats_source from ${table} where id between 8001 and 8004 order by id`)
+    assert.deepEqual(rows.map((row) => row.stats_source), ['tracker', 'manual', 'manual', 'tracker'])
+  }
 })
 
 test('a table this deployment does not have is skipped, not failed', { skip }, async (t) => {

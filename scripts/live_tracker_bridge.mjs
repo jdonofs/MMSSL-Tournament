@@ -22,6 +22,9 @@
 //     compatibility fallbacks)
 //   TRACKER_OUTPUT_DIR - directory where the tracker writes completed xlsx files
 //     (defaults to the output directory beside the tracker executable)
+//   TRACKER_AUTO_EXIT_AFTER_GAME - defaults to 1; after the game finishes,
+//     wait for the final workbook, capture derivation/ingest and game
+//     completion, then exit so `npm run game` finishes without a manual Ctrl+C
 //   TRACKER_XLSX_PATH  - optional fixed completed-workbook path; when omitted,
 //     the bridge watches TRACKER_OUTPUT_DIR for the newly-created game workbook
 //   TRACKER_LAUNCH_SIGNAL - optional path; when set, the bridge does all of
@@ -76,12 +79,16 @@
 //   TRACKER_PLAYER_TRACKING_DIR - raw session directory (default
 //     data/player_tracking). Completed captures are calibrated, derived,
 //     ingested, and model-refit automatically after the tracker exits.
+//   TRACKER_LIVE_TRACKING - set to 0 to stop writing movement and fielding
+//     facts during the game; they then arrive only with the postgame ingest.
+//     Needs the session-versioning migration, and writes nothing without it.
 
 import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
+import util from 'node:util'
 import { pathToFileURL } from 'node:url'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import ExcelJS from 'exceljs'
 import chokidar from 'chokidar'
 import { createClient } from '@supabase/supabase-js'
@@ -98,8 +105,13 @@ import {
   validateTrackerBattingOrder,
 } from './tracker_alignment.mjs'
 import { createTrackerGameLease, isLeaseNotHeldError } from './tracker_game_lease.mjs'
+import { trackerShutdownTimeoutMs } from './tracker_shutdown_policy.mjs'
 import { computePendingState, computePendingOutState, extractNextRunners } from '../src/utils/runnerAssignment.js'
 import { isCreditedHit } from '../src/utils/creditedHit.js'
+import { decideGamePitchingFlags } from '../src/utils/pitchingDecisions.js'
+import { completeSeasonGameLifecycle } from '../src/utils/seasonPlayoffs.js'
+import { advanceBracketOnGameComplete } from '../src/utils/bracketProgression.js'
+import { planFielderStintChange } from '../src/utils/fielderStints.js'
 import { getStadiumKeyByName } from '../src/utils/stadiums.js'
 import { resolveOnPA } from '../src/utils/betResolution.js'
 import {
@@ -123,6 +135,7 @@ import {
   applyTrackerPreviewPlay,
   trackerPreviewMeasuredPitches,
   trackerPreviewOutcomePlay,
+  rejoinTrackerPreviewPlays,
   applyTrackerPreviewPostgamePlay,
   clearTrackerPreviewAtBats,
   createTrackerPreviewState,
@@ -132,8 +145,9 @@ import {
   setTrackerPreviewStadiumOverride,
 } from './tracker_preview_state.mjs'
 import { annotationPathFor } from './tracker_annotations.mjs'
+import { createLiveTrackingPersistence } from './tracker_live_tracking_persistence.mjs'
 import { runnerAdvancedOnPlay, runnerDestinationsFromPlay } from './tracker_runner_telemetry.mjs'
-import { applyCollectorLine } from './tracker_collector_feed.mjs'
+import { applyCollectorLine, assertEvidenceProfileReady, collectorEvidenceArgs } from './tracker_collector_feed.mjs'
 import { syncRunnerOpportunities } from '../src/utils/runnerOpportunityPersistence.js'
 import { createTrackerPreviewServer } from './tracker_preview_server.mjs'
 import { createTrackerSessionLog } from './tracker_session_log.mjs'
@@ -176,6 +190,11 @@ import {
   shouldChargeTrackerBobbleError,
   trackerPlayThrowingError,
   trackerPlayFieldingPosition,
+  trackerPlayIsNicePlay,
+  isTrackerMissingPlayerName,
+  trackerPlayCatchPosition,
+  trackerHitBeforeOutfieldBoot,
+  trackerOutNotationLetter,
   trackerPlayOutChainPositions,
   shouldClassifyTrackerFielderChoice,
   shouldClassifyTrackerSacrificeBunt,
@@ -190,6 +209,7 @@ import {
   normalizeRbiForPaResult,
   trackerRbiForPaResult,
   shouldDowngradeTrackerHitToRoe,
+  trackerResultFromMeasuredBatterBases,
   parseTrackerBallSampleMessage,
   trackerBattedBallPaFields,
   trackerCaughtBallResult,
@@ -235,6 +255,9 @@ const EXE_PATH = path.resolve(env.TRACKER_EXE_PATH || (
 ))
 const XLSX_PATH = env.TRACKER_XLSX_PATH ? path.resolve(env.TRACKER_XLSX_PATH) : null
 const TRACKER_OUTPUT_DIR = path.resolve(env.TRACKER_OUTPUT_DIR || path.join(path.dirname(EXE_PATH), 'output'))
+const AUTO_EXIT_AFTER_GAME = !['0', 'false', 'no', 'off'].includes(
+  String(env.TRACKER_AUTO_EXIT_AFTER_GAME ?? '1').trim().toLowerCase(),
+)
 // Optional handoff gate, used by scripts/mss_autogame.mjs. Everything above
 // launchTracker() -- signing in, loading the roster, repairing live state --
 // takes seconds the tracker does not need to be present for, and the tracker
@@ -471,8 +494,25 @@ const GAME_INFO_LABELS = [
   'Stars - On/Off', 'Items - On/Off', 'Mercy - On/Off',
 ]
 
+// Everything the bridge says also goes to disk, one file per run. The launcher
+// keeps only its last 80 lines in memory, so season game 2766's failed
+// completion had no log left once the process exited.
+const BRIDGE_LOG_PATH = path.join(BRIDGE_STATE_DIR, 'logs',
+  `bridge-${new Date().toISOString().replace(/[:.]/g, '-')}-${process.pid}.log`)
+let bridgeLogDirReady = false
+
 function log(...args) {
-  console.log(`[tracker-bridge ${new Date().toISOString()}]`, ...args)
+  const line = util.format(`[tracker-bridge ${new Date().toISOString()}]`, ...args)
+  console.log(line)
+  try {
+    if (!bridgeLogDirReady) {
+      fs.mkdirSync(path.dirname(BRIDGE_LOG_PATH), { recursive: true })
+      bridgeLogDirReady = true
+    }
+    fs.appendFileSync(BRIDGE_LOG_PATH, `${line}\n`)
+  } catch {
+    // The console copy above is the one that must not fail.
+  }
 }
 
 async function resolveTeamPlayerIds(source, gameRow) {
@@ -1061,7 +1101,7 @@ async function syncTrackerPositionChange(characterName, position) {
   if (teamId == null) throw new Error(`could not resolve site team for ${characterName}`)
 
   const { data: openRows, error: readError } = await supabase.from(GAME_TABLES.gameFielders)
-    .select('id,character,position,inning_from,inning_to')
+    .select('id,character,position,inning_from,inning_to,pa_from')
     .eq('game_id', TARGET_GAME_ID).eq('team_id', teamId).is('inning_to', null)
   if (readError) throw readError
 
@@ -1101,11 +1141,19 @@ async function syncTrackerPositionChange(characterName, position) {
   }
 
   const currentInning = Math.max(1, Number(parserInning || liveState.inning || 1))
-  const toClose = plan.affectedRows.filter((row) => Number(row.inning_from || 1) < currentInning)
-  const toDelete = plan.affectedRows.filter((row) => Number(row.inning_from || 1) >= currentInning)
+  // Plate appearances are written in this same serialized chain, so the last
+  // one saved is the last play before the change. A change after a play in
+  // this inning closes the old rows at that play instead of deleting them.
+  const { data: lastPa, error: lastPaError } = await supabase.from(GAME_TABLES.plateAppearances)
+    .select('pa_number,inning').eq('game_id', TARGET_GAME_ID)
+    .order('pa_number', { ascending: false }).limit(1).maybeSingle()
+  if (lastPaError) throw lastPaError
+  const { toClose, toDelete, closeWith, newRowBounds } = planFielderStintChange(plan.affectedRows, {
+    currentInning, lastPa,
+  })
   if (toClose.length) {
     const { error } = await supabase.from(GAME_TABLES.gameFielders)
-      .update({ inning_to: currentInning - 1 }).in('id', toClose.map((row) => row.id))
+      .update(closeWith).in('id', toClose.map((row) => row.id))
     if (error) throw error
   }
   if (toDelete.length) {
@@ -1120,7 +1168,7 @@ async function syncTrackerPositionChange(characterName, position) {
     player_name: playerNamesById[String(playerId)] || '',
     character: characterNamesById[String(assignment.characterId)] || assignment.characterName,
     position: assignment.positionNumber,
-    inning_from: currentInning,
+    ...newRowBounds,
     inning_to: null,
   }))
   const { error: insertError } = await supabase.from(GAME_TABLES.gameFielders).insert(inserts)
@@ -1442,17 +1490,24 @@ function triggerScoreSync() {
 // transaction that writes.
 async function syncScoreFromTracker() {
   if (scoreState.a == null || scoreState.b == null) return
-  assertLeaseWritable('the live score sync')
-  const payload = isSeasonGame()
-    ? { away_score: scoreState.a, home_score: scoreState.b }
-    : { team_a_runs: scoreState.a, team_b_runs: scoreState.b }
-  const fenced = await callFencedGameMutation(
-    'tracker_apply_game_completion', { p_completion: payload }, 'the live score sync')
-  if (!fenced.fenced) {
-    const { error } = await supabase.from(TARGET_GAMES_TABLE).update(payload).eq('id', TARGET_GAME_ID)
-    if (error) throw error
+  const gameEnded = liveState.gameEnded
+  try {
+    assertLeaseWritable('the live score sync')
+    const payload = isSeasonGame()
+      ? { away_score: scoreState.a, home_score: scoreState.b }
+      : { team_a_runs: scoreState.a, team_b_runs: scoreState.b }
+    const fenced = await callFencedGameMutation(
+      'tracker_apply_game_completion', { p_completion: payload }, 'the live score sync')
+    if (!fenced.fenced) {
+      const { error } = await supabase.from(TARGET_GAMES_TABLE).update(payload).eq('id', TARGET_GAME_ID)
+      if (error) throw error
+    }
+    if (gameEnded) await finalizeTrackerGame()
+  } finally {
+    // A failed database finalization must not leave the tracker waiting for
+    // someone to stop it by hand. Shutdown retries and reports the failure.
+    if (gameEnded) scheduleCompletedGameShutdown()
   }
-  if (liveState.gameEnded) await finalizeTrackerGame()
 }
 
 function trackerSourceType() {
@@ -1640,6 +1695,38 @@ function triggerBettingSync() {
 }
 
 let finalizationPromise = null
+let finalScoreWorkbookSyncBaseline = null
+let completedGameStopScheduled = false
+
+function scheduleCompletedGameShutdown() {
+  if (!invokedDirectly || !AUTO_EXIT_AFTER_GAME || completedGameStopScheduled) return
+  completedGameStopScheduled = true
+  // The prompt has no terminating newline, so readline never reports it.
+  // Write the answer as soon as the final score is known; stdin buffers it
+  // until the tracker reaches "Continue searching for more games? (Y/N)".
+  if (trackerProcess?.stdin?.writable) {
+    trackerProcess.stdin.write('N\n')
+    log('answered N to the tracker next-game prompt')
+  }
+  setImmediate(() => (async () => {
+    const baseline = finalScoreWorkbookSyncBaseline ?? completedWorkbookSyncs
+    const deadline = Date.now() + 10000
+    while (completedWorkbookSyncs <= baseline && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    if (completedWorkbookSyncs <= baseline) {
+      log('final workbook did not sync within 10 seconds; stopping capture anyway')
+    } else {
+      requestPlayerTrackingStop()
+      const trackerExitDeadline = Date.now() + 15000
+      while (trackerProcess && Date.now() < trackerExitDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+    }
+    await requestCompletedGameStop()
+  })().catch((error) => log('automatic game shutdown failed:', error.message)))
+}
+
 async function finalizeTrackerGame() {
   if (scoreState.a == null || scoreState.b == null) return
   if (finalizationPromise) return finalizationPromise
@@ -1707,12 +1794,100 @@ async function finalizeTrackerGame() {
       .update({ is_locked: true, updated_at: new Date().toISOString() })
       .eq('game_id', TARGET_GAME_ID)
     if (oddsLockError) throw oddsLockError
+    await completeTrackerGameLifecycle({ winnerPlayerId })
     log(`game finalized automatically: ${scoreState.a}-${scoreState.b}; bets settled and markets locked`)
   })().catch((err) => {
     finalizationPromise = null
     throw err
   })
   return finalizationPromise
+}
+
+// What the scorebook's End Game does after it writes the final row, done here
+// too. Without it a game the tracker finished had no W/L/S stamped on its
+// stints, no stadium log row for the park factors, and -- in a season --
+// standings that did not move until some other game was finished by hand. The
+// final row and the bets are already written by now, so a failing step is
+// logged and the rest still run, exactly as End Game toasts and carries on;
+// every step is safe to run again.
+async function completeTrackerGameLifecycle({ winnerPlayerId }) {
+  const steps = [
+    ['pitching decisions', assignTrackerPitchingDecisions],
+    ['stadium game log', recordTrackerStadiumGameLog],
+    [isSeasonGame() ? 'season standings' : 'tournament bracket', advanceTrackerCompetition],
+  ]
+  for (const [what, step] of steps) {
+    try {
+      await step({ winnerPlayerId })
+    } catch (error) {
+      log(`game completion: ${what} failed: ${error.message}`)
+    }
+  }
+}
+
+async function assignTrackerPitchingDecisions({ winnerPlayerId }) {
+  const results = await Promise.all(
+    [GAME_TABLES.pitchingStints, GAME_TABLES.plateAppearances, GAME_TABLES.runsScored]
+      .map((table) => supabase.from(table).select('*').eq('game_id', TARGET_GAME_ID)),
+  )
+  const failed = results.find((result) => result.error)
+  if (failed) throw failed.error
+  const [stints, pas, runs] = results.map((result) => result.data || [])
+  const { updates } = decideGamePitchingFlags({
+    stints, pas, runs,
+    teamAPlayerId: TARGET_TEAM_A_PLAYER_ID,
+    teamBPlayerId: TARGET_TEAM_B_PLAYER_ID,
+    winnerPlayerId,
+  })
+  for (const { id, patch } of updates) {
+    const { error } = await supabase.from(GAME_TABLES.pitchingStints).update(patch).eq('id', id)
+    if (error) throw error
+  }
+}
+
+async function recordTrackerStadiumGameLog() {
+  const game = TARGET_GAME_ROW || {}
+  if (!game.stadium_id && !game.stadium) return
+  const table = isSeasonGame() ? 'season_stadium_game_log' : 'stadium_game_log'
+  const { data: existing, error: readError } = await supabase.from(table)
+    .select('game_id').eq('game_id', TARGET_GAME_ID).limit(1)
+  if (readError) throw readError
+  if (existing?.length) return
+  const totalRuns = Number(scoreState.a || 0) + Number(scoreState.b || 0)
+  const row = isSeasonGame()
+    ? { game_id: TARGET_GAME_ID, season_id: TARGET_SEASON_ID, stadium: game.stadium || null,
+        is_night: Boolean(game.is_night), total_runs: totalRuns, confidence: 1.0 }
+    : { game_id: TARGET_GAME_ID, stadium_id: game.stadium_id, is_night: Boolean(game.is_night),
+        total_runs: totalRuns, confidence: 1.0 }
+  const { error } = await supabase.from(table).insert(row)
+  if (error) throw error
+}
+
+async function advanceTrackerCompetition({ winnerPlayerId }) {
+  if (isSeasonGame()) {
+    const { data: season, error } = await supabase.from('seasons')
+      .select('*').eq('id', TARGET_SEASON_ID).single()
+    if (error) throw error
+    await completeSeasonGameLifecycle({
+      supabase, season, selectedGame: TARGET_GAME_ROW, scores: { a: scoreState.a, b: scoreState.b },
+    })
+    return
+  }
+  const [tournamentResult, gamesResult] = await Promise.all([
+    supabase.from('tournaments').select('*').eq('id', TARGET_SOURCE_ID).single(),
+    supabase.from('games').select('*').eq('tournament_id', TARGET_SOURCE_ID),
+  ])
+  if (tournamentResult.error) throw tournamentResult.error
+  if (gamesResult.error) throw gamesResult.error
+  const games = gamesResult.data || []
+  const completedGame = games.find((game) => String(game.id) === String(TARGET_GAME_ID))
+  if (!completedGame) throw new Error(`game ${TARGET_GAME_ID} is not in tournament ${TARGET_SOURCE_ID}`)
+  await advanceBracketOnGameComplete({
+    supabase,
+    tournament: tournamentResult.data,
+    games,
+    completedGame: { ...completedGame, winner_player_id: winnerPlayerId },
+  })
 }
 
 // ── play-by-play parser state machine ───────────────────────────────────────
@@ -1731,6 +1906,12 @@ let paFinalizationInProgress = false
 let completedPaRevision = 0
 let pendingRunnerAssignmentBackfill = null
 const pendingMeasuredRunnerAssignments = new Map()
+// Saved plate appearances by the preview's PA number -- the number a 60 Hz
+// play's join names -- so a joined play can be written against its row.
+const savedPaByPreviewNumber = new Map()
+let liveTrackingPersistence = null
+let liveTrackingClosed = false
+let liveTrackingSync = Promise.resolve()
 // The tracker runner feed is delta-based: an unchanged runner is omitted from
 // the next matchup entirely. Keep the current half-inning state independently
 // of each PA buffer, then copy it into every new PA.
@@ -1857,6 +2038,8 @@ function runnerAssignmentsFromOutcomePlay(buf, isError, outcomePlay) {
     origin: entries[index].origin,
     destination: destination.destination,
     isBatter: entries[index].isBatter,
+    // Which base a retired runner was going for, from the throw that got him.
+    ...(destination.attemptedBase ? { attemptedBase: destination.attemptedBase } : {}),
   }))
 }
 
@@ -1965,9 +2148,43 @@ async function backfillMeasuredRunnerAssignments() {
       .update({ runner_assignments: assignments }).eq('id', paId)
       .is('runner_assignments', null).select('id')
     if (error) { log(`late runner-assignment update failed for PA ${paId}:`, error.message); continue }
-    if (data?.length) await persistAdvancedOpportunitiesForPa({ ...savedPa, runner_assignments: assignments }, buf)
+    if (data?.length) {
+      await persistAdvancedOpportunitiesForPa({ ...savedPa, runner_assignments: assignments }, buf)
+      if (buf.previewPaNumber != null) {
+        savedPaByPreviewNumber.set(buf.previewPaNumber, { ...savedPa, runner_assignments: assignments })
+      }
+    }
     pendingMeasuredRunnerAssignments.delete(paId)
   }
+}
+
+// Movement and fielding facts for every play that has joined a saved plate
+// appearance, written as the game goes -- see
+// scripts/tracker_live_tracking_persistence.mjs. Never required: a failure here
+// is logged and the postgame ingest writes the authoritative version anyway.
+function syncLiveTrackingFacts() {
+  if (!liveTrackingPersistence || liveTrackingClosed) return liveTrackingSync
+  liveTrackingSync = liveTrackingSync.then(async () => {
+    if (liveTrackingClosed) return
+    const tracking = previewState.playerTracking
+    const stem = tracking?.capture?.stem
+    if (!stem || !tracking.plays.length) return
+    try {
+      assertLeaseWritable('live tracking facts')
+      const joins = rejoinTrackerPreviewPlays(previewState)
+      const { written } = await liveTrackingPersistence.sync({
+        stem,
+        capture: tracking.capture,
+        plays: [...tracking.plays],
+        joinFor: (play) => joins.get(Number(play.contact_timer)),
+        plateAppearanceFor: (paNumber) => savedPaByPreviewNumber.get(paNumber),
+      })
+      if (written) log(`live tracking: wrote ${written} play(s) to session ${liveTrackingPersistence.sessionId}`)
+    } catch (error) {
+      log('live tracking facts were not written (the postgame ingest will write them):', error.message)
+    }
+  })
+  return liveTrackingSync
 }
 
 // Resolves a tracker fielder name to their current defensive position number
@@ -2317,6 +2534,15 @@ async function finalizeCurrentPaIfAny() {
     buf.unresolvedReason = null
   }
 
+  // The stock executable sometimes omits the terminal hit-announcement line.
+  // When the joined 60 Hz play is already complete, its batter runner slot can
+  // recover the exact base reached.  This deliberately runs after FC and only
+  // fills a missing result; all announced scoring continues to win.
+  if (!buf.result) {
+    const outcomePlay = trackerPreviewOutcomePlay(previewState, buf.previewPaNumber)
+    buf.result = trackerResultFromMeasuredBatterBases(outcomePlay)
+  }
+
   if (!buf.result) {
     log(`could not determine a result for ${buf.batterName}'s plate appearance (vs. ${buf.pitcherName}) — skipping stat write.` +
       (buf.unresolvedReason ? ` Reason: ${buf.unresolvedReason}.` : '') +
@@ -2378,6 +2604,14 @@ async function finalizeCurrentPaIfAny() {
     if (isBobbleError && shouldDowngradeTrackerHitToRoe({
       result: buf.result, bobbleFielderName: buf.bobbleFielderName, play: outcomePlay,
     })) buf.result = 'ROE'
+    const hitBeforeBoot = isBobbleError && trackerHitBeforeOutfieldBoot({
+      result: buf.result, bobbleFielderName: buf.bobbleFielderName, play: outcomePlay,
+    })
+    if (hitBeforeBoot) {
+      log(`${buf.batterName}'s ${buf.result} scored as a ${hitBeforeBoot}: `
+        + `${buf.bobbleFielderName} booted it before he reached first`)
+      buf.result = hitBeforeBoot
+    }
 
     // Turns the fielder names captured off the play-by-play into the same
     // trajectory+position-chain notation the manual scorebook/editor write
@@ -2449,11 +2683,20 @@ async function finalizeCurrentPaIfAny() {
       const capturedPositions = trackerPlayOutChainPositions(outcomePlay)
         .map((position) => TRACKER_POSITION_NUMBERS[position])
         .filter((position) => position != null)
+      // "No Player put X out!" -- the tracker lost the fielder; the capture did not.
+      const caughtBy = isTrackerMissingPlayerName(buf.putoutFielderName)
+        ? TRACKER_POSITION_NUMBERS[trackerPlayCatchPosition(outcomePlay)] ?? null
+        : null
       const positions = capturedPositions.length
         ? capturedPositions
-        : chainNames.map((name) => currentFieldingPositionNumber(buf.pitcherPlayerId, name))
+        : caughtBy != null
+          ? [caughtBy]
+          : chainNames.map((name) => currentFieldingPositionNumber(buf.pitcherPlayerId, name))
       if (positions.every((position) => position != null)) {
-        hitNotation = `${buf.battedBallTrajectory || (buf.result === 'FO' ? 'F' : 'G')}${positions.join('-')}`
+        const letter = trackerOutNotationLetter({
+          result: buf.result, trajectory: buf.battedBallTrajectory, play: outcomePlay,
+        })
+        hitNotation = `${letter}${positions.join('-')}`
       } else {
         log(`could not resolve a fielding position for ${buf.batterName}'s ${buf.result} (fielder(s): ${chainNames.join(', ')}) — ` +
           'putout/assist credit left for manual entry via the At-Bat editor.')
@@ -2490,6 +2733,20 @@ async function finalizeCurrentPaIfAny() {
         errorPosition,
       )
     }
+    // WHERE THE BALL WAS FIELDED, as a position number. The manual scorebook
+    // has always written this column and the bridge never has, so every
+    // tracker-scored game read as an empty row in the hit-location tables --
+    // BIP and P..RF on Batting > Spray & Location and Pitching > Batted Ball
+    // Allowed -- while a hand-scored game filled them. The fielder is already
+    // resolved here; only the column was missing.
+    //
+    // Same rule as Scorebook.jsx: a Buddy Jump belongs to the fielder who made
+    // the catch rather than the first one in the chain, a home run to nobody.
+    const hitLocation = isHomeRunResult(buf.result)
+      ? null
+      : buf.isBuddyJump
+        ? (buddyJumpPutoutPosition ?? buddyJumpAssistPosition ?? null)
+        : (Number(parseFielderChainFromNotation(hitNotation)[0]) || null)
     const batterRun = buf.runEvents.find((run) => run.scorerName === buf.batterName)
     const runnerAssignments = deterministicRunnerAssignments(buf, isBobbleError, outcomePlay)
     const paPayload = addSourceFields({
@@ -2538,6 +2795,7 @@ async function finalizeCurrentPaIfAny() {
       // editable At-Bat Editor trajectory.
       trajectory: isBunt ? 'B' : buf.battedBallTrajectory,
       hit_notation: hitNotation,
+      hit_location: hitLocation,
       is_error: isError,
       error_position: errorPosition,
       error_character: isBobbleError
@@ -2548,10 +2806,9 @@ async function finalizeCurrentPaIfAny() {
       error_player: isError ? playerNamesById[String(buf.pitcherPlayerId)] || null : null,
       error_notation: errorNotation,
       fielder_choice_out: buf.result === 'FC',
-      // The tracker uses the same replay flow for offensive highlights,
-      // defensive highlights, Buddy Jumps, and some strikeouts. It exposes
-      // no reliable general-dive signal, so Nice Plays remain a postgame edit.
-      is_nice_play: false,
+      is_nice_play: trackerPlayIsNicePlay({
+        play: outcomePlay, hitNotation, outsOnPlay, isBuddyJump: buf.isBuddyJump,
+      }),
       is_buddy_jump: Boolean(buf.isBuddyJump),
       buddy_jump_assist_position: buddyJumpAssistPosition,
       buddy_jump_putout_position: buddyJumpPutoutPosition,
@@ -2623,11 +2880,15 @@ async function finalizeCurrentPaIfAny() {
     requiredPersistenceFailure = null
     markTrackerGameBegun('a plate appearance was durably recorded')
     if (runnerAssignments == null) pendingMeasuredRunnerAssignments.set(savedPa.id, { buf, savedPa, isError: isBobbleError })
+    if (buf.previewPaNumber != null) savedPaByPreviewNumber.set(buf.previewPaNumber, savedPa)
     try {
       await persistAdvancedOpportunitiesForPa(savedPa, buf)
     } catch (error) {
       log('advanced opportunity persistence failed after scoring facts were saved:', error.message)
     }
+    // Not awaited: it queues behind any live write already running and never
+    // holds up the plate appearance that just saved.
+    syncLiveTrackingFacts()
     try {
       await recomputeTrackerPitchingStats(supabase, { tables: GAME_TABLES, gameId: TARGET_GAME_ID })
     } catch (error) {
@@ -2870,6 +3131,19 @@ async function processPlayEvent(message, previewPaNumber = null) {
       return
     }
 
+    if ((m = message.match(/^(.+?) walked (.+?)!$/i))
+        && m[1].trim() === buf.pitcherName
+        && m[2].trim() === buf.batterName) {
+      const before = buf.lastCount
+      const after = { balls: Math.max(4, before.balls + 1), strikes: before.strikes }
+      pushPitch(buf, 'ball', before, after)
+      buf.pendingPitchType = null
+      buf.lastCount = after
+      bumpLivePitchCount(buf, false)
+      buf.result = 'BB'
+      return
+    }
+
     if (/^Double play!$/i.test(message)) {
       if (['FO', 'LO', 'GO'].includes(buf.result)) { buf.result = 'DP'; buf.resultInferredFromPutout = false }
       else buf.pendingDoublePlay = true
@@ -2945,6 +3219,14 @@ async function processPlayEvent(message, previewPaNumber = null) {
     // not be flagged, so is_buddy_jump only flips true here, not on the
     // "going up for" announcement above.
     if ((m = message.match(/^(.+?)\s+went high up with the buddy jump to get the out!$/i))) {
+      // "No Player went high up..." is the tracker losing the fielder, not a
+      // Buddy Jump: it follows "No Player put X out!" when its last-holder read
+      // never updates. The one such line in 56 logs was Yoshi's plain diving
+      // catch (game 2766), and no real one lacks a named fielder.
+      if (isTrackerMissingPlayerName(m[1])) {
+        log(`ignored a Buddy Jump announced for "${m[1].trim()}" on ${buf.batterName}'s at-bat`)
+        return
+      }
       buf.isBuddyJump = true
       buf.buddyJumpFielderName = m[1].trim()
       return
@@ -3011,6 +3293,7 @@ async function processPlayEvent(message, previewPaNumber = null) {
     pendingRunnerAssignmentBackfill = null
     lastFinalizedPa = null
     pendingMeasuredRunnerAssignments.clear()
+    savedPaByPreviewNumber.clear()
     clearParserRunnerState()
     parserInning = 1
     parserIsTop = true
@@ -3162,6 +3445,9 @@ function parseGameInfo(worksheet) {
 // each only updates its own slice so neither clobbers the other's data.
 
 const xlsxState = { game_info: {}, batting: [], pitching: [] }
+let completedWorkbookSyncs = 0
+let xlsxSyncQueue = Promise.resolve()
+let lastXlsxSyncError = null
 const liveState = {
   matchup: null, outs: null, balls: null, strikes: null, currentBatter: null,
   inning: 1, isTop: true,
@@ -3439,16 +3725,25 @@ function watchXlsx() {
   let debounce = null
   let pendingPath = null
   const trigger = (filePath) => {
+    if (!XLSX_PATH && path.extname(filePath).toLowerCase() !== '.xlsx') return
     pendingPath = filePath
     clearTimeout(debounce)
     debounce = setTimeout(() => {
       const completedPath = pendingPath
-      readWithRetry(() => syncXlsx(completedPath)).catch((err) => log('box score sync failed:', err.message))
+      const sync = xlsxSyncQueue.then(() => readWithRetry(() => syncXlsx(completedPath)))
+      xlsxSyncQueue = sync.then(() => {
+        completedWorkbookSyncs += 1
+        lastXlsxSyncError = null
+      }).catch((error) => { lastXlsxSyncError = error })
+      sync.catch((err) => log('box score sync failed:', err.message))
     }, 300)
   }
-  const watchTarget = XLSX_PATH || path.join(TRACKER_OUTPUT_DIR, '*.xlsx')
+  // Chokidar 5 treats a glob as a literal path. Watch the directory and filter
+  // events instead, or no newly created game workbook is ever observed.
+  const watchTarget = XLSX_PATH || TRACKER_OUTPUT_DIR
   const watcher = xlsxWatcher = chokidar.watch(watchTarget, {
     ignoreInitial: true,
+    depth: 0,
     usePolling: true,
     interval: 1000,
     awaitWriteFinish: { stabilityThreshold: 400, pollInterval: 100 },
@@ -3552,6 +3847,7 @@ function applyLogMessage(message) {
   } else if ((m = message.match(/^(.+?) win!$/i))) {
     liveState.winner = m[1].trim()
   } else if (/^Final Score:$/i.test(message)) {
+    if (finalScoreWorkbookSyncBaseline == null) finalScoreWorkbookSyncBaseline = completedWorkbookSyncs
     liveState.gameEnded = true
     liveState.oddsCalculating = false
     clearLiveCount()
@@ -3585,6 +3881,7 @@ function resetInMemoryTrackerGame({ reason = 'fresh game', gameRow = TARGET_GAME
   pendingRunnerAssignmentBackfill = null
   lastFinalizedPa = null
   pendingMeasuredRunnerAssignments.clear()
+  savedPaByPreviewNumber.clear()
   completedPaRevision = 0
   parserInning = 1
   parserIsTop = true
@@ -3732,6 +4029,12 @@ function notePreviewWrite(buf, status) {
   recordTrackerPreviewWrite(previewState, buf.previewPaNumber, status)
 }
 
+let requestManualStop = async () => {
+  await stopTrackerBridge()
+  if (invokedDirectly) process.exit(0)
+}
+let requestCompletedGameStop = async () => {}
+
 const previewServer = PREVIEW_PORT > 0
   ? createTrackerPreviewServer({
     state: previewState,
@@ -3765,6 +4068,7 @@ const previewServer = PREVIEW_PORT > 0
     onAnnotation: (record, filePath) => {
       log(`operator flagged PA ${record.pa_number} (${record.categories.join(', ')}) -> ${filePath}`)
     },
+    onShutdown: () => requestManualStop(),
   })
   : null
 
@@ -3873,9 +4177,11 @@ function handleTrackerLogLine(line) {
 // way the standalone preview does.
 let trackerProcess = null
 let playerTrackingProcess = null
+let playerTrackingStartupLines = []
 let playerTrackingStopPath = null
 let playerTrackingManifestPath = null
 let playerTrackingFinalization = null
+let playerTrackingFinalizationError = null
 
 function sidecarFilePrefix() {
   const source = isSeasonGame() ? 'season' : 'tournament'
@@ -3906,6 +4212,10 @@ function playerTrackingCaptureFinished() {
 
 async function finalizePlayerTrackingCapture() {
   assertLeaseWritable('postgame capture finalization')
+  // The postgame version replaces the live one, so no live write may start
+  // after this point or still be running when the ingest opens it.
+  liveTrackingClosed = true
+  await liveTrackingSync
   if (!playerTrackingManifestPath || !fs.existsSync(playerTrackingManifestPath)) {
     throw new Error('player-tracking sidecar exited without a manifest')
   }
@@ -3969,6 +4279,8 @@ function requestPlayerTrackingStop() {
 // tracker_collector_feed.mjs so this bridge and the read-only preview cannot
 // disagree about what the capture health bar is saying.
 function handlePlayerTrackingLine(line) {
+  playerTrackingStartupLines.push(String(line))
+  if (playerTrackingStartupLines.length > 6) playerTrackingStartupLines.shift()
   const handled = applyCollectorLine(previewState, line, {
     log: (message) => log(`[player-tracker] ${message}`),
     onCaptureReady: (evidence) => settleCaptureRecording(
@@ -3986,6 +4298,7 @@ function handlePlayerTrackingLine(line) {
   if (line.startsWith('[live-play] ')) {
     playEventChain = playEventChain.then(backfillMeasuredRunnerAssignments)
       .catch((error) => log('late runner assignment processing failed:', error.message))
+      .then(syncLiveTrackingFacts)
   }
   // ONLY WHEN THE ROW HAD NOTHING. The games row stays the source of truth for
   // what is written to plate_appearances, and a stadium picked in the browser
@@ -3999,6 +4312,11 @@ function handlePlayerTrackingLine(line) {
     log(`stadium resolved from the game's own memory: ${TARGET_STADIUM_KEY}`)
     noteSessionStadium()
   }
+}
+
+function collectorStartupExitReason(code, phase) {
+  const detail = playerTrackingStartupLines.slice(-3).join(' | ')
+  return `the collector exited with code ${code} ${phase}${detail ? `: ${detail}` : ''}`
 }
 
 // ── the recording handshake ──────────────────────────────────────────────────
@@ -4113,12 +4431,16 @@ async function awaitCaptureAttached(child) {
   if (!child) return settleCaptureAttached({ ok: false, reason: 'the collector was not started' })
   const settled = new Promise((resolve) => { captureAttachedResolve = resolve })
   const onExit = (code) => settleCaptureAttached({
-    ok: false, reason: `the collector exited with code ${code} before it attached`,
+    ok: false, reason: collectorStartupExitReason(code, 'before it attached'),
   })
   const onError = (error) => settleCaptureAttached({
     ok: false, reason: `the collector could not be started: ${error.message}`,
   })
+  // Real ChildProcess emits exit before its stdio closes; test/replay children
+  // may expose either event. The settle function is idempotent, so accepting
+  // both reports an early death immediately without double handling it.
   child.once('exit', onExit)
+  child.once('close', onExit)
   child.once('error', onError)
   const timer = setTimeout(() => settleCaptureAttached({
     ok: false, reason: `the collector did not attach within ${Math.round(CAPTURE_ATTACH_TIMEOUT_MS / 1000)}s`,
@@ -4129,7 +4451,11 @@ async function awaitCaptureAttached(child) {
   const outcome = await settled
   clearTimeout(timer)
   child.off?.('exit', onExit)
+  child.off?.('close', onExit)
   child.off?.('error', onError)
+  if (!outcome.ok) {
+    setTrackerPreviewCaptureHealth(previewState, { note: outcome.reason })
+  }
   log(outcome.ok
     ? `collector attached (${outcome.evidence?.park || 'park unknown'}); starting the tracker`
     : `WARNING: the collector is NOT attached (${outcome.reason}). Starting the tracker anyway -- `
@@ -4331,12 +4657,13 @@ async function awaitCaptureRecording(child) {
   // running emulator, a bad park -- must not be waited out. Its exit is the
   // answer.
   const onExit = (code) => settleCaptureRecording({
-    ok: false, reason: `the collector exited with code ${code} before it captured anything`,
+    ok: false, reason: collectorStartupExitReason(code, 'before it captured anything'),
   })
   const onError = (error) => settleCaptureRecording({
     ok: false, reason: `the collector could not be started: ${error.message}`,
   })
   child.once('exit', onExit)
+  child.once('close', onExit)
   child.once('error', onError)
   const timer = setTimeout(() => settleCaptureRecording({
     ok: false,
@@ -4348,6 +4675,7 @@ async function awaitCaptureRecording(child) {
   const outcome = await settled
   clearTimeout(timer)
   child.off?.('exit', onExit)
+  child.off?.('close', onExit)
   child.off?.('error', onError)
   if (outcome.ok) {
     log(`capture confirmed after ${outcome.waitedMs}ms: `
@@ -4378,6 +4706,7 @@ function launchPlayerTracking() {
   // has an answer -- that is the source of truth for what gets written to
   // plate_appearances -- and `auto` is only the fallback when it has none.
   const park = TARGET_STADIUM_KEY || 'auto'
+  playerTrackingStartupLines = []
   if (!TARGET_STADIUM_KEY) {
     log('the game row names no stadium; the collector will read the park from the game itself')
   }
@@ -4400,6 +4729,7 @@ function launchPlayerTracking() {
     '--competition-type', trackerSourceType(),
     '--source-id', String(TARGET_SOURCE_ID || ''),
     '--note', `bridge ${trackerSourceType()} game ${TARGET_GAME_ID}`,
+    ...collectorEvidenceArgs(env),
   ]
   log(`launching 60 Hz player tracker for ${park}`)
   const child = spawnChild(PLAYER_TRACKING_PYTHON, args, { cwd: process.cwd(), windowsHide: true })
@@ -4438,7 +4768,10 @@ function launchPlayerTracking() {
         + 'finalizing anyway if it left a finished capture')
     }
     playerTrackingFinalization = finalizePlayerTrackingCapture()
-      .catch((error) => log('player-tracking post-processing failed:', error.message))
+      .catch((error) => {
+        playerTrackingFinalizationError = error
+        log('player-tracking post-processing failed:', error.message)
+      })
   })
   return child
 }
@@ -4513,11 +4846,11 @@ async function waitForLaunchSignal() {
 }
 
 // Everything a clean stop has to wait for: the serialized play-event chain,
-// the live-state publisher, postgame capture finalization, and game
-// completion. Shutdown drains exactly this list, and so does any in-process
-// caller that needs to know the game is fully written.
+// the live-state publisher, live tracking facts, postgame capture finalization,
+// and game completion. Shutdown drains exactly this list, and so does any
+// in-process caller that needs to know the game is fully written.
 export function pendingTrackerWork() {
-  return [playEventChain, pushStateQueue, playerTrackingFinalization, finalizationPromise]
+  return [playEventChain, pushStateQueue, liveTrackingSync, playerTrackingFinalization, finalizationPromise]
 }
 
 // The game lock, the workbook watcher and the preview socket are all released
@@ -4552,8 +4885,11 @@ function launchTracker() {
   log(`launching tracker: ${EXE_PATH}`)
   const child = spawnChild(EXE_PATH, [], { cwd: path.dirname(EXE_PATH) })
   trackerProcess = child
+  child.stdin?.on?.('error', (error) => log('tracker input closed:', error.message))
   previewState.trackerPid = child.pid || null
   previewState.trackerStatus = 'tracker launched; waiting for Dolphin'
+  const workbookSyncsAtLaunch = completedWorkbookSyncs
+  let shutdownReason = null
 
   readline.createInterface({ input: child.stdout }).on('line', handleTrackerLogLine)
   readline.createInterface({ input: child.stderr }).on('line', handleTrackerLogLine)
@@ -4566,10 +4902,14 @@ function launchTracker() {
     trackerProcess = null
     previewState.trackerPid = null
     previewState.trackerStatus = `tracker exited with code ${code}`
+    if (invokedDirectly && code !== 0 && shutdownReason !== 'game_completed') process.exitCode = 1
     sessionLog?.summary().forEach((line) => log(line))
     enqueuePlayEvent('Changing sides!') // flush any still-buffered plate appearance
     playEventChain.then(() => pushState(structuredClone(liveState)))
       .catch((err) => log('final live feed sync failed:', err.message))
+    if (invokedDirectly && AUTO_EXIT_AFTER_GAME) {
+      setImmediate(() => shutdown('tracker_exit'))
+    }
   })
   child.on('error', (err) => {
     log('failed to launch tracker:', err.message)
@@ -4580,34 +4920,79 @@ function launchTracker() {
     requestPlayerTrackingStop()
     try { child.kill() } catch { /* already gone */ }
   }
-  const shutdown = async () => {
-    // Ctrl+C during startup: the handshake is answered rather than abandoned,
-    // so the readers file says `cancelled` instead of never appearing.
-    cancelScoringReaderWait('the bridge was interrupted before the scoring reader attached')
-    cleanup()
-    const deadline = setTimeout(() => {
+  let shutdownPromise = null
+  const shutdown = (reason = 'signal') => {
+    if (shutdownPromise) return shutdownPromise
+    shutdownReason = reason
+    shutdownPromise = (async () => {
+      // Ctrl+C during startup: the handshake is answered rather than abandoned,
+      // so the readers file says `cancelled` instead of never appearing.
+      cancelScoringReaderWait('the bridge was interrupted before the scoring reader attached')
+      cleanup()
+      const deadline = setTimeout(() => {
+        trackerGameLock?.release()
+        process.exit(1)
+      }, trackerShutdownTimeoutMs(reason))
+      if (playerTrackingProcess) await new Promise((resolve) => playerTrackingProcess.once('exit', resolve))
+      // Exit handlers enqueue the last buffered PA and start postgame ingestion.
+      // Yield once so both promises exist, then drain every in-flight write.
+      await new Promise((resolve) => setImmediate(resolve))
+      let shutdownError = null
+      try {
+        // A tracker exit is the normal end of `npm run game`. Give the polling
+        // workbook watcher a bounded chance to publish the final XLSX, then make
+        // game completion explicit before taking the final snapshot of pending
+        // work. The 60 Hz derivation/ingest above normally provides more than
+        // enough time, but neither correctness nor process lifetime should rest
+        // on that timing accident.
+        if (reason === 'tracker_exit' || reason === 'game_completed') {
+          const workbookBaseline = finalScoreWorkbookSyncBaseline ?? workbookSyncsAtLaunch
+          const workbookDeadline = Date.now() + 5000
+          while (completedWorkbookSyncs <= workbookBaseline && Date.now() < workbookDeadline) {
+            await new Promise((resolve) => setTimeout(resolve, 100))
+          }
+          await xlsxSyncQueue
+          if (lastXlsxSyncError) throw lastXlsxSyncError
+          if (completedWorkbookSyncs <= workbookBaseline) {
+            throw new Error('the final tracker workbook was not detected or published')
+          }
+          await playEventChain
+          await syncScoreFromTracker()
+          if (!finalizationPromise) {
+            throw new Error('the final score was not available, so the game could not be finalized')
+          }
+        }
+      } catch (error) {
+        shutdownError = error
+        log('shutdown final-score check failed:', error.message)
+      }
+      // Derivation and ingestion still have to finish when the workbook check
+      // or a game-completion write fails. Keeping this outside the check above
+      // prevents process.exit() from killing postgame work in progress.
+      try {
+        await drainTrackerWork(pendingTrackerWork(), { requiredFailure: () => requiredPersistenceFailure })
+        if (playerTrackingFinalizationError) throw playerTrackingFinalizationError
+      } catch (error) {
+        shutdownError ||= error
+        log('shutdown could not drain all tracker writes:', error.message)
+      }
+      clearTimeout(deadline)
       trackerGameLock?.release()
-      process.exit(1)
-    }, 30000)
-    if (playerTrackingProcess) await new Promise((resolve) => playerTrackingProcess.once('exit', resolve))
-    // Exit handlers enqueue the last buffered PA and start postgame ingestion.
-    // Yield once so both promises exist, then drain every in-flight write.
-    await new Promise((resolve) => setImmediate(resolve))
-    let shutdownError = null
-    try {
-      await drainTrackerWork(pendingTrackerWork(), { requiredFailure: () => requiredPersistenceFailure })
-    } catch (error) {
-      shutdownError = error
-      log('shutdown could not drain all tracker writes:', error.message)
-    }
-    clearTimeout(deadline)
-    trackerGameLock?.release()
-    await trackerGameLease?.release().catch(() => {})
-    if (shutdownError) process.exitCode = 1
-    process.exit()
+      await trackerGameLease?.release().catch(() => {})
+      if (shutdownError) process.exitCode = 1
+      if (reason === 'tracker_exit' || reason === 'game_completed') {
+        log(shutdownError
+          ? 'postgame workflow finished with errors; see the messages above'
+          : 'postgame workflow complete: box score published, tracking ingested, game finalized')
+      }
+      process.exit()
+    })()
+    return shutdownPromise
   }
   process.once('SIGINT', shutdown)
   process.once('SIGTERM', shutdown)
+  requestManualStop = () => shutdown('manual_stop')
+  requestCompletedGameStop = () => shutdown('game_completed')
 
   return child
 }
@@ -4617,6 +5002,26 @@ function launchTracker() {
 // real sign-in.
 export async function main(deps = {}) {
   spawnChild = deps.spawn || spawn
+  if (PLAYER_TRACKING_ENABLED && !deps.supabase) {
+    // Check imports before AutoTeam touches the emulator. A missing collector
+    // dependency used to surface only after the first pitch, when fielding for
+    // that game could no longer be recovered.
+    const check = spawnSync(PLAYER_TRACKING_PYTHON,
+      ['-c', 'import numpy, dolphin_memory_engine, collect_player_tracking'], {
+        cwd: path.resolve('scripts'),
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 10000,
+      })
+    if (check.error || check.status !== 0) {
+      const detail = check.error?.message || check.stderr?.trim() || `exit code ${check.status}`
+      throw new Error(`60 Hz collector Python is not ready (${PLAYER_TRACKING_PYTHON}): ${detail}. `
+        + 'Set TRACKER_PLAYER_PYTHON to a Python with numpy and dolphin-memory-engine installed.')
+    }
+    // Same gate as the preview: a comprehensive capture without its session
+    // metadata is refused here rather than after the first pitch.
+    assertEvidenceProfileReady({ ...env, TRACKER_PLAYER_PYTHON: PLAYER_TRACKING_PYTHON })
+  }
   if (deps.supabase) {
     // An injected client is already authorized — there is no credential to
     // exchange and no endpoint to reach. Everything after this point is the
@@ -4712,6 +5117,17 @@ export async function main(deps = {}) {
   }
   const recoveredEvents = await scoringPersistence.recoverPending()
   if (recoveredEvents.length) log(`recovered ${recoveredEvents.length} incomplete scoring event(s) before tracker launch`)
+  if (['0', 'false', 'no'].includes(String(env.TRACKER_LIVE_TRACKING ?? '').trim().toLowerCase())) {
+    log('live tracking facts are off (TRACKER_LIVE_TRACKING); movement and fielding rows arrive with the postgame ingest')
+  } else {
+    liveTrackingPersistence = createLiveTrackingPersistence({
+      supabase,
+      competitionType: trackerSourceType(),
+      gameId: TARGET_GAME_ID,
+      sourceId: TARGET_SOURCE_ID,
+      log: (...args) => log(...args),
+    })
+  }
   openSessionLog()
   // Up as early as the target is known, well before the tracker launches, so
   // the scorebook's live tracker tab shows "connected, waiting for an at-bat"
@@ -4776,8 +5192,11 @@ export async function main(deps = {}) {
     log('WARNING: using the stock tracker executable; full lineups/fielding will only sync from the completed workbook. ' +
       'Run scripts/patch_tracker_lineup_feed.py or set TRACKER_EXE_PATH to the lineup-feed-enabled build for live alignment sync.')
   }
-  watchXlsx()
   await waitForLaunchSignal()
+  // No tracker workbook can be written before the live-game handoff. Keep
+  // polling off the machine while AutoTeam is driving frame-sensitive menus,
+  // then attach before starting either game reader.
+  watchXlsx()
   // THE ORDER THAT ACTUALLY PROTECTS THE OPENING PLAY.
   //
   // Both readers are started as early as possible and gameplay is held while

@@ -1,0 +1,87 @@
+{
+  "session": "wario_city-20260910T011153Z",
+  "position_offset": 4,
+  "ball_frame": {
+    "sign_x": 1.0,
+    "sign_z": -1.0,
+    "swap_xz": false,
+    "lock_frames": 14382,
+    "lock_units": 0.05
+  },
+  "movement_units": 26425.9,
+  "teleports": 2142,
+  "candidates": [
+    {
+      "offset": 4,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 14382,
+      "path": 26425.9,
+      "teleports": 2142
+    },
+    {
+      "offset": 56,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 4912,
+      "path": 11553.2,
+      "teleports": 6710
+    },
+    {
+      "offset": 432,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 1450,
+      "path": 5954.3,
+      "teleports": 5882
+    },
+    {
+      "offset": 68,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 1221,
+      "path": 614.0,
+      "teleports": 163
+    },
+    {
+      "offset": 424,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 382,
+      "path": 5980.2,
+      "teleports": 5882
+    },
+    {
+      "offset": 272,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": false,
+      "locks": 378,
+      "path": 41.6,
+      "teleports": 38
+    },
+    {
+      "offset": 272,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": false,
+      "locks": 375,
+      "path": 41.6,
+      "teleports": 38
+    },
+    {
+      "offset": 212,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": false,
+      "locks": 336,
+      "path": 4199.3,
+      "teleports": 2945
+    }
+  ]
+}

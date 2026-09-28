@@ -14,7 +14,7 @@ import {
 import { createTrackerPreviewServer } from './tracker_preview_server.mjs'
 import { createTrackerSessionLog } from './tracker_session_log.mjs'
 import { annotationPathFor } from './tracker_annotations.mjs'
-import { applyCollectorLine } from './tracker_collector_feed.mjs'
+import { applyCollectorLine, collectorEvidenceArgs } from './tracker_collector_feed.mjs'
 
 const env = { ...process.env }
 // v26 widened the ball-object scan to the whole object. v25 and earlier search
@@ -220,6 +220,22 @@ function launchCollector({ force = false } = {}) {
     '--stop-file', collectorStopPath,
     '--manifest', collectorManifestPath,
     '--note', 'standalone preview (no database writes)',
+    // Set TRACKER_CALIBRATION_EXCLUDED=1 for a stadium-research game, where
+    // balls are deliberately let go so they reach a hazard. The capture and the
+    // derivation are unaffected; only the calibration counts skip it. See
+    // --calibration-excluded in collect_player_tracking.py.
+    ...(env.TRACKER_CALIBRATION_EXCLUDED === '1' ? ['--calibration-excluded'] : []),
+    // And WHY, when the operator said. The collector's default reason names
+    // stadium research, which is only sometimes true: a scripted swing-mode
+    // game is excluded for a different reason and used to be filed under that
+    // sentence anyway. --calibration-excluded-reason on the launcher sets this.
+    ...(env.TRACKER_CALIBRATION_EXCLUDED === '1'
+      && String(env.TRACKER_CALIBRATION_EXCLUDED_REASON || '').trim()
+      ? ['--calibration-excluded-reason', String(env.TRACKER_CALIBRATION_EXCLUDED_REASON).trim()]
+      : []),
+    // The comprehensive evidence profile and who held which remote. Validated
+    // by tracker_preview.mjs before anything was launched.
+    ...collectorEvidenceArgs(env),
   ]
   console.log(`[tracker-preview] launching the 60 Hz collector for ${park}`
     + (collectorAttempts > 1 ? ` (attempt ${collectorAttempts})` : ''))

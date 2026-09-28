@@ -16,6 +16,11 @@ import {
   parseTrackerPutoutMessage,
   TRACKER_MEASURED_DISTANCE_SOURCES,
   shouldChargeTrackerBobbleError,
+  trackerPlayIsNicePlay,
+  isTrackerMissingPlayerName,
+  trackerPlayCatchPosition,
+  trackerHitBeforeOutfieldBoot,
+  trackerOutNotationLetter,
   trackerPlayThrowingError,
   trackerBobbleErrorVeto,
   trackerPlayFieldingPosition,
@@ -24,9 +29,11 @@ import {
   normalizeRbiForPaResult,
   trackerRbiForPaResult,
   shouldClassifyTrackerFielderChoice,
+  shouldReclassifyTrackerSingleAsFielderChoice,
   shouldClassifyTrackerSacrificeBunt,
   shouldReclassifyTrackerFlyOutAsSacFly,
   shouldDowngradeTrackerHitToRoe,
+  trackerResultFromMeasuredBatterBases,
   TRACKER_BALL_SAMPLE_MARKER,
   TRACKER_PITCH_PROVISIONAL_MARKER,
   TrackerBallSampleBuffer,
@@ -560,6 +567,7 @@ function exactRunnerAssignmentsFromPlay(pa, play) {
     ...entries[index],
     runner: { characterName: entries[index].characterName },
     destination: destination.destination,
+    ...(destination.attemptedBase ? { attemptedBase: destination.attemptedBase } : {}),
   }))
 }
 
@@ -624,11 +632,23 @@ function deterministicRunnerAssignments(pa) {
 function normalizedResult(pa, play = null) {
   let result = pa.result
   if (!result && shouldClassifyTrackerFielderChoice(pa)) result = 'FC'
+  // The executable occasionally omits its human-readable "recorded a
+  // single/double" line even though the 60 Hz play is complete.  The runner
+  // slot is authoritative about how many bases the batter actually reached,
+  // so use it only as a joined-play fallback.  Tracker announcements and
+  // putouts still win, and a truncated/non-fair play remains unresolved.
+  if (!result) result = trackerResultFromMeasuredBatterBases(play)
+  if (shouldReclassifyTrackerSingleAsFielderChoice({ result, play })) result = 'FC'
   if (result === 'FO' && pa.battedBallTrajectory === 'L') result = 'LO'
   const error = shouldChargeTrackerBobbleError({ bobbleFielderName: pa.bobbleFielderName, result, play })
   if (error && shouldDowngradeTrackerHitToRoe({
     result, bobbleFielderName: pa.bobbleFielderName, play,
   })) result = 'ROE'
+  if (error) {
+    result = trackerHitBeforeOutfieldBoot({
+      result, bobbleFielderName: pa.bobbleFielderName, play,
+    }) || result
+  }
   const isBunt = trackerContactWasBunt(pa.advancedBattedBall, play)
   // The one sac-fly rule, shared with the bridge. This used to be a second
   // copy spelled out here, and the two drifted: the helper learned that a
@@ -676,7 +696,7 @@ function serializePa(state, pa, runnerAssignments = pa.exactRunnerAssignments ||
   const result = normalizedResult(pa, play)
   const announcedBobble = pa.bobbleFielderName
   const announcedBobbleVeto = trackerBobbleErrorVeto({
-    bobbleFielderName: announcedBobble, play,
+    bobbleFielderName: announcedBobble, result, play,
   })
   // The executable's line is sourced from a shared fielding-animation byte,
   // not from ball contact. Once the 60 Hz capture proves the named fielder
@@ -690,7 +710,7 @@ function serializePa(state, pa, runnerAssignments = pa.exactRunnerAssignments ||
     .includes(announcedBobbleVeto?.reason)
   const bobbleFielderName = discardedBobble ? null : announcedBobble
   const bobbleError = shouldChargeTrackerBobbleError({
-    bobbleFielderName, result: pa.result, play,
+    bobbleFielderName, result, play,
   })
   const errorVeto = discardedBobble ? null : announcedBobbleVeto
   // The second error source, measured rather than announced. Consulted only
@@ -709,9 +729,14 @@ function serializePa(state, pa, runnerAssignments = pa.exactRunnerAssignments ||
   const loggedChain = chainNames
     .map((name) => fieldingPosition(state, name, pa.pitcherName, play))
     .filter((value) => value != null)
-  const chainPositions = capturedChain.length ? capturedChain : loggedChain
+  // "No Player put X out!" -- the tracker lost the fielder; the capture did not.
+  const caughtBy = isTrackerMissingPlayerName(pa.putoutFielderName)
+    ? TRACKER_POSITION_NUMBERS[trackerPlayCatchPosition(play)] ?? null
+    : null
+  const chainPositions = capturedChain.length ? capturedChain
+    : caughtBy != null ? [caughtBy] : loggedChain
   let hitNotation = chainPositions.length
-    ? `${pa.battedBallTrajectory || (result === 'FO' ? 'F' : result === 'LO' ? 'L' : 'G')}${chainPositions.join('-')}`
+    ? `${trackerOutNotationLetter({ result, trajectory: pa.battedBallTrajectory, play })}${chainPositions.join('-')}`
     : null
   let errorNotation = null
   if (bobbleError && errorPosition != null) {
@@ -729,7 +754,11 @@ function serializePa(state, pa, runnerAssignments = pa.exactRunnerAssignments ||
       errorPosition,
     )
   }
-  const outsOnPlay = resultOuts(result, pa.observedPutouts)
+  const safeMeasuredFielderChoice = result === 'FC'
+    && shouldReclassifyTrackerSingleAsFielderChoice({ result: '1B', play })
+  const outsOnPlay = safeMeasuredFielderChoice
+    ? pa.observedPutouts.length
+    : resultOuts(result, pa.observedPutouts)
   const decisivePitch = offers.pitches.at(-1)
   const batterRun = pa.runEvents.find((run) => run.scorerName === pa.batterName)
   return {
@@ -786,7 +815,9 @@ function serializePa(state, pa, runnerAssignments = pa.exactRunnerAssignments ||
     // silently dropping a charge the operator saw the tracker make.
     error_vetoed_reason: errorVeto?.reason ?? null,
     error_vetoed_detail: errorVeto?.detail ?? null,
-    is_nice_play: false,
+    is_nice_play: trackerPlayIsNicePlay({
+      play, hitNotation, outsOnPlay, isBuddyJump: pa.isBuddyJump,
+    }),
     star_hit_used: Boolean(pa.starHitUsed),
     star_hit_connected: Boolean(
       decisivePitch?.is_star_swing && decisivePitch.result === 'in_play',
@@ -1088,6 +1119,15 @@ function joinableAtBats(state) {
   return atBats
 }
 
+/** Every play's join, re-run against the at-bats this session holds now. */
+export function rejoinTrackerPreviewPlays(state) {
+  if (!state?.playerTracking) return new Map()
+  return rejoinPlays(state.playerTracking, joinableAtBats(state), {
+    latestInning: state.inning,
+    latestHalf: state.isTop ? 'top' : 'bottom',
+  })
+}
+
 /**
  * The 60 Hz play this at-bat's outcome should be read from, joins re-run first.
  *
@@ -1099,10 +1139,7 @@ function joinableAtBats(state) {
  */
 export function trackerPreviewOutcomePlay(state, paNumber) {
   if (!state?.playerTracking || paNumber == null) return null
-  rejoinPlays(state.playerTracking, joinableAtBats(state), {
-    latestInning: state.inning,
-    latestHalf: state.isTop ? 'top' : 'bottom',
-  })
+  rejoinTrackerPreviewPlays(state)
   if (state.latestCompletedBuffer) {
     state.latestCompleted = serializePaWithProjection(
       state, state.latestCompletedBuffer, state.latestCompletedBuffer.exactRunnerAssignments,
@@ -1350,6 +1387,19 @@ export function applyTrackerPreviewMessage(state, message) {
     pa.result = 'HBP'
     return state
   }
+  // The game never prints Count: 4-x.  A walk therefore ends with this line,
+  // not with the count transition that used to be our only BB path.
+  if ((match = clean.match(/^(.+?) walked (.+?)!$/i))
+      && match[1].trim() === pa.pitcherName
+      && match[2].trim() === pa.batterName) {
+    const before = pa.lastCount
+    const after = { balls: Math.max(4, before.balls + 1), strikes: before.strikes }
+    pushPitch(state, pa, 'ball', before, after)
+    pa.pendingPitchType = null
+    pa.lastCount = after
+    pa.result = 'BB'
+    return state
+  }
   if (clean.startsWith('[TRACKER_BALL_FIELDED_PROVISIONAL]')) {
     const record = parseTrackerFieldedBallMessage(clean)
     if (record) applyTrackerFieldedBallToBuffer(pa, record)
@@ -1408,6 +1458,9 @@ export function applyTrackerPreviewMessage(state, message) {
     return state
   }
   if ((match = clean.match(/^(.+?)\s+went high up with the buddy jump to get the out!$/i))) {
+    // "No Player" here is the tracker losing the fielder, not a Buddy Jump --
+    // see the same rule in live_tracker_bridge.mjs.
+    if (isTrackerMissingPlayerName(match[1])) return state
     pa.isBuddyJump = true
     pa.buddyJumpFielderName = match[1].trim()
     return state

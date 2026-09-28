@@ -133,6 +133,25 @@ test('conflicting facts under one event key are refused, and nothing is written'
     'the refused payload left no run behind either')
 })
 
+test('a backfilled contact seq does not make the first payload a conflict', { skip }, async (t) => {
+  // Season game 2766's first home run: written with no contact seq, backfilled
+  // when its batted ball arrived, then re-delivered unchanged by completion.
+  const w = await world(t)
+  const event = {
+    eventKey: 'tracker-pa:29:1',
+    pa: paFor(w, { result: 'HR', tracker_contact_seq: null }),
+    pitches: [],
+    runs: [],
+  }
+  const first = await writer(w.supabase, w.gameId).persistEvent(event)
+  await w.db.query('update plate_appearances set tracker_contact_seq = 530 where id = $1', [first.pa.id])
+
+  const again = await writer(w.supabase, w.gameId).persistEvent(event)
+  assert.equal(again.pa.id, first.pa.id)
+  assert.equal(await w.db.value('select tracker_contact_seq from plate_appearances where id = $1',
+    [first.pa.id]), 530)
+})
+
 test('an identical retry is a no-op, children included', { skip }, async (t) => {
   const w = await world(t)
   const event = {

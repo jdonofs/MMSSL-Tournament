@@ -65,13 +65,17 @@ function harness(t, {
 } = {}) {
   const supabase = createTrackerFakeSupabase(tables)
   supabase.auth = {
-    signInWithPassword: async () => ({ data: { session: { user: {} } }, error: null }),
+    signInWithPassword: async () => ({ data: { session: {
+      user: {}, access_token: 'launcher-session-token',
+    } }, error: null }),
   }
   const logs = []
   const errors = []
   const signals = new Map()
+  const controls = new Set()
   const exitCodes = []
   const exitHandlers = []
+  const fetches = []
   const spawn = createFakeSpawner(script)
   const asked = []
   const ask = async (question) => {
@@ -116,8 +120,14 @@ function harness(t, {
     offSignal: (name, handler) => {
       signals.set(name, (signals.get(name) || []).filter((entry) => entry !== handler))
     },
+    onControl: (handler) => controls.add(handler),
+    offControl: (handler) => controls.delete(handler),
     onExit: (handler) => exitHandlers.push(handler),
     exit: (code) => { exitCodes.push(code) },
+    fetch: async (url, init) => {
+      fetches.push({ url, init })
+      return { ok: true, status: 202, json: async () => ({ accepted: true }) }
+    },
   }
 
   return {
@@ -128,6 +138,7 @@ function harness(t, {
     errors,
     exitCodes,
     exitHandlers,
+    fetches,
     asked,
     signalPath: path.join(dir, SIGNAL_NAME),
     readyPath: path.join(dir, `${SIGNAL_NAME}.ready`),
@@ -139,6 +150,7 @@ function harness(t, {
         .map((name) => JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8')))
     },
     raise: (name) => (signals.get(name) || []).slice().forEach((handler) => handler()),
+    control: (message) => [...controls].forEach((handler) => handler(message)),
     signalCount: (name) => (signals.get(name) || []).length,
     run: () => main(deps),
     output: () => logs.concat(errors).join('\n'),
@@ -224,6 +236,7 @@ test('--table resolves an overlapping id and travels to both children', async (t
   })
   const finished = run.run()
   const autoteam = await pumpUntilAutoteam(run)
+  assert.equal(autoteam.args.includes('--nav-preset'), false, 'use AutoTeam’s brisk default')
   autoteam.child.say(`${MATCH_LIVE_MARKER} confirmed`)
   await waitFor('the handoff', () => fs.existsSync(run.signalPath))
   autoteam.child.exit(0)
@@ -287,6 +300,9 @@ test('the claim happens after a successful export and before the bridge', async 
     call.args.some((arg) => String(arg).includes(EXPORTER)) ? 'export'
       : call.args.some((arg) => String(arg).includes(BRIDGE)) ? 'bridge' : 'autoteam'))
   assert.deepEqual(order, ['export', 'bridge', 'autoteam'])
+  assert.equal(run.spawn.oneFor(EXPORTER).options.env.MSS_EXPORT_ACCESS_TOKEN,
+    'launcher-session-token')
+  assert.equal(run.spawn.oneFor(BRIDGE).options.env.MSS_EXPORT_ACCESS_TOKEN, undefined)
   autoteam.child.say(`${MATCH_LIVE_MARKER} confirmed`)
   await waitFor('the handoff', () => fs.existsSync(run.signalPath))
   autoteam.child.exit(0)
@@ -474,12 +490,15 @@ test('a failure after the handoff leaves the signal the bridge is still reading'
   autoteam.child.say(`${MATCH_LIVE_MARKER} confirmed`)
   await waitFor('the handoff', () => fs.existsSync(run.signalPath))
   autoteam.child.exit(2)
-  await assert.rejects(finished, /The match was already live/)
+  // The run waits out the bridge it launched rather than exiting under it.
+  await new Promise((resolve) => setTimeout(resolve, 20))
   // The bridge polls for this file every 250ms. Deleting it inside that window
   // strands the bridge until its own five-minute timeout, after which it
   // launches the tracker anyway -- into whatever screen is up.
   assert.equal(fs.existsSync(run.signalPath), true)
   assert.deepEqual(run.spawn.oneFor(BRIDGE).child.killSignals, [])
+  run.spawn.oneFor(BRIDGE).child.exit(0)
+  await assert.rejects(finished, /The match was already live/)
 })
 
 test('autoteam failing to spawn does not leak the bridge', async (t) => {
@@ -516,6 +535,16 @@ test('cancelling during bridge startup kills the bridge and reports a cancelled 
   assert.match(run.output(), /nothing is recording this game/)
 })
 
+test('the local helper can stop menu navigation through its control channel', async (t) => {
+  const run = harness(t, { argv: ['--game', '12'], script: standardStartup })
+  const finished = run.run()
+  const autoteam = await pumpUntilAutoteam(run)
+  run.control({ type: 'stop' })
+  assert.equal(await finished, 130)
+  assert.ok(autoteam.child.killSignals.length >= 1)
+  assert.ok(run.spawn.oneFor(BRIDGE).child.killSignals.length >= 1)
+})
+
 test('cancelling before the handoff kills both children', async (t) => {
   const run = harness(t, { argv: ['--game', '12'], script: standardStartup })
   const finished = run.run()
@@ -538,14 +567,41 @@ test('cancelling after the handoff leaves the bridge to finish its capture', asy
   await waitFor('the game to be under way', () => run.output().includes('Handed off on a confirmed'))
 
   const bridge = run.spawn.oneFor(BRIDGE).child
-  run.raise('SIGINT')
+  run.control({ type: 'stop' })
   // On Windows kill() is a TerminateProcess, which would skip the bridge's own
   // SIGTERM handler -- the one that flushes the capture and drains the writes.
   assert.deepEqual(bridge.killSignals, [],
     'a bridge with a capture still finalizing must never be terminated from here')
-  assert.match(run.output(), /left running/)
-  assert.deepEqual(run.exitCodes, [130], 'a cancelled run must not report success')
+  // Nor may this process exit under it: on Windows the bridge is in this
+  // process's job object and dies with it. Season games 2811 and 2812 lost
+  // their postgame ingest that way.
+  assert.deepEqual(run.exitCodes, [])
+  await waitFor('the shutdown request', () => run.fetches.length)
+  assert.equal(run.fetches[0].url, 'http://127.0.0.1:4317/shutdown')
+  assert.deepEqual(JSON.parse(run.fetches[0].init.body), { gameId: 12, table: 'games' })
+  let settled = false
+  finished.then(() => { settled = true })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(settled, false, 'the run must outlive the bridge it launched')
   bridge.exit(0)
+  assert.equal(await finished, 130, 'a cancelled run must not report success')
+  assert.deepEqual(run.exitCodes, [])
+})
+
+test('a second stop after the handoff forces the exit', async (t) => {
+  const run = harness(t, { argv: ['--game', '12'], script: standardStartup })
+  const finished = run.run()
+  const autoteam = await pumpUntilAutoteam(run)
+  autoteam.child.say(`${MATCH_LIVE_MARKER} confirmed`)
+  await waitFor('the handoff', () => fs.existsSync(run.signalPath))
+  autoteam.child.exit(0)
+  await waitFor('the game to be under way', () => run.output().includes('Handed off on a confirmed'))
+
+  run.raise('SIGINT')
+  run.raise('SIGINT')
+  assert.deepEqual(run.exitCodes, [130])
+  assert.match(run.output(), /without waiting for the bridge/)
+  run.spawn.oneFor(BRIDGE).child.exit(0)
   await finished
 })
 
@@ -877,6 +933,24 @@ test('--python chooses the interpreter and MSS_PYTHON is the fallback', async (t
   assert.equal(child.command, path.join('C:', 'py 3.10', 'python.exe'))
   child.child.exit(0)
   await second
+})
+
+test('the bridge collector uses the same selected Python as AutoTeam', async (t) => {
+  const python = path.join('C:', 'py with numpy', 'python.exe')
+  const run = harness(t, {
+    argv: ['--game', '12', '--python', python],
+    script: standardStartup,
+  })
+  const finished = run.run()
+  const autoteam = await pumpUntilAutoteam(run)
+  const bridge = run.spawn.oneFor(BRIDGE)
+  assert.equal(autoteam.command, python)
+  assert.equal(bridge.options.env.TRACKER_PLAYER_PYTHON, python)
+  autoteam.child.say(`${MATCH_LIVE_MARKER} confirmed`)
+  await waitFor('the handoff', () => fs.existsSync(run.signalPath))
+  autoteam.child.exit(0)
+  bridge.child.exit(0)
+  await finished
 })
 
 test('a launch writes down what it actually did, and what it was recording', async (t) => {

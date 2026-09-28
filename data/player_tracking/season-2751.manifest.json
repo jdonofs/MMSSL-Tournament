@@ -1,0 +1,17 @@
+{
+  "status": "recording",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260918T131831Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260918T131831Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260918T131831Z.bin",
+  "game_id": "2751",
+  "competition_type": "season",
+  "source_id": "73",
+  "recorded_utc": "20260918T131831Z",
+  "park": "daisy_cruiser",
+  "stadium_byte": 7,
+  "day_night_bytes": [
+    1,
+    1
+  ],
+  "is_night": true
+}

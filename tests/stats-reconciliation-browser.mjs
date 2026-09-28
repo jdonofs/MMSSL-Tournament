@@ -163,6 +163,8 @@ try {
     throw new Error(`Stats controls did not render at ${page.url()}: ${(await page.locator('body').innerText()).slice(0, 2000)}`)
   }
   await page.locator('.stats-rail-scope-select').first().selectOption('tournament-101')
+  // Stats opens on Leaders; the batting table lives under Batting > Standard.
+  await page.getByRole('button', { name: 'Batting', exact: true }).click()
   const alphaRow = page.locator('tbody tr:visible').first()
   try {
     await alphaRow.waitFor({ timeout: 10_000 })
@@ -170,13 +172,16 @@ try {
     throw new Error(`Tournament Stats row did not render: ${(await page.locator('body').innerText()).slice(0, 5000)}`, { cause: error })
   }
   const alphaText = await alphaRow.innerText()
-  assert.match(alphaText, /11/)
+  // Stats intentionally includes durable rows from active/reopened games. The
+  // completed snapshot contributes 11 PA and the two active game rows bring
+  // the live total to 13; excluded and abandoned rows remain absent.
+  assert.equal((await alphaRow.locator('td').nth(2).innerText()).trim(), '13')
   assert.doesNotMatch(alphaText, /active/i)
 
   await page.locator('.stats-rail-scope-select').first().selectOption('season-201')
   const charlieRow = page.locator('tbody tr:visible').first()
   await charlieRow.waitFor()
-  assert.match(await charlieRow.innerText(), /4/)
+  assert.equal((await charlieRow.locator('td').nth(2).innerText()).trim(), '5')
 
   await page.locator('.stats-rail-scope-select').first().selectOption('all')
   await page.getByRole('button', { name: 'Characters', exact: true }).click()
@@ -186,7 +191,7 @@ try {
   } catch (error) {
     throw new Error(`Career character Stats row did not render: ${(await page.locator('body').innerText()).slice(0, 5000)}`, { cause: error })
   }
-  assert.match(await redRow.innerText(), /6/)
+  assert.equal((await redRow.locator('td').nth(2).innerText()).trim(), '9')
 
   // Direct profile routes exercise their own hooks rather than Stats' navigation preset.
   await page.goto(`${baseUrl}/character/1/career`, { waitUntil: 'networkidle' })

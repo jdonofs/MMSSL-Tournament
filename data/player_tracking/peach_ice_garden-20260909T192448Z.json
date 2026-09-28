@@ -1,0 +1,328 @@
+{
+  "format": "MSSTRK02",
+  "park": "peach_ice_garden",
+  "note": "standalone preview (no database writes)",
+  "recorded_utc": "20260909T192448Z",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "state_base": 2416791552,
+  "state_size": 27968,
+  "extra_regions": [
+    [
+      "barrel_components",
+      2460899264,
+      384
+    ],
+    [
+      "barrel_transform",
+      2460963840,
+      512
+    ],
+    [
+      "freezie_objects",
+      2460138560,
+      8192
+    ]
+  ],
+  "capture_size": 37056,
+  "freezie_array": 2460140212,
+  "freezie_count": 5,
+  "freezie_stride": 172,
+  "freezie_transform": 0,
+  "freezie_transform_copy": 48,
+  "freezie_translation": [
+    12,
+    28,
+    44
+  ],
+  "freezie_active_offset": 138,
+  "barrel_position": 2460963984,
+  "barrel_cannons": [
+    [
+      -39,
+      4,
+      -93.5
+    ],
+    [
+      39,
+      4,
+      -93.5
+    ]
+  ],
+  "game_timer_address": 2416835836,
+  "ball_offset": 1204,
+  "actor_fields": {
+    "vtable": 0,
+    "position_a": 4,
+    "scale": 16,
+    "position_b": 56,
+    "batting_index": 41,
+    "character_id": 43,
+    "buddy_jump_flag": 547,
+    "airborne_flag": 558,
+    "catch_type": 684,
+    "bobble_flag": 690,
+    "fielding_contact_counter": 708,
+    "close_play_flag": 582,
+    "frozen_flag": 576,
+    "frozen_timer": 525,
+    "flower_gas_flag": 578,
+    "knockdown_flag": 575,
+    "buddy_attack_flag": 613,
+    "buddy_attack_frames": 523,
+    "buddy_attack_hit_flag": 615,
+    "bases_ran": 381,
+    "is_stealing": 408
+  },
+  "state_fields": [
+    [
+      "inning",
+      2416795031,
+      "B"
+    ],
+    [
+      "inning_half",
+      2416795173,
+      "B"
+    ],
+    [
+      "outs",
+      2416794281,
+      "B"
+    ],
+    [
+      "balls",
+      2416794280,
+      "B"
+    ],
+    [
+      "strikes",
+      2416794279,
+      "B"
+    ],
+    [
+      "game_state",
+      2416794664,
+      "B"
+    ],
+    [
+      "last_state",
+      2416794665,
+      "B"
+    ],
+    [
+      "ball_was_hit",
+      2416798356,
+      "B"
+    ],
+    [
+      "ball_status",
+      2416809274,
+      "B"
+    ],
+    [
+      "home_run_flag",
+      2416809276,
+      "B"
+    ],
+    [
+      "ball_holder",
+      2416797385,
+      "b"
+    ],
+    [
+      "last_ball_holder",
+      2416791638,
+      "B"
+    ],
+    [
+      "batter_id",
+      2416798191,
+      "B"
+    ],
+    [
+      "batter_index",
+      2416817657,
+      "B"
+    ],
+    [
+      "batter_bases_ran",
+      2416817997,
+      "B"
+    ],
+    [
+      "pitches",
+      2416797996,
+      "B"
+    ],
+    [
+      "batters_this_inning",
+      2416795189,
+      "B"
+    ],
+    [
+      "num_bases_ran",
+      2416797394,
+      "b"
+    ],
+    [
+      "fair_or_foul",
+      2416809238,
+      ">h"
+    ],
+    [
+      "runs_this_pitch",
+      2416795184,
+      "B"
+    ],
+    [
+      "outs_this_pitch",
+      2416795185,
+      "B"
+    ],
+    [
+      "throw_target",
+      2416809242,
+      ">h"
+    ],
+    [
+      "contact_fielder",
+      2416809250,
+      ">h"
+    ],
+    [
+      "last_contact_fielder",
+      2416809252,
+      ">h"
+    ],
+    [
+      "buddy_thrower",
+      2416797392,
+      ">h"
+    ],
+    [
+      "buddy_partner",
+      2416797390,
+      ">h"
+    ],
+    [
+      "swing_frames",
+      2416798281,
+      "B"
+    ],
+    [
+      "bunt_frames",
+      2416798287,
+      "B"
+    ],
+    [
+      "laser_throw_flag",
+      2416810741,
+      "B"
+    ]
+  ],
+  "actors": {
+    "fielders": [
+      {
+        "name": "P",
+        "address": 2416810780,
+        "stride": 748
+      },
+      {
+        "name": "C",
+        "address": 2416811528,
+        "stride": 748
+      },
+      {
+        "name": "1B",
+        "address": 2416812276,
+        "stride": 748
+      },
+      {
+        "name": "2B",
+        "address": 2416813024,
+        "stride": 748
+      },
+      {
+        "name": "3B",
+        "address": 2416813772,
+        "stride": 748
+      },
+      {
+        "name": "SS",
+        "address": 2416814520,
+        "stride": 748
+      },
+      {
+        "name": "LF",
+        "address": 2416815268,
+        "stride": 748
+      },
+      {
+        "name": "CF",
+        "address": 2416816016,
+        "stride": 748
+      },
+      {
+        "name": "RF",
+        "address": 2416816764,
+        "stride": 748
+      }
+    ],
+    "offense": [
+      {
+        "name": "BAT",
+        "address": 2416817616,
+        "stride": 468
+      },
+      {
+        "name": "R1",
+        "address": 2416818084,
+        "stride": 468
+      },
+      {
+        "name": "R2",
+        "address": 2416818552,
+        "stride": 468
+      },
+      {
+        "name": "R3",
+        "address": 2416819020,
+        "stride": 468
+      }
+    ]
+  },
+  "stadium_byte": 4,
+  "day_night_bytes": [
+    0,
+    0
+  ],
+  "is_night": false,
+  "live_plays_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260909T192448Z.live.jsonl",
+  "live_pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260909T192448Z.pitches.jsonl",
+  "live_position_offset": 4,
+  "frames": 24912,
+  "missed_frames": 0,
+  "fielder_pointers_left_region": false,
+  "duration_seconds": 422.119,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 60,
+    "plays_seen": 27,
+    "plays_emitted": 27,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260909T192448Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260909T192448Z.pitches.jsonl",
+    "mean_feed_ms": 0.1173,
+    "max_feed_ms": 4.841,
+    "max_play_build_ms": 109.6,
+    "replay_duplicates": 0,
+    "pitches_emitted": 27,
+    "pitch_replay_increments": 2
+  },
+  "checksum_sha256": "38eda1c15a2c8749cfa261b316035c8a34b9409fa8feb2d4417d5cce595c4ceb",
+  "calibration_excluded": true,
+  "calibration_excluded_reason": "retroactive 2026-09-18: part of the 2026-09-09 Peach Ice Garden Freezie research sitting (the Freezie object array was captured for the first time in 184001Z, 192448Z and 195355Z), not a normal game"
+}

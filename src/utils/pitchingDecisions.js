@@ -1,4 +1,4 @@
-import { outsFromInningsPitched } from './statsCalculator'
+import { outsFromInningsPitched } from './inningsPitched.js'
 
 export function groupRunsByPaId(runs) {
   return runs.reduce((acc, run) => {
@@ -150,6 +150,47 @@ function toDecisionPas(rawPas, sideForPlayerId) {
       pitcherPlayerId: pa.pitcher_player_id ?? null,
     }))
     .sort((a, b) => (Number(a.paNumber || 0) - Number(b.paNumber || 0)) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+}
+
+// The W/L/S flags to stamp on one game's stints at the moment it completes, decided fresh from
+// its own play-by-play. Flags already on the stints are deliberately ignored: completion is the
+// authoritative moment, including a re-completion after a reopen, so a previous bad decision must
+// not stick. Shared by the scorebook's End Game and the tracker bridge's automatic completion, so
+// a game gets the same decision whichever of them finished it.
+// Returns the decided stint ids and one { id, patch } per stint whose stored flags change.
+export function decideGamePitchingFlags({ stints, pas, runs, teamAPlayerId, teamBPlayerId, winnerPlayerId }) {
+  const sideForPlayerId = (pid) => (
+    String(pid) === String(teamAPlayerId) ? 'A' : String(pid) === String(teamBPlayerId) ? 'B' : null
+  )
+  const winnerSide = winnerPlayerId ? sideForPlayerId(winnerPlayerId) : null
+  const sortedStints = [...stints].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+  const decisionStints = toDecisionStints(sortedStints, sideForPlayerId)
+    .map((stint) => ({ ...stint, win: false, loss: false, save: false }))
+  const { winStint, lossStint, saveStint } = winnerSide
+    ? derivePitchingDecisions({
+        pas: toDecisionPas(pas, sideForPlayerId),
+        runsByPaId: groupRunsByPaId(runs),
+        stints: decisionStints,
+        winnerSide,
+      })
+    : { winStint: null, lossStint: null, saveStint: null }
+  const decided = {
+    winStintId: winStint?.id ?? null,
+    lossStintId: lossStint?.id ?? null,
+    saveStintId: saveStint?.id ?? null,
+  }
+  const updates = sortedStints.flatMap((stint) => {
+    const patch = {
+      win: stint.id === decided.winStintId,
+      loss: stint.id === decided.lossStintId,
+      save: stint.id === decided.saveStintId,
+    }
+    const changed = Boolean(stint.win) !== patch.win
+      || Boolean(stint.loss) !== patch.loss
+      || Boolean(stint.save) !== patch.save
+    return changed ? [{ id: stint.id, patch }] : []
+  })
+  return { ...decided, updates }
 }
 
 // Recomputes win/loss/save for every stint in `rawStints`, one game at a time, using

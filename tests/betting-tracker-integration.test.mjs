@@ -16,12 +16,15 @@ import {
   settleCompletedTrackerGame,
   syncTrackerLiveOdds,
 } from '../scripts/tracker_betting_sync.mjs'
-import { reopenGameBets, resolveOnPA } from '../src/utils/betResolution.js'
+import { reopenGameBets, resolveGameBets, resolveOnPA } from '../src/utils/betResolution.js'
 import { buildOddsRowKey } from '../src/utils/oddsEngine.js'
 import {
   GAME_ID,
   LABELS,
+  LEDGER_CHANGE_FIELD,
+  PRIOR_GAME_ID,
   SOURCE_ID,
+  SOURCE_ID_FIELD,
   applyLiveState,
   betsById,
   buildBettingWorld,
@@ -34,6 +37,7 @@ import {
   makePlacementLedger,
   makeRunScored,
   oddsRows,
+  tablesFor,
 } from './helpers/bettingFixtures.mjs'
 
 const COMPETITIONS = ['tournament', 'season']
@@ -48,9 +52,9 @@ function syncOptions(world, live = {}) {
   }
 }
 
-function resolutionConfig(world) {
+function resolutionConfig(world, supabase = world.supabase) {
   return buildTrackerBetResolutionConfig({
-    supabase: world.supabase,
+    supabase,
     sourceType: world.sourceType,
     sourceId: world.sourceId,
   })
@@ -142,6 +146,7 @@ for (const sourceType of COMPETITIONS) {
     await syncTrackerLiveOdds(syncOptions(world, applyLiveState(world, { inning: 1 })))
     const openingKeys = oddsRows(world).map(buildOddsRowKey).sort()
     const openingIds = Object.fromEntries(oddsRows(world).map((row) => [buildOddsRowKey(row), row.id]))
+    const openingMarioHit = { ...oddsRows(world, 'hit_prop').find((row) => row.target_entity === LABELS.mario) }
 
     world.db[world.tables.pas].push(makePA({ result: '1B', inning: 1, characterId: 11, playerId: 'p1' }))
     await syncTrackerLiveOdds(syncOptions(world, applyLiveState(world, { inning: 1, outs: 0 })))
@@ -153,10 +158,11 @@ for (const sourceType of COMPETITIONS) {
       assert.equal(row.id, openingIds[buildOddsRowKey(row)], `${buildOddsRowKey(row)} was re-inserted instead of updated`)
     })
 
-    // The batter's hit prop line steps past the hit he already has.
+    // The saved hit changes the current count and the balanced live line.
     const marioHit = oddsRows(world, 'hit_prop').find((row) => row.target_entity === LABELS.mario)
     assert.equal(marioHit.prop_current_count, 1)
-    assert.equal(marioHit.line, 1.5)
+    assert.ok(marioHit.line > openingMarioHit.line)
+    assert.notEqual(marioHit.odds_over, openingMarioHit.odds_over)
   })
 
   test(`[${sourceType}] repeating a sync with unchanged tracker state writes nothing`, async () => {
@@ -533,6 +539,234 @@ for (const sourceType of COMPETITIONS) {
     assert.deepEqual(settledLedgerByBet(world), { 2: 25 })
   })
 }
+
+// ── Reopen recovery ─────────────────────────────────────────────────────────
+//
+// A home moneyline ticket, wager 10 and profit 15, debited at placement and
+// settled on a home win: +25 credit, ledger net +15. Reopened, it must hold only
+// its placement debit (net -10), and a retry after any partial failure must end
+// in the same place.
+
+const HOME_TICKET = { id: 1, bet_type: 'moneyline', chosen_side: 'home', wager_dollars: 10, potential_payout_dollars: 15 }
+// Wins on the same home win: 5 total runs clear 4.5.
+const OVER_TICKET = { id: 2, player_id: 'p2', bet_type: 'over_under', chosen_side: 'over', line: 4.5, wager_dollars: 10, potential_payout_dollars: 10 }
+
+function settleHomeWin(world, supabase = world.supabase, gameId = world.gameId) {
+  return resolveGameBets(gameId, 'home', 5, {}, 3, resolutionConfig(world, supabase))
+}
+
+async function settledWorld(sourceType, tickets = [HOME_TICKET], options = {}) {
+  const bets = tickets.map((ticket) => makeBet(sourceType, ticket))
+  const world = buildBettingWorld(sourceType, { bets, ledger: makePlacementLedger(sourceType, bets), ...options })
+  await settleHomeWin(world)
+  return world
+}
+
+function bettingWrites(world) {
+  return world.supabase.operations
+    .filter((op) => (op.table === world.tables.bets || op.table === world.tables.ledger) && op.action !== 'select')
+    .length
+}
+
+function ledgerDeletes(world) {
+  return world.supabase.operations.filter((op) => op.table === world.tables.ledger && op.action === 'delete').length
+}
+
+for (const sourceType of COMPETITIONS) {
+  test(`[${sourceType}] a reopen whose ledger delete fails is finished by the retry instead of reported done`, async () => {
+    const world = await settledWorld(sourceType)
+    assert.deepEqual(settledLedgerByBet(world), { 1: 25 })
+    assert.equal(ledgerNet(world), 15)
+
+    const failing = world.supabase.restart({ failures: [{ table: world.tables.ledger, action: 'delete', mode: 'before' }] })
+    await expectRejection(() => reopenGameBets(world.gameId, resolutionConfig(world, failing)), /injected delete:/)
+    // The status write landed; the credit did not come off.
+    assert.equal(betsById(world)[1].status, 'open')
+    assert.deepEqual(settledLedgerByBet(world), { 1: 25 })
+
+    // Nothing is left to reopen, and an empty result now means the ledger agrees.
+    assert.deepEqual(await reopenGameBets(world.gameId, resolutionConfig(world)), [])
+    assert.equal(ledgerRowsFor(world).length, 0)
+    assert.equal(ledgerNet(world), -10, 'only the placement debit is left on the reopened ticket')
+    assert.equal(ledgerRowsFor(world, { reasonPrefix: 'bet_placed' }).length, 1)
+  })
+
+  test(`[${sourceType}] a ticket an earlier reopen left open but still credited is reversed`, async () => {
+    const world = await settledWorld(sourceType)
+    // The state the old reopen left behind after its ledger delete failed.
+    Object.assign(betsById(world)[1], { status: 'open', result_correct: null, resolved_at: null })
+
+    assert.deepEqual(await reopenGameBets(world.gameId, resolutionConfig(world)), [])
+    assert.equal(ledgerRowsFor(world).length, 0)
+    assert.equal(ledgerNet(world), -10)
+  })
+
+  test(`[${sourceType}] a partial status update is finished on retry and the corrected result credits once`, async () => {
+    const world = await settledWorld(sourceType, [HOME_TICKET, OVER_TICKET])
+    assert.deepEqual(settledLedgerByBet(world), { 1: 25, 2: 20 })
+
+    const failing = world.supabase.restart({ failures: [{
+      table: world.tables.bets,
+      action: 'update',
+      mode: 'before',
+      when: (op) => op.filters.some((filter) => filter.field === 'id' && String(filter.value) === '2'),
+    }] })
+    await expectRejection(() => reopenGameBets(world.gameId, resolutionConfig(world, failing)), /injected update:/)
+    assert.equal(betsById(world)[1].status, 'open')
+    assert.equal(betsById(world)[2].status, 'won')
+    assert.deepEqual(settledLedgerByBet(world), { 1: 25, 2: 20 }, 'nothing came off the ledger yet')
+
+    await reopenGameBets(world.gameId, resolutionConfig(world))
+    assert.deepEqual(Object.values(betsById(world)).map((bet) => bet.status), ['open', 'open'])
+    assert.equal(ledgerRowsFor(world).length, 0)
+    assert.equal(ledgerNet(world), -20)
+
+    // Corrected to an away win: the home ticket loses, 5 runs still clear 4.5.
+    await resolveGameBets(world.gameId, 'away', 5, {}, 3, resolutionConfig(world))
+    assert.equal(betsById(world)[1].status, 'lost')
+    assert.equal(betsById(world)[2].status, 'won')
+    assert.deepEqual(settledLedgerByBet(world), { 2: 20 })
+    assert.equal(ledgerNet(world, 'p1'), -10)
+    assert.equal(ledgerNet(world, 'p2'), 10)
+  })
+
+  test(`[${sourceType}] a lost response after either reopen write commits is safe to retry`, async () => {
+    for (const [table, action] of [['bets', 'update'], ['ledger', 'delete']]) {
+      const world = await settledWorld(sourceType)
+      const failing = world.supabase.restart({ failures: [{ table: world.tables[table], action, mode: 'after' }] })
+      await expectRejection(() => reopenGameBets(world.gameId, resolutionConfig(world, failing)), /timeout after commit/)
+      assert.equal(betsById(world)[1].status, 'open', `${table}: the status write is durable`)
+
+      await reopenGameBets(world.gameId, resolutionConfig(world))
+      assert.equal(ledgerRowsFor(world).length, 0, `${table}: no credit survives the retry`)
+      assert.equal(ledgerNet(world), -10, `${table}: the placement debit is untouched`)
+    }
+  })
+
+  test(`[${sourceType}] repeating a finished reopen writes nothing`, async () => {
+    const world = await settledWorld(sourceType, [HOME_TICKET, OVER_TICKET])
+    await reopenGameBets(world.gameId, resolutionConfig(world))
+    const ledgerAfter = JSON.stringify(world.db[world.tables.ledger])
+    const writesAfter = bettingWrites(world)
+
+    assert.deepEqual(await reopenGameBets(world.gameId, resolutionConfig(world)), [])
+    await reopenGameBets(world.gameId, resolutionConfig(world))
+
+    assert.equal(JSON.stringify(world.db[world.tables.ledger]), ledgerAfter)
+    assert.equal(bettingWrites(world), writesAfter, 'a repeat must not write to bets or the ledger')
+    assert.equal(ledgerNet(world), -20)
+  })
+
+  test(`[${sourceType}] a settlement that lands mid-reopen keeps its credit and the reopen fails`, async () => {
+    const world = await settledWorld(sourceType)
+    // Park the reopen's ledger delete, after its status write and ledger read.
+    const parked = world.supabase.restart({ failures: [{ table: world.tables.ledger, action: 'delete', delayMs: 20 }] })
+    const outcome = reopenGameBets(world.gameId, resolutionConfig(world, parked)).then(() => null, (error) => error)
+    for (let tick = 0; tick < 100 && ledgerDeletes(world) === 0; tick += 1) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    assert.equal(ledgerDeletes(world), 1, 'the reopen reached its ledger delete')
+    assert.equal(betsById(world)[1].status, 'open')
+
+    // Settled again before that delete runs. On the fake this completes without
+    // yielding to a timer, so the ordering is fixed.
+    await settleHomeWin(world)
+    assert.equal(betsById(world)[1].status, 'won')
+    assert.deepEqual(settledLedgerByBet(world), { 1: 25 }, 'the parked delete has not run')
+
+    const error = await outcome
+    assert.match(String(error?.message), /did not take/)
+    assert.equal(betsById(world)[1].status, 'won')
+    assert.deepEqual(settledLedgerByBet(world), { 1: 25 }, 'the newer settlement stays paid')
+    assert.equal(ledgerNet(world), 15)
+
+    await reopenGameBets(world.gameId, resolutionConfig(world))
+    assert.equal(betsById(world)[1].status, 'open')
+    assert.equal(ledgerNet(world), -10)
+  })
+}
+
+test('a recovered reopen leaves the other competition, other games and other ledger reasons alone', async () => {
+  for (const reopened of COMPETITIONS) {
+    // One client holds both competitions with the same source, game and bet ids.
+    const ticketsFor = (sourceType) => [
+      makeBet(sourceType, HOME_TICKET),
+      makeBet(sourceType, { ...HOME_TICKET, id: 2, game_id: PRIOR_GAME_ID }),
+    ]
+    const unrelatedRow = (sourceType) => ({
+      id: 7000,
+      player_id: 'p1',
+      game_id: GAME_ID,
+      bet_id: null,
+      [SOURCE_ID_FIELD[sourceType]]: SOURCE_ID,
+      reason: 'settle_up:manual',
+      [LEDGER_CHANGE_FIELD[sourceType]]: 3,
+    })
+    const world = buildBettingWorld('season', {
+      bets: ticketsFor('season'),
+      ledger: [...makePlacementLedger('season', ticketsFor('season')), unrelatedRow('season')],
+      extraTables: {
+        bets: ticketsFor('tournament'),
+        points_ledger: [...makePlacementLedger('tournament', ticketsFor('tournament')), unrelatedRow('tournament')],
+      },
+    })
+    const views = {
+      season: world,
+      tournament: {
+        ...world,
+        sourceType: 'tournament',
+        tables: tablesFor('tournament'),
+        ledgerChangeField: LEDGER_CHANGE_FIELD.tournament,
+        sourceIdField: SOURCE_ID_FIELD.tournament,
+      },
+    }
+    for (const view of Object.values(views)) {
+      await settleHomeWin(view)
+      await settleHomeWin(view, view.supabase, PRIOR_GAME_ID)
+    }
+    const view = views[reopened]
+    const other = views[reopened === 'season' ? 'tournament' : 'season']
+    const otherLedger = JSON.stringify(other.db[other.tables.ledger])
+    const otherBets = JSON.stringify(other.db[other.tables.bets])
+
+    const failing = world.supabase.restart({ failures: [{ table: view.tables.ledger, action: 'delete', mode: 'before' }] })
+    await expectRejection(() => reopenGameBets(GAME_ID, resolutionConfig(view, failing)), /injected delete:/)
+    await reopenGameBets(GAME_ID, resolutionConfig(view))
+
+    assert.equal(betsById(view)[1].status, 'open', `${reopened}: the reopened game's ticket`)
+    assert.equal(betsById(view)[2].status, 'won', `${reopened}: the earlier game keeps its result`)
+    assert.deepEqual(settledLedgerByBet(view), { 2: 25 })
+    assert.equal(view.db[view.tables.ledger].filter((row) => row.reason === 'settle_up:manual').length, 1)
+    assert.equal(ledgerNet(view), 8, `${reopened}: -20 placed, +25 on the earlier game, +3 unrelated`)
+    assert.equal(JSON.stringify(other.db[other.tables.ledger]), otherLedger, `${reopened}: the other ledger is untouched`)
+    assert.equal(JSON.stringify(other.db[other.tables.bets]), otherBets, `${reopened}: the other bets are untouched`)
+  }
+})
+
+test('[tournament] a calibration cleanup failure after the reversal is retried without repeating the balance change', async () => {
+  const world = await settledWorld('tournament', [HOME_TICKET], {
+    extraTables: {
+      odds_calibration_log: [
+        { id: 1, game_id: GAME_ID, bet_type: 'moneyline' },
+        { id: 2, game_id: PRIOR_GAME_ID, bet_type: 'moneyline' },
+      ],
+    },
+  })
+  const withCalibration = (supabase) => ({
+    ...resolutionConfig(world, supabase),
+    enableCalibrationLogging: true,
+    oddsCalibrationTable: 'odds_calibration_log',
+  })
+  const failing = world.supabase.restart({ failures: [{ table: 'odds_calibration_log', action: 'delete', mode: 'before' }] })
+  await expectRejection(() => reopenGameBets(world.gameId, withCalibration(failing)), /injected delete:odds_calibration_log/)
+  assert.equal(ledgerNet(world), -10, 'the reversal itself completed')
+  const writesAfter = bettingWrites(world)
+
+  await reopenGameBets(world.gameId, withCalibration(world.supabase))
+  assert.equal(bettingWrites(world), writesAfter, 'the retry repeats no bet or ledger write')
+  assert.deepEqual(world.db.odds_calibration_log.map((row) => row.game_id), [PRIOR_GAME_ID])
+  assert.equal(ledgerNet(world), -10)
+})
 
 // ── Ledger conservation across every outcome ────────────────────────────────
 

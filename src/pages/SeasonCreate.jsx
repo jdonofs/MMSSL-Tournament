@@ -268,6 +268,7 @@ export default function SeasonCreate() {
         mercy_rule: seasonPayload.mercy_rule,
         mercy_rule_differential: seasonPayload.mercy_rule_differential,
         status: 'scheduled',
+        stats_source: 'tracker',
       }))
       const { error: scheduleError } = await supabase.from('season_schedule').insert(schedulePayload)
       if (scheduleError) throw scheduleError

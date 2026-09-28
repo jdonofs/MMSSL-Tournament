@@ -1,0 +1,314 @@
+{
+  "generatedAt": "2026-09-25T16:33:57.757434Z",
+  "game": {
+    "id": null,
+    "table": "calibration",
+    "sourceId": null,
+    "stadium": "Mario Stadium",
+    "stadiumIndex": 0,
+    "isNight": false,
+    "homeAwaySwapped": false,
+    "calibration": {
+      "chemistryMode": "inherited_from_swing_gesture_lineup",
+      "percentCompleteBefore": null,
+      "inputTest": {
+        "schemaVersion": 1,
+        "status": "gesture_discovery_only",
+        "purpose": "pitch_input_fielding_action_and_shake_calibration",
+        "defaultLabelRule": "The PITCHING side follows the block plan below; the batting side may swing however it likes. The labelling unit is the PLATE APPEARANCE -- the console can only annotate an at-bat -- so no block ever asks for a per-pitch label. Anything off-plan gets an annotation on the at-bat it happened in.",
+        "perModeTarget": 12,
+        "annotationCategory": "input_mode",
+        "annotationNoteFormat": "input=<pitch_normal|pitch_charged|pitch_changeup|pitch_star|dive_miss|jump_miss|buddy_miss|no_shake|max_shake|steer>; who=<character>; pitch=<n if only ONE pitch of the at-bat differed, else omit>; reason=<what happened>",
+        "blocks": [
+          {
+            "inning": 1,
+            "half": "top",
+            "pitching": "home",
+            "mode": "pitch_normal",
+            "instruction": "Every pitch a plain uncharged pitch. Do not hold the charge."
+          },
+          {
+            "inning": 1,
+            "half": "bottom",
+            "pitching": "away",
+            "mode": "pitch_charged",
+            "instruction": "Every pitch charged as long as you can hold it."
+          },
+          {
+            "inning": 2,
+            "half": "top",
+            "pitching": "home",
+            "mode": "pitch_changeup",
+            "instruction": "Every pitch a changeup."
+          },
+          {
+            "inning": 2,
+            "half": "bottom",
+            "pitching": "away",
+            "mode": "pitch_alternating_by_batter",
+            "instruction": "Alternate BY BATTER, not by pitch: charge every pitch to one batter, none to the next. Annotate each plate appearance."
+          },
+          {
+            "inning": 3,
+            "half": "top",
+            "pitching": "home",
+            "mode": "pitch_star",
+            "instruction": "Star pitch whenever the meter allows; charged otherwise."
+          },
+          {
+            "inning": 3,
+            "half": "bottom",
+            "pitching": "away",
+            "mode": "pitch_corner",
+            "instruction": "Aim every pitch at the same corner, and say which corner."
+          }
+        ],
+        "objectives": [
+          {
+            "id": "dive_miss",
+            "repeatTarget": 3,
+            "annotationCategory": "input_mode",
+            "instruction": "Dive with the ball nowhere near the fielder, so the attempt touches nothing."
+          },
+          {
+            "id": "jump_miss",
+            "repeatTarget": 3,
+            "annotationCategory": "input_mode",
+            "instruction": "Jump with the ball nowhere near the fielder."
+          },
+          {
+            "id": "buddy_miss",
+            "repeatTarget": 2,
+            "annotationCategory": "input_mode",
+            "instruction": "Trigger a Buddy Attack that touches nothing."
+          },
+          {
+            "id": "no_shake",
+            "repeatTarget": 3,
+            "annotationCategory": "input_mode",
+            "instruction": "Advance a runner a full base with NO shaking at all."
+          },
+          {
+            "id": "max_shake",
+            "repeatTarget": 3,
+            "annotationCategory": "input_mode",
+            "instruction": "Advance a runner a full base shaking as hard as you can."
+          },
+          {
+            "id": "steer",
+            "repeatTarget": 3,
+            "annotationCategory": "input_mode",
+            "instruction": "Steer one named fielder manually for a whole play, and say which one."
+          },
+          {
+            "id": "star_swing",
+            "repeatTarget": 2,
+            "annotationCategory": "input_mode",
+            "instruction": "Use a star swing with an ordinary character and again with a captain."
+          },
+          {
+            "id": "control_ordinary_play",
+            "repeatTarget": 3,
+            "annotationCategory": "input_mode",
+            "instruction": "Label an ordinary play with no special input at all."
+          }
+        ],
+        "whyThisGame": [
+          "Team star meters are captured for the first time (STATE_BASE moved to 0x900D4E00).",
+          "The controller button words are near-empty during play, so every one of these inputs has to be found in the game's own state, aligned to labelled events.",
+          "Attempts that touch nothing cannot be recovered from outcome flags, which is why the deliberate misses are on the card."
+        ],
+        "setupCommand": "python scripts/mss_autoteam.py --lineup data/calibration/input-signal-lineup.json",
+        "labellingUnit": "plate_appearance",
+        "labellingUnitReason": "buildTrackerAnnotation takes the at-bat on screen and records pa_number; there is no per-pitch annotation. A single deviating pitch inside an at-bat is recorded as free text (pitch=<n>) in the note, which is how game 2 PA 23 of the slap/charge calibration was resolved to pitch level after the fact.",
+        "captureCommandPowerShell": "$env:TRACKER_CALIBRATION_EXCLUDED='1'; $env:TRACKER_CALIBRATION_EXCLUDED_REASON='scripted input calibration'; $env:TRACKER_PARK='mario_stadium'; npm run tracker:preview",
+        "captureCommandBash": "TRACKER_CALIBRATION_EXCLUDED=1 TRACKER_CALIBRATION_EXCLUDED_REASON='scripted input calibration' TRACKER_PARK=mario_stadium npm run tracker:preview"
+      }
+    }
+  },
+  "miiCount": 29,
+  "rules": [
+    3,
+    0,
+    0,
+    0
+  ],
+  "away": {
+    "label": "Away",
+    "playerId": null,
+    "playerName": "Jason",
+    "slots": [
+      {
+        "battingSlot": 0,
+        "fieldingSlot": 0,
+        "positionId": "pitcher",
+        "charIndex": 11,
+        "siteName": "Waluigi",
+        "characterId": 5,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 1,
+        "fieldingSlot": 1,
+        "positionId": "catcher",
+        "charIndex": 2,
+        "siteName": "Donkey Kong",
+        "characterId": 36,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 2,
+        "fieldingSlot": 2,
+        "positionId": "firstBase",
+        "charIndex": 19,
+        "siteName": "Bowser Jr.",
+        "characterId": 8,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 3,
+        "fieldingSlot": 3,
+        "positionId": "secondBase",
+        "charIndex": 37,
+        "siteName": "King Boo",
+        "characterId": 21,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 4,
+        "fieldingSlot": 4,
+        "positionId": "thirdBase",
+        "charIndex": 61,
+        "siteName": "Brown Kritter",
+        "characterId": 18,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 5,
+        "fieldingSlot": 5,
+        "positionId": "shortStop",
+        "charIndex": 32,
+        "siteName": "Purple Toad",
+        "characterId": 51,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 6,
+        "fieldingSlot": 6,
+        "positionId": "leftField",
+        "charIndex": 12,
+        "siteName": "Koopa",
+        "characterId": 68,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 7,
+        "fieldingSlot": 7,
+        "positionId": "centerField",
+        "charIndex": 26,
+        "siteName": "Green Noki",
+        "characterId": 41,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 8,
+        "fieldingSlot": 8,
+        "positionId": "rightField",
+        "charIndex": 47,
+        "siteName": "Gray Shy Guy",
+        "characterId": 39,
+        "miiColor": null
+      }
+    ],
+    "captainSlot": 9
+  },
+  "home": {
+    "label": "Home",
+    "playerId": null,
+    "playerName": "Jason",
+    "slots": [
+      {
+        "battingSlot": 0,
+        "fieldingSlot": 0,
+        "positionId": "pitcher",
+        "charIndex": 5,
+        "siteName": "Daisy",
+        "characterId": 1,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 1,
+        "fieldingSlot": 1,
+        "positionId": "catcher",
+        "charIndex": 38,
+        "siteName": "Petey Piranha",
+        "characterId": 24,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 2,
+        "fieldingSlot": 2,
+        "positionId": "firstBase",
+        "charIndex": 60,
+        "siteName": "Red Kritter",
+        "characterId": 25,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 3,
+        "fieldingSlot": 3,
+        "positionId": "secondBase",
+        "charIndex": 17,
+        "siteName": "Birdo",
+        "characterId": 6,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 4,
+        "fieldingSlot": 4,
+        "positionId": "thirdBase",
+        "charIndex": 53,
+        "siteName": "Boomerang Bro",
+        "characterId": 35,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 5,
+        "fieldingSlot": 5,
+        "positionId": "shortStop",
+        "charIndex": 29,
+        "siteName": "Blue Toad",
+        "characterId": 32,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 6,
+        "fieldingSlot": 6,
+        "positionId": "leftField",
+        "charIndex": 42,
+        "siteName": "Red Koopa",
+        "characterId": 69,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 7,
+        "fieldingSlot": 7,
+        "positionId": "centerField",
+        "charIndex": 68,
+        "siteName": "Yellow Yoshi",
+        "characterId": 62,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 8,
+        "fieldingSlot": 8,
+        "positionId": "rightField",
+        "charIndex": 70,
+        "siteName": "Pink Yoshi",
+        "characterId": 50,
+        "miiColor": null
+      }
+    ],
+    "captainSlot": 5
+  }
+}

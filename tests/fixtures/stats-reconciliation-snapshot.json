@@ -140,7 +140,7 @@
     "career_character_red_pianta": { "games": 2, "pa": 6, "ab": 5, "hits": 3, "walks": 1, "hbp": 0, "strikeouts": 1, "total_bases": 9, "runs": 3, "rbi": 4, "avg": 0.6, "obp": 0.6666666666666666, "slg": 1.8, "ops": 2.466666666666667 },
     "tournament_101_pitcher_magikoopa": { "games": 1, "outs": 6, "innings": 2, "pitches": 11, "hits_allowed": 3, "walks": 1, "runs_allowed": 4, "earned_runs": 4, "strikeouts": 1 },
     "season_201_pitcher_peach": { "games": 1, "outs": 1, "innings": 0.1, "pitches": 4, "hits_allowed": 2, "walks": 1, "runs_allowed": 2, "earned_runs": null, "strikeouts": 0 },
-    "tournament_101_defense_bravo": { "errors": 1, "putouts": 5, "assists": 4, "der_opportunities": 7, "der_outs_converted": 4, "defensive_efficiency": 0.5714285714285714 },
+    "tournament_101_defense_bravo": { "errors": 1, "putouts": 6, "assists": 4, "der_opportunities": 7, "der_outs_converted": 4, "defensive_efficiency": 0.5714285714285714 },
     "recorded_reference_red_pianta": { "pa": 1, "ab": 1, "hits": 1, "home_runs": 1, "runs": 1, "rbi": 1, "total_bases": 4, "avg": 1, "obp": 1, "slg": 4, "ops": 5 }
   }
 }

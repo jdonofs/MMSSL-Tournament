@@ -143,7 +143,7 @@ export default function Bracket() {
     const { data, error } = await supabase.from('games').insert({
       tournament_id: tournament.id, game_code: `G${highestCode + 1}`, stage: 'Championship Reset',
       team_a_player_id: baseChampionshipGame.team_a_player_id, team_b_player_id: baseChampionshipGame.team_b_player_id,
-      team_a_runs: 0, team_b_runs: 0, status: 'pending',
+      team_a_runs: 0, team_b_runs: 0, status: 'pending', stats_source: 'tracker',
     }).select().single()
     if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
     setGames(cur => [...cur, data])
@@ -160,17 +160,17 @@ export default function Bracket() {
     if (bracketFormat === 'round_robin') {
       newGames = getRoundRobinSchedule(selectedPlayers).map((m, i) => ({
         tournament_id: tournament.id, game_code: `G${gameNum + i}`, stage: m.stage,
-        team_a_player_id: m.teamA, team_b_player_id: m.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending',
+        team_a_player_id: m.teamA, team_b_player_id: m.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending', stats_source: 'tracker',
       }))
     } else if (bracketFormat === 'single') {
       newGames = generateSingleElimBracket(seeding).map((g, i) => ({
         tournament_id: tournament.id, game_code: `G${gameNum + i}`, stage: g.stage,
-        team_a_player_id: g.teamA, team_b_player_id: g.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending',
+        team_a_player_id: g.teamA, team_b_player_id: g.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending', stats_source: 'tracker',
       }))
     } else {
       newGames = buildDoubleElimBracket(seeding).map((g, i) => ({
         tournament_id: tournament.id, game_code: `G${gameNum + i}`, stage: g.stage,
-        team_a_player_id: g.teamA, team_b_player_id: g.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending',
+        team_a_player_id: g.teamA, team_b_player_id: g.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending', stats_source: 'tracker',
       }))
     }
 
@@ -187,7 +187,7 @@ export default function Bracket() {
       tournament_id: tournament.id, game_code: `G${highestCode + 1}`,
       stage: addGameForm.stage || 'Exhibition',
       team_a_player_id: addGameForm.teamA || null, team_b_player_id: addGameForm.teamB || null,
-      team_a_runs: 0, team_b_runs: 0, status: 'pending',
+      team_a_runs: 0, team_b_runs: 0, status: 'pending', stats_source: 'tracker',
     }).select().single()
     if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
     setGames(cur => [...cur, data])

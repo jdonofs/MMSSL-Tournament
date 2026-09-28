@@ -20,8 +20,6 @@ export default function ExperimentalWarPanel({ model, identity, players = [], ch
     <section className="table-card" aria-label="Experimental WAR">
       <div style={{ padding: '16px 20px' }}>
         <h2 style={{ margin: '0 0 8px' }}>Experimental WAR</h2>
-        <p className="muted">FanGraphs framework · {model.includedGames} completed games · {model.excludedGames} games excluded · v1</p>
-        <p>Exp. WAR = Position WAR + Pitching WAR. Select a name to inspect missing inputs. Unmeasured components contribute neutrally to this provisional total.</p>
         <details>
           <summary>Method and assumptions</summary>
           <p>Uses the published FanGraphs equations, 2025 MLB batting weights, actual innings played, and the league’s nine-inning run environment. Three-inning appearances are not projected into full MLB games.</p>

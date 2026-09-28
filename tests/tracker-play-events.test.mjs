@@ -21,6 +21,7 @@ import {
   shouldClassifyTrackerSacrificeBunt,
   shouldCreditTrackerPutout,
   shouldReclassifyTrackerFlyOutAsSacFly,
+  shouldReclassifyTrackerSingleAsFielderChoice,
   trackerBattedBallMatchesMatchup,
   trackerBattedBallPaFields,
   normalizeTrackerExitVelocity,
@@ -39,6 +40,7 @@ import {
   trackerCaughtBallResult,
   trackerFieldedBallPaFields,
   applyMeasuredPitchOffers,
+  classifyMeasuredPitchZone,
   measuredPitchMatchesPa,
   trackerContactWasBunt,
   trackerPitchStatFields,
@@ -77,6 +79,17 @@ test('pitch stat rows retain compact velocity and movement measurements', () => 
   const fields = trackerPitchStatFields({
     type: 'swinging_miss',
     pitchType: 'curveball',
+    offer: 'swing',
+    swing_mode: 'charge',
+    swing_mode_source: 'controller_motion_v1',
+    swing_charge_frames: 47,
+    swing_charge_release_timing_frames: -3,
+    plate_x_units: -0.82,
+    plate_y_units: 1.04,
+    plate_z_units: 0.02,
+    pitch_zone: 'out',
+    pitch_zone_source: 'horizontal_zone_v1',
+    is_chase: true,
     before: { balls: 1, strikes: 1 },
     after: { balls: 1, strikes: 2 },
     pitchTelemetry: {
@@ -109,6 +122,61 @@ test('pitch stat rows retain compact velocity and movement measurements', () => 
   assert.equal(fields.pitch_tracking_end_seq, 143)
   assert.equal(fields.pitch_tracking_classifier, 'movement_v1')
   assert.equal(fields.pitch_type, 'curveball')
+  assert.equal(fields.swing_offer, 'swing')
+  assert.equal(fields.swing_mode, 'charge')
+  assert.equal(fields.swing_charge_frames, 47)
+  assert.equal(fields.swing_charge_release_timing_frames, -3)
+  assert.equal(fields.plate_x_units, -0.82)
+  assert.equal(fields.pitch_zone, 'out')
+  assert.equal(fields.is_chase, true)
+})
+
+test('pitch stat rows promote only positive star-meter spends', () => {
+  assert.equal(trackerPitchStatFields({ fielding_star_meter_spent: 50 }).is_star_pitch, true)
+  assert.equal(trackerPitchStatFields({ fielding_star_meter_spent: 0 }).is_star_pitch, false)
+})
+
+// PREVIEW SESSION 2026-09-22_20-27-06, Nighttime Luigi's Mansion. The 60 Hz
+// collector never started -- the shell that launched the preview had a venv
+// Python without numpy -- so all 33 pitches were logged with no measured offer
+// at all. Silence is not evidence: a pitch nothing measured must carry no swing
+// and no zone column, because writing a null offer as a take, or an unknown
+// location as a pitch in the zone, would put a guess in the database where the
+// capture said nothing.
+test('a pitch the capture never measured carries no swing or zone columns', () => {
+  const { pitches, unmatched } = applyMeasuredPitchOffers(
+    [{ type: 'in_play' }, { type: 'strike_unknown' }], [], { resultKey: 'type' },
+  )
+  assert.equal(unmatched.length, 0)
+  // The log's own unresolved strike stays unresolved rather than becoming a
+  // called strike, which is what a missing offer would otherwise imply.
+  assert.equal(pitches[1].type, 'strike_unknown')
+  for (const pitch of pitches) {
+    assert.equal(pitch.offer, null)
+    const row = trackerPitchStatFields(pitch)
+    for (const column of ['swing_offer', 'swing_mode', 'swing_mode_source',
+      'swing_charge_frames', 'swing_charge_release_timing_frames', 'plate_x_units',
+      'plate_y_units', 'plate_z_units', 'pitch_zone', 'pitch_zone_source', 'is_chase']) {
+      assert.equal(column in row, false, `${column} was written without evidence`)
+    }
+  }
+})
+
+// Same session, Brown Kritter's plate appearance 12: the tracker log announced
+// "Brown Kritter used a star swing!" while no capture was running. The log's own
+// flag is evidence of the swing MODE and of nothing else, so the star is kept
+// and the location, the charge and the chase stay out of the row entirely.
+test('a star swing the log announced is kept without inventing a location', () => {
+  const row = trackerPitchStatFields({ type: 'in_play', isStarSwing: true })
+  assert.equal(row.is_star_swing, true)
+  assert.equal(row.swing_mode, 'star')
+  assert.equal(row.swing_mode_source, 'tracker_star_swing')
+  assert.equal(row.swing_offer, null)
+  assert.equal(row.swing_charge_frames, null)
+  assert.equal(row.swing_charge_release_timing_frames, null)
+  for (const column of ['plate_x_units', 'pitch_zone', 'pitch_zone_source', 'is_chase']) {
+    assert.equal(column in row, false, `${column} was written without evidence`)
+  }
 })
 
 test('advanced landing records map directly to the existing PA stat fields', () => {
@@ -424,6 +492,33 @@ test('a catch stamped on the dead-ball coordinate reset is placed by the capture
   assert.equal(trackerBattedBallPlotGeometry(record), null)
 })
 
+test('a catch stamped where the game parks the ball above the plate is placed by the capture', () => {
+  // Real record, season game 2812 (Nighttime Daisy Cruiser): on the caught
+  // update the ball jumped from 82 units out to 48 units above home plate, and
+  // the PA was written as a 4.0 ft lineout.
+  const record = parseTrackerBattedBallMessage(
+    '[TRACKER_BATTED_BALL_PROVISIONAL] contact_seq=3371|batter=Yellow Toad|pitcher=Luigi'
+    + '|exit_speed_mph=107.7|launch_degrees=15.4|spray_degrees=0.2|side=center|endpoint=catch'
+    + '|endpoint_status=caught|endpoint_seq=3516|x=0.622389138|y=48.3212814|z=0.278700858'
+    + '|distance_feet=4.3|projected_x=none|projected_z=none|flight_updates=145'
+    + '|sampled_updates_seconds=2.419|hang_time_seconds=2.953|feet_per_unit=3.2808',
+  )
+  assert.equal(trackerEndpointIsCoordinateReset(record), true)
+  const play = {
+    caught_in_flight: true,
+    first_touch: { t: 2.3857, frame: 12309, by: 'CF', character: 'Red Yoshi', at: [1.419, 0, -85.475] },
+    landing: null,
+  }
+  const fields = trackerBattedBallPaFields(record, { play })
+  assert.equal(fields.hit_world_x, 1.419)
+  assert.equal(fields.hit_world_z, -85.475)
+  assert.ok(fields.hit_distance_ft > 275, `placed ${fields.hit_distance_ft} ft out`)
+  assert.equal(trackerBattedBallPaFields(record).hit_distance_ft, null)
+
+  // A catcher's pop-up really is caught beside the plate, at glove height.
+  assert.equal(trackerEndpointIsCoordinateReset({ ...record, y: 1.2 }), false)
+})
+
 test('a buddy receiver stepping on first preserves the 4-3 force-out chain', () => {
   const forceOut = {
     runners: { BAT: { bases_ran: 0 } },
@@ -609,6 +704,35 @@ test('a safe result without a bobble is not charged as an error', () => {
   assert.equal(shouldChargeTrackerBobbleError({
     bobbleFielderName: null, result: '1B',
   }), false)
+})
+
+// Yoshi Park day PA 68: Monty touched and bobbled the ball, CF recovered it,
+// and the 8-6 throw retired the lead runner. The batter took only the first
+// base his FC already awarded, so E4 would charge an advance that never happened.
+test("a bobble before a completed fielder's-choice force is not an error", () => {
+  const play = {
+    fielding_events: [{
+      event_type: 'fielding_action', character: 'Monty Mole', by: '2B',
+      mechanic: 'ordinary', ball_contact: 'confirmed', secured: false,
+      within_reach: true,
+    }],
+    throws: [{ thrower_position: 'CF', receiver_position: 'SS', outs_recorded: 1 }],
+    runners: { BAT: { bases_ran: 1 } },
+  }
+  const veto = trackerBobbleErrorVeto({
+    bobbleFielderName: 'Monty Mole', result: 'FC', play,
+  })
+  assert.equal(veto.reason, 'fielder_choice_out')
+  assert.equal(shouldChargeTrackerBobbleError({
+    bobbleFielderName: 'Monty Mole', result: 'FC', play,
+  }), false)
+
+  // If the batter gained an extra base, the bobble may still have caused an
+  // advance and the automatic veto must stay out of the scorer's way.
+  play.runners.BAT.bases_ran = 2
+  assert.equal(shouldChargeTrackerBobbleError({
+    bobbleFielderName: 'Monty Mole', result: 'FC', play,
+  }), true)
 })
 
 // MARIO STADIUM PA 43. King Boo's line drive reached the ground untouched, CF
@@ -823,6 +947,28 @@ test('a fair play with a named baserunner putout and no batter result becomes a 
   assert.equal(shouldClassifyTrackerFielderChoice({
     batterName: 'Mario', result: '1B', contactRecorded: true,
     observedPutouts: [{ fielderName: 'Luigi', runnerName: 'Yoshi' }],
+  }), false)
+})
+
+test('a single becomes a safe fielder choice only when the defense loses a lead-runner contest', () => {
+  const play = {
+    batted_ball_class: 'fair_in_play',
+    runners: { BAT: { bases_ran: 1 } },
+    close_plays: [{ by: '3B', won_by: 'runner' }],
+    throws: [{
+      receiver_position: '3B', target_base: 'third', outs_recorded: 0,
+      runner_at_arrival: { runner: 'R2' },
+    }],
+  }
+  assert.equal(shouldReclassifyTrackerSingleAsFielderChoice({ result: '1B', play }), true)
+  assert.equal(shouldReclassifyTrackerSingleAsFielderChoice({
+    result: '1B', play: { ...play, close_plays: [{ by: '3B', won_by: 'fielder' }] },
+  }), false)
+  assert.equal(shouldReclassifyTrackerSingleAsFielderChoice({
+    result: '1B', play: { ...play, throws: [{
+      receiver_position: '1B', target_base: 'first', outs_recorded: 0,
+      runner_at_arrival: { runner: 'BAT' },
+    }] },
   }), false)
 })
 
@@ -1726,6 +1872,86 @@ test('a taken strike and a swinging strike stop being the same pitch', () => {
   assert.equal(pitches[1].result, 'swinging_miss')
   assert.deepEqual(pitches.map((pitch) => pitch.offer), ['take', 'swing'])
   assert.equal(unmatched.length, 0)
+})
+
+test('chase classification trusts calls and leaves the calibrated edge unknown', () => {
+  assert.deepEqual(classifyMeasuredPitchZone({ offer: 'take', outcome: 'ball', plate_x_units: 0.1 }), {
+    zone: 'out', isChase: false, source: 'taken_ball',
+  })
+  assert.deepEqual(classifyMeasuredPitchZone({ offer: 'swing', outcome: 'strike', plate_x_units: 0.82 }), {
+    zone: 'out', isChase: true, source: 'horizontal_zone_v1',
+  })
+  assert.deepEqual(classifyMeasuredPitchZone({ offer: 'swing', outcome: 'strike', plate_x_units: 0.65 }), {
+    zone: 'shadow', isChase: null, source: 'horizontal_shadow_band_v1',
+  })
+  assert.deepEqual(classifyMeasuredPitchZone({ offer: 'swing', outcome: 'strike', plate_x_units: 0.4 }), {
+    zone: 'in', isChase: false, source: 'horizontal_zone_v1',
+  })
+})
+
+test('measured plate location and chase evidence survive the pitch join', () => {
+  const { pitches } = applyMeasuredPitchOffers(
+    [loggedPitch('strike_unknown', 0, 0)],
+    [measuredPitch({
+      plate_x_units: -1.1, plate_y_units: 0.9, plate_z_units: 0.02,
+      swing_mode: 'charge', swing_mode_source: 'controller_motion_v1',
+      swing_charge_frames: 47, swing_charge_release_timing_frames: -3,
+    })],
+  )
+  assert.equal(pitches[0].pitch_zone, 'out')
+  assert.equal(pitches[0].is_chase, true)
+  assert.equal(pitches[0].plate_x_units, -1.1)
+  assert.equal(pitches[0].swing_mode, 'charge')
+  assert.equal(pitches[0].swing_charge_frames, 47)
+  assert.equal(pitches[0].swing_charge_release_timing_frames, -3)
+})
+
+// mario_stadium-20260923T012536Z, the game scripted slap in every top half and
+// charge in every bottom half. A slap is a MEASURED answer, so its zero charge
+// has to reach the row as 0 and not as null: null is what a capture that could
+// not see the charge writes, and the two must stay distinguishable downstream.
+test('a measured slap reaches the row as a slap charged for zero frames', () => {
+  const { pitches } = applyMeasuredPitchOffers(
+    [loggedPitch('strike_unknown', 0, 0)],
+    [measuredPitch({
+      offer: 'swing', swing_mode: 'slap',
+      swing_mode_source: 'swing_charge_frames_rise',
+      swing_charge_frames: 0, swing_charge_release_timing_frames: null,
+      plate_x_units: 0.2, plate_y_units: 1.0, plate_z_units: 0.01,
+    })],
+  )
+  assert.equal(pitches[0].swing_mode, 'slap')
+  assert.equal(pitches[0].swing_charge_frames, 0)
+  const row = trackerPitchStatFields({ ...pitches[0], type: pitches[0].result })
+  assert.equal(row.swing_mode, 'slap')
+  assert.equal(row.swing_offer, 'swing')
+  assert.equal(row.swing_charge_frames, 0)
+  assert.notEqual(row.swing_charge_frames, null)
+  assert.equal(row.swing_charge_release_timing_frames, null)
+  // In the zone, so this swing is measurably not a chase.
+  assert.equal(row.pitch_zone, 'in')
+  assert.equal(row.is_chase, false)
+})
+
+// A charge is still an offered swing, so a charge at a pitch outside the zone is
+// a chase; charging it is not what makes it one, and charging an in-zone pitch
+// does not make it one either.
+test('charging does not decide whether a swing was a chase', () => {
+  const at = (plate_x_units) => trackerPitchStatFields({
+    type: 'swinging_miss',
+    ...applyMeasuredPitchOffers(
+      [loggedPitch('strike_unknown', 0, 0)],
+      [measuredPitch({
+        offer: 'swing', swing_mode: 'charge',
+        swing_mode_source: 'swing_charge_frames_rise',
+        swing_charge_frames: 52, plate_x_units,
+      })],
+    ).pitches[0],
+  })
+  assert.equal(at(0.3).is_chase, false)
+  assert.equal(at(0.3).swing_charge_frames, 52)
+  assert.equal(at(1.2).is_chase, true)
+  assert.equal(at(0.65).is_chase, null, 'the calibrated edge stays unknown')
 })
 
 test('a square that was pulled back is a take, and still says it was shown', () => {

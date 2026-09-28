@@ -1,0 +1,152 @@
+{
+  "model_version": "runner-decision-v1",
+  "status": "active",
+  "features": [
+    "runner_to_target_units",
+    "ball_to_target_units",
+    "runner_speed",
+    "fielder_arm"
+  ],
+  "standardization": {
+    "runner_to_target_units": {
+      "mean": 20.356670899484595,
+      "scale": 7.493458868196211
+    },
+    "ball_to_target_units": {
+      "mean": 55.910415834729974,
+      "scale": 19.713461727889158
+    },
+    "runner_speed": {
+      "mean": 55.981770833333336,
+      "scale": 20.48251746890869
+    },
+    "fielder_arm": {
+      "mean": 57.109375,
+      "scale": 18.19536673009666
+    }
+  },
+  "opportunity_types": [
+    "first_to_home_on_double",
+    "first_to_third_on_single",
+    "second_to_home_on_single",
+    "tag_first_to_second",
+    "tag_second_to_third",
+    "tag_third_to_home"
+  ],
+  "lambda": 1,
+  "coefficients": [
+    -2.1908681710286437,
+    -1.5879637948369425,
+    2.238717421189059,
+    0.3656533654096435,
+    0.026306745069343808,
+    0.11862499602520869,
+    0.5121690050123168,
+    1.1215318111859665,
+    0.9321268935447385,
+    -2.323538432583526,
+    -2.5086019446995302,
+    0.7305504728034342
+  ],
+  "fitted_at": "2026-09-18T23:08:56.163Z",
+  "activation": {
+    "criteria": {
+      "minimum_chances": 200,
+      "minimum_sends": 50,
+      "must_beat": "context average, leave-one-game-out",
+      "bootstrap_lower_95_above": 0
+    },
+    "checks": {
+      "minimum_chances": true,
+      "minimum_sends": true,
+      "beats_context_average": true,
+      "bootstrap_lower_95": true
+    },
+    "failed": []
+  },
+  "sample": {
+    "games": 29,
+    "chances": 384,
+    "sends": 90,
+    "thrown_out": 2,
+    "by_type": {
+      "first_to_home_on_double": {
+        "chances": 14,
+        "sends": 9
+      },
+      "first_to_third_on_single": {
+        "chances": 111,
+        "sends": 40
+      },
+      "second_to_home_on_single": {
+        "chances": 62,
+        "sends": 25
+      },
+      "tag_first_to_second": {
+        "chances": 103,
+        "sends": 1
+      },
+      "tag_second_to_third": {
+        "chances": 62,
+        "sends": 0
+      },
+      "tag_third_to_home": {
+        "chances": 32,
+        "sends": 15
+      }
+    }
+  },
+  "out_of_fold": {
+    "scheme": "leave-one-game-out",
+    "model": {
+      "brier": 0.05547506073482388,
+      "log_loss": 0.1892285999046153,
+      "ece": 0.04246389080965311,
+      "auc": 0.973015873015873
+    },
+    "context_average": {
+      "brier": 0.1494343097520541,
+      "log_loss": 0.437547338457052,
+      "ece": 0.085143186626381,
+      "auc": 0.7328231292517007
+    },
+    "bootstrap_brier_improvement": {
+      "metric": "baseline_brier_minus_candidate_brier",
+      "iterations": 1000,
+      "lower_95": 0.07468369449200393,
+      "median": 0.093822050633264,
+      "upper_95": 0.11439174581567751
+    }
+  },
+  "sessions": [
+    "bowser_castle-20260828T182145Z",
+    "bowser_castle-20260904T011909Z",
+    "bowser_castle-20260905T005948Z",
+    "bowser_jr_playroom-20260828T133634Z",
+    "bowser_jr_playroom-20260828T144924Z",
+    "bowser_jr_playroom-20260828T155225Z",
+    "daisy_cruiser-20260831T212804Z",
+    "daisy_cruiser-20260904T202047Z",
+    "daisy_cruiser-20260918T151412Z",
+    "daisy_cruiser-20260918T183550Z",
+    "dk_jungle-20260828T211713Z",
+    "dk_jungle-20260902T171957Z",
+    "dk_jungle-20260904T161731Z",
+    "dk_jungle-20260918T190117Z",
+    "luigis_mansion-20260902T122308Z",
+    "luigis_mansion-20260904T171123Z",
+    "mario_stadium-20260831T174649Z",
+    "mario_stadium-20260904T000419Z",
+    "mario_stadium-20260904T213725Z",
+    "peach_ice_garden-20260902T151327Z",
+    "peach_ice_garden-20260904T152214Z",
+    "peach_ice_garden-20260907T234715Z",
+    "wario_city-20260902T135123Z",
+    "wario_city-20260904T144308Z",
+    "wario_city-20260905T191040Z",
+    "yoshi_park-20260830T235406Z",
+    "yoshi_park-20260831T031212Z",
+    "yoshi_park-20260831T134815Z",
+    "yoshi_park-20260831T140742Z"
+  ]
+}

@@ -1,0 +1,1013 @@
+{
+  "schema": "sluggers-evidence-schedule",
+  "version": 1,
+  "seed": 20260928,
+  "generated_at": "2026-09-28T14:18:07.554Z",
+  "stadium": "Mario Stadium",
+  "is_night": false,
+  "innings": 9,
+  "stadium_reason": "No stadium hazards, so every fielding and running event is an input or a character, not a gimmick. Hazard capture is enabled regardless; hazard examples are not a goal of this session.",
+  "labelling_unit": "plate_appearance for batting/pitching cards; half_inning for fielding/running conditions",
+  "gold_label_rule": "A planned action is the gold label ONLY where the operator confirms no deviation. Deviations are recorded separately and override the plan; unsure is its own value.",
+  "annotation": {
+    "console_category": "input_mode",
+    "note_format": "plan=PA<n>; field=<batter|pitch|aim|fielding|running>; actual=<value|unsure>; pitch=<n if only one pitch of the PA differed, else omit>; reason=<text>",
+    "examples": [
+      "plan=PA14; field=batter; actual=slap; pitch=2; reason=let go of the charge too early",
+      "plan=PA22; field=pitch; actual=star_unavailable; reason=meter empty",
+      "plan=PA30; field=fielding; actual=miss_dive_not_pressed; reason=ball was caught too fast"
+    ]
+  },
+  "rosters": {
+    "mario": {
+      "label": "Team Mario",
+      "captain": "Mario",
+      "players": [
+        {
+          "name": "Yoshi",
+          "position": "centerField",
+          "archive_owner": "Aidan"
+        },
+        {
+          "name": "Red Toad",
+          "position": "rightField",
+          "archive_owner": "May"
+        },
+        {
+          "name": "Luigi",
+          "position": "secondBase",
+          "archive_owner": "May"
+        },
+        {
+          "name": "King K. Rool",
+          "position": "catcher",
+          "archive_owner": "May"
+        },
+        {
+          "name": "Mario",
+          "position": "pitcher",
+          "archive_owner": "Aidan"
+        },
+        {
+          "name": "Yellow Pianta",
+          "position": "leftField",
+          "archive_owner": "May"
+        },
+        {
+          "name": "Blue Pianta",
+          "position": "firstBase",
+          "archive_owner": "Nick"
+        },
+        {
+          "name": "Boomerang Bro",
+          "position": "thirdBase",
+          "archive_owner": "Justin"
+        },
+        {
+          "name": "Green Paratroopa",
+          "position": "shortStop",
+          "archive_owner": "Aidan"
+        }
+      ],
+      "chemistry_pairs": [
+        [
+          "Yoshi",
+          "Mario"
+        ],
+        [
+          "Red Toad",
+          "Yellow Pianta"
+        ],
+        [
+          "Red Toad",
+          "Blue Pianta"
+        ],
+        [
+          "Luigi",
+          "Mario"
+        ],
+        [
+          "Mario",
+          "Yellow Pianta"
+        ],
+        [
+          "Mario",
+          "Blue Pianta"
+        ]
+      ],
+      "borrowed_captains": [
+        "Yoshi",
+        "Luigi"
+      ]
+    },
+    "peach": {
+      "label": "Team Peach",
+      "captain": "Peach",
+      "players": [
+        {
+          "name": "Toadette",
+          "position": "centerField",
+          "archive_owner": "Nick"
+        },
+        {
+          "name": "Wiggler",
+          "position": "rightField",
+          "archive_owner": "Donovan"
+        },
+        {
+          "name": "Daisy",
+          "position": "shortStop",
+          "archive_owner": "Justin"
+        },
+        {
+          "name": "Bowser",
+          "position": "catcher",
+          "archive_owner": "Nick"
+        },
+        {
+          "name": "Funky Kong",
+          "position": "firstBase",
+          "archive_owner": "May"
+        },
+        {
+          "name": "Wario",
+          "position": "thirdBase",
+          "archive_owner": "Nick"
+        },
+        {
+          "name": "Birdo",
+          "position": "secondBase",
+          "archive_owner": "Justin"
+        },
+        {
+          "name": "Hammer Bro",
+          "position": "leftField",
+          "archive_owner": "Aidan"
+        },
+        {
+          "name": "Peach",
+          "position": "pitcher",
+          "archive_owner": "Donovan"
+        }
+      ],
+      "chemistry_pairs": [
+        [
+          "Toadette",
+          "Birdo"
+        ],
+        [
+          "Toadette",
+          "Peach"
+        ],
+        [
+          "Daisy",
+          "Birdo"
+        ],
+        [
+          "Daisy",
+          "Peach"
+        ],
+        [
+          "Bowser",
+          "Hammer Bro"
+        ]
+      ],
+      "borrowed_captains": [
+        "Daisy",
+        "Bowser",
+        "Wario",
+        "Birdo"
+      ]
+    }
+  },
+  "batter_actions": {
+    "take": {
+      "planned_count": 10,
+      "instruction": "Do not offer at any pitch this PA."
+    },
+    "slap": {
+      "planned_count": 12,
+      "instruction": "Swing every pitch with NO charge."
+    },
+    "charge_short": {
+      "planned_count": 10,
+      "instruction": "Charge, then release quickly (well under half the meter)."
+    },
+    "charge_medium": {
+      "planned_count": 10,
+      "instruction": "Charge to about a full meter (~1 s), then swing."
+    },
+    "charge_long": {
+      "planned_count": 10,
+      "instruction": "Hold the charge 2 s or more, then swing."
+    },
+    "charge_early": {
+      "planned_count": 8,
+      "instruction": "Charge, and deliberately swing EARLY for the pitch."
+    },
+    "charge_late": {
+      "planned_count": 8,
+      "instruction": "Charge, and deliberately swing LATE for the pitch."
+    },
+    "bunt": {
+      "planned_count": 8,
+      "instruction": "Bunt every pitch."
+    },
+    "bunt_pull_back": {
+      "planned_count": 6,
+      "instruction": "Square to bunt, then pull back (do not offer)."
+    },
+    "star_swing": {
+      "planned_count": 8,
+      "instruction": "Star swing if the meter allows; otherwise slap and annotate star_unavailable."
+    }
+  },
+  "pitch_actions": {
+    "normal": {
+      "planned_count": 16,
+      "instruction": "Plain pitch, no charge."
+    },
+    "changeup": {
+      "planned_count": 14,
+      "instruction": "Changeup, no charge."
+    },
+    "charge_short": {
+      "planned_count": 12,
+      "instruction": "Charge briefly, then throw."
+    },
+    "charge_medium": {
+      "planned_count": 12,
+      "instruction": "Charge about half-way, then throw."
+    },
+    "charge_long": {
+      "planned_count": 12,
+      "instruction": "Charge as long as possible, then throw."
+    },
+    "release_early": {
+      "planned_count": 8,
+      "instruction": "Throw the moment you can (fast release)."
+    },
+    "release_late": {
+      "planned_count": 8,
+      "instruction": "Wait as long as you can before throwing (slow release)."
+    },
+    "star": {
+      "planned_count": 8,
+      "instruction": "Star pitch if the meter allows; otherwise plain and annotate star_unavailable."
+    }
+  },
+  "pitch_aims": {
+    "middle": {
+      "planned_count": 24,
+      "instruction": "Aim down the middle."
+    },
+    "left_edge": {
+      "planned_count": 22,
+      "instruction": "Aim at the LEFT edge of the zone (3B side on screen)."
+    },
+    "right_edge": {
+      "planned_count": 22,
+      "instruction": "Aim at the RIGHT edge of the zone (1B side on screen)."
+    },
+    "outside_left": {
+      "planned_count": 11,
+      "instruction": "Aim clearly OUTSIDE, left."
+    },
+    "outside_right": {
+      "planned_count": 11,
+      "instruction": "Aim clearly OUTSIDE, right."
+    }
+  },
+  "fielding_conditions": {
+    "control_no_special": {
+      "instruction": "Field normally. No dive, jump, Buddy action or manual selection change."
+    },
+    "dive_every_chance": {
+      "instruction": "Dive at every ball you can reach."
+    },
+    "jump_every_chance": {
+      "instruction": "Jump at every ball you can reach (wall balls and liners)."
+    },
+    "miss_dive": {
+      "instruction": "On every ball in play, press DIVE once with a fielder nowhere near the ball."
+    },
+    "miss_jump": {
+      "instruction": "On every ball in play, press JUMP once with a fielder nowhere near the ball."
+    },
+    "buddy_attack": {
+      "instruction": "Buddy Attack whenever possible, including ones that will miss."
+    },
+    "buddy_jump": {
+      "instruction": "Buddy Jump on every high ball near the wall, even hopeless ones."
+    },
+    "buddy_throw": {
+      "instruction": "Attempt a Buddy Throw on every throw where one is offered."
+    },
+    "selection_change": {
+      "instruction": "Switch the controlled fielder at least twice on every ball in play."
+    }
+  },
+  "running_conditions": {
+    "no_shake": {
+      "instruction": "Do not shake at all while runners move."
+    },
+    "short_shake": {
+      "instruction": "One short shake burst (under 1 s) at contact, then stop."
+    },
+    "sustained_shake": {
+      "instruction": "Shake continuously from contact until every runner stops."
+    },
+    "delayed_shake": {
+      "instruction": "Wait ~1 s after contact, then shake until runners stop."
+    }
+  },
+  "cards": [
+    {
+      "pa": 1,
+      "batter_action": "slap",
+      "pitch_action": "charge_long",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 2,
+      "batter_action": "take",
+      "pitch_action": "changeup",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 3,
+      "batter_action": "take",
+      "pitch_action": "normal",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 4,
+      "batter_action": "charge_early",
+      "pitch_action": "release_early",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 5,
+      "batter_action": "bunt",
+      "pitch_action": "normal",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 6,
+      "batter_action": "slap",
+      "pitch_action": "release_early",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 7,
+      "batter_action": "take",
+      "pitch_action": "changeup",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 8,
+      "batter_action": "charge_early",
+      "pitch_action": "charge_short",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 9,
+      "batter_action": "charge_short",
+      "pitch_action": "charge_long",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 10,
+      "batter_action": "take",
+      "pitch_action": "charge_short",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 11,
+      "batter_action": "take",
+      "pitch_action": "changeup",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 12,
+      "batter_action": "bunt_pull_back",
+      "pitch_action": "changeup",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 13,
+      "batter_action": "bunt",
+      "pitch_action": "charge_long",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 14,
+      "batter_action": "bunt_pull_back",
+      "pitch_action": "changeup",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 15,
+      "batter_action": "slap",
+      "pitch_action": "changeup",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 16,
+      "batter_action": "bunt_pull_back",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 17,
+      "batter_action": "take",
+      "pitch_action": "normal",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 18,
+      "batter_action": "charge_long",
+      "pitch_action": "normal",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 19,
+      "batter_action": "charge_long",
+      "pitch_action": "charge_short",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 20,
+      "batter_action": "bunt",
+      "pitch_action": "changeup",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 21,
+      "batter_action": "charge_late",
+      "pitch_action": "charge_long",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 22,
+      "batter_action": "bunt_pull_back",
+      "pitch_action": "charge_short",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 23,
+      "batter_action": "take",
+      "pitch_action": "release_late",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 24,
+      "batter_action": "bunt_pull_back",
+      "pitch_action": "changeup",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 25,
+      "batter_action": "charge_long",
+      "pitch_action": "release_early",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 26,
+      "batter_action": "charge_long",
+      "pitch_action": "star",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 27,
+      "batter_action": "charge_early",
+      "pitch_action": "charge_short",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 28,
+      "batter_action": "charge_late",
+      "pitch_action": "normal",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 29,
+      "batter_action": "star_swing",
+      "pitch_action": "release_late",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 30,
+      "batter_action": "charge_medium",
+      "pitch_action": "changeup",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 31,
+      "batter_action": "charge_medium",
+      "pitch_action": "changeup",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 32,
+      "batter_action": "star_swing",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 33,
+      "batter_action": "charge_long",
+      "pitch_action": "charge_long",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 34,
+      "batter_action": "charge_short",
+      "pitch_action": "normal",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 35,
+      "batter_action": "charge_late",
+      "pitch_action": "star",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 36,
+      "batter_action": "bunt_pull_back",
+      "pitch_action": "charge_short",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 37,
+      "batter_action": "charge_medium",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 38,
+      "batter_action": "star_swing",
+      "pitch_action": "charge_long",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 39,
+      "batter_action": "charge_medium",
+      "pitch_action": "star",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 40,
+      "batter_action": "slap",
+      "pitch_action": "normal",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 41,
+      "batter_action": "bunt",
+      "pitch_action": "normal",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 42,
+      "batter_action": "slap",
+      "pitch_action": "charge_short",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 43,
+      "batter_action": "charge_early",
+      "pitch_action": "charge_short",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 44,
+      "batter_action": "slap",
+      "pitch_action": "charge_short",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 45,
+      "batter_action": "charge_long",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 46,
+      "batter_action": "slap",
+      "pitch_action": "charge_long",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 47,
+      "batter_action": "charge_long",
+      "pitch_action": "normal",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 48,
+      "batter_action": "charge_medium",
+      "pitch_action": "charge_short",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 49,
+      "batter_action": "charge_short",
+      "pitch_action": "normal",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 50,
+      "batter_action": "slap",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 51,
+      "batter_action": "charge_short",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 52,
+      "batter_action": "charge_early",
+      "pitch_action": "normal",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 53,
+      "batter_action": "slap",
+      "pitch_action": "changeup",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 54,
+      "batter_action": "charge_short",
+      "pitch_action": "release_late",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 55,
+      "batter_action": "star_swing",
+      "pitch_action": "changeup",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 56,
+      "batter_action": "slap",
+      "pitch_action": "star",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 57,
+      "batter_action": "slap",
+      "pitch_action": "release_early",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 58,
+      "batter_action": "charge_medium",
+      "pitch_action": "charge_long",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 59,
+      "batter_action": "charge_medium",
+      "pitch_action": "release_late",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 60,
+      "batter_action": "charge_late",
+      "pitch_action": "release_late",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 61,
+      "batter_action": "charge_late",
+      "pitch_action": "release_late",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 62,
+      "batter_action": "charge_long",
+      "pitch_action": "star",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 63,
+      "batter_action": "bunt",
+      "pitch_action": "normal",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 64,
+      "batter_action": "star_swing",
+      "pitch_action": "release_early",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 65,
+      "batter_action": "charge_late",
+      "pitch_action": "release_early",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 66,
+      "batter_action": "charge_short",
+      "pitch_action": "changeup",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 67,
+      "batter_action": "charge_medium",
+      "pitch_action": "star",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 68,
+      "batter_action": "charge_early",
+      "pitch_action": "star",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 69,
+      "batter_action": "charge_late",
+      "pitch_action": "release_early",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 70,
+      "batter_action": "charge_late",
+      "pitch_action": "release_early",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 71,
+      "batter_action": "star_swing",
+      "pitch_action": "release_late",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 72,
+      "batter_action": "charge_short",
+      "pitch_action": "normal",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 73,
+      "batter_action": "take",
+      "pitch_action": "normal",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 74,
+      "batter_action": "charge_medium",
+      "pitch_action": "charge_short",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 75,
+      "batter_action": "bunt",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 76,
+      "batter_action": "take",
+      "pitch_action": "charge_long",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 77,
+      "batter_action": "bunt",
+      "pitch_action": "charge_short",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 78,
+      "batter_action": "charge_long",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 79,
+      "batter_action": "bunt",
+      "pitch_action": "changeup",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 80,
+      "batter_action": "charge_medium",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "left_edge"
+    },
+    {
+      "pa": 81,
+      "batter_action": "take",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 82,
+      "batter_action": "charge_early",
+      "pitch_action": "release_late",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 83,
+      "batter_action": "charge_long",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 84,
+      "batter_action": "star_swing",
+      "pitch_action": "charge_long",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 85,
+      "batter_action": "charge_short",
+      "pitch_action": "normal",
+      "pitch_aim": "middle"
+    },
+    {
+      "pa": 86,
+      "batter_action": "charge_short",
+      "pitch_action": "charge_medium",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 87,
+      "batter_action": "charge_short",
+      "pitch_action": "normal",
+      "pitch_aim": "outside_left"
+    },
+    {
+      "pa": 88,
+      "batter_action": "charge_early",
+      "pitch_action": "charge_long",
+      "pitch_aim": "outside_right"
+    },
+    {
+      "pa": 89,
+      "batter_action": "slap",
+      "pitch_action": "star",
+      "pitch_aim": "right_edge"
+    },
+    {
+      "pa": 90,
+      "batter_action": "star_swing",
+      "pitch_action": "charge_long",
+      "pitch_aim": "middle"
+    }
+  ],
+  "halves": [
+    {
+      "inning": 1,
+      "half": "top",
+      "batting_team": "Team Mario",
+      "fielding_team": "Team Peach",
+      "fielding_condition": "buddy_throw",
+      "running_condition": "no_shake"
+    },
+    {
+      "inning": 1,
+      "half": "bottom",
+      "batting_team": "Team Peach",
+      "fielding_team": "Team Mario",
+      "fielding_condition": "dive_every_chance",
+      "running_condition": "short_shake"
+    },
+    {
+      "inning": 2,
+      "half": "top",
+      "batting_team": "Team Mario",
+      "fielding_team": "Team Peach",
+      "fielding_condition": "dive_every_chance",
+      "running_condition": "no_shake"
+    },
+    {
+      "inning": 2,
+      "half": "bottom",
+      "batting_team": "Team Peach",
+      "fielding_team": "Team Mario",
+      "fielding_condition": "miss_jump",
+      "running_condition": "sustained_shake"
+    },
+    {
+      "inning": 3,
+      "half": "top",
+      "batting_team": "Team Mario",
+      "fielding_team": "Team Peach",
+      "fielding_condition": "buddy_attack",
+      "running_condition": "no_shake"
+    },
+    {
+      "inning": 3,
+      "half": "bottom",
+      "batting_team": "Team Peach",
+      "fielding_team": "Team Mario",
+      "fielding_condition": "jump_every_chance",
+      "running_condition": "no_shake"
+    },
+    {
+      "inning": 4,
+      "half": "top",
+      "batting_team": "Team Mario",
+      "fielding_team": "Team Peach",
+      "fielding_condition": "miss_dive",
+      "running_condition": "delayed_shake"
+    },
+    {
+      "inning": 4,
+      "half": "bottom",
+      "batting_team": "Team Peach",
+      "fielding_team": "Team Mario",
+      "fielding_condition": "buddy_attack",
+      "running_condition": "no_shake"
+    },
+    {
+      "inning": 5,
+      "half": "top",
+      "batting_team": "Team Mario",
+      "fielding_team": "Team Peach",
+      "fielding_condition": "control_no_special",
+      "running_condition": "short_shake"
+    },
+    {
+      "inning": 5,
+      "half": "bottom",
+      "batting_team": "Team Peach",
+      "fielding_team": "Team Mario",
+      "fielding_condition": "selection_change",
+      "running_condition": "delayed_shake"
+    },
+    {
+      "inning": 6,
+      "half": "top",
+      "batting_team": "Team Mario",
+      "fielding_team": "Team Peach",
+      "fielding_condition": "buddy_jump",
+      "running_condition": "delayed_shake"
+    },
+    {
+      "inning": 6,
+      "half": "bottom",
+      "batting_team": "Team Peach",
+      "fielding_team": "Team Mario",
+      "fielding_condition": "buddy_jump",
+      "running_condition": "delayed_shake"
+    },
+    {
+      "inning": 7,
+      "half": "top",
+      "batting_team": "Team Mario",
+      "fielding_team": "Team Peach",
+      "fielding_condition": "jump_every_chance",
+      "running_condition": "sustained_shake"
+    },
+    {
+      "inning": 7,
+      "half": "bottom",
+      "batting_team": "Team Peach",
+      "fielding_team": "Team Mario",
+      "fielding_condition": "miss_dive",
+      "running_condition": "no_shake"
+    },
+    {
+      "inning": 8,
+      "half": "top",
+      "batting_team": "Team Mario",
+      "fielding_team": "Team Peach",
+      "fielding_condition": "miss_jump",
+      "running_condition": "sustained_shake"
+    },
+    {
+      "inning": 8,
+      "half": "bottom",
+      "batting_team": "Team Peach",
+      "fielding_team": "Team Mario",
+      "fielding_condition": "buddy_throw",
+      "running_condition": "sustained_shake"
+    },
+    {
+      "inning": 9,
+      "half": "top",
+      "batting_team": "Team Mario",
+      "fielding_team": "Team Peach",
+      "fielding_condition": "selection_change",
+      "running_condition": "short_shake"
+    },
+    {
+      "inning": 9,
+      "half": "bottom",
+      "batting_team": "Team Peach",
+      "fielding_team": "Team Mario",
+      "fielding_condition": "control_no_special",
+      "running_condition": "short_shake"
+    }
+  ],
+  "targets_if_game_ends_early": "Cards are shuffled across the whole game, so any prefix of the game samples every action roughly in proportion."
+}

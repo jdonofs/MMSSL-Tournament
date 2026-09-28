@@ -457,9 +457,13 @@ test('generateGameOdds carries current in-game counts into generated prop market
   const luigiK = rows.find((row) => row.bet_type === 'k_prop' && row.target_entity === luigiLabel)
 
   assert.equal(marioHr.prop_current_count, 1)
-  assert.equal(marioHr.line, 1.5)
+  assert.ok(marioHr.line >= marioHr.prop_current_count + 0.5)
   assert.equal(peachHit.prop_current_count, 1)
-  assert.equal(peachHit.line, 1.5)
+  // The current model prices the X.5 hook closest to even money. It must stay
+  // above the recorded count, but can move beyond 1.5 when the remaining-PA
+  // distribution makes a higher line the balanced market.
+  assert.ok(peachHit.line >= peachHit.prop_current_count + 0.5)
+  assert.equal(Math.abs(peachHit.line % 1), 0.5)
   assert.equal(luigiK.prop_current_count, 1)
   assert.ok(luigiK.line > luigiK.prop_current_count)
 

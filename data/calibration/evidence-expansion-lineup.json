@@ -1,0 +1,207 @@
+{
+  "generatedAt": "2026-09-28T14:18:07.554Z",
+  "game": {
+    "id": null,
+    "table": "calibration",
+    "sourceId": null,
+    "stadium": "Mario Stadium",
+    "stadiumIndex": 0,
+    "isNight": false,
+    "homeAwaySwapped": false,
+    "calibration": {
+      "evidenceTest": {
+        "schemaVersion": 1,
+        "purpose": "comprehensive_evidence_expansion",
+        "schedule": "data/calibration/evidence-expansion-schedule-v1.json",
+        "cards": "docs/evidence-session-cards.md",
+        "setupCommand": "python scripts/mss_autoteam.py --lineup data/calibration/evidence-expansion-lineup.json",
+        "note": "Sides in this file are only what autoteam loads. The capture resolves which port drives which team from game memory, never from this file."
+      }
+    }
+  },
+  "miiCount": 29,
+  "rules": [
+    9,
+    0,
+    0,
+    0
+  ],
+  "away": {
+    "label": "Team Mario",
+    "playerId": null,
+    "playerName": "Jason",
+    "slots": [
+      {
+        "battingSlot": 0,
+        "fieldingSlot": 7,
+        "positionId": "centerField",
+        "charIndex": 6,
+        "siteName": "Yoshi",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 1,
+        "fieldingSlot": 8,
+        "positionId": "rightField",
+        "charIndex": 13,
+        "siteName": "Red Toad",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 2,
+        "fieldingSlot": 3,
+        "positionId": "secondBase",
+        "charIndex": 1,
+        "siteName": "Luigi",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 3,
+        "fieldingSlot": 1,
+        "positionId": "catcher",
+        "charIndex": 62,
+        "siteName": "King K. Rool",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 4,
+        "fieldingSlot": 0,
+        "positionId": "pitcher",
+        "charIndex": 0,
+        "siteName": "Mario",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 5,
+        "fieldingSlot": 6,
+        "positionId": "leftField",
+        "charIndex": 23,
+        "siteName": "Yellow Pianta",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 6,
+        "fieldingSlot": 2,
+        "positionId": "firstBase",
+        "charIndex": 21,
+        "siteName": "Blue Pianta",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 7,
+        "fieldingSlot": 4,
+        "positionId": "thirdBase",
+        "charIndex": 53,
+        "siteName": "Boomerang Bro",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 8,
+        "fieldingSlot": 5,
+        "positionId": "shortStop",
+        "charIndex": 43,
+        "siteName": "Green Paratroopa",
+        "characterId": null,
+        "miiColor": null
+      }
+    ],
+    "captainSlot": 0
+  },
+  "home": {
+    "label": "Team Peach",
+    "playerId": null,
+    "playerName": "Jason",
+    "slots": [
+      {
+        "battingSlot": 0,
+        "fieldingSlot": 7,
+        "positionId": "centerField",
+        "charIndex": 15,
+        "siteName": "Toadette",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 1,
+        "fieldingSlot": 8,
+        "positionId": "rightField",
+        "charIndex": 54,
+        "siteName": "Wiggler",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 2,
+        "fieldingSlot": 5,
+        "positionId": "shortStop",
+        "charIndex": 5,
+        "siteName": "Daisy",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 3,
+        "fieldingSlot": 1,
+        "positionId": "catcher",
+        "charIndex": 9,
+        "siteName": "Bowser",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 4,
+        "fieldingSlot": 2,
+        "positionId": "firstBase",
+        "charIndex": 56,
+        "siteName": "Funky Kong",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 5,
+        "fieldingSlot": 4,
+        "positionId": "thirdBase",
+        "charIndex": 10,
+        "siteName": "Wario",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 6,
+        "fieldingSlot": 3,
+        "positionId": "secondBase",
+        "charIndex": 17,
+        "siteName": "Birdo",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 7,
+        "fieldingSlot": 6,
+        "positionId": "leftField",
+        "charIndex": 27,
+        "siteName": "Hammer Bro",
+        "characterId": null,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 8,
+        "fieldingSlot": 0,
+        "positionId": "pitcher",
+        "charIndex": 4,
+        "siteName": "Peach",
+        "characterId": null,
+        "miiColor": null
+      }
+    ],
+    "captainSlot": 4
+  }
+}

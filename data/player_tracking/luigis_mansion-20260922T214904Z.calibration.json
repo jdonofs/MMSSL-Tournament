@@ -1,0 +1,87 @@
+{
+  "session": "luigis_mansion-20260922T214904Z",
+  "position_offset": 4,
+  "ball_frame": {
+    "sign_x": 1.0,
+    "sign_z": -1.0,
+    "swap_xz": false,
+    "lock_frames": 3817,
+    "lock_units": 0.05
+  },
+  "movement_units": 4697.2,
+  "teleports": 383,
+  "candidates": [
+    {
+      "offset": 4,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 3817,
+      "path": 4697.2,
+      "teleports": 383
+    },
+    {
+      "offset": 424,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 98,
+      "path": 1076.3,
+      "teleports": 1126
+    },
+    {
+      "offset": 424,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 89,
+      "path": 1076.3,
+      "teleports": 1126
+    },
+    {
+      "offset": 628,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 25,
+      "path": 0.0,
+      "teleports": 29
+    },
+    {
+      "offset": 12,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 19,
+      "path": 2939.8,
+      "teleports": 360
+    },
+    {
+      "offset": 212,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": false,
+      "locks": 17,
+      "path": 698.0,
+      "teleports": 540
+    },
+    {
+      "offset": 144,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 15,
+      "path": 5812.1,
+      "teleports": 169
+    },
+    {
+      "offset": 144,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 15,
+      "path": 5812.1,
+      "teleports": 169
+    }
+  ]
+}

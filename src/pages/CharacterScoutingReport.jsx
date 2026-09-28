@@ -3,7 +3,8 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { percentileOfValue, summarizeBatting } from '../utils/statsCalculator'
 import { getTalentTierMeta } from '../utils/characterAnalysis'
-import { buildRawValueRows } from '../utils/measuredAttributes'
+import { buildRawValueRows, describeSpeedClassification } from '../utils/measuredAttributes'
+import { FEET_PER_SECOND_TO_MPH } from '../utils/advancedDefense'
 import { buildScopeOptions } from '../utils/characterScopes'
 import useCharacterProfileData from '../hooks/useCharacterProfileData'
 import useCharacterExtras from '../hooks/useCharacterExtras'
@@ -11,7 +12,7 @@ import useCharacterMetaFallback from '../hooks/useCharacterMeta'
 import CharacterPortrait from '../components/CharacterPortrait'
 import PercentileBar from '../components/PercentileBar'
 import RollingStatChart from '../components/RollingStatChart'
-import SprayChart from '../components/SprayChart'
+import VectorSprayChart from '../components/VectorSprayChart'
 import TeamLogo from '../components/TeamLogo'
 import { getChemistry } from '../data/chemistry'
 import { getTeamShortName, buildPlayerTeamIdentity, buildSeasonTeamIdentity } from '../utils/teamIdentity'
@@ -67,7 +68,7 @@ const PERCENTILE_GROUPS = [
   {
     title: 'Running',
     metrics: [
-      { key: 'sprintSpeedFps', label: 'Sprint Speed', digits: 1, suffix: ' ft/s' },
+      { key: 'sprintSpeedFps', label: 'Sprint Speed', scale: FEET_PER_SECOND_TO_MPH, digits: 1, suffix: ' mph' },
       { key: 'homeToFirstSeconds', label: 'Home to First', digits: 2, suffix: ' s', invert: true },
     ],
   },
@@ -122,7 +123,10 @@ function ScopePicker({ characterId, scope, scopeOptions }) {
   )
 }
 
-function RawValueTable({ rows }) {
+// Exported for tests/character-mechanics-browser.test.mjs, which renders this
+// table against fixed rows so the states below can be asserted exactly instead
+// of against whatever the live database happens to hold this week.
+export function RawValueTable({ rows }) {
   const groups = ['Batting', 'Pitching', 'Fielding', 'Running']
   const th = { padding: '7px 8px', textAlign: 'left', color: '#64748B', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em', whiteSpace: 'nowrap' }
   const td = { padding: '6px 8px', fontSize: 12, whiteSpace: 'nowrap' }
@@ -137,7 +141,10 @@ function RawValueTable({ rows }) {
             <th scope="col" style={{ ...th, textAlign: 'right' }}>Data-mined</th>
             <th scope="col" style={{ ...th, textAlign: 'right' }}>Measured</th>
             <th scope="col" style={{ ...th, textAlign: 'right' }}>n</th>
-            <th scope="col" style={{ ...th, textAlign: 'right' }}>Δ pct</th>
+            {/* Percentile delta for every row but one; the top-speed row is
+                the same quantity on both sides and shows a real difference,
+                which is why the header names both. */}
+            <th scope="col" style={{ ...th, textAlign: 'right' }}>Δ pct / unit</th>
           </tr>
         </thead>
         <tbody>
@@ -154,18 +161,33 @@ function RawValueTable({ rows }) {
                 const deltaColor = row.delta == null ? '#475569'
                   : row.delta > 0 ? '#4ADE80'
                     : row.delta < 0 ? '#F87171' : '#94A3B8'
+                // Null on every row but the fielding top-speed one, where an
+                // observation can be ordinary, boosted, or on neither curve row.
+                const classification = describeSpeedClassification(row.classification, {
+                  digits: row.measuredDigits,
+                  unit: row.measuredUnit,
+                  scale: row.measuredScale,
+                })
                 return (
-                  <tr key={row.key} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
-                    <td style={{ ...td, color: '#E2E8F0', fontWeight: 600 }}>
-                      {row.label}
+                  <tr key={row.key} data-metric={row.key} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                    <td style={{ ...td, color: '#E2E8F0', fontWeight: 600, whiteSpace: 'normal' }}>
+                      {/* The name on its own, so a test can read it without
+                          also picking up the note below it. */}
+                      <span data-testid="metric-label">{row.label}</span>
                       {row.measuredLabel ? (
                         <span style={{ color: '#64748B', fontWeight: 500 }}> · {row.measuredLabel}</span>
+                      ) : null}
+                      {row.note ? (
+                        <div style={{ color: '#64748B', fontWeight: 400, fontSize: 10, lineHeight: 1.45, marginTop: 2, maxWidth: 460 }}>
+                          {row.note}
+                        </div>
                       ) : null}
                     </td>
                     <td style={{ ...td, textAlign: 'right', color: '#F8FAFC' }}>
                       {row.minedValue == null ? dash : (
                         <>
                           {row.minedValue.toFixed(row.minedDigits)}
+                          {row.minedUnit ? <span style={{ color: '#94A3B8' }}> {row.minedUnit}</span> : null}
                           {row.minedPercentile != null && (
                             <span style={{ color: '#64748B', fontSize: 10 }}> ({row.minedPercentile})</span>
                           )}
@@ -173,21 +195,82 @@ function RawValueTable({ rows }) {
                       )}
                     </td>
                     <td style={{ ...td, textAlign: 'right', color: '#F8FAFC' }}>
-                      {row.measuredValue == null ? dash : (
+                      {row.measuredValue != null ? (
                         <>
                           {row.measuredValue.toFixed(row.measuredDigits)}
                           {row.measuredUnit ? <span style={{ color: '#94A3B8' }}> {row.measuredUnit}</span> : null}
                           {row.measuredPercentile != null && (
                             <span style={{ color: '#64748B', fontSize: 10 }}> ({row.measuredPercentile})</span>
                           )}
+                          {/* The value stands on the ordinary observations in
+                              the n column beside it. Where others were seen and
+                              left out, this says how many, and the title says
+                              what they were -- otherwise n reads as the whole
+                              of the evidence. */}
+                          {classification?.label ? (
+                            <span
+                              style={{ color: '#A16207', fontSize: 10 }}
+                              title={classification.detail}
+                              data-testid={`classification-${row.key}`}
+                            > · {classification.label}</span>
+                          ) : null}
                         </>
-                      )}
+                      ) : row.excludedOnly ? (
+                        // OBSERVED AND EXCLUDED IS NOT UNOBSERVED. Every
+                        // observation this character has was disqualified from
+                        // being their ordinary constant -- boosted, matching
+                        // neither curve row, or never checked because the
+                        // character has no rating. Rendering that as "no
+                        // samples" claimed nothing had been measured when a
+                        // dozen rows had.
+                        <span
+                          style={{ color: '#A16207', fontSize: 11 }}
+                          title={classification?.detail || undefined}
+                          data-testid={`classification-${row.key}`}
+                        >
+                          {classification?.label}
+                        </span>
+                      ) : row.insufficientSamples ? (
+                        // Not the same answer as a dash: qualifying
+                        // observations exist, there are just too few to
+                        // quantile. The n column beside this says how many.
+                        <span style={{ color: '#A16207', fontSize: 11 }}>
+                          too few
+                          {row.attempts ? (
+                            <span style={{ color: '#64748B' }}> · {row.samples} of {row.attempts}</span>
+                          ) : null}
+                        </span>
+                      ) : row.attemptedNoneHeld ? (
+                        // Tried and never completed. Calling that "too few"
+                        // would hide the only thing it establishes.
+                        <span style={{ color: '#A16207', fontSize: 11 }}>
+                          0 of {row.attempts} held
+                        </span>
+                      ) : row.awaitingSamples ? (
+                        <span style={{ color: '#475569', fontSize: 11 }}>no samples</span>
+                      ) : dash}
                     </td>
                     <td style={{ ...td, textAlign: 'right', color: '#64748B' }}>
                       {row.samples == null ? dash : row.samples}
                     </td>
                     <td style={{ ...td, textAlign: 'right', color: deltaColor, fontWeight: 700 }}>
-                      {row.delta == null ? dash : formatSigned(row.delta, 0)}
+                      {row.sameUnit && row.directDelta != null ? (
+                        // The one comparison on this table that is a real
+                        // difference rather than a difference of ranks.
+                        <span title={`Measured minus expected, in ${row.sameUnit}`}>
+                          {formatSigned(row.directDelta, 2)}
+                          <span style={{ color: '#64748B', fontWeight: 500, fontSize: 10 }}> {row.sameUnit}</span>
+                        </span>
+                      ) : (row.comparable === false && row.minedValue != null && row.measuredValue != null) ? (
+                        // Both columns have a number and comparing them would
+                        // still be wrong. Saying so beats an ambiguous dash.
+                        <span
+                          style={{ color: '#64748B', fontWeight: 500, fontSize: 10 }}
+                          title="These two columns measure related but different quantities, so no difference is shown."
+                        >
+                          not comparable
+                        </span>
+                      ) : row.delta == null ? dash : formatSigned(row.delta, 0)}
                     </td>
                   </tr>
                 )
@@ -488,7 +571,7 @@ export default function CharacterScoutingReport() {
           <div style={CARD_STYLE}>
             <p style={GROUP_TITLE_STYLE}>Hits Spray Chart</p>
             {rawPasBatting.length ? (
-              <SprayChart plateAppearances={rawPasBatting} height={300} />
+              <VectorSprayChart plateAppearances={rawPasBatting} height={300} />
             ) : (
               <p style={{ color: '#475569', fontSize: 12, fontStyle: 'italic', margin: 0 }}>No batted balls in this scope.</p>
             )}
@@ -504,11 +587,35 @@ export default function CharacterScoutingReport() {
       <section className="panel" style={{ padding: '1rem 1.2rem', minWidth: 0 }}>
         <p style={{ ...GROUP_TITLE_STYLE, fontSize: 11, color: '#CBD5E1', marginBottom: 4 }}>Raw Values</p>
         <p style={{ color: '#64748B', fontSize: 11, margin: '0 0 10px', lineHeight: 1.5 }}>
-          What the game&apos;s own data says, beside what the tracker measured. The two sides are in
-          different units, so <strong style={{ color: '#94A3B8' }}>Δ pct</strong> is the difference in
-          percentile rank against the cast — positive means the tracker measured this character above
-          what their rating implies. Parenthesised numbers are percentiles; <em>n</em> is the measured
-          sample count. A dash is unmeasured, not zero.
+          What the game&apos;s own data says, beside what the tracker measured. On most rows the two
+          sides are in different units, so <strong style={{ color: '#94A3B8' }}>Δ pct</strong> is the
+          difference in percentile rank against the cast — positive means the tracker measured this
+          character above what their rating implies. Where a row shows a unit in that column instead,
+          the two sides are the same quantity and the number is a real difference. Parenthesised
+          numbers are percentiles; <em>n</em> is the measured sample count — for the catch-reach
+          rows that is the number of catches actually held, which is what the figure beside it is
+          calculated from. A dash means there is no counterpart to show, not zero and not
+          &ldquo;impossible&rdquo;; <span style={{ color: '#A16207' }}>too few</span> means qualifying
+          observations exist but fall short of the display threshold;
+          <span style={{ color: '#A16207' }}> 0 of n held</span> means the attempts are there and none
+          of them were completed. Rows marked <em>not comparable</em> have a number in both columns
+          that measure different things.
+        </p>
+        {/* The top-speed row is the one place where an observation can exist
+            and still not be usable, so its states are spelled out separately
+            rather than left to a tooltip nobody hovers. */}
+        <p style={{ color: '#64748B', fontSize: 11, margin: '0 0 10px', lineHeight: 1.5 }}>
+          On <strong style={{ color: '#94A3B8' }}>Top Speed (fielding)</strong> an observation is the
+          game&apos;s own constant, and it counts towards the figure only when it matches the curve row
+          this character&apos;s rating allows. <span style={{ color: '#A16207' }}>boosted only</span>,
+          <span style={{ color: '#A16207' }}> matches neither row</span> and
+          <span style={{ color: '#A16207' }}> no ordinary observation</span> each mean the constant was
+          measured and none of the measurements is this character&apos;s ordinary top speed;
+          <span style={{ color: '#A16207' }}> no rating</span> means there was nothing to check it
+          against, so it is not presented as one. Where a value is shown,
+          <span style={{ color: '#A16207' }}> · n excluded</span> beside it says how many observations
+          are not in it. The difference in the last column is not independent confirmation of the
+          curve — a value has to be within 0.007 mph of that row to be called ordinary at all.
         </p>
         <RawValueTable rows={rawValueRows} />
       </section>

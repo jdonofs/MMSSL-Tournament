@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-19T00:36:35.196Z",
+  "competition": "season",
+  "game_id": 2814,
+  "games_table": "season_schedule",
+  "stadium": "Bowser Castle",
+  "launcher_pid": 17296,
+  "handoff_signal": "C:\\Users\\jdono\\AppData\\Local\\Temp\\mss-autogame-17296-1789778161352.live",
+  "stages": {
+    "bridge_ready": true,
+    "match_live": "confirmed",
+    "handed_off": true,
+    "gameplay_hold": "readers_ready",
+    "capture_recording": true,
+    "capture_disabled": false
+  },
+  "timings_ms": {
+    "bridge_ready": 2172,
+    "handoff": 32786,
+    "gameplay_held": 900,
+    "capture_after_handoff": 1,
+    "collector_first_frames_seconds": 0.477
+  },
+  "capture": {
+    "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260919T003634Z",
+    "frames": 30,
+    "missed_frames": 0,
+    "bytes_on_disk": 19298,
+    "collector_pid": 14780,
+    "park": "bowser_castle",
+    "reason": null
+  },
+  "tracker_log": "C:\\Users\\jdono\\Sluggers\\sluggers-stat-tracker-advanced-stats-dev\\preview-sessions\\bridge-2026-09-18_20-36-02.log"
+}

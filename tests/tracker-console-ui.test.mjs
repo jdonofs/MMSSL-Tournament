@@ -12,6 +12,7 @@ import {
   applyTrackerPreviewPlay,
   applyTrackerPreviewPostgamePlay,
   createTrackerPreviewState,
+  setTrackerPreviewGameContext,
   setTrackerPreviewCaptureHealth,
   setTrackerPreviewStadiumOverride,
   trackerPreviewSnapshot,
@@ -154,6 +155,14 @@ test('advanced metrics retain missing and zero measurements and use explicit spe
   const arm = metrics.rows.find((row) => row.label === 'Peak throw speed')
   assert.ok(Math.abs(arm.value - 89.47745) < 0.001)
   assert.equal(arm.status, 'excluded')
+})
+
+test('advanced metrics do not display a knocked-loose ball as throw speed', () => {
+  const metrics = buildPreviewAdvancedMetrics({
+    join: { status: 'joined' },
+    play: { ...caughtPlay, throws: [{ is_throw: false, peak_speed_mph: 20 }] },
+  })
+  assert.equal(metrics.rows.some((row) => row.label === 'Peak throw speed'), false)
 })
 
 test('unjoined plays cannot supply advanced measurements to an at-bat', () => {
@@ -308,6 +317,30 @@ test('POST /shutdown acknowledges before asking the local session to stop', asyn
       message: 'Saving and ending this tracker session',
     })
     await stopped
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
+})
+
+test('live tracker shutdown requires the selected game and an allowed site', async () => {
+  const state = createTrackerPreviewState({ mode: 'live_bridge', writesEnabled: true })
+  setTrackerPreviewGameContext(state, { game_id: 42, games_table: 'season_schedule' })
+  let stops = 0
+  const server = createTrackerPreviewServer({ state, port: 0, onShutdown: () => { stops += 1 } })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const url = `http://127.0.0.1:${server.address().port}/shutdown`
+  const stop = (gameId, table, origin = 'https://msl-tournament.vercel.app') => fetch(url, {
+    method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gameId, table }),
+  })
+  try {
+    assert.equal((await stop(42, 'season_schedule', 'https://other.example')).status, 403)
+    assert.equal((await stop(42, 'games')).status, 409)
+    assert.equal((await stop(43, 'season_schedule')).status, 409)
+    assert.equal(stops, 0)
+    assert.equal((await stop(42, 'season_schedule')).status, 202)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(stops, 1)
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }
@@ -540,6 +573,7 @@ import {
   summarizeCaptureHealth,
 } from '../src/utils/trackerConsoleView.js'
 import { describePlayGeometry, placeLabels } from '../src/utils/trackerDiagramLayout.js'
+import { playGeometry } from '../scripts/tracker_preview_plays.mjs'
 
 test('the feed reports startup, live, reconnecting, stale, offline and shutdown apart', () => {
   const now = 100_000
@@ -895,6 +929,106 @@ test('the diagram has a text alternative built from the same geometry it draws',
   assert.match(description, /before the ball landed/)
   assert.match(description, /1 throw recorded/)
   assert.equal(describePlayGeometry(null), 'No measured play geometry is attached to this at-bat.')
+})
+
+// THE THIRD REPORT of the same wrong picture. The redirect reached
+// compactPlaySummary the second time, and compactPlaySummary feeds the
+// stadium-artwork card -- while "Measured field view" is TrackerPlayDiagram,
+// which reads playGeometry, which carried nothing about the stadium at all and
+// drew contact straight to the glove.
+test('the measured field view gets the points the stadium moved the ball through', () => {
+  const redirected = trackingPlay({
+    landing: { t: 1.84, frame: 5850, at: [-32.0, 0.27, -51.78], distance_units: 60.9 },
+    first_touch: firstTouch({ frame: 5928, at: [-12.19, 0, -72.11], by: 'CF', character: 'Diddy Kong' }),
+    arrow_redirects: [{
+      frame: 5853, t: 1.885, at: [-32.06, 0.42, -52.62],
+      heading_degrees: 135, turn_degrees: 80.97,
+    }],
+    path_redirected_by_stadium: true,
+  })
+  const geometry = playGeometry(redirected)
+  assert.equal(geometry.ball_waypoints.length, 1)
+  assert.equal(geometry.ball_waypoints[0].kind, 'arrow_redirect')
+  // The frame is what orders the turn against the landing and the touch. The
+  // arrow fires three frames AFTER the ball lands, so a diagram that drops
+  // either one draws a journey the ball did not take.
+  assert.equal(geometry.landing.frame, 5850)
+  assert.equal(geometry.ball_waypoints[0].frame, 5853)
+  assert.equal(geometry.first_touch.frame, 5928)
+  assert.match(describePlayGeometry(geometry, 'wario_city'), /a directional arrow turned the ball 81 degrees mid-roll/)
+
+  // A ball that came down on an erupting manhole never reached the ground, so
+  // it has no landing and nobody touched it. Its last measured position is the
+  // strike, and the diagram used to answer that with "no endpoint was measured".
+  const struck = trackingPlay({
+    landing: null,
+    first_touch: null,
+    manhole_ball_strikes: [{
+      frame: 32220, t: 2.19, at: [27.92, 3.14, -74.55], height_units: 3.139,
+      manhole_at: [30.0, -0.4, -75.0],
+    }],
+  })
+  const strikeGeometry = playGeometry(struck)
+  assert.equal(strikeGeometry.ball_waypoints.length, 1)
+  assert.equal(strikeGeometry.ball_waypoints[0].kind, 'manhole_strike')
+  assert.match(
+    describePlayGeometry(strikeGeometry, 'wario_city'),
+    /came down on an erupting manhole and never reached the ground/,
+  )
+
+  const tabled = trackingPlay({
+    table_ball_contacts: [{
+      frame: 21276, t: 1.952, at: [10.374, 1.81, -67.991],
+      impact_kind: 'tabletop_bounce', height_units: 1.81,
+    }],
+  })
+  const tableGeometry = playGeometry(tabled)
+  assert.equal(tableGeometry.ball_waypoints.length, 1)
+  assert.equal(tableGeometry.ball_waypoints[0].kind, 'table_contact')
+  assert.equal(tableGeometry.ball_waypoints[0].contact_kind, 'tabletop_bounce')
+  assert.match(describePlayGeometry(tableGeometry, 'daisy_cruiser'), /the ball bounced on a table/)
+
+  // Yoshi Park: into one pipe, out of another. The measured path draws the
+  // carry as a straight line across the outfield; the two marks say why.
+  const piped = trackingPlay({
+    pipe_transits: [{
+      frame: 1809, exit_frame: 1995, t: 0.9543, exit_t: 5.7392,
+      entry_pipe: 'right_centre', exit_pipe: 'left_centre',
+      entry_at: [23.259, 1.508, -68.564], exit_at: [-18.654, 4.0, -66.284],
+    }],
+  })
+  const pipeGeometry = playGeometry(piped)
+  assert.deepEqual(pipeGeometry.ball_waypoints.map((entry) => entry.kind), ['pipe_entry', 'pipe_exit'])
+  assert.match(describePlayGeometry(pipeGeometry, 'yoshi_park'),
+    /the ball went into the right centre pipe and came out of the left centre pipe/)
+
+  // Yoshi Park's train knocking a loose ball back inside the outfield wall.
+  const trained = trackingPlay({
+    train_ball_hits: [{
+      frame: 148773, t: 3.6, at: [-27.921, 1.06, -83.845], height_units: 1.06,
+      fence_inside_units: 6.44, mechanism: 'train',
+    }],
+  })
+  const trainGeometry = playGeometry(trained)
+  assert.deepEqual(trainGeometry.ball_waypoints.map((entry) => entry.kind), ['train_hit'])
+  assert.match(describePlayGeometry(trainGeometry, 'yoshi_park'), /the train hit the ball/)
+
+  // A ball the train SWALLOWED, which Yoshi Park scores as a home run. The
+  // diagram is the only place a reader can see why such a path stops in the
+  // outfield with no fielder near it.
+  const swallowed = trackingPlay({
+    train_ball_captures: [{
+      frame: 77983, t: 3.1698, at: [6.969, 0, -93.531], exit_at: [26.327, 0, -87.092],
+      carried_units: 20.401, seconds: 1.9686, home_run_flag_rose: true, mechanism: 'train',
+    }],
+  })
+  const swallowGeometry = playGeometry(swallowed)
+  assert.deepEqual(swallowGeometry.ball_waypoints.map((entry) => entry.kind), ['train_capture'])
+  assert.match(describePlayGeometry(swallowGeometry, 'yoshi_park'),
+    /the ball landed inside the train, which Yoshi Park scores as a home run/)
+
+  // Every other park still gets exactly what it got before.
+  assert.deepEqual(playGeometry(trackingPlay({})).ball_waypoints, [])
 })
 
 test('an empty session renders every derived view without throwing', () => {

@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
-import { fetchSupersededTrackingPlayIds, onlyActiveTrackingFacts } from '../utils/activeTrackingVersions'
+import { fetchSupersededTrackingPlayIds, onlyActiveTrackingFacts, onlyActiveTrackingPlays } from '../utils/activeTrackingVersions'
+import { summarizeMechanics } from '../utils/playerMechanics'
+import {
+  DOUBLE_PLAY_OPPORTUNITY_COLUMNS,
+  FIELDING_OPPORTUNITY_COLUMNS,
+  MOVEMENT_METRIC_COLUMNS,
+  RUNNER_OPPORTUNITY_COLUMNS,
+  TRACKING_PLAY_MECHANICS_COLUMNS,
+  TRACKING_THROW_COLUMNS,
+  restoreQuality,
+} from '../utils/trackingColumns'
+import { fetchOptionalRows } from '../utils/fetchOptionalRows'
 import {
   abbreviateSeasonName,
   aggregateFieldingHistoryByEvent,
@@ -28,8 +39,9 @@ import { buildExpectedOutcomeModel, summarizeExpectedBatting } from '../utils/ex
 import { getStadiumNameByKey } from '../utils/stadiums'
 import { normalizeSeasonRowsByGameId } from '../utils/seasonGameIds'
 import { dedupeStatRows, getStatGameKey, reconcileStatSource } from '../utils/statReconciliation'
-import { summarizeAdvancedBaserunning, summarizeAdvancedFielding } from '../utils/advancedDefense'
+import { summarizeAdvancedBaserunning, summarizeAdvancedFielding, summarizeMovementMetrics } from '../utils/advancedDefense'
 import { buildMeasuredIndex, buildMinedIndex } from '../utils/measuredAttributes'
+import { resolveCharacterRunSpeed } from '../utils/characterAnalysis'
 import { characterNameKey } from '../utils/characterNames'
 
 function createDefaultExtras() {
@@ -46,6 +58,8 @@ function createDefaultExtras() {
     fieldingRangeByPosition: { positions: [], totalRangeable: 0, totalRangeRuns: null },
     advancedFielding: null,
     advancedBaserunning: null,
+    advancedMovement: null,
+    playMechanics: null,
     advancedValueByEventKey: {},
     parkFactorRows: [],
     teamHistory: [],
@@ -255,7 +269,7 @@ export default function useCharacterExtras(character, scope = null) {
         trackingThrowsResult, runnerOpportunitiesResult,
         doublePlayOpportunitiesResult, fieldingOpportunitiesResult,
         movementMetricsResult, pitchesResult, seasonPitchesResult,
-        activeVersionsResult,
+        activeVersionsResult, catchApproachesResult, trackingPlaysResult,
       ] = await Promise.all([
         fetchAllRows(() => supabase.from('plate_appearances').select('*')),
         fetchAllRows(() => supabase.from('season_plate_appearances').select('*')),
@@ -281,14 +295,14 @@ export default function useCharacterExtras(character, scope = null) {
         fetchAllRows(() => supabase.from('season_waivers').select('*')),
         fetchAllRows(() => supabase.from('season_roster').select('character_name,team_id,acquired_via,created_at,season_id')),
         fetchAllRows(() => supabase.from('players').select('*')),
-        fetchAllRows(() => supabase.from('tracking_throws').select('*')),
-        fetchAllRows(() => supabase.from('runner_opportunities').select('*')),
-        fetchAllRows(() => supabase.from('double_play_opportunities').select('*')),
-        fetchAllRows(() => supabase.from('fielding_opportunities').select('*')),
+        fetchAllRows(() => supabase.from('tracking_throws').select(TRACKING_THROW_COLUMNS)),
+        fetchAllRows(() => supabase.from('runner_opportunities').select(RUNNER_OPPORTUNITY_COLUMNS)),
+        fetchAllRows(() => supabase.from('double_play_opportunities').select(DOUBLE_PLAY_OPPORTUNITY_COLUMNS)),
+        fetchAllRows(() => supabase.from('fielding_opportunities').select(FIELDING_OPPORTUNITY_COLUMNS)),
         // movement_metrics is where sprint speed, home-to-first, the 90-ft split and the
         // jump/reaction/burst trio live. Stats.jsx has always read it; the character page never
         // has, which is why none of those numbers could appear on a character until now.
-        fetchAllRows(() => supabase.from('movement_metrics').select('*')),
+        fetchAllRows(() => supabase.from('movement_metrics').select(MOVEMENT_METRIC_COLUMNS)),
         // Measured pitch velocity and break. Keyed by pitcher NAME, resolved below.
         fetchAllRows(() => supabase.from('pitches').select('id,game_id,pa_id,pitch_number_pa,pitcher_id,pitch_speed_mph,pitch_horizontal_chord_deviation_units,pitch_vertical_chord_deviation_units,pitch_tracking_status')),
         fetchAllRows(() => supabase.from('season_pitches').select('id,game_id,season_id,pa_id,pitch_number_pa,pitcher_id,pitch_speed_mph,pitch_horizontal_chord_deviation_units,pitch_vertical_chord_deviation_units,pitch_tracking_status')),
@@ -299,6 +313,21 @@ export default function useCharacterExtras(character, scope = null) {
         // rather than showing a fielding line built from both. See
         // src/utils/activeTrackingVersions.js.
         fetchSupersededTrackingPlayIds(supabase),
+        // Catch reach. Read tolerantly: a database without
+        // 20260920130000_tracking_catch_approaches.sql loses these three rows
+        // of the scouting report and keeps the rest, rather than failing the
+        // whole page over one table that did not exist a day ago.
+        fetchOptionalRows(supabase, 'tracking_catch_approaches'),
+        // The measured player mechanics -- close-play contests, Buddy attacks,
+        // the causing side of a star swing. They live on the tracking play's
+        // own `quality` rather than in a table of their own, which is why this
+        // page, reading only the fact tables, could never show a close play.
+        //
+        // ONLY THE MECHANICS SLICE. The same blob also carries gimmick events,
+        // stadium incidents, stadium runs and the runner context, none of which
+        // this page reads; asking for the whole column costs 747 KB a load
+        // against a 5 GB egress budget, and this path costs 192 KB.
+        fetchAllRows(() => supabase.from('tracking_plays').select(TRACKING_PLAY_MECHANICS_COLUMNS)),
       ])
 
       if (cancelled || generation !== loadGenerationRef.current) return
@@ -313,7 +342,7 @@ export default function useCharacterExtras(character, scope = null) {
         charactersResult, seasonTeamsResult, draftPicksResult,
         trackingThrowsResult, runnerOpportunitiesResult, doublePlayOpportunitiesResult,
         fieldingOpportunitiesResult, movementMetricsResult, pitchesResult, seasonPitchesResult,
-        activeVersionsResult,
+        activeVersionsResult, catchApproachesResult, trackingPlaysResult,
       ]
       if (results.some((result) => result?.error)) {
         if (!cancelled && generation === loadGenerationRef.current) {
@@ -375,14 +404,20 @@ export default function useCharacterExtras(character, scope = null) {
       // Only the active version of a tracking session. A superseded version and
       // an unfinished replacement both keep their facts, and counting either
       // beside the active one showed the same play twice on a character page.
+      // restoreQuality puts the selected `quality->…` flags back inside
+      // `quality`, the shape every reader below expects.
       const trackingThrows = selectAdvancedRows(
-        onlyActiveTrackingFacts(trackingThrowsResult.data, activeVersionsResult.data))
-      const runnerOpportunities = selectAdvancedRows(runnerOpportunitiesResult.data)
-      const doublePlayOpportunities = selectAdvancedRows(doublePlayOpportunitiesResult.data)
+        onlyActiveTrackingFacts(restoreQuality(trackingThrowsResult.data), activeVersionsResult.data))
+      const runnerOpportunities = selectAdvancedRows(restoreQuality(runnerOpportunitiesResult.data))
+      const doublePlayOpportunities = selectAdvancedRows(restoreQuality(doublePlayOpportunitiesResult.data))
       const fieldingOpportunities = selectAdvancedRows(
-        onlyActiveTrackingFacts(fieldingOpportunitiesResult.data, activeVersionsResult.data))
+        onlyActiveTrackingFacts(restoreQuality(fieldingOpportunitiesResult.data), activeVersionsResult.data))
       const movementMetrics = selectAdvancedRows(
-        onlyActiveTrackingFacts(movementMetricsResult.data, activeVersionsResult.data))
+        onlyActiveTrackingFacts(restoreQuality(movementMetricsResult.data), activeVersionsResult.data))
+      // Same two gates as every other tracking fact: only the active version
+      // of a session, and only games the schedule calls completed.
+      const catchApproaches = selectAdvancedRows(
+        onlyActiveTrackingFacts(catchApproachesResult.data, activeVersionsResult.data))
       // Season and tournament pitches are the same measurement in two tables; the Scouting
       // Report treats them as one population, exactly as the batting side already does. The
       // competition tag is what lets eventKeyForAdvancedRow scope them below.
@@ -400,9 +435,6 @@ export default function useCharacterExtras(character, scope = null) {
       const seasonById = Object.fromEntries(seasons.map((s) => [String(s.id), s]))
       const tournamentIdByGameId = Object.fromEntries(games.map((game) => [String(game.id), game.tournament_id]))
       const seasonIdByGameId = Object.fromEntries((seasonBattingResult.data || []).map((pa) => [String(pa.game_id), pa.season_id]))
-      const advancedBundle = { throws: trackingThrows, runnerOpportunities, doublePlayOpportunities, fieldingOpportunities }
-      const advancedFielding = summarizeAdvancedFielding(advancedBundle, 'character')[String(character.id)] || null
-      const advancedBaserunning = summarizeAdvancedBaserunning(runnerOpportunities, 'character')[String(character.id)] || null
       const eventKeyForAdvancedRow = (row) => {
         if (row.competition_type === 'season') {
           const seasonId = seasonIdByGameId[String(row.game_id)]
@@ -411,6 +443,32 @@ export default function useCharacterExtras(character, scope = null) {
         const tournamentId = tournamentIdByGameId[String(row.game_id)]
         return tournamentId == null ? null : `tournament:${tournamentId}`
       }
+      const inCurrentScope = (row) => !scope || scope.type === 'career'
+        || eventKeyForAdvancedRow(row) === `${scope.type}:${scope.id}`
+      const advancedBundle = {
+        throws: trackingThrows.filter(inCurrentScope),
+        runnerOpportunities: runnerOpportunities.filter(inCurrentScope),
+        doublePlayOpportunities: doublePlayOpportunities.filter(inCurrentScope),
+        fieldingOpportunities: fieldingOpportunities.filter(inCurrentScope),
+      }
+      // Same two gates as the fact tables, applied to the play's own id: a
+      // superseded session's plays carry mechanics too, and counting both
+      // versions would show one close play twice.
+      // The mechanics came back beside the row rather than inside `quality`;
+      // summarizeMechanics reads the blob, so the shape is restored here.
+      const trackingPlayRows = restoreQuality(trackingPlaysResult.data)
+      const trackingPlays = selectAdvancedRows(
+        onlyActiveTrackingPlays(trackingPlayRows, activeVersionsResult.data))
+      const playMechanics = summarizeMechanics(
+        trackingPlays.filter(inCurrentScope), 'character')[String(character.id)] || null
+      const advancedFielding = summarizeAdvancedFielding(advancedBundle, 'character')[String(character.id)] || null
+      const advancedBaserunning = summarizeAdvancedBaserunning(advancedBundle.runnerOpportunities, 'character')[String(character.id)] || null
+      // Sprint speed, home-to-first, the 90-ft split and the jump/reaction/burst
+      // trio. The page has read movement_metrics since they were added but only
+      // ever handed them to the Scouting Report, so the character's own page
+      // showed none of them.
+      const advancedMovement = summarizeMovementMetrics(
+        movementMetrics.filter(inCurrentScope), 'character')[String(character.id)] || null
       const advancedBundlesByEventKey = new Map()
       const addAdvancedRows = (key, rows) => rows.forEach((row) => {
         const eventKey = eventKeyForAdvancedRow(row)
@@ -677,6 +735,19 @@ export default function useCharacterExtras(character, scope = null) {
         throwRows: trackingThrows.filter(trackerRowInScope),
         runnerRows: runnerOpportunities.filter(trackerRowInScope),
         pitchRows: allPitchRows.filter(trackerRowInScope),
+        catchRows: catchApproaches.filter(trackerRowInScope),
+        // The max-speed constant is classified against this character's own
+        // curve row, so the rating has to travel with it. Without it the
+        // constant is reported as unclassified rather than as ordinary.
+        //
+        // resolveCharacterRunSpeed, NOT `c.run_speed`: the mined side of every
+        // row is built from the talent profile, and for the two characters
+        // where the profile and the column disagree the column is the one the
+        // game contradicts. Reading it here would classify their measured
+        // constant against a rating nothing else on the page uses.
+        speedStatByCharacterId: new Map(
+          characters.map((c) => [String(c.id), resolveCharacterRunSpeed(c)]),
+        ),
         leaguePerformanceByCharacterId: scopedLeaguePerformance,
         characterIdByNameKey,
       })
@@ -695,6 +766,8 @@ export default function useCharacterExtras(character, scope = null) {
         fieldingRangeByPosition,
         advancedFielding,
         advancedBaserunning,
+        advancedMovement,
+        playMechanics,
         advancedValueByEventKey,
         parkFactorRows,
         teamHistory,

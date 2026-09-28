@@ -39,6 +39,7 @@ export function buildPreviewAdvancedMetrics({ play, atBat, join } = {}) {
     field('Assisted movement', 'assist_units', 'u', 'Game-assisted movement is excluded from measured sprint speed.')
   }
   for (const [index, entry] of (play.throws || []).entries()) {
+    if (entry.is_throw === false) continue
     const actor = `${entry.thrower_character || entry.thrower_position || 'Unknown'} · throw ${entry.sequence ?? index + 1}`
     const excluded = Boolean(entry.buddy_throw || play.truncated)
     const converted = number(entry.peak_speed_mph) == null

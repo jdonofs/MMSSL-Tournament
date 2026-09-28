@@ -97,6 +97,27 @@ test("a fielder's choice and a double play are named as scored", () => {
   assert.match(text(dp), /scored as a double play, 2 outs on the play/)
 })
 
+test("a fielder's-choice bobble veto states one scoring ruling", () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({
+      result: 'FC', trajectory: 'L', outs_on_play: 1, fielder_choice_out: true,
+      hit_notation: 'L4-8-6', is_error: false,
+      error_vetoed_reason: 'fielder_choice_out',
+      error_vetoed_detail: 'the lead runner was retired and the batter reached only first',
+      fielding_events: { assists: [], putouts: [], bobble: 'Monty Mole' },
+    }),
+    play: trackingPlay({
+      fielding_events: [fieldingEvent({
+        ball_contact: 'confirmed', secured: false, by: '2B', character: 'Monty Mole',
+      })],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(narrative), /no error is charged: the lead runner was retired/)
+  assert.doesNotMatch(text(narrative), /No official error determination is available/)
+  assert.doesNotMatch(text(narrative), /An error is charged/)
+})
+
 test('an ordinary catch is described as securing the ball before it landed', () => {
   const play = trackingPlay({
     batted_ball_class: 'fair_caught',
@@ -653,7 +674,7 @@ test('Ball Dash is reported as a passive on the measured carry, never as a move'
   })
   assert.match(
     text(activated),
-    /Goomba \(CF\) carried the ball 3\.3 units at up to 8\.4 u\/s, with Ball Dash, which is a passive carry-speed bonus rather than a move\./,
+    /Goomba \(CF\) carried the ball 10\.7 ft at up to 27\.6 ft\/s, with Ball Dash, which is a passive carry-speed bonus rather than a move\./,
   )
   assert.doesNotMatch(text(activated), /used Ball Dash/)
   assert.equal(clauseFor(activated, 'ability').evidence.status, 'passive')
@@ -701,7 +722,7 @@ test('a fielder driven back by the hit is not carrying the ball', () => {
   })
   assert.match(
     text(knocked),
-    /Blue Noki \(CF\) was driven back 10\.9 units while holding the ball rather than running with it; the capture does not say what pushed them\./,
+    /Blue Noki \(CF\) was driven back 35\.7 ft while holding the ball rather than running with it; the capture does not say what pushed them\./,
   )
   // The whole point: no ability claim survives on a knockback.
   assert.doesNotMatch(text(knocked), /Ball Dash/)
@@ -730,6 +751,77 @@ test('a fielder driven back by the hit is not carrying the ball', () => {
 // sessions -- "i was hoping to keep a stat track of users performance of the
 // close play" -- and the losing case is also the one that must stop reading as
 // a fielding mistake.
+// BOWSER CASTLE'S TWO FIRES SHARE ONE BYTE and one duration (90 frames each),
+// so only where the fielder stood separates them: the statue is a fixed object
+// 11u in front of the centre-field fence, and every burn measured on its front
+// was within 0.60u while every other burn was 19.28u or further. Jason labelled
+// both live on 2026-09-05 -- "sprayed and stunnned by the fire of the bowser
+// statue in cf" and "got hit by  the falling lava".
+test('Bowser Castle tells the statue fire from the falling lava by position', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'L', hit_stadium_key: 'bowser_castle' }),
+    play: trackingPlay({
+      fire_hazards: [
+        { by: 'CF', character: 'Blue Yoshi', character_id: 67, t: 4.9, frame: 62354,
+          frames: 90, seconds: 1.5015, hazard: 'statue_fire',
+          statue_front_distance_units: 0.64, at: [-3.9, 0, -88.9] },
+        { by: 'LF', character: 'Paragoomba', character_id: 41, t: 5.8, frame: 77527,
+          frames: 90, seconds: 1.5015, hazard: 'falling_lava',
+          statue_front_distance_units: 24.74, at: [-35.2, 0, -88.1] },
+        // The flag outlived a side change, so its 468 frames describe two
+        // different people. Kept in the record, never narrated.
+        { by: 'RF', character: 'Funky Kong', character_id: 56, t: 1.2, frame: 44418,
+          frames: 468, seconds: 7.8078, hazard: null,
+          discarded: 'flag_outlived_the_side_change' },
+      ],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(narrative),
+    /The center-field statue breathed fire over Blue Yoshi \(CF\), stunning them for 1\.5 s\./,
+  )
+  assert.match(text(narrative), /Falling lava caught Paragoomba \(LF\) for 1\.5 s\./)
+  assert.equal(
+    narrative.clauses.find((clause) => clause.source.includes('fire_hazards')).status,
+    'observed',
+  )
+  // A dropped burn is data, not an event: no sentence, and nothing claims 7.8 s.
+  assert.doesNotMatch(text(narrative), /Funky Kong/)
+  assert.equal(
+    narrative.clauses.filter((clause) => clause.source.includes('fire_hazards')).length,
+    2,
+  )
+})
+
+// KING BOB-OMB'S BOMB is named from the flag's own phases -- value 1 for
+// exactly 40 frames and then value 2, the shape at all three labelled bombs --
+// and NOT from duration, which names nothing: Wario City's manholes run 79-80
+// frames too. Five Bowser Castle knockdowns never reach value 2 and no
+// annotation covers them, so they stay unnamed.
+test("a Bob-omb bomb is named from the flag's phases, and an unmatched shape is not", () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G', hit_stadium_key: 'bowser_castle' }),
+    play: trackingPlay({
+      knockdowns: [
+        { by: 'CF', character: 'Goomba', character_id: 40, t: 2.5, frame: 36879,
+          frames: 80, seconds: 1.3347, phases: [[1, 40], [2, 40]],
+          phase_shape: '1x40->2x40', hazard: 'bob_omb_bomb',
+          hazard_source: 'knockdown_flag_phases' },
+        { by: 'LF', character: 'Red Yoshi', character_id: 66, t: 7.5, frame: 58775,
+          frames: 127, seconds: 2.1187, phases: [[1, 127]], phase_shape: '1x127' },
+      ],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(narrative), /One of King Bob-omb's bombs floored Goomba \(CF\) for 1\.3 s\./)
+  assert.match(
+    text(narrative),
+    /Red Yoshi \(LF\) was knocked down for 2\.1 s; the capture does not name what hit them\./,
+  )
+  assert.doesNotMatch(text(narrative), /bombs floored Red Yoshi/)
+})
+
 test('a close play names who won it, and an unknown value claims nothing', () => {
   const lost = buildTrackerNarrative({
     atBat: plateAppearance({ result: '3B', trajectory: 'L' }),
@@ -803,9 +895,9 @@ test('a leaping catch is narrated as the leap, not as the force of the ball', ()
   })
   assert.match(
     text(leapt),
-    /Blue Kritter \(SS\) carried 1\.9 units past the catch on their own leap rather than being driven back by the ball\./,
+    /Blue Kritter \(SS\) carried 6\.4 ft past the catch on their own leap rather than being driven back by the ball\./,
   )
-  assert.doesNotMatch(text(leapt), /driven back 1\.9 units/)
+  assert.doesNotMatch(text(leapt), /driven back 6\.4 ft/)
   assert.doesNotMatch(text(leapt), /force of the batted ball/)
   // A leap is no more evidence of Ball Dash than a shove is.
   assert.doesNotMatch(text(leapt), /Ball Dash/)
@@ -835,7 +927,7 @@ test('a barrel that reaches a fielder is narrated, and one that misses is not', 
   })
   assert.match(
     text(hit),
-    /A left-side barrel reached the center fielder, closing to 1\.2 units, and they were moved 3\.4 units after\./,
+    /A left-side barrel reached the center fielder, closing to 3\.9 ft, and they were moved 11\.2 ft after\./,
   )
   // The fielder it passed 19 units from is not in the narrative at all.
   assert.doesNotMatch(text(hit), /right fielder/)
@@ -853,6 +945,474 @@ test('a barrel that reaches a fielder is narrated, and one that misses is not', 
     join: join('joined'),
   })
   assert.doesNotMatch(text(missed), /barrel/)
+})
+
+test('a buddy attack never claims the character broke a Freezie', () => {
+  const connected = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      buddy_attacks: [{
+        by: 'CF', character: 'Dark Bones', start_t: 1.1, frames: 40,
+        // Even a stale derived row carrying the old claim must not leak it into
+        // prose: only a measured ball/object disappearance can say "broke".
+        hit: true, clears_freezie: true,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(connected), /Dark Bones \(CF\) buddy-attacked\./)
+  assert.doesNotMatch(text(connected), /Freezie|broke it/)
+
+  const missed = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      buddy_attacks: [{
+        by: 'RF', character: 'Pink Yoshi', start_t: 1.1, frames: 40,
+        hit: false, clears_freezie: false,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(missed), /Pink Yoshi \(RF\) buddy-attacked\./)
+  assert.doesNotMatch(text(missed), /Freezie|broke it/)
+})
+
+test('an object-confirmed Freezie break names the ball and its field position', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      freezie_breaks: [{
+        slot: 1, frame: 53835, t: 1.7, at: [-12.2, 0, -50],
+        ball_at: [-11.53, 2.99, -48.01], active_before: true, active_after: false,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(narrative),
+    /The ball broke a Freezie at field coordinates \(-12\.2, -50\.0\)\./,
+  )
+  assert.equal(clauseFor(narrative, 'mechanic').evidence.frame, 53835)
+})
+
+test('Freezie break prose distinguishes a throw from a buddy attack', () => {
+  const thrown = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      freezie_breaks: [{
+        frame: 79983, t: 3.3867, at: [24.067, 0, -50],
+        cause: { type: 'thrown_ball', by: 'RF', character: 'Yellow Shy Guy' },
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(thrown),
+    /The throw from Yellow Shy Guy \(RF\) broke a Freezie/,
+  )
+
+  const attacked = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'F' }),
+    play: trackingPlay({
+      freezie_breaks: [{
+        frame: 85777, t: 1.8519, at: [31.467, 0, -75],
+        cause: { type: 'fielder_buddy_attack', by: 'RF', character: 'Yellow Shy Guy' },
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(attacked),
+    /Yellow Shy Guy \(RF\) broke a Freezie with a buddy attack/,
+  )
+})
+
+test('a ball can rebound from a Freezie without breaking it', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      freezie_ball_rebounds: [{
+        slot: 4, frame: 98153, t: 4.3377,
+        outcome: 'remained_active', phase: 'batted_ball',
+        distance_units: 2.172, trajectory_turn_degrees: 98.43,
+        incoming_speed_ups: 9.346, outgoing_speed_ups: 5.27,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(narrative),
+    /The batted ball bounced off a Freezie, but the Freezie remained intact\./,
+  )
+  assert.doesNotMatch(text(narrative), /broke a Freezie/)
+})
+
+test('a throw rebounding from a frozen fielder is narrated from measured contact', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: 'HR', trajectory: 'G' }),
+    play: trackingPlay({
+      frozen_fielder_ball_contacts: [{
+        by: 'SS', character: 'Blue Kritter', frame: 82838, t: 11.9286,
+        outcome: 'rebound', distance_units: 3.097,
+        trajectory_turn_degrees: 136.411,
+        source_thrower_position: 'CF', source_thrower_character: 'Baby Luigi',
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(narrative),
+    /The throw from Baby Luigi \(CF\) bounced off frozen Blue Kritter \(SS\)\./,
+  )
+})
+
+// A PLAY WITH NO LANDING IS NOT NECESSARILY A MISSED MEASUREMENT. The operator,
+// 2026-09-10 PA36: "the ball is not shown landing, but it did land, just on the
+// raised manhole". The strike is what turns that from a hole into a sentence.
+test('a ball that came down on an erupting manhole is narrated instead of missing', () => {
+  const struck = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '2B', trajectory: 'F' }),
+    play: trackingPlay({
+      landing: null,
+      manhole_ball_strikes: [{
+        t: 2.19, frame: 32220, at: [27.917, 3.139, -74.549], height_units: 3.139,
+        manhole_at: [30.0, -0.4, -75.0], distance_units: 2.13,
+        descent_ups: -9.1, rebound_ups: 7.1, turn_degrees: 0.027,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(struck), /came down on the erupting manhole at 30, -75/)
+  assert.match(text(struck), /10\.3 ft above the ground/)
+  assert.match(text(struck), /never reached the ground to land on/)
+})
+
+// YOSHI PARK'S TRAIN HITS THE BALL TOO. The operator, 2026-09-11 PA77: "the
+// train hit baby mario twice and the ball once". The ball dropped out of the
+// floored fielder's glove first, which the derivation used to read as his throw.
+test('a train hit on a loose ball is narrated, and the ball it knocked loose is not a throw', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '2B', trajectory: 'L', hit_stadium_key: 'yoshi_park' }),
+    play: trackingPlay({
+      train_ball_hits: [{
+        t: 5.2553, frame: 74886, at: [-23.014, 1.209, -91.13], height_units: 1.209,
+        fence_inside_units: 2.61, incoming_speed_ups: 1.3, outgoing_speed_ups: 8.9,
+        velocity_change_ups: 7.6, turn_degrees: 6.3, mechanism: 'train',
+        cause_source: 'train_position', train_at: [-22.1, 0, -91.8],
+        train_distance_units: 1.1,
+      }],
+      throws: [throwRecord({
+        is_throw: false, event_type: 'knocked_loose', knocked_loose_by: 'train',
+        thrower_position: 'LF', thrower_character: 'Baby Mario',
+        receiver_position: 'CF', receiver_character: 'Diddy Kong',
+      })],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(narrative),
+    /The train hit the ball 8\.6 ft inside the outfield wall; no fielder reached it\./)
+  assert.match(text(narrative),
+    /The train knocked the ball loose from Baby Mario \(LF\); Diddy Kong \(CF\) recovered it\./)
+  assert.doesNotMatch(text(narrative), /threw to Diddy Kong/)
+  assert.equal(
+    narrative.clauses.find((clause) => clause.source.includes('train_ball_hits')).status,
+    'observed',
+  )
+})
+
+// WHAT THE HIT COST, rather than where it happened. 09-11 PA28: "i see what the
+// train hitting the ball is doing, its saying how far before the wall it hit.
+// id like it to instead say how far it hit the ball before a fielder picks it
+// up, so we know the true impact of it hitting the train." The shove sent that
+// ball 136 ft back into the infield and cost Bowser Jr. 3.9 s fetching it,
+// which is the number that describes the play.
+test('a train hit on the ball is measured to the pickup, in feet, with a direction', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'L', hit_stadium_key: 'yoshi_park' }),
+    play: trackingPlay({
+      train_ball_hits: [{
+        t: 2.3524, frame: 27922, at: [-41.926, 0.296, -71.999], height_units: 0.296,
+        fence_inside_units: 5.312, incoming_speed_ups: 25.146, outgoing_speed_ups: 22.815,
+        velocity_change_ups: 47.413, turn_degrees: 162.635, mechanism: 'train',
+        cause_source: 'train_position', train_at: [-46.733, 0, -69.977],
+        train_distance_units: 5.216,
+        pickup_frame: 28153, pickup_t: 6.2062, pickup_by: 'LF',
+        pickup_character: 'Bowser Jr.', pickup_at: [-9.117, 0, -46.814],
+        carried_to_pickup_units: 41.361, pickup_delay_s: 3.8538,
+      }],
+      fielding_events: [possessionEvent({
+        by: 'LF', character: 'Bowser Jr.', character_id: 19, t: 6.2062, frame: 28153,
+        at: [-9.117, 0, -46.814], ball_height_units: 0,
+      })],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(narrative),
+    /The train hit the ball and sent it 135\.7 ft back toward the infield, where Bowser Jr\. \(LF\) picked it up 3\.9 s later\./,
+  )
+  // The wall distance was the one part of it nobody asked about.
+  assert.doesNotMatch(text(narrative), /inside the outfield wall/)
+})
+
+// THE BALL WENT INTO THE TRAIN. 09-11 PA83: "this is an interaction so rare i
+// completely forgot about it... the ball landed inside of the train, which when
+// that happens on yoshi park, its a homerun." Nothing is inferred: the ball's
+// position becomes the train's own and the game's home-run flag rises on that
+// frame, so the sentence is entitled to say the park scored it.
+test('a ball the train swallows is a home run, and nothing claims it landed in a zone', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: 'HR', trajectory: 'F', hit_stadium_key: 'yoshi_park' }),
+    play: trackingPlay({
+      home_run: true,
+      batted_ball_class: 'home_run',
+      landing: landing({ t: 3.1698, frame: 77983, at: [6.969, 0, -93.531] }),
+      train_ball_captures: [{
+        t: 3.1698, frame: 77983, at: [6.969, 0, -93.531], frames: 118, seconds: 1.9686,
+        exit_frame: 78100, exit_at: [26.327, 0, -87.092], carried_units: 20.401,
+        arrival_speed_ups: 18.564, home_run_flag: 1, home_run_flag_rose: true,
+        cause_source: 'train_position', mechanism: 'train',
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(narrative),
+    /The ball landed inside the train, which Yoshi Park scores as a home run, and rode it 66\.9 ft over 2\.0 s\./,
+  )
+  // The landing the detector recorded is the TRAIN's position, so the zone it
+  // points at describes where the train was, not where the ball came down.
+  assert.match(text(narrative), /No fielder made a play on the ball; the train carried it off\./)
+  assert.doesNotMatch(text(narrative), /it landed in center field/)
+  assert.equal(
+    narrative.clauses.find((clause) => clause.source.includes('train_ball_captures')).status,
+    'observed',
+  )
+})
+
+// A SHOVE THE GAME CUT SHORT. 09-11 PA50: Bowser caught a ball arriving at 19.7
+// u/s, went from a standstill to 12.8 u/s in the ball's own direction, and the
+// train floored him two frames later -- which ends the possession track and
+// leaves a distance too small for the one-unit floor. The operator watched it
+// ("it was the hit that drove him back", "yes it was at the moment of the
+// catch") and the narrative had nothing to say about it.
+test('a knockback the knockdown cut short is reported on speed, not distance', () => {
+  const interrupted = buildTrackerNarrative({
+    atBat: plateAppearance({ result: 'LO', trajectory: 'L', outs_on_play: 1 }),
+    play: trackingPlay({
+      possession_carries: [{
+        by: 'CF', character_id: 9, character: 'Bowser', start_frame: 49339,
+        end_frame: 49340, start_t: 2.8695, end_t: 2.8862, distance_units: 0.213,
+        displacement_units: 0.213, peak_speed_ups: 12.766, motion: 'carry',
+        airborne_at_start: false, impulse: 'batted_ball', impulse_frame: 49339,
+        ball_speed_at_start_ups: 19.716, truncated_by_knockdown: true,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(interrupted),
+    /Bowser \(CF\) was driven back by the batted ball at the catch, from a standstill to 41\.9 ft\/s, before the knockdown took the ball out of their glove\./,
+  )
+  // The distance is an artefact of the interruption, so it is not the claim.
+  assert.doesNotMatch(text(interrupted), /driven back 0\.7 ft/)
+  assert.doesNotMatch(text(interrupted), /does not say what pushed them/)
+})
+
+// THE GAME MOVES FIELDERS BY ITSELF, and it has the exact shape of a knockback:
+// 09-11 PA50's Bowser was slid 5 ft onto a ball that was crawling at 3 ft/s,
+// 104 frames after the train knocked it out of his glove. Reporting that as an
+// unexplained shove was the sentence this replaces.
+test('a fielder the game slides onto a crawling ball was not driven back by it', () => {
+  const glided = buildTrackerNarrative({
+    atBat: plateAppearance({ result: 'LO', trajectory: 'L', outs_on_play: 1 }),
+    play: trackingPlay({
+      possession_carries: [{
+        by: 'CF', character_id: 9, character: 'Bowser', start_frame: 49445,
+        end_frame: 49457, start_t: 4.638, end_t: 4.8382, distance_units: 1.654,
+        displacement_units: 1.652, peak_speed_ups: 16.979, motion: 'knockback',
+        airborne_at_start: false, impulse: 'possession_glide', impulse_frame: 49445,
+        ball_speed_at_start_ups: 0.928,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(glided),
+    /Bowser \(CF\) slid 5\.4 ft onto the ball as the game handed them possession, rather than being driven back by it — the ball was crawling at 3\.0 ft\/s\./,
+  )
+  assert.doesNotMatch(text(glided), /does not say what pushed them/)
+  assert.doesNotMatch(text(glided), /was driven back/)
+})
+
+test('repeated train knockdowns are distinguished instead of repeated verbatim', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '2B', trajectory: 'L', hit_stadium_key: 'yoshi_park' }),
+    play: trackingPlay({
+      knockdowns: [
+        { by: 'RF', character: 'King Boo', t: 4.7, frame: 2504, seconds: 1.318,
+          hazard: 'train', hazard_source: 'train_position' },
+        { by: 'RF', character: 'King Boo', t: 6.1, frame: 2584, seconds: 1.318,
+          hazard: 'train', hazard_source: 'train_position' },
+      ],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(narrative), /knocked King Boo \(RF\) down along the outfield wall/)
+  assert.match(text(narrative), /knocked King Boo \(RF\) down again along the outfield wall/)
+  const clauses = narrative.clauses.filter((clause) => clause.source.includes('knockdowns'))
+  assert.equal(clauses.length, 2)
+  assert.ok(clauses.every((clause) => clause.status === 'observed'))
+})
+
+test('a knockdown synchronized with a Piranha transport names the plant and phase', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '2B', trajectory: 'F', hit_stadium_key: 'yoshi_park' }),
+    play: trackingPlay({
+      knockdowns: [{
+        by: '3B', character: 'Paratroopa', t: 5.372, frame: 23967,
+        frames: 79, seconds: 1.318, hazard: 'piranha_plant',
+        hazard_source: 'knockdown_during_piranha_transport', piranha_phase: 'spit',
+        pipe: 'third_base_foul', ball_distance_units: 0.853, endpoint_delta_frames: 21,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(narrative),
+    /A Piranha Plant knocked Paratroopa \(3B\) down as it spat the ball out of the third base foul pipe for 1\.3 s\./,
+  )
+  const clause = narrative.clauses.find((entry) => entry.source.includes('knockdowns'))
+  assert.equal(clause.status, 'inferred')
+  assert.match(clause.evidence.why, /all three reviewed Piranha knockdowns/)
+})
+
+// The manhole is NAMED where the barrel is only inferred, because the evidence
+// is different: the floored fielder's own position is measured against five
+// surveyed manholes, and a fielder stands on one without being touched.
+test('a manhole knockdown names the manhole; another park stays unnamed', () => {
+  const floored = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G', hit_stadium_key: 'wario_city' }),
+    play: trackingPlay({
+      knockdowns: [{
+        by: 'RF', character: 'Green Noki', t: 2.09, frame: 32214,
+        frames: 80, seconds: 1.33, hazard: 'manhole_water',
+        manhole_at: [30.0, -0.4, -75.0], manhole_distance_units: 3.818,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(floored), /An erupting manhole at 30, -75 floored Green Noki \(RF\) for 1\.3 s\./)
+
+  // The same flag, no manhole under them: the sentence must not name one.
+  const unnamed = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G', hit_stadium_key: 'yoshi_park' }),
+    play: trackingPlay({
+      knockdowns: [{
+        by: 'RF', character: 'Green Noki', t: 2.09, frame: 32214,
+        frames: 80, seconds: 1.33,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(unnamed), /does not name what hit them/)
+  assert.doesNotMatch(text(unnamed), /manhole/i)
+})
+
+// A CAPTAIN'S STAR SWING IS NAMED -- and at DK Jungle it has to be named BEFORE
+// the barrel inference, which assumed the barrel is the only thing there that
+// floors anybody. The 2026-08-28 DK Jungle game had Wario and Luigi both do it,
+// and both would have been narrated as barrels.
+test('a star-swing knockdown names the captain, even at DK Jungle', () => {
+  const swung = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'F', hit_stadium_key: 'dk_jungle' }),
+    play: trackingPlay({
+      star_swing: { value: 7, captain: 'Wario', start_frame: 37226, end_frame: 37460, frames: 235 },
+      knockdowns: [{
+        by: 'CF', character: 'Diddy Kong', t: 1.2, frame: 37470,
+        frames: 79, seconds: 1.318, hazard: 'star_swing',
+        star_swing_captain: 'Wario', star_swing_value: 7,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(swung), /Wario's star swing floored Diddy Kong \(CF\) for 1\.3 s\./)
+  assert.doesNotMatch(text(swung), /barrel/i)
+
+  // A captain value nobody has mapped yet still says what kind of thing it was.
+  const unmapped = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'F', hit_stadium_key: 'mario_stadium' }),
+    play: trackingPlay({
+      knockdowns: [{
+        by: 'P', character: 'Blue Yoshi', t: 0.42, frame: 47874,
+        frames: 79, seconds: 1.318, hazard: 'star_swing',
+        star_swing_captain: null, star_swing_value: 13,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(unmapped), /A captain's star swing floored Blue Yoshi \(P\) for 1\.3 s\./)
+})
+
+// A REDIRECT IS A WRONG PICTURE, NOT A MISSING ONE. Two markers and no sentence
+// leave the reader to join the landing to the fielded spot with a straight
+// line, and at Wario City that line is a journey the ball never made. So the
+// narrative has to say the ball turned AND that its resting place is off the
+// path it was hit along.
+test('a directional-arrow redirect is narrated with the arrow that turned it', () => {
+  const turned = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      arrow_redirects: [{
+        t: 3.3874, frame: 3130, at: [12.024, 0.252, -61.728],
+        incoming_speed_ups: 8.78, outgoing_speed_ups: 26.85,
+        imposed_step_units: 0.447941,
+        heading_degrees: 78.0, incoming_heading_degrees: 168.57,
+        turn_degrees: 90.6, held_frames: 12,
+        arrow: {
+          address: 2461078712, heading_degrees: -102.0,
+          at: [13.0, 0.0, -66.0], distance_units: 4.382,
+        },
+      }],
+      path_redirected_by_stadium: true,
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(turned), /The ball hit the arrow at 13, -66 and turned 91 degrees/)
+  assert.match(text(turned), /bearing of 78 degrees at 26\.9 u\/s/)
+  assert.match(text(turned), /not on the path it was hit along/)
+})
+
+// The object is named only when the session captured it. A Wario City session
+// recorded before the props were located still measures the redirect off the
+// ball, and must say so without inventing which arrow it was.
+test('a redirect with no captured object still narrates, without naming an arrow', () => {
+  const turned = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      arrow_redirects: [{
+        t: 2.8, frame: 48471, at: [12.723, 0.501, -67.488],
+        incoming_speed_ups: 11.79, outgoing_speed_ups: 11.93,
+        imposed_step_units: 0.199085,
+        heading_degrees: 78.0, incoming_heading_degrees: 169.09,
+        turn_degrees: 91.1, held_frames: 12, arrow: null,
+      }],
+      path_redirected_by_stadium: true,
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(turned), /The ball hit a directional arrow and turned 91 degrees/)
+  assert.doesNotMatch(text(turned), /the arrow at/)
+})
+
+// Every other park: no clause, because the detector produces no event there.
+test('a play with no redirect says nothing about arrows', () => {
+  const plain = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({ arrow_redirects: [] }),
+    join: join('joined'),
+  })
+  assert.doesNotMatch(text(plain), /directional arrow|turned \d+ degrees/)
 })
 
 // The flower flag may name its cause where the Freezie may not, because the
@@ -886,6 +1446,26 @@ test('a fielder caught in the flower gas is narrated, and the cause is named', (
   })
   assert.match(text(both), /Blue Noki \(CF\) was caught in the flower gas/)
   assert.match(text(both), /Boomerang Bro\. \(RF\) was caught in the flower gas/)
+})
+
+test('a DK Jungle night POW stun names the statue and affected fielder', () => {
+  const pow = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      dk_pow_stuns: [{
+        by: 'CF', character_id: 58, character: 'Kritter', t: 1.9,
+        frame: 76923, frames: 91, seconds: 1.5182, flag_value: 1,
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(
+    text(pow),
+    /The DK statue POW knocked down Kritter \(CF\) for 1\.5 s\./,
+  )
+  const clause = clauseFor(pow, 'mechanic')
+  assert.equal(clause.evidence.flag_value, 1)
+  assert.match(clause.source, /\+0x243 value 1/)
 })
 
 // The knockdown flag is park-neutral: it marks the impact, not the cause. So it
@@ -936,7 +1516,7 @@ test('a base throw whose receiver is pulled far off the bag is called inaccurate
     }),
     join: join('joined'),
   })
-  assert.match(text(narrative), /That inaccurate throw pulled Peach \(1B\) 4\.5 units away from first\./)
+  assert.match(text(narrative), /That inaccurate throw pulled Peach \(1B\) 14\.8 ft away from first\./)
 })
 
 // Clamber's approach code belongs to nobody else. Every catch_type 5 window in
@@ -1305,7 +1885,7 @@ test('an action window with the ball out of reach is reported as out of reach, n
   })
   const body = text(narrative)
   assert.match(body, /Donkey Kong \(CF\) was in a fielding animation, but the ball never came within reach/)
-  assert.match(body, /36\.4 units away, 34\.9 units overhead/)
+  assert.match(body, /119\.4 ft away, 114\.3 ft overhead/)
   assert.doesNotMatch(body, /could not determine whether contact occurred/)
 })
 
@@ -1557,4 +2137,132 @@ test('a fair ball nobody fielded still names the zone it came down in', () => {
     join: join('joined'),
   })
   assert.match(text(fell), /No fielder made a play on the ball; it landed in .+\./)
+})
+
+test('Daisy table contacts and player stuns are narrated in event order', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      park: 'daisy_cruiser',
+      table_ball_contacts: [{
+        frame: 1010, t: 1.2, at: [10.374, 1.81, -67.991],
+        impact_kind: 'tabletop_bounce', height_units: 1.81,
+        location_source: 'measured_ball_contact',
+      }],
+      fielding_events: [fieldingEvent({
+        frame: 1020, t: 1.4, by: 'RF', character: 'Bowser',
+      })],
+      table_stuns: [{
+        frame: 1030, t: 1.6, by: 'SS', character: 'Red Kritter',
+        seconds: 1.5015, at: [-8.358, 0, -52.137],
+      }],
+      table_breaks: [{
+        frame: 1040, t: 1.8,
+        table: { address: 1234, at: [-10, 0, -65] },
+        cause: { type: 'thrown_ball', by: 'CF', character: 'Luigi' },
+      }],
+    }),
+    join: join('joined'),
+  })
+  const body = text(narrative)
+  assert.match(body, /bounced on top of a table at field coordinates \(10\.4, -68\.0\), 5\.9 ft above the field\./)
+  assert.match(body, /Red Kritter \(SS\) collided with a table and was stunned for 1\.5 s\./)
+  assert.match(body, /The throw from Luigi \(CF\) broke the table at field coordinates \(-10\.0, -65\.0\)\./)
+  assert.ok(body.indexOf('bounced on top of a table') < body.indexOf('Red Kritter (SS)'))
+})
+
+test('a buddy attack that destroys a Daisy table names the fielder and mechanic', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      park: 'daisy_cruiser',
+      table_breaks: [{
+        frame: 1010, t: 1.2,
+        table: { address: 1234, at: [45, 0, -62] },
+        cause: { type: 'fielder_buddy_attack', by: 'RF', character: 'Blue Yoshi' },
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(narrative), /Blue Yoshi \(RF\) broke the table at field coordinates \(45\.0, -62\.0\) with a buddy attack\./)
+})
+
+// Jason, daisy_cruiser-20260911T152720Z PA 20: Bowser buddy-attacked, broke the
+// table, then caught the ball -- and the attack was narrated after the catch.
+test('a buddy attack reads at its own frame, before the catch it preceded', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: 'FO', trajectory: 'F' }),
+    play: trackingPlay({
+      park: 'daisy_cruiser',
+      buddy_attacks: [{ by: 'LF', character: 'Bowser', t: 2.1355, frames: 53, timer: 25203, hit: true }],
+      table_breaks: [{
+        frame: 25204, t: 2.1522,
+        table: { address: 1234, at: [-37, 0, -75] },
+        cause: { type: 'fielder_buddy_attack', by: 'LF', character: 'Bowser' },
+      }],
+      fielding_events: [fieldingEvent({
+        event_type: 'possession', ball_contact: 'confirmed', secured: true,
+        contact_source: 'possession_lock', frame: 25406, t: 5.5222, by: 'LF', character: 'Bowser',
+      })],
+    }),
+    join: join('joined'),
+  })
+  const body = text(narrative)
+  assert.doesNotMatch(body, /on the way to the ball/)
+  const attack = body.indexOf('Bowser (LF) buddy-attacked.')
+  const broke = body.indexOf('Bowser (LF) broke the table')
+  const secured = body.indexOf('Bowser (LF) secured')
+  assert.ok(attack >= 0 && attack < broke && broke < secured, body)
+})
+
+// Jason, daisy_cruiser-20260911T152720Z PA 55: Bowser's fire breath broke a
+// table the ball was nowhere near.
+test('a table broken by a star swing names the captain instead of an unknown cause', () => {
+  const narrative = buildTrackerNarrative({
+    atBat: plateAppearance({ result: '1B', trajectory: 'G' }),
+    play: trackingPlay({
+      park: 'daisy_cruiser',
+      table_breaks: [{
+        frame: 58319, t: 1.3847,
+        table: { address: 1234, at: [-26, 0, -58] },
+        cause: { type: 'star_swing', captain: 'Bowser', value: 11 },
+      }],
+    }),
+    join: join('joined'),
+  })
+  assert.match(text(narrative), /Bowser's star swing broke the table at field coordinates \(-26\.0, -58\.0\)\./)
+  assert.doesNotMatch(text(narrative), /could not determine what struck it/)
+})
+
+// Jason, daisy_cruiser-20260911T132750Z PAs 48, 49, 64 and 67: all four were
+// measured and none was narrated.
+test('a captain star swing that disables a fielder names the captain and the effect', () => {
+  const stun = (overrides) => ({ t: 1.9, frame: 70245, frames: 89, seconds: 1.4848, ...overrides })
+  const cases = [
+    [{ value: 12, captain: 'Bowser Jr.' },
+      stun({ by: 'CF', character: 'Blue Shy Guy', frames: 90, seconds: 1.5015, flag: 'impact_stun', effect: 'paint' }),
+      /Bowser Jr\.'s paint stunned Blue Shy Guy \(CF\) for 1\.5 s\./],
+    [{ value: 5, captain: 'Peach' },
+      stun({ by: '2B', character: 'Magikoopa', frames: 120, seconds: 2.002, flag: 'sprayed', effect: 'heart' }),
+      /Peach's heart swing charmed Magikoopa \(2B\), who could not move for 2\.0 s\./],
+    [{ value: 11, captain: 'Bowser' },
+      stun({ by: '2B', character: 'Kritter', flag: 'burned', effect: 'fire_breath' }),
+      /Bowser's fire breath stunned Kritter \(2B\) for 1\.5 s\./],
+    [{ value: 1, captain: 'Mario' },
+      stun({ by: 'CF', character: 'Blue Shy Guy', flag: 'burned', effect: 'fireball' }),
+      /Mario's fireball stunned Blue Shy Guy \(CF\) for 1\.5 s\./],
+  ]
+  for (const [swing, effect, expected] of cases) {
+    const narrative = buildTrackerNarrative({
+      atBat: plateAppearance({ result: '2B', trajectory: 'F' }),
+      play: trackingPlay({
+        park: 'daisy_cruiser',
+        star_swing: { ...swing, start_frame: 70191, end_frame: 70318, frames: 128 },
+        star_swing_effects: [{ ...effect, star_swing_captain: swing.captain, star_swing_value: swing.value }],
+      }),
+      join: join('joined'),
+    })
+    assert.match(text(narrative), expected)
+    assert.doesNotMatch(text(narrative), /collided with a table|flower gas/)
+  }
 })

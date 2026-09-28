@@ -26,6 +26,8 @@ import {
   setTrackerPreviewCaptureHealth,
 } from './tracker_preview_state.mjs'
 import { noteCaptureMessage } from './tracker_preview_plays.mjs'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 export const LIVE_PLAY_MARKER = '[live-play] '
 export const LIVE_PITCH_MARKER = '[live-pitch] '
@@ -174,4 +176,51 @@ export function applyCollectorLine(state, line, {
     })
   }
   return false
+}
+
+
+// THE EVIDENCE PROFILE, CHECKED BEFORE ANY GAME. The collector refuses the
+// comprehensive profile without a valid session metadata file (who held which
+// remote), but it only gets to say so once a match is live -- and a launcher
+// that retries it every few seconds would let the whole one-shot calibration
+// game be played with nothing recorded. Both launchers call this first.
+//
+// Returns null for the standard profile, else the validator's summary. Throws
+// with the validator's own reasons otherwise.
+export function assertEvidenceProfileReady(environment = process.env, run = spawnSync) {
+  if (environment.TRACKER_PLAYER_TRACKING === '0') return null
+  const profile = String(environment.TRACKER_EVIDENCE_PROFILE || 'standard').trim()
+  if (profile === 'standard') return null
+  if (profile !== 'comprehensive') {
+    throw new Error(`TRACKER_EVIDENCE_PROFILE must be standard or comprehensive, not ${profile}`)
+  }
+  const metadata = String(environment.TRACKER_SESSION_METADATA || '').trim()
+  if (!metadata) {
+    throw new Error('TRACKER_EVIDENCE_PROFILE=comprehensive needs TRACKER_SESSION_METADATA: '
+      + 'the file stating which player held which remote in which port. Create it with '
+      + '`python scripts/evidence_preflight.py map-remotes`.')
+  }
+  const python = String(environment.TRACKER_PLAYER_PYTHON || 'python')
+  const check = run(python, [
+    path.resolve('scripts/capture_evidence_schema.py'),
+    '--validate-metadata', path.resolve(metadata),
+  ], { encoding: 'utf8', windowsHide: true, timeout: 10000, env: environment })
+  if (check.error || check.status !== 0) {
+    const detail = check.error?.message || String(check.stderr || '').trim()
+      || `exit code ${check.status}`
+    throw new Error(`Session metadata ${metadata} is not usable: ${detail}`)
+  }
+  return JSON.parse(String(check.stdout || '{}'))
+}
+
+// The same two settings as collector arguments, resolved from whichever
+// environment the launcher validated -- the bridge merges .env.tracker-bridge
+// into its own copy, which a spawned child would not otherwise inherit.
+export function collectorEvidenceArgs(environment = process.env) {
+  const profile = String(environment.TRACKER_EVIDENCE_PROFILE || '').trim()
+  const metadata = String(environment.TRACKER_SESSION_METADATA || '').trim()
+  return [
+    ...(profile ? ['--evidence-profile', profile] : []),
+    ...(metadata ? ['--session-metadata', path.resolve(metadata)] : []),
+  ]
 }

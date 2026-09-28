@@ -5,9 +5,13 @@
 // without replaying Dolphin. MLB definitions inspire the outputs, but the
 // probabilities and run values are fitted to this league's environment.
 
-export const ADVANCED_METRIC_VERSION = 'sluggers-advanced-v1'
+import { calculateOutsForPa } from './defensiveEfficiency.js'
+import { getFieldSpeed } from '../data/gameSpeedCurves.js'
+
+export const ADVANCED_METRIC_VERSION = 'sluggers-advanced-v2'
 export const METRES_TO_FEET = 3.280839895
 export const MPS_TO_MPH = 2.2369362921
+export const FEET_PER_SECOND_TO_MPH = 3600 / 5280
 
 const BASE_BIT = { first: 1, second: 2, third: 4 }
 const BASE_ORDER = { plate: 0, first: 1, second: 2, third: 3, home: 4, out: -1 }
@@ -122,13 +126,28 @@ export function buildDoublePlayOpportunityFromPa(pa = {}, {
   }
 }
 
+// The base a hit puts the batter-runner on without anyone deciding anything.
+// Everything past it is his decision and the defence's problem.
+const BATTER_GUARANTEED_BASE = Object.freeze({ '1B': 'first', '2B': 'second' })
+
 function extraBaseSpecs(pa = {}) {
   if (pa.is_error || pa.result === 'ROE') return []
   if (pa.result === '1B') return [
+    // THE BATTER-RUNNER IS A BASERUNNER. Leaving him out meant the most common
+    // extra-base decision in the game -- stretch it or stop -- generated no
+    // opportunity at all, and so neither did the defensive play that settled
+    // it. A fielder who cuts a ball off in the gap and holds the hitter to a
+    // single was doing the single most valuable thing an outfielder does on a
+    // ball that falls in, and it priced at zero for him and at zero for the
+    // runner. Across the local archive the batter took two or more bases 305
+    // times and stopped at the guaranteed one 1,234 times; the opportunity
+    // table held 18 rows, none of them a batter.
+    { runnerId: 'batter', origin: 'plate', target: 'second', type: 'batter_to_second_on_single' },
     { runnerId: 'first', origin: 'first', target: 'third', type: 'first_to_third_on_single' },
     { runnerId: 'second', origin: 'second', target: 'home', type: 'second_to_home_on_single' },
   ]
   if (pa.result === '2B') return [
+    { runnerId: 'batter', origin: 'plate', target: 'third', type: 'batter_to_third_on_double' },
     { runnerId: 'first', origin: 'first', target: 'home', type: 'first_to_home_on_double' },
   ]
   if (AIR_OUT_RESULTS.has(pa.result)) return [
@@ -163,9 +182,13 @@ export function buildExtraBaseOpportunitiesFromPa(pa = {}, {
   if (AIR_OUT_RESULTS.has(pa.result) && (outsBefore >= 2 || outsOnPlay > 1)) return []
 
   return extraBaseSpecs(pa).flatMap((spec) => {
+    const batterSpec = spec.runnerId === 'batter'
     const assignment = assignmentById.get(spec.runnerId)
-    if (!assignment || assignment.isBatter) return []
-    if (!pa[`runner_on_${spec.origin}_before`]) return []
+    if (!assignment || assignment.isBatter !== batterSpec) return []
+    // The batter-runner's origin is the plate, which is not a base anyone can
+    // have been standing on. Every other spec still has to start from an
+    // occupied one.
+    if (!batterSpec && !pa[`runner_on_${spec.origin}_before`]) return []
     if (assignment.origin && assignment.origin !== spec.origin) return []
     const ids = runnerIds(assignment)
     if (ids.playerId == null && ids.characterId == null) return []
@@ -177,6 +200,11 @@ export function buildExtraBaseOpportunitiesFromPa(pa = {}, {
     if (targetOccupied) return []
     const actualRank = BASE_ORDER[assignment.destination] ?? -1
     const targetRank = BASE_ORDER[spec.target]
+    // A batter who did not even reach the base his hit guaranteed him was
+    // retired somewhere this decision never got to happen -- a rundown, an
+    // appeal, a runner passed on the bases. It is not a failed stretch.
+    if (batterSpec && assignment.destination !== 'out'
+      && actualRank < BASE_ORDER[BATTER_GUARANTEED_BASE[pa.result]]) return []
     let outcome
     if (assignment.destination === 'out') {
       // Being retired before reaching the guaranteed base on a hit, or
@@ -229,6 +257,31 @@ function dpContextKey(row = {}) {
   return [row.trajectory || 'G', finite(row.outs_before, 0), row.base_state_before || 0, evBucket].join('|')
 }
 
+// Approximately MLB's 2010-15 RE24 table, keyed `${outs}:${baseMask}`. Only its
+// SHAPE is used: buildRunExpectancy rescales it to this league's scoring level
+// and lets any state the league has seen often enough outweigh it.
+const MLB_RE24_SHAPE = Object.freeze({
+  '0:0': 0.481, '0:1': 0.859, '0:2': 1.100, '0:3': 1.437, '0:4': 1.350, '0:5': 1.784, '0:6': 1.964, '0:7': 2.292,
+  '1:0': 0.254, '1:1': 0.509, '1:2': 0.664, '1:3': 0.884, '1:4': 0.950, '1:5': 1.130, '1:6': 1.376, '1:7': 1.541,
+  '2:0': 0.098, '2:1': 0.224, '2:2': 0.319, '2:3': 0.429, '2:4': 0.353, '2:5': 0.478, '2:6': 0.580, '2:7': 0.752,
+})
+
+// How many observed half-inning samples a state needs before its own mean
+// counts as much as the prior. Most states have fewer than 15: with no prior,
+// 1 out with runners on the corners (4 samples) read 0.25 runs against 0.63 for
+// a runner on first alone, which priced a single as costing the offense runs.
+const RUN_EXPECTANCY_PRIOR_STRENGTH = 20
+
+// Runs that scored DURING this plate appearance. `run_scored` is not that: it
+// says the batter scored at some point in the inning, so counting it here
+// charged the same run to his own PA and again to the PA that drove him in --
+// 69 runs where 50 scored across the tournament games.
+function runsOnPlay(pa = {}) {
+  const assignments = normalizeRunnerAssignments(pa.runner_assignments)
+  if (assignments.length) return assignments.filter((row) => row.destination === 'home').length
+  return Math.max(0, Math.trunc(finite(pa.rbi, 0)))
+}
+
 export function buildRunExpectancy(plateAppearances = []) {
   const groups = new Map()
   for (const pa of plateAppearances) {
@@ -240,11 +293,7 @@ export function buildRunExpectancy(plateAppearances = []) {
   const samples = new Map()
   for (const rows of groups.values()) {
     rows.sort((a, b) => finite(a.pa_number, 0) - finite(b.pa_number, 0))
-    const runs = rows.map((pa) => {
-      const assignments = normalizeRunnerAssignments(pa.runner_assignments)
-      const assignmentRuns = assignments.filter((row) => row.destination === 'home').length
-      return assignmentRuns || Math.max(finite(pa.rbi, 0), pa.run_scored ? 1 : 0)
-    })
+    const runs = rows.map(runsOnPlay)
     let futureRuns = runs.reduce((sum, value) => sum + value, 0)
     let outs = 0
     rows.forEach((pa, index) => {
@@ -252,12 +301,26 @@ export function buildRunExpectancy(plateAppearances = []) {
       if (!samples.has(key)) samples.set(key, [])
       samples.get(key).push(futureRuns)
       futureRuns -= runs[index]
-      outs += clamp(Math.trunc(finite(pa.outs_on_play, 0)), 0, 3)
+      // Inferred from the result when the row predates outs_on_play, as 564 of
+      // the first 660 PAs do. Reading those as zero outs put nearly every PA in
+      // the 0-out states.
+      outs += clamp(Math.trunc(calculateOutsForPa(pa.result, pa.outs_on_play)), 0, 3)
     })
   }
-  const expectancy = new Map([['3:0', 0]])
+
+  let observedRuns = 0
+  let priorRuns = 0
   for (const [key, values] of samples) {
-    expectancy.set(key, values.reduce((sum, value) => sum + value, 0) / values.length)
+    observedRuns += values.reduce((sum, value) => sum + value, 0)
+    priorRuns += values.length * (MLB_RE24_SHAPE[key] ?? 0)
+  }
+  const scale = priorRuns > 0 ? observedRuns / priorRuns : 1
+  const expectancy = new Map([['3:0', 0]])
+  for (const [key, shape] of Object.entries(MLB_RE24_SHAPE)) {
+    const values = samples.get(key) || []
+    const total = values.reduce((sum, value) => sum + value, 0)
+    expectancy.set(key, (total + RUN_EXPECTANCY_PRIOR_STRENGTH * scale * shape)
+      / (values.length + RUN_EXPECTANCY_PRIOR_STRENGTH))
   }
   return expectancy
 }
@@ -280,19 +343,148 @@ function moveRunnerMask(mask, origin, target) {
   return next
 }
 
+// The base a batter-runner's opportunity is measured from: the one before the
+// one he is trying for.
+const BASE_BEFORE = Object.freeze({ second: 'first', third: 'second', home: 'third' })
+
+/**
+ * What advancing and what being thrown out are each worth, against holding.
+ *
+ * `base_state_before` is the state at CONTACT, so for a runner already on base
+ * it is also the state he holds at and the baseline is simply that. A
+ * batter-runner is not on it: the hit puts him on his guaranteed base whatever
+ * he decides, so his baseline is the state WITH him standing there, and being
+ * thrown out stretching leaves the bases as they were at contact rather than
+ * emptying a base he never occupied. Measuring him from the contact state
+ * instead would have priced the hit itself as part of his baserunning.
+ */
 function opportunityOutcomeValues(row, expectancy) {
   const outs = clamp(Math.trunc(finite(row.outs_before, 0)), 0, 2)
   const mask = clamp(Math.trunc(finite(row.base_state_before, 0)), 0, 7)
-  const before = runExpectancyValue(expectancy, outs, mask)
-  const safeMask = moveRunnerMask(mask, row.origin_base, row.target_base)
+  const batter = row.origin_base === 'plate'
+  const guaranteed = batter ? BASE_BEFORE[row.target_base] : null
+  const holdMask = batter && guaranteed in BASE_BIT ? mask | BASE_BIT[guaranteed] : mask
+  const before = runExpectancyValue(expectancy, outs, holdMask)
+  const safeMask = batter
+    ? (row.target_base in BASE_BIT ? mask | BASE_BIT[row.target_base] : mask)
+    : moveRunnerMask(mask, row.origin_base, row.target_base)
   const safeRuns = row.target_base === 'home' ? 1 : 0
   const safeValue = safeRuns + runExpectancyValue(expectancy, outs, safeMask) - before
-  const outMask = mask & ~BASE_BIT[row.origin_base]
+  const outMask = batter ? mask : mask & ~BASE_BIT[row.origin_base]
   const outValue = runExpectancyValue(expectancy, outs + 1, outMask) - before
   return { safeValue, outValue }
 }
 
-export function modelRunnerOpportunities(rows = [], expectancy = new Map()) {
+// ── extra-base decisions from the 60 Hz capture ─────────────────────────────
+//
+// The CPU decides every send and hold -- the human never does -- so the
+// attempt model is learning the game's own policy from what it could see when
+// a fielder first had the ball. The context below is stored per play at ingest
+// (tracking_plays.quality.runner_context); the fit and the recompute both turn
+// it into features with extraBaseFeatures, so the two cannot disagree.
+
+/** The capture's actor slot for a runner who started this opportunity there. */
+export const RUNNER_SLOT_BY_ORIGIN = Object.freeze({ plate: 'BAT', first: 'R1', second: 'R2', third: 'R3' })
+
+// Marks a row whose attempt probability came from the fitted decision model,
+// in model_version, e.g. "sluggers-advanced-v2+decision:runner-decision-v1".
+const DECISION_MODEL_TAG = '+decision:'
+
+export const EXTRA_BASE_DECISION_FEATURES = Object.freeze([
+  'runner_to_target_units', 'ball_to_target_units', 'runner_speed', 'fielder_arm',
+])
+
+function planarDistance(a, b) {
+  return Math.hypot(finite(a?.[0], NaN) - finite(b?.[0], NaN), finite(a?.[1], NaN) - finite(b?.[1], NaN))
+}
+
+/** The compact facts an extra-base decision is made against, or null. */
+export function extraBaseContext(play = {}) {
+  const touch = play.first_touch
+  if (!Array.isArray(touch?.at) || !play.bases) return null
+  const round = (value) => Number(Number(value).toFixed(3))
+  return {
+    schema_version: 1,
+    bases: Object.fromEntries(Object.entries(play.bases)
+      .filter(([, xz]) => Array.isArray(xz) && xz.length >= 2)
+      .map(([base, xz]) => [base, [round(xz[0]), round(xz[1])]])),
+    // The capture's spelling of who secured it -- resolve through
+    // characterNames.js, never by raw string.
+    touch: {
+      by: touch.by || null, character: touch.character || null,
+      frame: finite(touch.frame), at: [round(touch.at[0]), round(touch.at[2])],
+    },
+    // Where each runner stood when the ball was first secured, keyed by the
+    // slot he occupied at contact. BAT is included: the batter-runner's own
+    // stretch-or-stop decision is measured from where HE was when the fielder
+    // got to it, and leaving him out left that decision unscoreable.
+    runners: Object.entries(play.runners || {}).flatMap(([slot, runner]) => (
+      Array.isArray(runner?.at_first_possession)
+        ? [{ slot, character: runner.character || null,
+          at: [round(runner.at_first_possession[0]), round(runner.at_first_possession[2])] }]
+        : []
+    )),
+  }
+}
+
+/**
+ * The model's inputs for one runner opportunity, or null when the capture
+ * cannot supply them. Speed and arm are the character's fixed attributes
+ * (characters.run_speed / throwing_speed): in this game they do not vary, so a
+ * measured value would only re-measure them with noise.
+ */
+export function extraBaseFeatures(row = {}, context = null, { runnerSpeed = null, fielderArm = null } = {}) {
+  if (!context?.touch?.at || !context.bases) return null
+  const target = context.bases[row.target_base]
+  const runner = (context.runners || []).find((entry) => entry.slot === RUNNER_SLOT_BY_ORIGIN[row.origin_base])
+  const speed = finite(runnerSpeed)
+  const arm = finite(fielderArm)
+  if (!Array.isArray(target) || !Array.isArray(runner?.at) || speed == null || arm == null) return null
+  const runnerToTarget = planarDistance(runner.at, target)
+  const ballToTarget = planarDistance(context.touch.at, target)
+  if (!Number.isFinite(runnerToTarget) || !Number.isFinite(ballToTarget)) return null
+  return {
+    runner_to_target_units: runnerToTarget,
+    ball_to_target_units: ballToTarget,
+    runner_speed: speed,
+    fielder_arm: arm,
+  }
+}
+
+/** The design row the fitted model multiplies; shared by the fit and the scorer. */
+export function extraBaseDecisionVector(model, row = {}, features = {}) {
+  const outs = Math.trunc(finite(row.outs_before, 0))
+  return [
+    1,
+    ...EXTRA_BASE_DECISION_FEATURES.map((name) => (
+      (features[name] - model.standardization[name].mean) / model.standardization[name].scale)),
+    outs === 1 ? 1 : 0,
+    outs === 2 ? 1 : 0,
+    ...model.opportunity_types.slice(1).map((type) => (row.opportunity_type === type ? 1 : 0)),
+  ]
+}
+
+/** P(the CPU sends the runner), or null when the model cannot score the row. */
+export function scoreExtraBaseDecision(model, row, features) {
+  if (!model || model.status !== 'active' || !features) return null
+  if (!model.opportunity_types.includes(row.opportunity_type)) return null
+  const linear = extraBaseDecisionVector(model, row, features)
+    .reduce((sum, value, index) => sum + value * model.coefficients[index], 0)
+  if (!Number.isFinite(linear)) return null
+  return linear >= 0 ? 1 / (1 + Math.exp(-linear)) : Math.exp(linear) / (1 + Math.exp(linear))
+}
+
+/**
+ * `decisionModel` + `featuresFor(row)` score the attempt probability from the
+ * capture (the recompute). `useStoredDecision` reuses a probability the
+ * recompute already stored from that model (WAR, which cannot load the fitted
+ * artifact in the browser). Anything else falls back to the context average.
+ */
+export function modelRunnerOpportunities(rows = [], expectancy = new Map(), {
+  decisionModel = null,
+  featuresFor = () => null,
+  useStoredDecision = false,
+} = {}) {
   const eligible = rows.filter((row) => row.is_discretionary !== false && ['hold', 'advance_safe', 'advance_out'].includes(row.outcome))
   const globalAttempts = eligible.filter((row) => row.attempted).length
   const globalAttemptRate = eligible.length ? globalAttempts / eligible.length : 0.35
@@ -318,8 +510,13 @@ export function modelRunnerOpportunities(rows = [], expectancy = new Map()) {
     const n = Math.max(0, bucket.n - 1)
     const attempts = Math.max(0, bucket.attempts - (row.attempted ? 1 : 0))
     const safe = Math.max(0, bucket.safe - (row.attempted && row.safe ? 1 : 0))
-    const expectedAttempt = betaMean(attempts, n, globalAttemptRate, 12)
+    const modelledAttempt = decisionModel ? scoreExtraBaseDecision(decisionModel, row, featuresFor(row)) : null
+    const storedAttempt = useStoredDecision && String(row.model_version || '').includes(DECISION_MODEL_TAG)
+      ? finite(row.expected_attempt_probability) : null
+    const expectedAttempt = modelledAttempt ?? storedAttempt ?? betaMean(attempts, n, globalAttemptRate, 12)
     const successTrials = attempts
+    // Still the context average: thrown-out runners are too rare in the
+    // archive (one in thirty games) for the capture to say what makes one.
     const expectedSuccess = betaMean(safe, successTrials, globalSuccessRate, 10)
     const { safeValue, outValue } = opportunityOutcomeValues(row, expectancy)
     const expectedValue = expectedAttempt * (expectedSuccess * safeValue + (1 - expectedSuccess) * outValue)
@@ -330,7 +527,9 @@ export function modelRunnerOpportunities(rows = [], expectancy = new Map()) {
       expected_success_probability: expectedSuccess,
       runner_run_value: actualValue - expectedValue,
       arm_run_value: row.responsible_fielder_character_id != null ? expectedValue - actualValue : null,
-      model_version: ADVANCED_METRIC_VERSION,
+      model_version: modelledAttempt != null
+        ? `${ADVANCED_METRIC_VERSION}${DECISION_MODEL_TAG}${decisionModel.model_version}`
+        : storedAttempt != null ? row.model_version : ADVANCED_METRIC_VERSION,
     }
   })
 }
@@ -387,18 +586,70 @@ export function catchProbabilityStar(probability) {
   return 1
 }
 
-export function modelFieldingOpportunities(rows = []) {
-  const eligible = rows.filter((row) => (
+/**
+ * Whether an opportunity is kept out of OAA: a manufactured chance (boot,
+ * forced misplay, Buddy handoff) or one the stadium decided. `stadium_affected`
+ * is stamped at ingest and restamped by the recompute from the play's incidents.
+ */
+export function isExcludedFromOaa(row = {}) {
+  return row.quality?.exclude_from_oaa === true || row.quality?.stadium_affected === true
+}
+
+// How long a fair ball has to stay up before failing to catch it means
+// anything. This is the same threshold the frozen catch-probability dataset
+// uses for its failure label (see
+// data/calibration/catch-probability-opportunity-definition-v1.json: "fair_in_play
+// with observed landing at least 1.0 s after contact").
+export const AIRBORNE_OPPORTUNITY_SECONDS = 1.0
+
+/**
+ * Whether this batted ball was ever catchable in the air.
+ *
+ * `actual_out` on a fielding opportunity means CAUGHT IN FLIGHT and nothing
+ * else (see the primary-fielder branch in scripts/ingest_player_tracking.mjs),
+ * so a ground ball fielded cleanly and thrown to first arrives here as
+ * `actual_out: false` -- an opportunity the fielder converted into an out,
+ * recorded as one he failed. Buckets hold two or three plays, so each row's
+ * expectation is dominated by the shrinkage prior, which is the POSITION's
+ * overall catch rate; mixing balls that could be caught with balls that never
+ * could gave every groundout a small debit and every line drive a large
+ * credit. Across the 160 eligible rows the league had at the time, a fielder
+ * whose chances were caught in the air averaged +0.445 OAA and one whose were
+ * fielded off the ground -0.349, and per-fielder OAA correlated 0.67 with
+ * nothing but the share of their chances that happened to be hit in the air.
+ *
+ * So this model's population is the one it can actually model: balls that were
+ * catchable. A catch is self-evidently a catch opportunity; a ball that was not
+ * caught had to stay up long enough for reaching it to be the question. Ground
+ * balls now leave OAA UNMODELLED rather than scored as failures -- Infield OAA
+ * needs its own out-at-the-base model, which docs/fielding-baserunning-advanced-metrics-plan.md
+ * schedules for Phase 3 and which does not exist yet. An unmeasured fielder is
+ * neutral; a mismeasured one is worse than neutral.
+ */
+export function isAirborneCatchOpportunity(row = {}) {
+  if (row.actual_out === true) return true
+  const seconds = finite(row.opportunity_seconds)
+  return seconds != null && seconds >= AIRBORNE_OPPORTUNITY_SECONDS
+}
+
+export function isFieldingModelEligible(row = {}) {
+  return Boolean(
     row.is_primary
     && row.actual_out != null
     && finite(row.distance_needed_m) != null
     && finite(row.opportunity_seconds) != null
-    && row.quality?.exclude_from_oaa !== true
-    && row.quality?.quarantined_session !== true
-  ))
+    && isAirborneCatchOpportunity(row)
+    && !isExcludedFromOaa(row)
+    && row.quality?.quarantined_session !== true,
+  )
+}
+
+/** Position and difficulty-bucket catch counts over the eligible rows. */
+export function fitFieldingModel(rows = []) {
   const byPosition = new Map()
   const byBucket = new Map()
-  for (const row of eligible) {
+  for (const row of rows) {
+    if (!isFieldingModelEligible(row)) continue
     const position = String(row.position || 'unknown')
     const pos = byPosition.get(position) || { n: 0, outs: 0 }
     pos.n += 1
@@ -410,21 +661,38 @@ export function modelFieldingOpportunities(rows = []) {
     if (row.actual_out) bucket.outs += 1
     byBucket.set(key, bucket)
   }
+  return { byPosition, byBucket }
+}
+
+/**
+ * The modelled columns for one opportunity, or null when it is not eligible.
+ *
+ * `inSample` says the row was one of the rows the model was fitted on, so its
+ * own catch is taken back out of its bucket. A row scored live, against a model
+ * fitted before it was played, was never in it.
+ */
+export function scoreFieldingOpportunity(model, row, { inSample = false } = {}) {
+  if (!isFieldingModelEligible(row)) return null
+  const position = model.byPosition.get(String(row.position || 'unknown')) || { n: 0, outs: 0 }
+  const positionRate = position.n ? position.outs / position.n : 0.5
+  const bucket = model.byBucket.get(fieldingBucket(row)) || { n: 0, outs: 0 }
+  const self = inSample ? 1 : 0
+  const n = Math.max(0, bucket.n - self)
+  const outs = Math.max(0, bucket.outs - (inSample && row.actual_out ? 1 : 0))
+  const expected = betaMean(outs, n, positionRate, 12)
+  return {
+    expected_out_probability: expected,
+    outs_above_average: (row.actual_out ? 1 : 0) - expected,
+    star_difficulty: catchProbabilityStar(expected),
+    model_version: ADVANCED_METRIC_VERSION,
+  }
+}
+
+export function modelFieldingOpportunities(rows = []) {
+  const model = fitFieldingModel(rows)
   return rows.map((row) => {
-    if (!eligible.includes(row)) return { ...row }
-    const position = byPosition.get(String(row.position || 'unknown')) || { n: 0, outs: 0 }
-    const positionRate = position.n ? position.outs / position.n : 0.5
-    const bucket = byBucket.get(fieldingBucket(row))
-    const n = Math.max(0, bucket.n - 1)
-    const outs = Math.max(0, bucket.outs - (row.actual_out ? 1 : 0))
-    const expected = betaMean(outs, n, positionRate, 12)
-    return {
-      ...row,
-      expected_out_probability: expected,
-      outs_above_average: (row.actual_out ? 1 : 0) - expected,
-      star_difficulty: catchProbabilityStar(expected),
-      model_version: ADVANCED_METRIC_VERSION,
-    }
+    const scored = scoreFieldingOpportunity(model, row, { inSample: true })
+    return scored ? { ...row, ...scored } : { ...row }
   })
 }
 
@@ -444,7 +712,9 @@ function hardestThrowShare(position) {
 // pairings rather than by their arms, so they are held apart.
 export function aggregateArmStrength(throws = []) {
   const valid = throws.filter((row) => (
-    finite(row.peak_speed_mph) != null && row.quality?.quarantined_session !== true
+    row.is_throw !== false
+    && finite(row.peak_speed_mph) != null
+    && row.quality?.quarantined_session !== true
   ))
   const buddy = valid.filter((row) => row.is_buddy_throw === true)
   const normal = valid.filter((row) => row.is_buddy_throw !== true)
@@ -489,6 +759,22 @@ function groupRows(rows, key) {
   return groups
 }
 
+function groupRowsByKeys(rows, keys) {
+  const groups = new Map()
+  for (const row of rows) {
+    const seen = new Set()
+    for (const key of keys) {
+      const value = row?.[key]
+      if (value == null || seen.has(String(value))) continue
+      const normalized = String(value)
+      seen.add(normalized)
+      if (!groups.has(normalized)) groups.set(normalized, [])
+      groups.get(normalized).push(row)
+    }
+  }
+  return groups
+}
+
 export function summarizeAdvancedFielding({
   throws = [], runnerOpportunities = [], doublePlayOpportunities = [], fieldingOpportunities = [],
 } = {}, identity = 'character') {
@@ -496,22 +782,26 @@ export function summarizeAdvancedFielding({
   const throwKey = `thrower_${keySuffix}`
   const armKey = `responsible_fielder_${keySuffix}`
   const dpKey = `first_fielder_${keySuffix}`
+  const dpPivotKey = `pivot_fielder_${keySuffix}`
   const fieldKey = `fielder_${keySuffix}`
   const groupedThrows = groupRows(throws, throwKey)
   const groupedArm = groupRows(runnerOpportunities, armKey)
   const groupedDp = groupRows(doublePlayOpportunities, dpKey)
+  const groupedDpParticipants = groupRowsByKeys(doublePlayOpportunities, [dpKey, dpPivotKey])
   const groupedField = groupRows(fieldingOpportunities, fieldKey)
-  const ids = new Set([...groupedThrows.keys(), ...groupedArm.keys(), ...groupedDp.keys(), ...groupedField.keys()])
+  const ids = new Set([...groupedThrows.keys(), ...groupedArm.keys(), ...groupedDpParticipants.keys(), ...groupedField.keys()])
   return Object.fromEntries([...ids].map((id) => {
     const arm = groupedArm.get(id) || []
-    // v1 DP responsibility is team-level. `player` identity represents the
-    // team owner in Sluggers and may consume those rows; character leaderboards
-    // wait until a later detector explicitly promotes credit_status to player.
+    // Both fielders who complete the play receive the traditional DP count.
+    // Modeled value remains with the resolved owner/first fielder so summing
+    // character rows cannot double-count one defensive play.
+    const dpParticipation = groupedDpParticipants.get(id) || []
     const dp = (groupedDp.get(id) || []).filter((row) => (
       identity === 'player' || row.credit_status === 'player'
     ))
     const allField = (groupedField.get(id) || []).filter((row) => row.quality?.quarantined_session !== true)
-    const field = allField.filter((row) => row.is_primary && finite(row.outs_above_average) != null)
+    const field = allField.filter((row) => row.is_primary && !isExcludedFromOaa(row)
+      && finite(row.outs_above_average) != null)
     const positioned = allField.filter((row) => finite(row.position_depth_ft) != null)
     const strength = aggregateArmStrength(groupedThrows.get(id) || [])
     const armValue = arm.reduce((sum, row) => sum + finite(row.arm_run_value, 0), 0)
@@ -537,10 +827,10 @@ export function summarizeAdvancedFielding({
       armAdvances: arm.filter((row) => row.outcome === 'advance_safe').length,
       armKills: arm.filter((row) => row.outcome === 'advance_out').length,
       armValue,
-      doublePlayOpportunities: dp.length,
-      doublePlays: dp.filter((row) => row.double_play_completed).length,
-      doublePlaysAdded: dp.reduce((sum, row) => sum + finite(row.double_plays_added, 0), 0),
-      doublePlayRuns: dpRuns,
+      doublePlayOpportunities: dpParticipation.length,
+      doublePlays: dpParticipation.filter((row) => row.double_play_completed).length,
+      doublePlaysAdded: dp.length ? dp.reduce((sum, row) => sum + finite(row.double_plays_added, 0), 0) : null,
+      doublePlayRuns: dp.length ? dpRuns : null,
       fieldingOpportunities: field.length,
       actualOuts: field.filter((row) => row.actual_out).length,
       expectedOuts: field.reduce((sum, row) => sum + finite(row.expected_out_probability, 0), 0),
@@ -559,29 +849,99 @@ export function summarizeAdvancedFielding({
   }))
 }
 
+// The six opportunity types buildExtraBaseOpportunitiesFromPa can produce, in
+// the order a reader expects them. Named rather than discovered from the rows,
+// so a summary always carries all six: a runner who never had a tag-up chance
+// has to read 0 opportunities there, or the split silently disappears and the
+// table's columns move from row to row.
+export const EXTRA_BASE_OPPORTUNITY_TYPES = Object.freeze([
+  'first_to_third_on_single',
+  'second_to_home_on_single',
+  'first_to_home_on_double',
+  'tag_first_to_second',
+  'tag_second_to_third',
+  'tag_third_to_home',
+])
+
+function baserunningCounts(rows) {
+  const attempts = rows.filter((row) => row.attempted)
+  const advances = rows.filter((row) => row.outcome === 'advance_safe')
+  return {
+    opportunities: rows.length,
+    attempts: attempts.length,
+    holds: rows.filter((row) => row.outcome === 'hold').length,
+    advances: advances.length,
+    outs: rows.filter((row) => row.outcome === 'advance_out').length,
+    // THREE DIFFERENT RATES, and the site has been showing one of them under a
+    // name that reads like another. `attemptRate` is what the XBT% column has
+    // always meant -- how often the runner went -- and its definition is
+    // unchanged here. `successRate` is per ATTEMPT, `safeRate` is per
+    // OPPORTUNITY, and the two coincide only for a runner who attempts
+    // everything, which is exactly the runner nobody is trying to measure.
+    attemptRate: rows.length ? attempts.length / rows.length : null,
+    successRate: attempts.length ? advances.length / attempts.length : null,
+    safeRate: rows.length ? advances.length / rows.length : null,
+  }
+}
+
 export function summarizeAdvancedBaserunning(rows = [], identity = 'character') {
   const key = identity === 'player' ? 'runner_player_id' : 'runner_character_id'
-  return Object.fromEntries([...groupRows(rows, key)].map(([id, opportunities]) => [id, {
-    opportunities: opportunities.length,
-    attempts: opportunities.filter((row) => row.attempted).length,
-    holds: opportunities.filter((row) => row.outcome === 'hold').length,
-    advances: opportunities.filter((row) => row.outcome === 'advance_safe').length,
-    outs: opportunities.filter((row) => row.outcome === 'advance_out').length,
-    attemptRate: opportunities.length
-      ? opportunities.filter((row) => row.attempted).length / opportunities.length
-      : null,
-    successRate: opportunities.some((row) => row.attempted)
-      ? opportunities.filter((row) => row.outcome === 'advance_safe').length / opportunities.filter((row) => row.attempted).length
-      : null,
-    modeledOpportunities: opportunities.filter((row) => finite(row.runner_run_value) != null).length,
-    baserunningRunValue: opportunities.some((row) => finite(row.runner_run_value) != null)
-      ? opportunities.reduce((sum, row) => sum + finite(row.runner_run_value, 0), 0) : null,
-  }]))
+  return Object.fromEntries([...groupRows(rows, key)].map(([id, opportunities]) => {
+    const modeled = opportunities.filter((row) => finite(row.runner_run_value) != null)
+    return [id, {
+      ...baserunningCounts(opportunities),
+      // Per opportunity type, so first-to-third on a single reads apart from a
+      // tag-up. TWO KEYS ON PURPOSE. `byType` keeps the exact counts-only shape
+      // an existing consumer already reads, listing only the types that came
+      // up; `splits` is the new contract -- all six types always present, with
+      // the rates beside the counts -- so a table's columns cannot move from
+      // row to row just because a runner never had a tag-up chance.
+      byType: Object.fromEntries([...new Set(opportunities.map((row) => row.opportunity_type))]
+        .map((type) => {
+          const typed = opportunities.filter((row) => row.opportunity_type === type)
+          return [type, {
+            opportunities: typed.length,
+            holds: typed.filter((row) => row.outcome === 'hold').length,
+            attempts: typed.filter((row) => row.attempted).length,
+            advances: typed.filter((row) => row.outcome === 'advance_safe').length,
+            outs: typed.filter((row) => row.outcome === 'advance_out').length,
+          }]
+        })),
+      splits: Object.fromEntries(EXTRA_BASE_OPPORTUNITY_TYPES.map((type) => [
+        type, baserunningCounts(opportunities.filter((row) => row.opportunity_type === type)),
+      ])),
+      modeledOpportunities: modeled.length,
+      // How much of this runner's record the model actually priced. It belongs
+      // beside Rbaser: a run value fitted on two of eleven chances must not be
+      // read as though it covered all eleven.
+      modeledCoverage: opportunities.length ? modeled.length / opportunities.length : null,
+      // The model's own expectations, over the rows it priced, and NULL when it
+      // priced none. Not zero -- an unmodeled runner has no expected attempt
+      // rate, and a zero there ranks them as the most passive runner alive.
+      expectedAttemptRate: modeled.length
+        ? modeled.reduce((sum, row) => sum + finite(row.expected_attempt_probability, 0), 0) / modeled.length
+        : null,
+      expectedSuccessRate: modeled.length
+        ? modeled.reduce((sum, row) => sum + finite(row.expected_success_probability, 0), 0) / modeled.length
+        : null,
+      baserunningRunValue: modeled.length
+        ? opportunities.reduce((sum, row) => sum + finite(row.runner_run_value, 0), 0) : null,
+    }]
+  }))
 }
 
 export const MIN_QUALIFYING_RUN_UNITS = 15
 
-export function summarizeMovementMetrics(rows = [], identity = 'character') {
+/**
+ * @param {object[]} rows  movement_metrics rows.
+ * @param {'character'|'player'} identity
+ * @param {{ speedStatByCharacterId?: Map<string, number> }} [options]
+ *   the characters table's `run_speed` per character id. WITHOUT IT the
+ *   max-speed constant cannot be classified as ordinary or boosted, and this
+ *   says so rather than guessing -- see maxSpeedClassified below.
+ */
+export function summarizeMovementMetrics(rows = [], identity = 'character', options = {}) {
+  const speedStatByCharacterId = options.speedStatByCharacterId || null
   const key = identity === 'player' ? 'player_id' : 'character_id'
   const usableRows = rows.filter((row) => row.quality?.quarantined_session !== true)
   return Object.fromEntries([...groupRows(usableRows, key)].map(([id, samples]) => {
@@ -610,19 +970,216 @@ export function summarizeMovementMetrics(rows = [], identity = 'character') {
     const average = (source, accessor) => source.length
       ? source.reduce((sum, row) => sum + finite(accessor(row), 0), 0) / source.length
       : null
+
+    // ── The character's top speed, which is not the same thing as the speeds
+    // above ────────────────────────────────────────────────────────────────
+    //
+    // `max_speed_fps` is the fielder actor's own max-speed constant. It is a
+    // CAPACITY -- the game's stored answer for how fast this character can run
+    // -- and every other number in this function is a PERFORMANCE: how fast
+    // they went, how long they took, how far they got. The two must never be
+    // averaged together or presented as the same measurement.
+    //
+    // CLASSIFICATION IS AGAINST THE CURVE, NOT AGAINST THE MODE. An earlier
+    // version took the most common value as "ordinary" and counted anything
+    // above it as boosted. That is only right when ordinary rows outnumber
+    // boosted ones, and it fails in exactly the cases that matter: a character
+    // seen ONLY in the boosted session reports the boosted constant as their
+    // ordinary top speed, with a boosted-sample count of ZERO beside it,
+    // because nothing sits above the mode. Scoped to one season or one park,
+    // boosted rows can dominate just as easily.
+    //
+    // So each value is matched against what the workbook curve says this
+    // character's rating allows -- getFieldSpeed(run_speed) for ordinary, and
+    // the floor(run_speed * 1.5) row for boosted. A value matching neither is
+    // left UNCLASSIFIED rather than assigned to whichever is nearer.
+    const maxSpeedRows = samples.filter((row) => (
+      row.actor_type === 'fielder' && finite(row.max_speed_fps) != null
+    ))
+    const observed = maxSpeedRows.map((row) => Number(finite(row.max_speed_fps).toFixed(3)))
+    const distinctValues = new Set(observed)
+
+    const speedStat = speedStatByCharacterId ? finite(speedStatByCharacterId.get(String(id))) : null
+    const ordinaryCurve = speedStat == null
+      ? null : getFieldSpeed(speedStat).speedPerSecond * METRES_TO_FEET
+    const boostedCurve = speedStat == null
+      ? null : getFieldSpeed(speedStat, { boosted: true }).speedPerSecond * METRES_TO_FEET
+    // derive_player_metrics.py rounds max_speed_fps to three decimals IN FEET,
+    // independently of max_speed_ups, so the stored value sits on a 0.001 ft/s
+    // grid and lands within 0.0005 ft/s of the curve -- not the 0.0017 a u/s
+    // grid converted to feet would give, which is what this comment used to
+    // say. This window is twenty times that and far narrower than the gap
+    // between the ordinary and boosted rows, which is never below 0.09 ft/s
+    // for any rating.
+    const MATCH_WINDOW_FPS = 0.01
+    const near = (value, target) => target != null && Math.abs(value - target) <= MATCH_WINDOW_FPS
+
+    const ordinaryValues = observed.filter((value) => near(value, ordinaryCurve))
+    const boostedValues = observed.filter((value) => !near(value, ordinaryCurve) && near(value, boostedCurve))
+    const unclassifiedValues = observed.filter((value) => (
+      !near(value, ordinaryCurve) && !near(value, boostedCurve)
+    ))
+
+    // WITHOUT A RATING there is nothing to classify against. Reporting the mode
+    // anyway is the same guess under another name, so the value is still
+    // offered -- a caller may hold one constant and no roster row -- but
+    // `maxSpeedClassified` says it was never checked, and the UI keeps that
+    // uncertainty visible instead of calling it ordinary.
+    const modal = observed.length
+      ? [...observed.reduce((counts, value) => counts.set(value, (counts.get(value) || 0) + 1), new Map())]
+        .sort((a, b) => (b[1] - a[1]) || (a[0] - b[0]))[0][0]
+      : null
+
     return [id, {
+      // Populated only when an observation actually matched this character's
+      // ordinary curve row. A character seen only in a boosted state reports
+      // null here and a boosted count above zero, which is the truthful pair.
+      maxSpeedFps: speedStat == null ? modal : (ordinaryValues.length ? ordinaryValues[0] : null),
+      maxSpeedSamples: speedStat == null ? observed.length : ordinaryValues.length,
+      maxSpeedBoostedFps: boostedValues.length ? boostedValues[0] : null,
+      maxSpeedBoostedSamples: boostedValues.length,
+      maxSpeedUnclassifiedSamples: speedStat == null ? 0 : unclassifiedValues.length,
+      maxSpeedUnclassifiedValues: speedStat == null ? [] : [...new Set(unclassifiedValues)],
+      maxSpeedObservedSamples: observed.length,
+      // False when no rating was supplied: the value above is then the modal
+      // observation and has NOT been shown to be the ordinary constant.
+      maxSpeedClassified: speedStat != null,
+      // More than one distinct value for one character is worth surfacing
+      // whether or not classification succeeded.
+      maxSpeedDistinctValues: distinctValues.size,
       speedSamples: running.length,
       sprintSpeedFps: average(qualifying, (row) => row.sprint_speed_fps),
       maxSprintSpeedFps: running.length ? Math.max(...running.map((row) => finite(row.sprint_speed_fps, 0))) : null,
       bolts: running.filter((row) => row.is_bolt).length,
       homeToFirstSamples: homeToFirst.length,
       homeToFirstSeconds: average(homeToFirst, (row) => row.home_to_first_seconds),
+      ninetyFootSplitSamples: ninety.length,
       ninetyFootSplitSeconds: average(ninety, (row) => row.ninety_foot_split_seconds),
       jumpSamples: jump.length,
       jumpDistanceFeet: average(jump, (row) => row.jump_distance_feet),
       jumpReactionFeet: average(jump, (row) => row.reaction_distance_feet),
       jumpBurstFeet: average(jump, (row) => row.burst_distance_feet),
       jumpRouteEfficiency: average(jump.filter((row) => finite(row.jump_route_efficiency) != null), (row) => row.jump_route_efficiency),
+    }]
+  }))
+}
+
+// ─── Catch reach ─────────────────────────────────────────────────────────────
+//
+// How far a fielder actually had to stretch, from tracking_catch_approaches.
+// One row per approach window, including the windows that never reached the
+// ball -- see the table comment in
+// supabase/migrations/20260920130000_tracking_catch_approaches.sql.
+//
+// WHAT THIS IS NOT. It is not the workbook catch radius and it is not
+// `jump_distance_feet`. The workbook publishes a radius measured from the
+// glove; this is measured from the fielder actor's own origin, and across the
+// archive the observed separation on a secured ordinary catch runs about 1.4x
+// the published radius for every character.
+//
+// THEY ARE NOT RANKED AGAINST EACH OTHER EITHER. An earlier version of this
+// comment said they could be, on the strength of r = 0.73 between the
+// per-character medians over 30 characters. That figure came from a one-off
+// pass over the local archive, is not reproducible from the database the page
+// reads, and covers STANDING reach only -- dive reach ranked NEGATIVELY over
+// 13 characters, r = -0.53, because how far a dive travels is mostly how far
+// the ball was. The Scouting Report therefore publishes no delta of any kind
+// on these rows, not a subtraction and not a difference of ranks
+// (`compare: false` in src/utils/measuredAttributes.js), and this comment no
+// longer says otherwise.
+//
+// THE LARGEST SECURED CATCH IS A FLOOR, NOT A CEILING. A fielder is never
+// obliged to catch at full stretch, so `reachSecuredMax` says only "at least
+// this far". `reachFailedMin` is the other side: the shortest separation this
+// character failed at. The ordinary-approach band across the whole archive is
+// a secured 90th percentile of 3.67u against a failed 10th percentile of
+// 4.06u, so the two do separate -- but only in aggregate, and per character
+// the samples are small. Report both or neither.
+const CATCH_REACH_APPROACHES = ['ordinary', 'dive', 'leap']
+
+// A window that any of these touched is not a measurement of the character's
+// own mechanics. Kept as one list so the UI can name what was excluded.
+export function catchApproachIsOrdinaryMechanics(row) {
+  if (!row) return false
+  if (row.quality?.quarantined_session === true) return false
+  // THE GAME MOVING THE BODY ON THE RESOLVING FRAME is what disqualifies a
+  // reach, and only that. A glide earlier in the approach is how the fielder
+  // GOT there -- it changes where they started stretching from, not how far
+  // they stretched -- which is the distinction derive_player_metrics.py draws
+  // when it writes these two flags. Gating on `assisted` as well threw away
+  // the 20 ordinary windows in the current database where the glide ended
+  // before the catch did, and they are measurements like any other.
+  if (row.assisted_at_closest === true) return false
+  // A Buddy Jump is a different mechanic, not a glide: two characters combine
+  // for a reach neither one has.
+  if (finite(row.buddy_jump_frames, 0) > 0) return false
+  // A table, an arrow, a stun or a hazard decided this reach.
+  if (row.quality?.stadium_affected === true) return false
+  if (row.quality?.star_swing === true) return false
+  // Egg, star ball, Buddy receive: a special action, not an ordinary catch.
+  const mechanics = Array.isArray(row.mechanics) ? row.mechanics : []
+  if (mechanics.length && mechanics.some((mechanic) => mechanic !== 'ordinary')) return false
+  return true
+}
+
+function quantile(sorted, fraction) {
+  if (!sorted.length) return null
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.floor(sorted.length * fraction)))
+  return sorted[index]
+}
+
+/**
+ * Per character (or player), per approach: attempts, conversions and the reach
+ * envelope, in world units.
+ *
+ * `approach: 'throw'` is dropped outright -- receiving a throw is a different
+ * mechanic from reaching a batted ball, and it is 2,902 of the archive's 7,744
+ * windows, enough to swamp the ones that mean something.
+ */
+export function summarizeCatchReach(rows = [], identity = 'character') {
+  const key = identity === 'player' ? 'fielder_player_id' : 'fielder_character_id'
+  const eligible = (rows || []).filter((row) => (
+    CATCH_REACH_APPROACHES.includes(row?.approach)
+    && finite(row?.separation_3d_units) != null
+  ))
+  const ordinaryMechanics = eligible.filter(catchApproachIsOrdinaryMechanics)
+
+  return Object.fromEntries([...groupRows(ordinaryMechanics, key)].map(([id, samples]) => {
+    const byApproach = {}
+    for (const approach of CATCH_REACH_APPROACHES) {
+      const windows = samples.filter((row) => row.approach === approach)
+      if (!windows.length) continue
+      const secured = windows.filter((row) => row.outcome === 'secured')
+        .map((row) => finite(row.separation_3d_units)).sort((a, b) => a - b)
+      const failed = windows.filter((row) => row.outcome === 'missed' || row.outcome === 'no_contact')
+        .map((row) => finite(row.separation_3d_units)).sort((a, b) => a - b)
+      const touched = windows.filter((row) => row.outcome === 'touched').length
+      const heights = windows.map((row) => finite(row.relative_height_units))
+        .filter((value) => value != null).sort((a, b) => a - b)
+      byApproach[approach] = {
+        attempts: windows.length,
+        secured: secured.length,
+        touched,
+        failed: failed.length,
+        conversion: windows.length ? secured.length / windows.length : null,
+        reachSecuredMedian: quantile(secured, 0.5),
+        reachSecuredP90: quantile(secured, 0.9),
+        // A floor on capability, never a ceiling -- see the note above.
+        reachSecuredMax: secured.length ? secured[secured.length - 1] : null,
+        // The other side of the bound: the shortest reach this character did
+        // NOT complete. Null when they never failed, which is not the same as
+        // having no limit.
+        reachFailedMin: failed.length ? failed[0] : null,
+        relativeHeightMedian: quantile(heights, 0.5),
+      }
+    }
+    const excluded = eligible.filter((row) => (
+      String(row[key]) === String(id) && !catchApproachIsOrdinaryMechanics(row)
+    )).length
+    return [id, {
+      approaches: byApproach,
+      totalWindows: samples.length,
+      excludedWindows: excluded,
     }]
   }))
 }

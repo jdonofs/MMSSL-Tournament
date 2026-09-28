@@ -1,10 +1,15 @@
+import { useEffect, useState } from 'react'
 import { getTeamShortName } from '../../../utils/teamIdentity'
 import { SectionCard } from './ScorebookPrimitives'
 import { C } from './theme'
+import { stopLocalTrackerForGame } from '../services/localTrackerControl'
 
 export default function ScorebookAdminView({ toolbar, tabs, state, actions }) {
+  const [trackerStopBusy, setTrackerStopBusy] = useState(false)
+  const [trackerStopMessage, setTrackerStopMessage] = useState('')
   const {
     selectedGame,
+    isSeasonGame,
     videoUrlDraft,
     videoUrlSaving,
     trackerModeSaving,
@@ -37,6 +42,25 @@ export default function ScorebookAdminView({ toolbar, tabs, state, actions }) {
     openResetConfirm,
   } = actions
 
+  useEffect(() => { setTrackerStopMessage('') }, [selectedGame?.id, isSeasonGame])
+
+  const stopTracker = async () => {
+    if (!selectedGame || trackerStopBusy) return
+    setTrackerStopBusy(true)
+    setTrackerStopMessage('Stopping the local tracker and saving its pending work…')
+    try {
+      const result = await stopLocalTrackerForGame({
+        gameId: selectedGame.id,
+        table: isSeasonGame ? 'season_schedule' : 'games',
+      })
+      setTrackerStopMessage(result.stopped ? 'Tracker stopped.' : 'No tracker is running for this game.')
+    } catch (error) {
+      setTrackerStopMessage(`Could not stop tracker: ${error.message}`)
+    } finally {
+      setTrackerStopBusy(false)
+    }
+  }
+
   return (
     <div style={{ color: C.text, paddingBottom: 40, margin: '-1.25rem -1.25rem 0' }}>
       {toolbar}
@@ -61,11 +85,11 @@ export default function ScorebookAdminView({ toolbar, tabs, state, actions }) {
               </div>
             </SectionCard>
 
-            <SectionCard title="Live Stat Tracker" subtitle="Feed this game from the community auto-tracker instead of the manual scorebook.">
+            <SectionCard title="Scoring Source" subtitle="Automated tracking is the default. Use the manual scorebook only if automated tracking cannot run.">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 13, color: '#CBD5E1' }}>
                   Currently: <strong style={{ color: selectedGame.stats_source === 'tracker' ? '#22C55E' : '#E2E8F0' }}>
-                    {selectedGame.stats_source === 'tracker' ? 'Live Tracker' : 'Manual Scorebook'}
+                    {selectedGame.stats_source === 'tracker' ? 'Live Tracker' : 'Manual Scorebook (emergency)'}
                   </strong>
                   {selectedGame.stats_source === 'tracker' && (
                     <div style={{ color: '#94A3B8', fontSize: 12, marginTop: 4 }}>
@@ -80,7 +104,7 @@ export default function ScorebookAdminView({ toolbar, tabs, state, actions }) {
                     disabled={trackerModeSaving}
                     onClick={() => setStatsSource(selectedGame.stats_source === 'tracker' ? 'manual' : 'tracker')}
                   >
-                    {trackerModeSaving ? 'Saving…' : selectedGame.stats_source === 'tracker' ? 'Switch to Manual Scorebook' : 'Switch to Live Tracker'}
+                    {trackerModeSaving ? 'Saving…' : selectedGame.stats_source === 'tracker' ? 'Use Manual Scorebook (emergency)' : 'Return to Live Tracker'}
                   </button>
                 </div>
               </div>
@@ -184,9 +208,15 @@ export default function ScorebookAdminView({ toolbar, tabs, state, actions }) {
                         <div style={{ color: C.muted, fontSize: 12, lineHeight: 1.5 }}>
                           Deletes every plate appearance, pitch, lineup and odds row for this game and puts it back to unplayed. Games with bets must be cleared separately first.
                         </div>
-                        <button type="button" className="ghost-button" style={{ borderColor: '#B91C1C', color: '#FCA5A5' }} disabled={resetGameBusy} onClick={openResetConfirm}>
-                          {resetGameBusy ? 'Resetting…' : 'Reset Game'}
-                        </button>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button type="button" className="ghost-button" disabled={trackerStopBusy || resetGameBusy} onClick={stopTracker}>
+                            {trackerStopBusy ? 'Stopping…' : 'Stop Tracker'}
+                          </button>
+                          <button type="button" className="ghost-button" style={{ borderColor: '#B91C1C', color: '#FCA5A5' }} disabled={trackerStopBusy || resetGameBusy} onClick={openResetConfirm}>
+                            {resetGameBusy ? 'Resetting…' : 'Reset Game'}
+                          </button>
+                        </div>
+                        {trackerStopMessage && <div role="status" style={{ color: C.muted, fontSize: 12 }}>{trackerStopMessage}</div>}
                       </div>
                     ) : null}
                   </div>

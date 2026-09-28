@@ -3,7 +3,7 @@ import {
   getSingleElimTemplate,
   normalizeStage,
   resolveTemplateStages,
-} from './bracketTemplates'
+} from './bracketTemplates.js'
 
 function findStageGame(games, stage) {
   return games.find((game) => normalizeStage(game.stage) === stage)
@@ -26,6 +26,7 @@ async function insertGame(supabase, games, tournamentId, stage, teamA, teamB) {
       team_a_runs: 0,
       team_b_runs: 0,
       status: 'pending',
+      stats_source: 'tracker',
     })
     .select()
     .single()

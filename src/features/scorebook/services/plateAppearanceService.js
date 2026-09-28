@@ -1,5 +1,6 @@
 import { supabase } from '../../../supabaseClient'
 import { syncRunnerOpportunities } from '../../../utils/runnerOpportunityPersistence.js'
+import { writePitchesWithSchemaFallback } from '../../../utils/pitchWriteCompatibility.js'
 
 export function syncPlateAppearanceRunnerOpportunities({ tables, pa, outsBefore }) {
   return syncRunnerOpportunities(supabase, {
@@ -36,7 +37,10 @@ export async function deletePlateAppearanceChildren({ tables, plateAppearanceId 
 }
 
 export async function insertPlateAppearancePitches({ tables, rows }) {
-  return supabase.from(tables.pitches).insert(rows)
+  return writePitchesWithSchemaFallback(
+    (payload) => supabase.from(tables.pitches).insert(payload),
+    rows,
+  )
 }
 
 export async function insertPlateAppearanceRuns({ tables, rows }) {

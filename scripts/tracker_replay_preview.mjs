@@ -221,11 +221,12 @@ export function linesForPlay(play, previous, plays) {
   // fair_in_play. The capture records whether the batter-runner reached first
   // and whether an out was posted on a throw; that is enough for a single or a
   // groundout and not enough for anything else, so nothing else is claimed.
-  const outsOnThrows = (play.throws || []).reduce(
+  const throws = (play.throws || []).filter((entry) => entry.is_throw !== false)
+  const outsOnThrows = throws.reduce(
     (total, entry) => total + Number(entry.outs_recorded || 0), 0)
   const batterReached = play.home_to_first_s != null
   if (outsOnThrows > 0 && !batterReached) {
-    const receiver = (play.throws || []).find((entry) => entry.outs_recorded > 0)?.receiver_character
+    const receiver = throws.find((entry) => entry.outs_recorded > 0)?.receiver_character
     if (receiver) lines.push(`${receiver} put ${play.batter} out!`)
   } else if (batterReached) {
     lines.push(`${play.batter} recorded a single!`)

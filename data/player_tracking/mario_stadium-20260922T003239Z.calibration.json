@@ -1,0 +1,87 @@
+{
+  "session": "mario_stadium-20260922T003239Z",
+  "position_offset": 4,
+  "ball_frame": {
+    "sign_x": 1.0,
+    "sign_z": -1.0,
+    "swap_xz": false,
+    "lock_frames": 2228,
+    "lock_units": 0.05
+  },
+  "movement_units": 3124.3,
+  "teleports": 303,
+  "candidates": [
+    {
+      "offset": 4,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 2228,
+      "path": 3124.3,
+      "teleports": 303
+    },
+    {
+      "offset": 68,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": false,
+      "locks": 465,
+      "path": 60.6,
+      "teleports": 11
+    },
+    {
+      "offset": 148,
+      "sign_x": 1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 21,
+      "path": 606.9,
+      "teleports": 7
+    },
+    {
+      "offset": 148,
+      "sign_x": -1.0,
+      "sign_z": -1.0,
+      "swap_xz": true,
+      "locks": 21,
+      "path": 606.9,
+      "teleports": 7
+    },
+    {
+      "offset": 152,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 20,
+      "path": 675.3,
+      "teleports": 6
+    },
+    {
+      "offset": 152,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": true,
+      "locks": 20,
+      "path": 675.3,
+      "teleports": 6
+    },
+    {
+      "offset": 212,
+      "sign_x": 1.0,
+      "sign_z": 1.0,
+      "swap_xz": false,
+      "locks": 15,
+      "path": 590.1,
+      "teleports": 438
+    },
+    {
+      "offset": 212,
+      "sign_x": -1.0,
+      "sign_z": 1.0,
+      "swap_xz": false,
+      "locks": 15,
+      "path": 590.1,
+      "teleports": 438
+    }
+  ]
+}

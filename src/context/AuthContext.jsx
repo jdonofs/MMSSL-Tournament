@@ -43,15 +43,33 @@ export function AuthProvider({ children }) {
   const sessionRef = useRef(null)
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
+  const mountedRef = useRef(false)
+  const authLifecycleRef = useRef(0)
+  const playerRequestRef = useRef(0)
 
-  const resolvePlayerForSession = useCallback(async (nextSession) => {
-    const userId = nextSession?.user?.id
-    if (!userId) {
-      setPlayer(null)
-      return null
+  const isPlayerRequestCurrent = useCallback((request) => Boolean(
+    mountedRef.current
+    && request.lifecycle === authLifecycleRef.current
+    && request.id === playerRequestRef.current
+    && request.userId === sessionRef.current?.user?.id
+  ), [])
+
+  const beginPlayerRequest = useCallback((userId) => {
+    if (!mountedRef.current || !userId || userId !== sessionRef.current?.user?.id) return null
+
+    return {
+      id: ++playerRequestRef.current,
+      lifecycle: authLifecycleRef.current,
+      userId,
     }
+  }, [])
+
+  const resolvePlayerForSession = useCallback(async (nextSession, request) => {
+    const userId = nextSession?.user?.id
+    if (!userId || !request || !isPlayerRequestCurrent(request)) return null
 
     const existingPlayer = await fetchLinkedPlayer(userId)
+    if (!isPlayerRequestCurrent(request)) return null
     if (existingPlayer) {
       setPlayer(existingPlayer)
       return existingPlayer
@@ -62,35 +80,73 @@ export function AuthProvider({ children }) {
     if (linkError) {
       throw new Error(linkError.message)
     }
+    if (!isPlayerRequestCurrent(request)) return null
 
     const resolvedPlayer = linkedPlayer ? extractPlayer(linkedPlayer) : null
     setPlayer(resolvedPlayer)
     return resolvedPlayer
-  }, [])
+  }, [isPlayerRequestCurrent])
 
   useEffect(() => {
-    let active = true
+    mountedRef.current = true
+
+    const resolveSession = (nextSession, lifecycle) => {
+      const userId = nextSession?.user?.id
+      if (!userId) {
+        if (mountedRef.current && lifecycle === authLifecycleRef.current) setLoading(false)
+        return
+      }
+
+      const request = beginPlayerRequest(userId)
+      resolvePlayerForSession(nextSession, request)
+        .catch(() => {
+          if (request && isPlayerRequestCurrent(request)) setPlayer(null)
+        })
+        .finally(() => {
+          if (mountedRef.current && lifecycle === authLifecycleRef.current) setLoading(false)
+        })
+    }
+
+    const replaceSession = (nextSession) => {
+      const lifecycle = ++authLifecycleRef.current
+      playerRequestRef.current += 1
+      sessionRef.current = nextSession
+      setSession(nextSession)
+      setPlayer(null)
+      setLoading(Boolean(nextSession?.user?.id))
+      resolveSession(nextSession, lifecycle)
+    }
 
     const initialize = async () => {
+      const lifecycle = ++authLifecycleRef.current
+      playerRequestRef.current += 1
       setLoading(true)
-      const { data, error } = await supabase.auth.getSession()
-      if (!active) return
-      if (error) {
+      try {
+        const { data, error } = await supabase.auth.getSession()
+        if (!mountedRef.current || lifecycle !== authLifecycleRef.current) return
+        if (error) {
+          sessionRef.current = null
+          setSession(null)
+          setPlayer(null)
+          setLoading(false)
+          return
+        }
+
+        const nextSession = data.session || null
+        sessionRef.current = nextSession
+        setSession(nextSession)
+        setPlayer(null)
+        resolveSession(nextSession, lifecycle)
+      } catch {
+        if (!mountedRef.current || lifecycle !== authLifecycleRef.current) return
+        sessionRef.current = null
         setSession(null)
         setPlayer(null)
         setLoading(false)
-        return
-      }
-      setSession(data.session || null)
-      sessionRef.current = data.session || null
-      try {
-        await resolvePlayerForSession(data.session || null)
-      } finally {
-        if (active) setLoading(false)
       }
     }
 
-    initialize()
+    void initialize()
 
     const {
       data: { subscription },
@@ -109,43 +165,47 @@ export function AuthProvider({ children }) {
         return
       }
 
-      setSession(nextSession || null)
-      sessionRef.current = nextSession || null
-      setLoading(true)
-      resolvePlayerForSession(nextSession || null)
-        .catch(() => {
-          if (!active) return
-          setPlayer(null)
-        })
-        .finally(() => {
-          if (active) setLoading(false)
-        })
+      replaceSession(nextSession || null)
     })
 
     return () => {
-      active = false
+      mountedRef.current = false
+      authLifecycleRef.current += 1
+      playerRequestRef.current += 1
       subscription.unsubscribe()
     }
-  }, [resolvePlayerForSession])
+  }, [beginPlayerRequest, isPlayerRequestCurrent, resolvePlayerForSession])
+
+  const currentPlayer = player?.auth_user_id === session?.user?.id ? player : null
 
   useEffect(() => {
     // Skipped on pages that don't need live updates (see useRealtimeEnabled) — an open realtime
     // WebSocket connection disqualifies a page from the browser's back/forward cache, so a page
     // with no use for this channel shouldn't pay that cost.
-    if (!realtimeEnabled || !player?.id) return undefined
+    if (!realtimeEnabled || !currentPlayer?.id) return undefined
+
+    let active = true
+    const userId = session.user.id
 
     const channel = supabase
-      .channel(`auth-player-${player.id}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `id=eq.${player.id}` }, async () => {
-        const refreshedPlayer = await fetchLinkedPlayer(session?.user?.id)
-        setPlayer(refreshedPlayer)
+      .channel(`auth-player-${currentPlayer.id}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `id=eq.${currentPlayer.id}` }, async () => {
+        const request = beginPlayerRequest(userId)
+        if (!request) return
+        try {
+          const refreshedPlayer = await fetchLinkedPlayer(userId)
+          if (active && isPlayerRequestCurrent(request)) setPlayer(refreshedPlayer)
+        } catch {
+          // Keep the last valid player when a realtime refresh fails.
+        }
       })
       .subscribe()
 
     return () => {
+      active = false
       supabase.removeChannel(channel)
     }
-  }, [realtimeEnabled, player?.id, session?.user?.id])
+  }, [beginPlayerRequest, currentPlayer?.id, isPlayerRequestCurrent, realtimeEnabled, session?.user?.id])
 
   const signInWithPassword = useCallback(async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -162,36 +222,56 @@ export function AuthProvider({ children }) {
   }, [])
 
   const refreshPlayer = useCallback(async () => {
-    if (!session?.user?.id) return null
-    const refreshedPlayer = await fetchLinkedPlayer(session.user.id)
-    setPlayer(refreshedPlayer)
-    return refreshedPlayer
-  }, [session?.user?.id])
+    const userId = session?.user?.id
+    const request = beginPlayerRequest(userId)
+    if (!request) return null
+
+    try {
+      const refreshedPlayer = await fetchLinkedPlayer(userId)
+      if (!isPlayerRequestCurrent(request)) return null
+      setPlayer(refreshedPlayer)
+      return refreshedPlayer
+    } catch {
+      return null
+    }
+  }, [beginPlayerRequest, isPlayerRequestCurrent, session?.user?.id])
 
   const logout = useCallback(async () => {
+    const userId = sessionRef.current?.user?.id
+    const lifecycle = authLifecycleRef.current
+    playerRequestRef.current += 1
     const { error } = await supabase.auth.signOut()
     if (error) {
       throw new Error(error.message)
     }
+
+    if (!mountedRef.current
+      || lifecycle !== authLifecycleRef.current
+      || userId !== sessionRef.current?.user?.id) return
+
+    authLifecycleRef.current += 1
+    playerRequestRef.current += 1
+    sessionRef.current = null
     setSession(null)
     setPlayer(null)
+    setLoading(false)
   }, [])
 
   const value = useMemo(
     () => ({
       session,
       authUser: session?.user || null,
-      player,
-      is_logged_in: Boolean(session?.user && player),
-      isCommissioner: Boolean(player?.is_commissioner),
-      isScorekeeper: Boolean(player && (player.is_commissioner || player.scorebook_access)),
+      player: currentPlayer,
+      is_logged_in: Boolean(session?.user && currentPlayer),
+      isCommissioner: Boolean(currentPlayer?.is_commissioner),
+      isScorekeeper: Boolean(currentPlayer && (currentPlayer.is_commissioner || currentPlayer.scorebook_access)),
       loading,
       signInWithPassword,
       changePassword,
       refreshPlayer,
       logout,
     }),
-    [session, player, loading, signInWithPassword, changePassword, refreshPlayer, logout],
+    [session, currentPlayer, loading, signInWithPassword, changePassword, refreshPlayer, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -42,6 +42,7 @@ import {
   selectPitchesForPlateAppearances,
 } from '../src/utils/statReconciliation.js'
 import { normalizeSeasonRowsByGameId, normalizeSeasonScheduleRows } from '../src/utils/seasonGameIds.js'
+import { fielderCoversPa, fielderIsCurrent } from '../src/utils/fielderStints.js'
 import {
   CHARACTER_ID_BY_NAME,
   GAME_ID,
@@ -676,6 +677,41 @@ test('a restart at a half-inning boundary resumes from the journal alone', async
   assert.equal(afterCut.events.filter((event) => event.stage !== 'complete').length, 0)
   assert.equal(afterCut.events.length, expected.tournament.persisted.plateAppearances)
 }, { timeout: 300_000 })
+
+test('a mid-inning position change keeps the earlier play with the fielder who made it', async () => {
+  const world = buildAcceptanceWorld()
+  await replayRecording(world, 'tournament', {
+    // The top of the first, with Bowser and Blue Pianta trading 1B and RF
+    // after Blue Pianta retired Green Paratroopa (PA 2). The change arrives
+    // just after the next matchup banner, as it did in game 2766.
+    transformLines: (lines) => {
+      const banner = lines.findIndex((line) => line.endsWith('Blooper vs. Blue Yoshi'))
+      const sidesChange = lines.findIndex((line) => line.endsWith('Changing sides!'))
+      const stamp = lines[banner].slice(0, 8)
+      return [
+        ...lines.slice(0, banner + 1),
+        `${stamp} [INFO] Bowser was moved to 1B.`,
+        `${stamp} [INFO] Blue Pianta was moved to RF.`,
+        ...lines.slice(banner + 1, sidesChange + 1),
+      ]
+    },
+    stopBeforeFinish: true,
+    pauseAtFraction: 0.9,
+  })
+  const pas = [...world.db.plate_appearances].sort((a, b) => a.pa_number - b.pa_number)
+  assert.equal(pas.length, 3)
+  const atFirst = (pa) => world.db.game_fielders
+    .filter((row) => String(row.team_id) === String(pa.defensive_team_id)
+      && Number(row.position) === 3 && fielderCoversPa(row, pa))
+    .map((row) => row.character)
+  assert.deepEqual(atFirst(pas[1]), ['Blue Pianta'], 'the play before the change keeps its first baseman')
+  assert.deepEqual(atFirst(pas[2]), ['Bowser'])
+  const closed = world.db.game_fielders.find((row) => row.character === 'Blue Pianta' && Number(row.position) === 3)
+  assert.equal(closed.pa_to, 2)
+  const current = world.db.game_fielders.filter((row) => String(row.team_id) === String(pas[2].defensive_team_id)
+    && fielderIsCurrent(row, 1))
+  assert.equal(current.length, 9, 'the closed stints are not part of the current defense')
+}, { timeout: 180_000 })
 
 test('completion waits for the scoring writes it requires', async () => {
   const blockedWorld = buildAcceptanceWorld()

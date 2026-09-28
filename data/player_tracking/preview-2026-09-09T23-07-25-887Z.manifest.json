@@ -1,0 +1,38 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\wario_city-20260909T230809Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\wario_city-20260909T230809Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\wario_city-20260909T230809Z.bin",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "recorded_utc": "20260909T230809Z",
+  "park": "wario_city",
+  "stadium_byte": 2,
+  "day_night_bytes": [
+    1,
+    1
+  ],
+  "is_night": true,
+  "frames": 59013,
+  "missed_frames": 2,
+  "duration_seconds": 1105.336,
+  "checksum_sha256": "77ea3b2958ae82a8f77f5dd840b9e424589ad3dd1d961a3bd697a82938591295",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 60,
+    "plays_seen": 77,
+    "plays_emitted": 77,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\wario_city-20260909T230809Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\wario_city-20260909T230809Z.pitches.jsonl",
+    "mean_feed_ms": 0.2614,
+    "max_feed_ms": 42.573,
+    "max_play_build_ms": 138.8,
+    "replay_duplicates": 2,
+    "pitches_emitted": 86,
+    "pitch_replay_increments": 13
+  }
+}

@@ -564,10 +564,10 @@ exist yet, not a sequencing decision.
    — it does not inflate the path, it changes what the fielder was doing, so `reaction_s` and
    `route_efficiency` are withheld and `frozen_frames` says why. See item 10.
 8. **Why a fielder held the ball.** Possession-to-release is measured on every throw (median
-   0.70 s, p95 1.43 s over 558 of them), and past two seconds the console says so. It does not
-   say why. DK Jungle's flower sprays a fielder and leaves them dazed and unable to throw —
-   the longest hold in that session, 2.94 s, is the play the operator flagged for exactly that
-   — but nothing in the capture names a hazard, so the delay is reported and the cause is not.
+   0.70 s, p95 1.43 s over 558 of them), and past two seconds the console says so. The delay
+   alone never says why. DK Jungle's flower effect is now independently named from the fielder
+   state (`+0x242` by day, `+0x2CA` by night); without one of those effect flags the console
+   continues to report only the measured hold.
 9. **Who won a close play.** The console measures the MARGIN: how far the nearest runner was
    from the base on the frame the ball got there, and how much of that gap they closed in the
    half second before, which is what separates a runner sliding in from one who has been
@@ -597,6 +597,240 @@ exist yet, not a sequencing decision.
     DK Jungle barrel, and nothing in the capture separates them — so this is the consequence
     side only, exactly like item 10, and it does not open the gate either.
 
+12. **What raises the fielding max-speed constant.** `+0x0F0 * 15` reproduces the
+    datamine workbook's field-speed curve at the character's `run_speed`: across 58
+    sessions, 70 of the 72 characters holding a constant land on the published row,
+    interpolated ratings included, with a median absolute error of 0.0002 u/s against
+    a stored resolution of 0.001 — so they are indistinguishable at the resolution
+    the capture keeps, which is a stronger statement than any precision figure.
+    In exactly ONE session, `wario_stadium-20260826T005958Z`, 16 of the 18 fielders
+    instead hold the curve value at `floor(run_speed * 1.5)`: Bowser Jr. (70) at the
+    stat-105 row, Wiggler (75) at stat-112. The modifier acts on the STAT and re-reads
+    the curve; multiplying the speed by 1.5 predicts 12.1 u/s where the game holds
+    8.63. **The arithmetic is established. The trigger is not, and is not even a
+    ranked hypothesis.** That session is also the only Wario Stadium capture and the
+    oldest MSSTRK02 one, so park, game setting and collector artifact are perfectly
+    confounded and nothing in the data favours one. A second Wario Stadium capture
+    with the current collector separates the PARK from the other two; it does not
+    identify a setting. Meanwhile `summarizeMovementMetrics` classifies each
+    observation against this character's own ordinary and boosted curve rows and
+    leaves anything matching neither UNCLASSIFIED — it does not take the modal value
+    as ordinary, which reported the boosted constant as a character's top speed
+    whenever boosted rows outnumbered ordinary ones.
+
+    **That classification now reaches the page.** Classifying correctly and then
+    dropping the result on the way to the UI produced the same wrong answer in a
+    different place: `buildRawValueRows` read the ordinary sample count alone, so a
+    character with fourteen boosted observations and no ordinary one rendered as
+    "no samples", n = 0 — indistinguishable from a character nobody has tracked.
+    The row now carries ordinary, boosted, unmatched and total counts, and the
+    Scouting Report draws four distinct states: `boosted only · n`,
+    `matches neither row · n`, `no ordinary observation · n`, and `no rating · n`
+    for a character with nothing to classify against. Where ordinary observations
+    DO support a value, the excluded ones are shown beside it as `· n excluded`
+    with the breakdown in the title, and `n` stays the ordinary count, because it
+    is the denominator of the number displayed. An unchecked constant no longer
+    reaches a percentile or a difference against the curve at all.
+
+    **The difference column on that row is not independent confirmation of the
+    curve**, and the note under it now says so: classification admits a value only
+    within 0.01 ft/s of the curve row — 0.007 mph, which is the unit the table
+    displays — so the difference cannot come out much larger than that. What IS
+    independent is how much of the cast has any value inside that window at all,
+    which is the audit's count and its denominator.
+
+    Covered by `tests/character-mechanics-traits.test.mjs` through the row builder
+    and `npm run test:scouting-browser` through a real browser against fixed rows.
+
+13. **The baserunning half of the same workbook.** Published as
+    `BASERUN_SPEED_CURVE` and flagged `validated: false`. The offense actor class
+    carries no speed constant at all (ACTOR_FIELDS, `collect_player_tracking.py`),
+    so there is nothing to check the rows against directly. The measured runner is
+    not a substitute, and the reason is the ratio rather than the correlation:
+    runner sprint tracks the rating closely — r = 0.87 against `run_speed` over 71
+    characters, the top-two-thirds-mean estimator — while sitting a consistent
+    **1.14x above the curve's own values**, p10 1.12 to p90 1.17. Correlating with
+    the curve's INPUT axis says nothing about its OUTPUT; the fielding constant
+    above lands ON the published value, and that is the difference.
+
+    A superseded figure is recorded here because it was quoted in a handoff: an
+    earlier pass reported r = 0.36 and 1.26x. Those came from a p99 estimator over
+    unfiltered windows, which is effectively each character's noisiest single run.
+    `node scripts/audit_character_mechanics.mjs` runs both controls, and both now
+    hold the CHARACTER COHORT, the `>=6` sample threshold and the input rows fixed
+    so exactly one thing changes at a time. Over the same 71 characters: swapping
+    the ESTIMATOR takes r from 0.8723 to 0.3445, and swapping the FILTERS takes it
+    from 0.8723 to 0.8758. The estimator was the whole effect.
+    **r = 0.87 is the retained result.**
+
+    An earlier version of those controls also moved the threshold from 6 to 15, so
+    they ran over 53-54 characters against the retained result's 71 and attributed a
+    cohort change to whichever knob the label named. The full-cohort variants - every
+    character clearing the threshold under each filter set - are reported separately
+    and labelled as such, because "the same characters measured differently" and
+    "every character these filters admit" are different questions.
+
+14. **Which workbook column is the jump catch radius.** The revised import names
+    column J `jump`, but J repeats the facing-away radius in 94 of 101 profiles and
+    sits BELOW the standing radius in 96 of them (median 0.47x), and a jumping catch
+    does not reach less far than a standing one. Column K behaves the way a jump
+    reach should — above `regular` in 76 of 101, median 1.13x — which is why the
+    catch-coverage rating still uses it, but "behaves plausibly" is not an
+    identification. Both are carried under names that say so and neither is
+    presented to a reader as the jump reach. **More tracked games do not resolve
+    this.** It needs a controlled leap suite: the same character leaping at balls
+    at measured separations until the radius shows itself.
+
+15. **Catch reach in absolute units.** `tracking_catch_approaches.separation_3d_units`
+    is measured from the fielder actor ORIGIN and the workbook radius is
+    glove-relative, so the two are not the same number — across the archive the
+    observed separation on a secured standing catch runs about 1.4x the published
+    radius for every character. **No delta between them is published**, not a
+    subtraction and not a difference of ranks. A one-off archive pass put the
+    per-character medians at r = 0.73 over 30 characters for standing reach, which
+    is not reproducible from the database the page reads and is not enough to
+    stand in for an equivalence; dive reach ranked NEGATIVELY over 13 characters,
+    r = -0.53, because how far a dive travels is mostly how far the ball was. The
+    missing piece is the glove offset from the body origin, which the landmark work
+    has not measured — **again not a sample-size problem**.
+
+    **The r = 0.73 is not a justification for ranking them either**, and an earlier
+    comment in `src/utils/advancedDefense.js` said it was. It is one pass over the
+    local archive, it is not reproducible from the database the page reads, and it
+    covers standing reach only. The page publishes no delta of any kind on these
+    rows — `compare: false` in `src/utils/measuredAttributes.js` — and the code
+    comments now say the same thing the page does. Related:
+    `docs/character-mechanics-audit-2026-09-21.md`.
+
+16. **Height reach and facing-away reach.** Both are shown as published values with
+    no measured counterpart. Height reach needs the ball's height above the glove,
+    which the capture does not separate from the actor origin; facing-away needs the
+    direction the fielder is facing, and the capture holds angular velocity
+    (`+0x0DC`) and a steering target (`+0x038`), neither of which is an orientation.
+    Neither is impossible — both need a memory mapping that does not exist yet.
+
+### Catch-reach sample state (2026-09-21)
+
+Produced by `node scripts/audit_character_mechanics.mjs`; regenerate rather than
+trusting the numbers below, which move whenever a game is tracked.
+
+At the time of writing, the seven tracked league games hold 369 approach windows on
+active sessions. Of those, 99 pass `catchApproachIsOrdinaryMechanics` — 41 standing,
+54 dive, 4 leap — and **58 of the 99 were secured**: 38 standing, 16 dive, 4 leap.
+The secured count is the one that matters, because the displayed reach is a quantile
+over the catches that were held. The display threshold is 6 SECURED catches, and no
+character reaches it at any approach yet; the best covered is Yoshi at 5 standing.
+
+The loss between 128 standing windows and 41 qualifying ones is not waste: 78 of them
+are the game still gliding the body on the frame the catch resolved, which is exactly
+the observation that disqualifies a reach measurement.
+
+Per-character state is reported per approach and never summarised as one verdict — a
+character can be above the threshold at one approach, below it at another, and have
+attempted a third without completing any. The report distinguishes all of those.
+
+**Capture estimate, labelled as one.** The rate has two numerators and only one of
+them moves the threshold. Per tracked game the seven games hold **5.86 qualifying
+standing ATTEMPTS and 5.43 qualifying standing SECURED catches**, and **7.71
+qualifying dive attempts against 2.29 secured**. The displayed reach is a quantile
+over SECURED catches, so it is the second column that accumulates: a dive that came
+up empty bounds the reach from above and contributes nothing to the threshold. At
+5.43 secured standing catches a game, spread across whoever is playing, the
+best-covered character needs a small number of further games and cast-wide coverage
+needs considerably more; dive coverage at 2.29 a game is more than twice as slow.
+That extrapolates from seven games and assumes the same characters keep playing and
+the glide rate holds; both can move it. (An earlier version of this paragraph quoted
+"9.0 qualifying dive windows per game". 54 qualifying dives over 7 games is 7.71, and
+the figure that matters is the 16 secured ones, which is 2.29.)
+
+### The prepared `characters.run_speed` correction (2026-09-21)
+
+`supabase/migrations/20260921130000_character_run_speed_corrections.sql` sets Dry
+Bones 40 to 50 and Green Paratroopa 64 to 52. **It is not applied, and applying it
+is Jason's call, not a step in this work.** The ledger says so directly:
+`node scripts/audit_character_mechanics.mjs --ledger` reports it NOT RECORDED while
+every other migration from 20260920 on is recorded, and the two column values on
+production still read 40 and 64.
+
+**What the ledger cannot tell you.** `supabase_migrations.schema_migrations` has
+three columns — `version`, `name`, `statements` — with no timestamp and no author.
+Its current state says which versions are recorded as applied and nothing about
+when a row was written, who wrote it, or whether the file on disk is the file that
+ran. Two migrations in this repository were live on production while absent from
+that table, so absence is evidence about the LEDGER first and about the schema only
+weakly; read the column values alongside it, which the ledger section does.
+
+**Measured impact, not asserted impact.** An earlier note on the migration said it
+reaches only the verifier and the audit. That was incomplete:
+`scripts/recompute_advanced_metrics.mjs` reads this column into `extraBaseFeatures`,
+and `runner_speed` is one of the four inputs of the ACTIVE extra-base decision
+model, so a recompute after the correction CAN move expected attempt probabilities,
+runner and arm run values, and WAR.
+`node scripts/analyze_run_speed_correction_impact.mjs` runs the existing model twice
+over today's rows — the second time with the two ratings patched in memory only —
+and measures what it does:
+
+| | |
+|---|---|
+| `runner_opportunities` rows | 17 |
+| ...scored by the fitted model | 13 |
+| ...with either corrected character as the runner | **0** |
+| ...of those, reaching the fitted model | **0** |
+| rows whose modelled values change | **0** |
+| runner-side run value moved, by player | none |
+| arm-side run value moved, by player | none |
+| downstream WAR | 0 exactly, for every player |
+
+The zero is CLASSIFIED rather than assumed: the script reports *why* nothing moved,
+and "neither corrected character appears as a runner" is only one of the four
+answers it can give. The others are a corrected character being present but on rows
+that never reach the fitted model (they fall back to the context average, which has
+no `runner_speed` in it), the column already holding the corrected value so the
+patched copy is identical, and modelled rows producing identical values anyway —
+which would be a bug rather than a finding. Today's answer is the first one.
+
+**The two sides are never added together.** `arm_run_value` is the negation of
+`runner_run_value` on the same row, so a league-wide total of the two is zero on any
+dataset whatsoever — including one where a runner gained half a run and the fielder
+he ran on lost half a run. The report gives the runner side and the arm side
+separately, each carrying the character and player id it belongs to, and prints the
+cancelling totals only to show that they cancel.
+
+**WAR is quantified only where it can be.** With no run-value change at all it is
+exactly 0 for every player, because each player's run total is divided by a positive
+`runsPerWin` and zero divided by anything positive is zero — no denominator needed.
+As soon as there IS a change, the script reports the per-player run-value deltas and
+leaves WAR **unquantified**, because `runsPerWin` comes from league RA9 over inputs
+it does not read. It does not divide by a guessed denominator.
+
+**Nothing stored changes until a recompute runs either way**; the app reads the
+persisted columns.
+
+Model SENSITIVITY is reported separately by the same command and must not be read as
+impact: over today's 13 eligible rows with the runner swapped, 40 to 50 moves
+P(send) by a mean +0.017 (range +0.000 to +0.045) and 64 to 52 by a mean -0.021
+(range -0.052 to -0.001).
+
+The verifier's correlations were recomputed both ways rather than predicted: fielder
+sprint 0.9721 to 0.9761, runner sprint 0.8636 to 0.8756, and throw velocity 0.8712 to
+0.8712 — **unchanged, as it must be**, because it correlates against `throwing_speed`
+and this migration does not touch that column. No gate flips; the thresholds are
+0.8 / 0.6 / 0.8.
+
+One consumer is NOT covered by any of the above. `scripts/calibrate_runner_decisions.mjs`
+reads the same column for its own fit over the local archive, where Dry Bones has 16
+runner windows and Green Paratroopa 22, so re-running the calibration after the
+correction would move the fitted artifact. The recompute does not run it and nothing
+in this work does.
+
+`node --test tests/character-run-speed-migration.test.mjs` applies the file itself to
+a throwaway PostgreSQL (PGlite, in process) and covers the apply, a repeat apply, the
+refusal on an unexpected prior value, the duplicate-name guard, and the rollback —
+including that submitting the file as one multi-statement query makes it a single
+implicit transaction, so a post-condition failure undoes the corrections too. Apply
+it inside an explicit begin/commit anyway, as every other migration here is applied,
+so that does not depend on how the runner splits the file.
+
 ### Stadium-event completeness gate (2026-09-02)
 
 The nine parks and every researched gameplay-changing stadium event are catalogued below. This
@@ -609,11 +843,38 @@ record for every event type in every park, not a Wario-only or geometry-only app
 | [Wario City](https://www.mariowiki.com/Wario_City) | Directional-arrow redirect (stronger at night); manhole water launch/knockdown | **Manhole knockdown readable at `fielder+0x23F`**; the arrow has seven annotated ball redirects and no detector yet |
 | [Peach Ice Garden](https://www.mariowiki.com/Peach_Ice_Garden) | Freezie collision, player freeze, Freezie break; night snowflake blackout/spotlight | Prior labelled captures prove freeze/break causation is absent |
 | [Daisy Cruiser](https://www.mariowiki.com/Daisy_Cruiser_(baseball_stadium)) | Day table collision/break/player stun; night Cheep Cheep collision; night Gooper Blooper field tilt | Ball/player consequences are visible, but no object/cause identifier is captured |
-| [Yoshi Park](https://www.mariowiki.com/Yoshi_Park) | Day pipe entry/exit; night Piranha Plant eat/spit/player hit; train collision | A teleport is visible, but pipe/plant/train and individual source/destination objects are not named |
-| [DK Jungle](https://www.mariowiki.com/DK_Jungle_(baseball_stadium)) | Root slowdown; barrel collision (flaming at night); flower gas; night DK-statue POW stun | **Flower gas readable at `fielder+0x242`** and **the barrel object at `0x92AF5490`**; root slowdown untouched, night variants unverified |
+| [Yoshi Park](https://www.mariowiki.com/Yoshi_Park) | Day pipe entry/exit; night Piranha Plant eat/spit/player hit; train collision | **Complete (2026-09-12).** `pipe_transits[]` names entry and exit pipe, `pipe_stuns[]` names a fielder stunned (`+0x243`) running or diving into one, and three Piranha knockdowns are named when `+0x23F` rises beside the held ball during the measured plant transport. Train/player and train/ball collisions are independently regression-tested, with the direct day-train position used where captured and the validated fence-band fallback retained for older/night captures. |
+| [DK Jungle](https://www.mariowiki.com/DK_Jungle_(baseball_stadium)) | Root/pathing obstruction; barrel collision (flaming at night); flower gas; night DK-statue POW stun | **Complete for measurable player effects (2026-09-12).** Barrel hits use `fielder+0x23F`; flower hits use `fielder+0x242` by day and `fielder+0x2CA` by night; night POW hits use `fielder+0x243` value 1. No root slowdown effect was found, so occasional refusal to traverse the roots is treated as CPU pathing and is not emitted. |
 | [Bowser Jr. Playroom](https://www.mariowiki.com/Bowser_Jr._Playroom) | Thwomp impact/break; Chain Chomp spawn/hit; Bullet Bill spawn/hit | Raised impacts and stuns are visible; the object and trigger are not |
 | [Luigi's Mansion](https://www.mariowiki.com/Luigi%27s_Mansion_(stadium)) | Gravestone hit/ghost attack; tall-grass ball concealment | No gravestone/ghost/grass state is captured |
 | [Bowser Castle](https://www.mariowiki.com/Bowser_Castle_(baseball_stadium)) | Podoboo burn/drop; Bowser-statue fire; Thwomp block; fireball puddle/burn; King Bob-omb bomb | Collision and player movement can be measured, but none of the five causes has an identity field |
+
+**Update (2026-09-11, Yoshi Park train).** The second full-memory probe supplied the
+cross-game evidence the first one lacked. `0x811F84DC` is stable across both day captures,
+follows the train's complete outfield loop, and was within the train body's 12u reach at all
+26 train-classified knockdown samples. New captures append those twelve bytes to every frame.
+A knockdown or ball jolt is therefore `observed` only when the train position is beside it;
+the position also vetoes the old fence-band inference when the train is elsewhere. Existing
+captures cannot gain a per-frame value they never recorded, so they remain `inferred` and use
+the stricter fallback.
+
+The same pass added two negative controls from `yoshi_park-20260911T203017Z`: PA 34's ball
+was already secured before the train crossed it, and PA 106 was a left-field wall/foul-pole
+rebound 0.956u inside the surveyed fence. The legacy detector now requires a genuinely loose
+ball, a turn or speed gain rather than ordinary deceleration, plausible speed, and at least
+1.5u clearance from the wall. Re-derivation leaves only the two operator-reviewed train/ball
+impacts and removes both controls.
+
+**Update (2026-09-12, Yoshi Park Piranha knockdown).** The confirmed night capture
+`yoshi_park-20260912T143842Z` supplied the third Piranha-player knockdown and made the shared
+signature explicit. The two prior reviewed hits were at frames 1834 and 1974 of
+`yoshi_park-20260831T031212Z`; the new annotated hit is frame 23967. In all three, the game's
+`fielder+0x23F` knockdown flag rises within 21-25 frames of the eat/spit endpoint while the
+fielder is only 0.85-1.81u horizontally from the ball held by the plant. No other archived
+play has a knockdown during any pipe transit. The deriver therefore names the plant from that
+measured compound event: Piranha transport, endpoint timing, held-ball proximity and the
+knockdown flag. The full-memory object address is no longer required to recognize the effect;
+the attribution remains `derived`, because the plant model itself is not captured.
 
 **Correction (2026-09-04, the night-only parks).** The operator reports that Bowser Castle had no
 gimmicks at all in `bowser_castle-20260904T011909Z` — King Bob-omb was not even on the field — and
@@ -878,6 +1139,37 @@ cannon sentinels. No heuristic, no threshold.
 despawns, so `0x92AF5490` is the authoritative slot. `0x92AE57F0` and `0x92AE5808` are misaligned
 windows onto the same structure and are not separate objects.
 
+**CORRECTION (2026-09-16): that address is dead, and the allocation moves.** Everything above is
+still true of the match it was traced in; it is no longer true of the address. The barrel was
+captured from the next session onward and reads nothing in **both** captures that record it:
+
+| session | what the slot holds |
+|---|---|
+| `dk_jungle-20260904T161731Z` | all-zero on 77,371 of 77,581 frames, garbage (`-8.9e33`) on 73, and one 137-frame run of a **constant** `(0.2523, -0.1100, 0.0)` |
+| `dk_jungle-20260912T150755Z` | all-zero on 108,535 of 110,962, garbage on the remaining 2,427, **zero** live frames |
+
+No cannon sentinel appears in either. So DK Jungle recorded 384 plays against an empty slot, the
+archive holds **zero** barrel events, and the six barrel hits the operator annotated have no object
+behind them — they survive only as the generic knockdown flag.
+
+The cause is the same one Peach's Freezie array already had, and its comment already stated: *the
+allocation MOVES between matches, so that address is a signature seed and never the address a new
+capture trusts.* The Freezie is therefore located structurally at capture time; the barrel was the
+one stadium object still trusting a remembered address.
+
+`locate_barrel` in `collect_player_tracking.py` now gives it the same treatment. A parked barrel
+sits on one of exactly two cannon sentinels, so three exact floats identify the slot. It fails
+safely (nothing found → the old fixed region, capture unaffected), it does not require uniqueness
+(the mirror is expected and clustered with it), and the captured region covers **every** candidate
+with the shortlist in the header — so a wrong pick is re-chosen offline rather than re-played.
+Measured: 67 MB scanned in 0.28 s once before recording, a 768-byte region, DK Jungle's frame
+growing 37,068 → 37,324 bytes (+0.7%).
+
+Two consequences for this document. `BARREL_HIT_UNITS` remains provisional and uncalibrated for the
+same reason as before — still no session on disk contains a barrel. And the detector line in the
+gate table below should be read as *the effect* (`fielder+0x23F`) plus *an object located per
+match*, not as a fixed address.
+
 *What this cost, and what made it work.* Two adjacency runs found nothing but the ball's own
 trail, because "is near a fielder" is a question a coincidence can answer. Motion is not: a
 smooth physical trajectory is rare in arbitrary memory, and on 6 x 64 MB of realistic data the
@@ -988,9 +1280,12 @@ which the Freezie clause may not, because the evidence above says it may.
 byte-at-a-time XOR in `Session.frames()` -- two billion interpreted operations per session. Now
 vectorised: 75,539 frames in 6.7 s instead of minutes, same output.
 
-*Still open.* The operator reports that the flowers MOVE between innings, which retires the
-"static stadium geometry" assumption behind the failed adjacency searches and explains why a fixed
-point never matched. It does not affect `+0x242`, which measures the effect and not the object.
+*Moving flower layout.* The flowers move between innings, which retires the "static stadium
+geometry" assumption behind the failed adjacency searches. In inning 1 of the 2026-09-12 night
+game, three formed a triangle in center field and one sat down the left-field line. In inning 2,
+one was down the left-field line, one was in dead center and two were in right-center. These two
+observations are documented, not hard-coded: the tracker reads the affected fielder's state and
+does not need a guessed flower coordinate.
 
 **The disabled-state cluster, and a correction (2026-09-03).** `+0x242` was described above as
 DK-Jungle-only on the strength of five parks showing zero runs. Sweeping `fielder+0x200..0x260`
@@ -1072,6 +1367,27 @@ session also captures barrels, which is what calibrates `BARREL_HIT_UNITS`, and 
 the flaming barrel in thirty seconds. One night game closes every remaining DK Jungle objective
 except root slowdown.
 
+**DK JUNGLE NIGHT PASS COMPLETE (2026-09-12).** `dk_jungle-20260912T150755Z` has 110,962 frames,
+zero missed frames and 111 emitted plays. It supplies the missing night-variant evidence:
+
+- Day's `fielder+0x242` is silent at night. `fielder+0x2CA` has exactly four onsets, aligned to
+  the four operator-noted flower hits at contacts 8950, 55573, 69773 and 74823. The annotated
+  near miss at 7330 has no onset. Two daytime DK controls and the preceding night Yoshi capture
+  also have no `+0x2CA` onsets.
+- `fielder+0x243` value 1 has exactly three runs, all 91 frames: CF at contacts 76817, 81230 and
+  89729, precisely the three annotated statue-POW knockdowns. Bowser Jr.'s paint on the same byte
+  is value 2, so the causes remain separable. Three visible POW activations that hit nobody emit
+  no player event, as expected from a consequence detector.
+- The confirmed barrel at 25014 and the other DK barrel markings remain on the generic physical
+  knockdown byte `+0x23F`. The night object address was not required to name an affected player.
+- No repeatable slowdown state was found around the left/left-center roots. The observed symptom
+  is that CPU-controlled fielders sometimes decline to walk onto them, which is path selection,
+  not a measurable player debuff. It stays out of the tracker unless a later capture shows a
+  distinct effect.
+
+The deriver now emits `flower_sprays[]` from the correct day/night byte and `dk_pow_stuns[]` for
+the value-1 night effect. The narrative names both causes and keeps no-hit activations silent.
+
 **A GENERIC KNOCKDOWN FLAG: `fielder+0x23F` (2026-09-03).** Six parks at once, found without
 playing anything new.
 
@@ -1120,8 +1436,9 @@ explains it -- at DK Jungle the barrel clause names the cause, and two sentences
 worse than one. `verify_player_metrics.py` checks it against the Wario annotations AND against
 Mario Stadium reading zero.
 
-What knocked a fielder down is still not named by this byte, only that something did. At DK Jungle
-the barrel's own position names it; everywhere else that is the remaining work.
+What knocked a fielder down is still not named by this byte, only that something did. DK Jungle's
+barrel and new Yoshi Park captures now pair it with the object's own position; the other parks
+still require that cause evidence.
 
 **Decision:** stadium-event output stays gated off. Existing memory provides stadium identity,
 ball trajectory, generic actor action, contact and possession, which is enough to describe many
@@ -1130,6 +1447,44 @@ DK's flowers are already counterexamples to complete causation. Enabling only ar
 teleports would therefore be the partial system explicitly ruled out. The gate can open only
 after dedicated day/night captures locate stable object tables or trigger flags for every row;
 until then, annotations remain ground truth and no causal stadium labels enter calibration.
+
+### Team score, hits and star meters (2026-09-25)
+
+Six team-level scalars the vendored public tracker reads and this project never named
+(`public-tracker-release/stat_tracker.py`, `_assign_score_and_meter_fields`). "Away" is the team
+batting in half 0; every counter rises only during its own half-inning, which is how the naming
+was checked rather than assumed.
+
+| field | address | retroactive |
+|---|---|---|
+| `away_score` / `home_score` | `0x900D5D98` / `0x900D5DB2`, u16 | yes |
+| `away_hits` / `home_hits` | `0x900D5DCD` / `0x900D5DE7`, u8 | yes |
+| `away_star_meter` / `home_star_meter` | `0x900D4E24` / `0x900D4E26`, u16 | **no** |
+
+The score and hits fields were always inside the captured block, so every archived session reads
+them back now: `daisy_cruiser-20260831T212804Z` is 12-10 on 20 and 19 hits,
+`peach_ice_garden-20260826T201820Z` 7-6 on 15 and 15.
+
+The star meters were not. They sit 476 bytes below the old `STATE_BASE` of `0x900D5000`, so no
+session recorded before 2026-09-25 contains them and none ever will. An exhaustive search of the
+old region for a byte that steps down by 1 or 2 at each of 18 captain star swings, sampled 30
+frames before each pitch so no sample could land inside the star animation, found nothing that
+beat its permutation ceiling — the correct answer for a counter outside the bytes being searched.
+An earlier version of that search compared a frame before the swing to one 45 frames after and
+appeared to find a star flag on the batter; it was reading the star animation clearing a block of
+actor bytes, and the same "finding" reproduces on fielders and runners. `STATE_BASE` is now
+`0x900D4E00`, and old sessions skip the two meter fields on the bounds check rather than reading
+a neighbouring byte as a meter.
+
+The meter is a bar, not a count of stars. A star swing or star pitch subtracts one of three costs
+read from MEM1 at `0x8062BD48` (regular), `0x8062BD4A` (captain) and `0x8062BD42` (non-main
+captain) — a captain playing for the team he captains pays the regular price. Those are recorded
+once in the capture header as `star_costs`, so a meter drop can be priced from the session alone.
+
+**Still unknown:** how the meter is awarded. Stars are a comeback mechanic that favours the
+trailing team and reportedly scales with the deficit, which means star availability is correlated
+with score state. Nothing prices star decisions yet, and nothing should until that award rule is
+measured, or the model will re-measure the deficit and call it a decision.
 
 ---
 

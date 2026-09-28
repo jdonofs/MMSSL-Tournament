@@ -1,71 +1,123 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "seed": "sluggers-catch-probability-v1-held-out-20260905",
-  "strategy": "entire related-capture groups; deterministic sha256 order; 60/20/20 greedy count targets",
+  "strategy": "operator reservations first, then entire related-capture groups in deterministic sha256 order against 60/20/20 greedy count targets",
+  "reservations": [],
   "by_session": {
+    "daisy_cruiser-20260918T183550Z": "train",
+    "mario_stadium-20260904T000419Z": "train",
+    "luigis_mansion-20260902T122308Z": "train",
     "wario_city-20260904T144308Z": "train",
+    "bowser_jr_playroom-20260828T133634Z": "train",
     "daisy_cruiser-20260904T202047Z": "train",
+    "peach_ice_garden-20260902T151327Z": "train",
+    "yoshi_park-20260830T235406Z": "train",
     "bowser_jr_playroom-20260828T155225Z": "train",
     "mario_stadium-20260904T213725Z": "train",
-    "yoshi_park-20260831T140742Z": "train",
+    "peach_ice_garden-20260907T234715Z": "train",
+    "dk_jungle-20260828T211713Z": "train",
+    "mario_stadium-20260831T174649Z": "train",
+    "dk_jungle-20260918T190117Z": "train",
+    "bowser_castle-20260905T005948Z": "train",
     "peach_ice_garden-20260904T152214Z": "train",
-    "mario_stadium-20260831T174649Z": "validation",
-    "yoshi_park-20260831T134815Z": "validation",
-    "bowser_castle-20260905T005948Z": "validation",
-    "dk_jungle-20260904T161731Z": "validation",
-    "bowser_castle-20260904T011909Z": "test",
-    "luigis_mansion-20260904T171123Z": "test"
+    "luigis_mansion-20260904T171123Z": "train",
+    "dk_jungle-20260904T161731Z": "train",
+    "bowser_castle-20260904T011909Z": "validation",
+    "yoshi_park-20260831T031212Z": "validation",
+    "wario_city-20260902T135123Z": "validation",
+    "bowser_castle-20260828T182145Z": "validation",
+    "wario_city-20260905T191040Z": "validation",
+    "yoshi_park-20260831T140742Z": "test",
+    "yoshi_park-20260831T134815Z": "test",
+    "dk_jungle-20260902T171957Z": "test",
+    "daisy_cruiser-20260831T212804Z": "test",
+    "daisy_cruiser-20260918T151412Z": "test",
+    "bowser_jr_playroom-20260828T144924Z": "test"
   },
   "partitions": {
     "train": {
-      "opportunities": 166,
-      "catches": 127,
-      "failures": 39,
+      "opportunities": 387,
+      "catches": 282,
+      "failures": 105,
       "sessions": [
+        "bowser_castle-20260905T005948Z",
+        "bowser_jr_playroom-20260828T133634Z",
         "bowser_jr_playroom-20260828T155225Z",
         "daisy_cruiser-20260904T202047Z",
+        "daisy_cruiser-20260918T183550Z",
+        "dk_jungle-20260828T211713Z",
+        "dk_jungle-20260904T161731Z",
+        "dk_jungle-20260918T190117Z",
+        "luigis_mansion-20260902T122308Z",
+        "luigis_mansion-20260904T171123Z",
+        "mario_stadium-20260831T174649Z",
+        "mario_stadium-20260904T000419Z",
         "mario_stadium-20260904T213725Z",
+        "peach_ice_garden-20260902T151327Z",
         "peach_ice_garden-20260904T152214Z",
+        "peach_ice_garden-20260907T234715Z",
         "wario_city-20260904T144308Z",
-        "yoshi_park-20260831T140742Z"
+        "yoshi_park-20260830T235406Z"
       ],
       "related_capture_groups": [
+        "bowser_castle-20260905T005948Z",
+        "bowser_jr_playroom-20260828T133634Z",
         "bowser_jr_playroom-20260828T155225Z",
         "daisy_cruiser-20260904T202047Z",
+        "daisy_cruiser-20260918T183550Z",
+        "dk_jungle-20260828T211713Z",
+        "dk_jungle-20260904T161731Z",
+        "dk_jungle-20260918T190117Z",
+        "luigis_mansion-20260902T122308Z",
+        "luigis_mansion-20260904T171123Z",
+        "mario_stadium-20260831T174649Z",
+        "mario_stadium-20260904T000419Z",
         "mario_stadium-20260904T213725Z",
+        "peach_ice_garden-20260902T151327Z",
         "peach_ice_garden-20260904T152214Z",
+        "peach_ice_garden-20260907T234715Z",
         "wario_city-20260904T144308Z",
-        "yoshi_park-20260831T140742Z"
+        "yoshi_park-20260830T235406Z"
       ]
     },
     "validation": {
-      "opportunities": 69,
-      "catches": 45,
-      "failures": 24,
+      "opportunities": 121,
+      "catches": 88,
+      "failures": 33,
       "sessions": [
-        "bowser_castle-20260905T005948Z",
-        "dk_jungle-20260904T161731Z",
-        "mario_stadium-20260831T174649Z",
-        "yoshi_park-20260831T134815Z"
+        "bowser_castle-20260828T182145Z",
+        "bowser_castle-20260904T011909Z",
+        "wario_city-20260902T135123Z",
+        "wario_city-20260905T191040Z",
+        "yoshi_park-20260831T031212Z"
       ],
       "related_capture_groups": [
-        "bowser_castle-20260905T005948Z",
-        "dk_jungle-20260904T161731Z",
-        "mario_stadium-20260831T174649Z",
-        "yoshi_park-20260831T134815Z"
+        "bowser_castle-20260828T182145Z",
+        "bowser_castle-20260904T011909Z",
+        "wario_city-20260902T135123Z",
+        "wario_city-20260905T191040Z",
+        "yoshi_park-20260831T031212Z"
       ]
     },
     "test": {
-      "opportunities": 51,
-      "catches": 39,
-      "failures": 12,
+      "opportunities": 125,
+      "catches": 100,
+      "failures": 25,
       "sessions": [
-        "bowser_castle-20260904T011909Z",
-        "luigis_mansion-20260904T171123Z"
+        "bowser_jr_playroom-20260828T144924Z",
+        "daisy_cruiser-20260831T212804Z",
+        "daisy_cruiser-20260918T151412Z",
+        "dk_jungle-20260902T171957Z",
+        "yoshi_park-20260831T134815Z",
+        "yoshi_park-20260831T140742Z"
       ],
       "related_capture_groups": [
-        "bowser_castle-20260904T011909Z",
-        "luigis_mansion-20260904T171123Z"
+        "bowser_jr_playroom-20260828T144924Z",
+        "daisy_cruiser-20260831T212804Z",
+        "daisy_cruiser-20260918T151412Z",
+        "dk_jungle-20260902T171957Z",
+        "yoshi_park-20260831T134815Z",
+        "yoshi_park-20260831T140742Z"
       ]
     }
   }

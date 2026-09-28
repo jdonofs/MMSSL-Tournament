@@ -15,7 +15,7 @@
 // evidence for one. That is the difference between a page that polls twice a
 // second comfortably and one that re-transmits a megabyte to do it.
 
-import { joinPlayToAtBat, isFairPlay } from './tracker_play_join.mjs'
+import { joinSession, isFairPlay } from './tracker_play_join.mjs'
 
 export const CAPTURE_STATUSES = Object.freeze([
   'disabled', 'waiting', 'recording', 'stopped', 'failed',
@@ -150,31 +150,9 @@ export function noteCaptureMessage(tracking, line, limit = 80) {
  */
 export function rejoinPlays(tracking, atBats = [], { latestInning = null, latestHalf = null } = {}) {
   tracking.joins.clear()
-  const byPa = new Map()
-  for (const play of tracking.plays) {
-    const join = joinPlayToAtBat(play, atBats, { latestInning, latestHalf })
+  const session = joinSession(tracking.plays, atBats, { latestInning, latestHalf })
+  for (const { play, join } of session.joins) {
     tracking.joins.set(Number(play.contact_timer), join)
-    if (join.status === 'joined') {
-      const list = byPa.get(join.pa_number) || []
-      list.push(play)
-      byPa.set(join.pa_number, list)
-    }
-  }
-  // Two fair balls on one plate appearance is impossible. Rather than choosing
-  // one, both are demoted to ambiguous so the operator sees the contradiction.
-  for (const [paNumber, plays] of byPa) {
-    const fair = plays.filter(isFairPlay)
-    if (fair.length <= 1) continue
-    for (const play of fair) {
-      const key = Number(play.contact_timer)
-      tracking.joins.set(key, {
-        ...tracking.joins.get(key),
-        status: 'ambiguous',
-        pa_number: null,
-        candidate_pa_numbers: [paNumber],
-        reason: `PA ${paNumber} has ${fair.length} fair batted balls joined to it`,
-      })
-    }
   }
   return tracking.joins
 }
@@ -225,13 +203,15 @@ const BADGE_RULES = [
   // redirections between players who are not chemistry partners at all, and a
   // badge is a claim like any other sentence.
   ['BUDDY HANDOFF', (play) => (play.buddy_handoffs || []).length > 0
-    && (play.throws || []).some((entry) => entry.buddy_throw)],
-  ['BUDDY THROW', (play) => (play.throws || []).some((entry) => entry.buddy_throw)],
+    && (play.throws || []).some((entry) => entry.is_throw !== false && entry.buddy_throw)],
+  ['BUDDY THROW', (play) => (play.throws || []).some(
+    (entry) => entry.is_throw !== false && entry.buddy_throw)],
   // The capture sees the attempt; the tracker log only announces the ones that
   // produced an out, so a badge driven by the log alone missed every buddy
   // jump at a ball that left the park.
   ['BUDDY JUMP', (play) => (play.buddy_jumps || []).length > 0],
-  ['RELAY', (play) => (play.throws || []).some((entry) => entry.is_relay)],
+  ['RELAY', (play) => (play.throws || []).some(
+    (entry) => entry.is_throw !== false && entry.is_relay)],
   ['BOBBLE', (play) => (play.deflections || []).length > 0],
   ['CONTACT', (play) => (play.fielding_events || []).some(
     (event) => event.event_type === 'fielding_action' && event.ball_contact === 'confirmed')],
@@ -268,6 +248,7 @@ export function playBadges(play, atBat = null) {
 export function compactPlaySummary(play, join = null, atBat = null) {
   if (!play) return null
   const fieldingEvents = play.fielding_events || []
+  const throws = (play.throws || []).filter((entry) => entry.is_throw !== false)
   return {
     contact_timer: play.contact_timer,
     derivation: play.derivation || 'postgame',
@@ -295,8 +276,8 @@ export function compactPlaySummary(play, join = null, atBat = null) {
     confirmed_contacts: fieldingEvents.filter((event) => event.ball_contact === 'confirmed').length,
     unknown_contacts: fieldingEvents.filter((event) => event.ball_contact === 'unknown').length,
     missed_contacts: fieldingEvents.filter((event) => event.ball_contact === 'missed').length,
-    throw_count: (play.throws || []).length,
-    buddy_throws: (play.throws || []).filter((entry) => entry.buddy_throw).length,
+    throw_count: throws.length,
+    buddy_throws: throws.filter((entry) => entry.buddy_throw).length,
     badges: playBadges(play, atBat),
     join_status: join?.status ?? null,
     join_pa_number: join?.pa_number ?? null,
@@ -305,6 +286,137 @@ export function compactPlaySummary(play, join = null, atBat = null) {
     // session's poll would otherwise weigh.
     join_reason: join && join.status !== 'joined' ? join.reason ?? null : null,
     join_candidates: join?.candidate_pa_numbers ?? [],
+    // WHERE THE STADIUM BENT THE BALL. This summary is a whitelist, and that is
+    // the whole reason the field view kept drawing a straight line through a
+    // Wario City arrow play: the derivation had measured the redirect, the play
+    // record carried it, and this object -- the only one the preview actually
+    // reads -- dropped it on the floor. The operator reported the same wrong
+    // picture twice before anyone looked here.
+    //
+    // Trimmed to what a drawing needs: the point the ball turned at, how far it
+    // turned, and where it left. The full event stays server-side with the rest
+    // of the heavy record.
+    arrow_redirects: (play.arrow_redirects || []).map((redirect) => ({
+      frame: redirect.frame,
+      at: redirect.at,
+      heading_degrees: redirect.heading_degrees,
+      turn_degrees: redirect.turn_degrees,
+      outgoing_speed_ups: redirect.outgoing_speed_ups ?? null,
+      arrow_at: redirect.arrow?.at ?? null,
+    })),
+    table_ball_contacts: (play.table_ball_contacts || []).map((contact) => ({
+      frame: contact.frame ?? null,
+      t: contact.t ?? null,
+      at: contact.at,
+      impact_kind: contact.impact_kind,
+      height_units: contact.height_units ?? null,
+      table_at: contact.table?.at ?? null,
+      table_address: contact.table?.address ?? null,
+    })),
+    table_stuns: (play.table_stuns || []).map((stun) => ({
+      frame: stun.frame ?? null,
+      t: stun.t ?? null,
+      by: stun.by,
+      character: stun.character ?? null,
+      seconds: stun.seconds ?? null,
+      at: stun.at ?? null,
+    })),
+    table_breaks: (play.table_breaks || []).map((broken) => ({
+      frame: broken.frame ?? null,
+      t: broken.t ?? null,
+      table_at: broken.table?.at ?? null,
+      table_address: broken.table?.address ?? null,
+      cause: broken.cause ?? null,
+    })),
+    path_redirected_by_stadium: Boolean(play.path_redirected_by_stadium),
+    // A ball that came down on an erupting manhole never reached the ground, so
+    // the play has no `landing` and the field view has nothing to mark. Saying
+    // where it actually bounced is the difference between a missing marker and
+    // an explained one.
+    manhole_ball_strikes: (play.manhole_ball_strikes || []).map((strike) => ({
+      frame: strike.frame,
+      at: strike.at,
+      height_units: strike.height_units,
+      manhole_at: strike.manhole_at,
+    })),
+    // Into one Yoshi Park pipe and out of another. The measured path draws the
+    // carry between them as a straight line across the field, which is exactly
+    // the journey the ball did not make.
+    pipe_transits: (play.pipe_transits || []).map((transit) => ({
+      frame: transit.frame ?? null,
+      exit_frame: transit.exit_frame ?? null,
+      entry_pipe: transit.entry_pipe ?? null,
+      exit_pipe: transit.exit_pipe ?? null,
+      entry_at: transit.entry_at ?? null,
+      exit_at: transit.exit_at ?? null,
+      transit_s: transit.transit_s ?? null,
+      mechanism: transit.mechanism ?? null,
+    })),
+    // Yoshi Park's train knocking a loose ball away inside the outfield wall.
+    train_ball_hits: (play.train_ball_hits || []).map((hit) => ({
+      frame: hit.frame ?? null,
+      t: hit.t ?? null,
+      at: hit.at ?? null,
+      fence_inside_units: hit.fence_inside_units ?? null,
+      mechanism: hit.mechanism ?? null,
+    })),
+    // ...and the train swallowing one whole, which Yoshi Park scores as a home
+    // run. See detect_train_ball_captures.
+    train_ball_captures: (play.train_ball_captures || []).map((ride) => ({
+      frame: ride.frame ?? null,
+      t: ride.t ?? null,
+      at: ride.at ?? null,
+      exit_at: ride.exit_at ?? null,
+      carried_units: ride.carried_units ?? null,
+      seconds: ride.seconds ?? null,
+      home_run_flag_rose: ride.home_run_flag_rose ?? null,
+      mechanism: ride.mechanism ?? null,
+    })),
+    // Bowser Castle's centre-field statue fire and its falling lava, both off
+    // the burned byte and separated by the measured distance to the statue's
+    // surveyed front. See name_bowser_castle_burns.
+    fire_hazards: (play.fire_hazards || []).map((fire) => ({
+      frame: fire.frame ?? null,
+      t: fire.t ?? null,
+      by: fire.by,
+      character: fire.character ?? null,
+      seconds: fire.seconds ?? null,
+      hazard: fire.hazard ?? null,
+      at: fire.at ?? null,
+      statue_front_distance_units: fire.statue_front_distance_units ?? null,
+    })),
+    pipe_stuns: (play.pipe_stuns || []).map((stun) => ({
+      frame: stun.frame ?? null,
+      t: stun.t ?? null,
+      by: stun.by,
+      character: stun.character ?? null,
+      seconds: stun.seconds ?? null,
+      at: stun.at ?? null,
+      pipe: stun.pipe ?? null,
+      dive: Boolean(stun.dive),
+    })),
+    dk_pow_stuns: (play.dk_pow_stuns || []).map((stun) => ({
+      frame: stun.frame ?? null,
+      t: stun.t ?? null,
+      by: stun.by,
+      character: stun.character ?? null,
+      seconds: stun.seconds ?? null,
+      at: stun.at ?? null,
+      flag_value: stun.flag_value ?? null,
+      hazard: stun.hazard ?? null,
+    })),
+    // Which hazard floored each fielder, where the capture can name it.
+    knockdowns: (play.knockdowns || []).map((knock) => ({
+      by: knock.by,
+      character: knock.character ?? null,
+      t: knock.t ?? null,
+      seconds: knock.seconds ?? null,
+      hazard: knock.hazard ?? null,
+      manhole_at: knock.manhole_at ?? null,
+      // Whose star swing it was, when that is what floored them. Listed here
+      // because this summary is a whitelist and drops anything it does not name.
+      star_swing_captain: knock.star_swing_captain ?? null,
+    })),
   }
 }
 
@@ -364,13 +476,86 @@ export function playGeometry(play) {
     first_touch: play.first_touch
       ? {
         at: play.first_touch.at, t: play.first_touch.t, by: play.first_touch.by,
+        // The frame orders the touch against the landing and against anything
+        // the stadium did in between, which is the only way `ball_waypoints`
+        // below can be put in the order the ball actually met them.
+        frame: play.first_touch.frame ?? null,
         character: play.first_touch.character,
         ball_height_units: play.first_touch.ball_height_units,
       }
       : null,
+    // THE BALL'S MEASURED PATH, from contact to the first glove. This is what
+    // the diagram should draw, and the reason the operator kept reporting a
+    // wrong picture: three points and straight lines between them is a guess at
+    // the route, and for a home run or a ball that left play there were no
+    // points at all -- no landing, no first touch, nothing drawn, "no measured
+    // endpoint" printed under a blank field. See measure_ball_path.
+    ball_path: (play.ball_path || [])
+      .filter((point) => Array.isArray(point.at) && point.at.length >= 3)
+      .map((point) => ({ frame: point.frame ?? null, t: point.t ?? null, at: point.at })),
+    // WHERE THE STADIUM MOVED THE BALL, in the order the ball met it.
+    //
+    // THIS IS THE SECOND WHITELIST. `compactPlaySummary` above already carries
+    // the redirects, and adding them there is why the operator's report came
+    // back a third time: that object feeds the stadium-artwork card, while the
+    // card he actually named -- "Measured field view" -- is TrackerPlayDiagram,
+    // and TrackerPlayDiagram reads THIS object. A diagram that has no waypoint
+    // draws contact straight to the glove, so a ball an arrow turned 81 degrees
+    // was drawn travelling somewhere it had never been.
+    //
+    // Positions only: the diagram is a plan view, so the strike's height does
+    // not move the mark, and the reason it turned belongs in the tooltip.
+    ball_waypoints: [
+      ...(play.arrow_redirects || []).map((redirect) => ({
+        kind: 'arrow_redirect',
+        frame: redirect.frame ?? null,
+        t: redirect.t ?? null,
+        at: redirect.at,
+        heading_degrees: redirect.heading_degrees ?? null,
+        turn_degrees: redirect.turn_degrees ?? null,
+      })),
+      ...(play.manhole_ball_strikes || []).map((strike) => ({
+        kind: 'manhole_strike',
+        frame: strike.frame ?? null,
+        t: strike.t ?? null,
+        at: strike.at,
+        height_units: strike.height_units ?? null,
+      })),
+      ...(play.pipe_transits || []).flatMap((transit) => [
+        { kind: 'pipe_entry', frame: transit.frame ?? null, t: transit.t ?? null,
+          at: transit.entry_at, pipe: transit.entry_pipe ?? null },
+        { kind: 'pipe_exit', frame: transit.exit_frame ?? null, t: transit.exit_t ?? null,
+          at: transit.exit_at, pipe: transit.exit_pipe ?? null },
+      ]),
+      ...(play.train_ball_hits || []).map((hit) => ({
+        kind: 'train_hit',
+        frame: hit.frame ?? null,
+        t: hit.t ?? null,
+        at: hit.at,
+        mechanism: hit.mechanism ?? null,
+      })),
+      ...(play.train_ball_captures || []).map((ride) => ({
+        kind: 'train_capture',
+        frame: ride.frame ?? null,
+        t: ride.t ?? null,
+        at: ride.at,
+        exit_at: ride.exit_at ?? null,
+        mechanism: ride.mechanism ?? null,
+      })),
+      ...(play.table_ball_contacts || []).map((contact) => ({
+        kind: 'table_contact',
+        frame: contact.frame ?? null,
+        t: contact.t ?? null,
+        at: contact.at,
+        contact_kind: contact.impact_kind ?? null,
+        height_units: contact.height_units ?? null,
+      })),
+    ]
+      .filter((entry) => Array.isArray(entry.at) && entry.at.length >= 3)
+      .sort((a, b) => (a.frame ?? 0) - (b.frame ?? 0)),
     fielders,
     runners,
-    throws: (play.throws || []).map((entry) => ({
+    throws: (play.throws || []).filter((entry) => entry.is_throw !== false).map((entry) => ({
       sequence: entry.sequence,
       thrower_position: entry.thrower_position,
       receiver_position: entry.receiver_position,
@@ -378,6 +563,9 @@ export function playGeometry(play) {
       target_base: entry.target_base,
       start: entry.start,
       end: entry.end,
+      off_target: entry.off_target === true,
+      aim_miss_units: entry.aim_miss_units ?? null,
+      destination_error_units: entry.destination_error_units ?? null,
       peak_speed_mph: entry.peak_speed_mph,
       buddy_throw: entry.buddy_throw,
       is_relay: entry.is_relay,

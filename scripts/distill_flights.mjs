@@ -1,13 +1,15 @@
-// Distil raw tracker logs into data/flight_archive.jsonl.gz, so the logs can be
-// deleted without losing anything the projection work needs.
+// Distil the batted-ball flights in raw tracker logs into
+// data/flight_archive.jsonl.gz, a compact store for the projection work.
 //
 //   node scripts/distill_flights.mjs             # merge new flights in
-//   node scripts/distill_flights.mjs --verify    # check the archive reproduces the logs
+//   node scripts/distill_flights.mjs --verify    # compare projection inputs, archive vs logs
 //   node scripts/distill_flights.mjs --dry-run   # report what would change
 //
-// The workflow this is built for: play, distil, verify, THEN delete the logs.
-// Nothing here deletes anything -- that stays a deliberate act, because a
-// distilled flight cannot be un-distilled.
+// The archive is not a copy of the logs. It omits pitches, lineups, runners and
+// the ball between plays, and trims caught, unknown and foul samples
+// (RETENTION_SEC in flight_archive.mjs); the logs also have research and
+// acceptance-test consumers. Nothing here establishes whether a source log can
+// be discarded, and nothing here deletes anything.
 import { statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,12 +35,15 @@ function logBytes() {
 }
 
 /**
- * Does the archive still support the same conclusions as the logs?
+ * Does the archive give the projection backtest the same scorable flights as
+ * the logs?
  *
- * The only check worth running: score the projection from BOTH and require the
- * scorable sets to match flight for flight. If they do, deleting the logs costs
- * nothing measurable. Compares the label each flight contributes rather than
- * just counting them, because a truncated trajectory would still count.
+ * Scores from BOTH and requires every scorable flight key in the logs to be in
+ * the archive, with first touch and apex within one quantisation step. Compares
+ * those per-flight values rather than just counting flights, because a
+ * truncated trajectory would still count. That is all it checks: a pass says
+ * nothing about non-scorable flights, trimmed samples, pitches, lineups,
+ * runners, or anything else the logs hold.
  */
 function verify() {
   const fromLogs = buildFlights(loadSessions([LOG_ROOT]))
@@ -73,9 +78,9 @@ function verify() {
   const tolerance = 1 / POS_SCALE
   const ok = missing.length === 0 && worstTouch <= tolerance && worstApex <= tolerance
   console.log(ok
-    ? '\nPASS — the archive supports every scorable flight the logs do.'
-      + '\nThe raw logs can be deleted.'
-    : '\nFAIL — the archive does NOT reproduce the logs. Do not delete anything.')
+    ? '\nPASS — every scorable log flight is archived, first touch and apex within tolerance.'
+      + '\nThis compares projection inputs only; it does not establish that the raw logs can be discarded.'
+    : '\nFAIL — the archive does NOT match the logs on the scorable-flight comparisons above. Do not delete anything.')
   return ok ? 0 : 1
 }
 
@@ -88,7 +93,7 @@ function main() {
   const flights = buildFlights(loaded)
   const before = readArchive()
   // Which source file each flight came from, resolved BEFORE the merge, so a
-  // file can be reported as fully-absorbed rather than merely "seen".
+  // file's report can separate new flights from ones already archived.
   const priorKeys = new Set(before.map((r) => r.key))
   const bySource = new Map()
   for (const f of flights) {
@@ -137,19 +142,20 @@ function main() {
   }
   console.log(`  ${(archiveBytes / Math.max(rows.length, 1)).toFixed(0)} bytes per flight`)
 
-  // Which files are now fully represented in the archive. Reported per FILE
-  // because that is the unit actually deleted, and a file is only safe to
-  // remove once every flight in it is stored -- "the run added nothing" is not
-  // the same statement, since a file can contribute nothing new while still
-  // being the only copy of something.
+  // Which files have every extracted flight key present in the archive.
+  // Checked by key rather than by "the run added nothing", since a file can
+  // contribute nothing new while still being the only source of a flight. Key
+  // coverage is all this establishes: the archived row may be trimmed or come
+  // from another log, and the archive never holds pitches, lineups or runners.
   const archivedKeys = new Set(rows.map((r) => r.key))
   const partial = new Set()
   for (const f of flights) {
     if (!archivedKeys.has(flightKey(f))) partial.add(f.source.split(/[\\/]/).pop())
   }
   // Every log on disk is accounted for, including the ones that produced no
-  // flights at all. Those are the majority here, and leaving them unmentioned
-  // is what would stop someone deleting anything: silence reads as "unknown".
+  // flights at all. Yielding no extracted flight is not the same as holding
+  // nothing useful: such a log may still carry pitches, lineups, runners or
+  // other tracker output this tool never reads.
   const absorbed = []
   const empty = []
   for (const full of loaded.files) {
@@ -160,20 +166,21 @@ function main() {
     else empty.push(name)
   }
   if (absorbed.length) {
-    console.log(`\n${absorbed.length} log file(s) fully absorbed — safe to delete:`)
+    console.log(`\n${absorbed.length} log file(s) with every extracted flight key archived:`)
     for (const [name, e] of absorbed.sort((a, b) => b[1].total - a[1].total)) {
       console.log(`  ${String(e.total).padStart(4)} flights (${e.novel} new)  ${name}`)
     }
   }
   if (empty.length) {
-    console.log(`\n${empty.length} log file(s) hold no batted balls — nothing to preserve:`)
+    console.log(`\n${empty.length} log file(s) yielded no extracted flights (other content not checked):`)
     for (const name of empty) console.log(`       —              ${name}`)
   }
   if (partial.size) {
-    console.log(`\n${partial.size} log file(s) NOT fully absorbed — keep these:`)
+    console.log(`\n${partial.size} log file(s) with flight keys missing from the archive — keep these:`)
     for (const name of partial) console.log(`  ${name}`)
   }
-  console.log('\nNow run --verify before deleting any logs.')
+  console.log('\nRun --verify to compare projection inputs. Neither this report nor --verify'
+    + '\nestablishes whether a source log can be discarded.')
   return 0
 }
 

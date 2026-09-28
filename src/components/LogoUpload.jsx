@@ -76,7 +76,13 @@ export default function LogoUpload({
 
     const { error: uploadError } = await supabase.storage
       .from('team-logos')
-      .upload(path, blob, { upsert: true, contentType: 'image/png' })
+      .upload(path, blob, {
+        upsert: true,
+        contentType: 'image/png',
+        // The persisted public URL is versioned below, so clients/CDNs can
+        // safely retain this object for a year without serving a replaced logo.
+        cacheControl: '31536000',
+      })
 
     if (uploadError) {
       onError?.(uploadError.message)

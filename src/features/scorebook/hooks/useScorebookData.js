@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../../supabaseClient'
-import { fetchAllRows } from '../../../utils/fetchAllRows'
 import { getOrderedStadiums } from '../../../utils/stadiums'
+import { createRefreshCoordinator } from '../../../utils/refreshCoordinator'
 import { normalizePa } from '../domain/plateAppearance'
 
 export default function useScorebookData({
@@ -188,9 +188,33 @@ export default function useScorebookData({
 
   useEffect(() => {
     if (!selectedGameId) return
+
+    const pendingRefreshes = new Map()
+    const refreshCoordinator = createRefreshCoordinator({
+      delayMs: 100,
+      maxWaitMs: 500,
+      isPaused: () => document.visibilityState === 'hidden',
+      run: async () => {
+        const refreshes = [...pendingRefreshes.values()]
+        pendingRefreshes.clear()
+        await Promise.all(refreshes.map((refresh) => refresh()))
+      },
+      onError: (error) => console.warn('[scorebook realtime] coalesced refresh failed', error),
+    })
+    const coalesce = (key, refresh) => () => {
+      pendingRefreshes.set(key, refresh)
+      refreshCoordinator.request()
+    }
+    const requestAuthoritativeRefresh = () => {
+      pendingRefreshes.clear()
+      pendingRefreshes.set('authoritative', fetchGameData)
+      refreshCoordinator.request({ immediate: true })
+    }
+    let hasSubscribed = false
+
     const channel = supabase
       .channel(`sb-${selectedGameId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.lineups, filter: `game_id=eq.${selectedGameId}` }, async () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.lineups, filter: `game_id=eq.${selectedGameId}` }, coalesce('lineups', async () => {
         const { data, error } = await supabase.from(scorebookTables.lineups).select('*').eq('game_id', selectedGameId).order('batting_order')
         if (error) {
           console.warn('[scorebook realtime] lineup refresh failed; preserving local rows', error)
@@ -202,8 +226,8 @@ export default function useScorebookData({
           if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
           return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
         })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.plateAppearances, filter: `game_id=eq.${selectedGameId}` }, async () => {
+      }))
+      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.plateAppearances, filter: `game_id=eq.${selectedGameId}` }, coalesce('plateAppearances', async () => {
         const { data, error } = await supabase.from(scorebookTables.plateAppearances).select('*').eq('game_id', selectedGameId).order('created_at')
         if (error) {
           console.warn('[scorebook realtime] plate-appearance refresh failed; preserving local rows', error)
@@ -217,8 +241,8 @@ export default function useScorebookData({
           if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
           return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
         })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.pitchingStints, filter: `game_id=eq.${selectedGameId}` }, async () => {
+      }))
+      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.pitchingStints, filter: `game_id=eq.${selectedGameId}` }, coalesce('pitchingStints', async () => {
         const { data, error } = await supabase.from(scorebookTables.pitchingStints).select('*').eq('game_id', selectedGameId).order('created_at')
         if (error) {
           console.warn('[scorebook realtime] pitching refresh failed; preserving local rows', error)
@@ -230,8 +254,8 @@ export default function useScorebookData({
           if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
           return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
         })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.pitches, filter: `game_id=eq.${selectedGameId}` }, async () => {
+      }))
+      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.pitches, filter: `game_id=eq.${selectedGameId}` }, coalesce('pitches', async () => {
         const { data, error } = await supabase.from(scorebookTables.pitches).select('*').eq('game_id', selectedGameId).order('created_at')
         if (error) {
           console.warn('[scorebook realtime] pitch refresh failed; preserving local rows', error)
@@ -244,8 +268,8 @@ export default function useScorebookData({
           if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
           return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
         })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.gameFielders, filter: `game_id=eq.${selectedGameId}` }, async () => {
+      }))
+      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.gameFielders, filter: `game_id=eq.${selectedGameId}` }, coalesce('gameFielders', async () => {
         const refreshSequence = ++gameFieldersRefreshSeqRef.current
         const { data, error } = await supabase.from(scorebookTables.gameFielders).select('*').eq('game_id', selectedGameId).order('created_at')
         // A fielding swap emits several row events. Their follow-up SELECTs can
@@ -262,8 +286,8 @@ export default function useScorebookData({
           if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
           return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
         })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.runsScored, filter: `game_id=eq.${selectedGameId}` }, async () => {
+      }))
+      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.runsScored, filter: `game_id=eq.${selectedGameId}` }, coalesce('runsScored', async () => {
         const { data, error } = await supabase.from(scorebookTables.runsScored).select('*').eq('game_id', selectedGameId).order('created_at')
         if (error) {
           console.warn('[scorebook realtime] run refresh failed; preserving local rows', error)
@@ -276,8 +300,8 @@ export default function useScorebookData({
           if (shouldDeferRealtimeMerge(currentGameRows, nextRows)) return current
           return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...nextRows]
         })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.inningScores, filter: `game_id=eq.${selectedGameId}` }, async () => {
+      }))
+      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.inningScores, filter: `game_id=eq.${selectedGameId}` }, coalesce('inningScores', async () => {
         const query = supabase.from(scorebookTables.inningScores).select('*').eq('game_id', selectedGameId).order('inning')
         const { data, error } = isSeasonGame
           ? await query.eq('season_id', gameSession?.sourceId)
@@ -299,8 +323,8 @@ export default function useScorebookData({
           }
           return [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...normalized]
         })
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: scorebookTables.games, filter: `id=eq.${selectedGameId}` }, async () => {
+      }))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: scorebookTables.games, filter: `id=eq.${selectedGameId}` }, coalesce('game', async () => {
         const { data } = await supabase.from(scorebookTables.games).select('*').eq('id', selectedGameId).single()
         if (!data) return
         const stadiumByName = Object.fromEntries(stadiums.map((stadium) => [stadium.name, stadium]))
@@ -320,13 +344,19 @@ export default function useScorebookData({
             }
           : data
         setGames((current) => current.map((game) => (String(game.id) === String(normalized.id) ? normalized : game)))
+      }))
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (hasSubscribed) requestAuthoritativeRefresh()
+        hasSubscribed = true
       })
-      .subscribe()
     return () => {
       gameFieldersRefreshSeqRef.current += 1
+      refreshCoordinator.dispose()
+      pendingRefreshes.clear()
       supabase.removeChannel(channel)
     }
-  }, [selectedGameId, scorebookTables, isSeasonGame, gameSession?.sourceId, gameSession?.playerIdByTeamId, stadiums, shouldDeferRealtimeMerge])
+  }, [selectedGameId, scorebookTables, isSeasonGame, gameSession?.sourceId, gameSession?.playerIdByTeamId, stadiums, shouldDeferRealtimeMerge, fetchGameData])
 
   // Belt-and-suspenders refetch for edits made in another tab (the At-Bat
   // Data page's "Edit At-Bat" link opens in one) — the realtime subscription
@@ -342,53 +372,44 @@ export default function useScorebookData({
   // skip" rule would keep discarding the correct fetch forever.
   useEffect(() => {
     if (!selectedGameId) return
-    const resync = async () => {
-      const [pitchResult, paResult, stintResult] = await Promise.all([
-        supabase.from(scorebookTables.pitches).select('*').eq('game_id', selectedGameId).order('created_at'),
-        supabase.from(scorebookTables.plateAppearances).select('*').eq('game_id', selectedGameId).order('created_at'),
-        supabase.from(scorebookTables.pitchingStints).select('*').eq('game_id', selectedGameId).order('created_at'),
-      ])
-      if (!pitchResult.error) {
-        const visiblePitches = (pitchResult.data || [])
-          .filter((pitch) => !locallyDeletedPaIdsRef.current.has(String(pitch.pa_id)))
-        setPitches((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...visiblePitches])
-      } else {
-        console.warn('[scorebook focus] pitch refresh failed; preserving local rows', pitchResult.error)
-      }
-      if (!paResult.error) {
-        const visiblePAs = (paResult.data || [])
-          .map(normalizePa)
-          .filter((pa) => !locallyDeletedPaIdsRef.current.has(String(pa.id)))
-        setPlateAppearances((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...visiblePAs])
-      } else {
-        console.warn('[scorebook focus] plate-appearance refresh failed; preserving local rows', paResult.error)
-      }
-      if (!stintResult.error) {
-        setPitchingStints((current) => [...current.filter((row) => String(row.game_id) !== String(selectedGameId)), ...(stintResult.data || [])])
-      } else {
-        console.warn('[scorebook focus] pitching refresh failed; preserving local rows', stintResult.error)
-      }
-    }
+    const recoveryCoordinator = createRefreshCoordinator({
+      delayMs: 75,
+      maxWaitMs: 250,
+      isPaused: () => document.visibilityState === 'hidden',
+      run: fetchGameData,
+      onError: (error) => console.warn('[scorebook recovery] authoritative refresh failed', error),
+    })
+    const resync = () => recoveryCoordinator.request()
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') resync()
+      if (document.visibilityState === 'visible') recoveryCoordinator.request({ immediate: true })
     }
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('focus', resync)
+    window.addEventListener('online', resync)
     return () => {
+      recoveryCoordinator.dispose()
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('focus', resync)
+      window.removeEventListener('online', resync)
     }
-  }, [selectedGameId, scorebookTables])
+  }, [selectedGameId, fetchGameData])
 
   useEffect(() => {
     if (!gameSession?.sourceId || !scorebookTables.draftPicks) return
     const sourceField = isSeasonGame ? 'season_id' : 'tournament_id'
-    const orderField = isSeasonGame ? 'created_at' : 'pick_number'
     const channel = supabase
       .channel(`scorebook-roster-${gameSession.sourceId}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.draftPicks, filter: `${sourceField}=eq.${gameSession.sourceId}` }, async () => {
-        const { data } = await supabase.from(scorebookTables.draftPicks).select('*').eq(sourceField, gameSession.sourceId).order(orderField)
-        setDraftPicks(data || [])
+      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.draftPicks, filter: `${sourceField}=eq.${gameSession.sourceId}` }, (payload) => {
+        setDraftPicks((current) => {
+          const changed = payload.eventType === 'DELETE' ? payload.old : payload.new
+          if (changed?.id == null) return current
+          const withoutChanged = current.filter((row) => String(row.id) !== String(changed.id))
+          if (payload.eventType === 'DELETE') return withoutChanged
+          return [...withoutChanged, changed].sort((a, b) => {
+            if (!isSeasonGame) return Number(a.pick_number || 0) - Number(b.pick_number || 0)
+            return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+          })
+        })
       })
       .subscribe()
     return () => supabase.removeChannel(channel)
@@ -397,16 +418,22 @@ export default function useScorebookData({
   useEffect(() => {
     const channel = supabase
       .channel(`scorebook-stadiums-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stadiums' }, async () => {
-        const { data } = await supabase.from('stadiums').select('*')
-        setStadiums(getOrderedStadiums(data || []))
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.stadiumGameLog, filter: isSeasonGame ? `season_id=eq.${gameSession?.sourceId}` : undefined }, async () => {
-        const { data } = await fetchAllRows(() => {
-          const query = supabase.from(scorebookTables.stadiumGameLog).select('*').order('created_at')
-          return isSeasonGame ? query.eq('season_id', gameSession?.sourceId) : query
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stadiums' }, (payload) => {
+        setStadiums((current) => {
+          const changed = payload.eventType === 'DELETE' ? payload.old : payload.new
+          if (changed?.id == null) return current
+          const withoutChanged = current.filter((row) => String(row.id) !== String(changed.id))
+          return getOrderedStadiums(payload.eventType === 'DELETE' ? withoutChanged : [...withoutChanged, changed])
         })
-        setStadiumGameLog(data || [])
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: scorebookTables.stadiumGameLog, filter: isSeasonGame ? `season_id=eq.${gameSession?.sourceId}` : undefined }, (payload) => {
+        setStadiumGameLog((current) => {
+          const changed = payload.eventType === 'DELETE' ? payload.old : payload.new
+          if (changed?.id == null) return current
+          const withoutChanged = current.filter((row) => String(row.id) !== String(changed.id))
+          if (payload.eventType === 'DELETE') return withoutChanged
+          return [...withoutChanged, changed].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
+        })
       })
       .subscribe()
     return () => supabase.removeChannel(channel)

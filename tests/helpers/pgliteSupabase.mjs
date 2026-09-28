@@ -30,6 +30,8 @@ class PgError extends Error {
     this.name = 'PostgrestError'
     this.code = error?.code
     this.detail = error?.detail
+    // PostgREST returns HINT too, and functions use it for a machine-readable reason.
+    this.hint = error?.hint
     this.cause = error
   }
 }

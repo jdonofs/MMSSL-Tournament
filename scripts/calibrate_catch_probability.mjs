@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { readReservations } from './reserve_calibration_session.mjs'
+import { auditArchive as auditTrackingArchive } from './audit_tracking_archive.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -30,27 +31,25 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const ARCHIVE = path.join(ROOT, 'data', 'player_tracking')
 const OUTPUT = path.join(ROOT, 'data', 'calibration')
 const FEATURE_PATH = path.join(OUTPUT, 'catch-probability-preoutcome-features-v1.jsonl')
-const ANALYSIS_DATE = '2026-09-05'
+const ANALYSIS_DATE = '2026-09-18'
+// Unchanged from the first run on purpose: the split is a pure function of this
+// seed and the session set, and picking a new seed after seeing a result is how
+// a held-out test stops being held out.
 const SPLIT_SEED = 'sluggers-catch-probability-v1-held-out-20260905'
+const SESSION_LOG_DIR = path.join(ROOT, 'sluggers-stat-tracker-advanced-stats-dev', 'preview-sessions')
 
-// These sessions, and only these sessions, are documented as having every play
-// joined to its saved tracker log with no warnings in the 2026-09-05 reliability
-// review (1,060/1,060 plays). Wario Stadium had no saved log. The 91-play Mario
-// Stadium malformed-live session was freshly derived but was not in that total.
-const JOIN_VALIDATED_SESSIONS = new Set([
-  'bowser_castle-20260905T005948Z',
-  'bowser_castle-20260904T011909Z',
-  'bowser_jr_playroom-20260828T155225Z',
-  'daisy_cruiser-20260904T202047Z',
-  'dk_jungle-20260904T161731Z',
-  'luigis_mansion-20260904T171123Z',
-  'mario_stadium-20260904T213725Z',
-  'mario_stadium-20260831T174649Z',
-  'peach_ice_garden-20260904T152214Z',
-  'wario_city-20260904T144308Z',
-  'yoshi_park-20260831T140742Z',
-  'yoshi_park-20260831T134815Z',
-])
+// A session is join-validated when its saved tracker log replays through the
+// real preview join with every play joined and no validation warning -- the
+// check the 2026-09-05 reliability review ran by hand on 12 sessions, now run
+// by scripts/audit_tracking_archive.mjs on all of them. Until 2026-09-18 this
+// was a hard-coded list of those 12, so 33 later games never reached the model.
+function joinValidatedSessions() {
+  const audit = auditTrackingArchive({ trackingDir: ARCHIVE, logDir: SESSION_LOG_DIR, join: true })
+  return new Set(audit.sessions.filter((row) => (
+    row.join && !row.join.error && row.join.plays > 0
+    && row.join.joined === row.join.plays && row.join.warnings === 0
+  )).map((row) => row.stem))
+}
 
 function readJson(file, fallback = null) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return fallback }
@@ -79,7 +78,7 @@ function annotationsByContact(stem) {
   )))
 }
 
-function loadSessions() {
+function loadSessions(joinValidated) {
   return fs.readdirSync(ARCHIVE).filter((name) => name.endsWith('.plays.jsonl')).sort().map((name) => {
     const stem = name.slice(0, -'.plays.jsonl'.length)
     const header = readJson(path.join(ARCHIVE, `${stem}.json`), {})
@@ -96,20 +95,23 @@ function loadSessions() {
       incomplete_header: !Number.isFinite(Number(header.frames)) || !Number.isFinite(Number(header.missed_frames)),
       quarantined: Boolean(header.fielder_pointers_left_region || header.status === 'quarantined'),
       malformed: parsed.errors.length > 0,
-      join_status: JOIN_VALIDATED_SESSIONS.has(stem) ? 'validated_all_joined' : 'not_validated',
+      join_status: joinValidated.has(stem) ? 'validated_all_joined' : 'not_validated',
       play_fingerprints: parsed.rows.map(playFingerprint),
     }
-  })
+  // Stadium/gimmick research deliberately lets balls through so they reach
+  // hazards.  Keeping those sessions out here is the final fit-time fence;
+  // planner counts and feature export also honor the same header flag.
+  }).filter((session) => session.header.calibration_excluded !== true)
 }
 
-function ensureFeatures(refresh) {
+function ensureFeatures(refresh, joinValidated) {
   if (fs.existsSync(FEATURE_PATH) && !refresh) return
   const python = process.env.SLUGGERS_PYTHON || 'python'
   const args = [
     path.join(ROOT, 'scripts', 'export_catch_preoutcome_features.py'),
     '--archive', ARCHIVE,
     '--out', FEATURE_PATH,
-    '--sessions', ...[...JOIN_VALIDATED_SESSIONS].sort(),
+    '--sessions', ...[...joinValidated].sort(),
   ]
   const result = spawnSync(python, args, { cwd: ROOT, stdio: 'inherit' })
   if (result.status !== 0) throw new Error(`pre-outcome feature export failed with status ${result.status}`)
@@ -255,12 +257,30 @@ function sensitivityEvaluation(opportunities, split, selectedModel) {
     include_wall_plays: opportunities.filter((row) => allowed(row, ['wall_play'])),
     include_special_mechanics: opportunities.filter((row) => allowed(row, ['special_or_redirected_mechanic'])),
   }
+  // PAIRED, on the scenario's own test rows: the scenario's model against the
+  // strict model, scored on the SAME plays. Until 2026-09-18 each scenario was
+  // scored on its own rows and compared with the strict model's score on the
+  // strict rows, which measured how hard the plays were rather than whether an
+  // exclusion changed the model -- dropping dives removes the hardest catches, so
+  // its Brier fell 0.05 with no change in the model at all.
+  //
+  // A scenario with fewer test rows than one probability bin needs cannot say
+  // anything; it is reported and skipped. No-glide collapses to 3 test plays
+  // because the game glides a fielder on nearly every ball.
   return Object.fromEntries(Object.entries(scenarios).map(([name, rows]) => {
     const train = rows.filter((row) => split.by_session[row.session] === 'train')
     const test = rows.filter((row) => split.by_session[row.session] === 'test')
-    if (!train.length || !test.length) return [name, { train_n: train.length, test_n: test.length, metrics: null }]
-    const model = fitLike(selectedModel, train)
-    return [name, { train_n: train.length, test_n: test.length, metrics: evaluatePredictions(predictRows(test, model)) }]
+    const counts = { train_n: train.length, test_n: test.length }
+    if (!train.length || test.length < ACTIVATION_CRITERIA.minimum_rows_per_probability_bin) {
+      return [name, { ...counts, metrics: null, strict_model_metrics: null, reason: 'too_few_rows' }]
+    }
+    const model = name === 'strict' ? selectedModel : fitLike(selectedModel, train)
+    return [name, {
+      ...counts,
+      metrics: evaluatePredictions(predictRows(test, model)),
+      strict_model_metrics: evaluatePredictions(predictRows(test, selectedModel)),
+      reason: null,
+    }]
   }))
 }
 
@@ -283,9 +303,11 @@ function assessActivation(eligible, split, testMetrics, climatologyMetrics, boot
   const relativeBrier = climatologyMetrics.brier > 0
     ? (climatologyMetrics.brier - testMetrics.brier) / climatologyMetrics.brier
     : -Infinity
-  const strictBrier = sensitivity.strict.metrics?.brier
-  const sensitivityChanges = Object.entries(sensitivity).filter(([name, value]) => name !== 'strict' && value.metrics && strictBrier != null)
-    .map(([name, value]) => ({ name, absolute_brier_change: Math.abs(value.metrics.brier - strictBrier) }))
+  const sensitivityChanges = Object.entries(sensitivity)
+    .filter(([name, value]) => name !== 'strict' && value.metrics && value.strict_model_metrics)
+    .map(([name, value]) => ({
+      name, absolute_brier_change: Math.abs(value.metrics.brier - value.strict_model_metrics.brier),
+    }))
   const checks = {
     eligible_sample: eligible.length >= ACTIVATION_CRITERIA.minimum_eligible_opportunities,
     failures: eligible.filter((row) => row.actual_catch === 0).length >= ACTIVATION_CRITERIA.minimum_failures,
@@ -330,7 +352,7 @@ function reportMarkdown(audit, split, evaluation, decision, featureAudit, files)
   const calibrationRows = test.calibration.map((bin) =>
     `| ${bin.low.toFixed(1)}–${bin.high.toFixed(1)} | ${bin.n} | ${fixed(bin.mean_probability, 3)} | ${fixed(bin.catch_rate, 3)} |`).join('\n')
   const sensitivityRows = Object.entries(evaluation.sensitivity).map(([name, value]) =>
-    `| ${name} | ${value.train_n} | ${value.test_n} | ${value.metrics?.catches ?? 'n/a'} | ${value.metrics?.failures ?? 'n/a'} | ${fixed(value.metrics?.brier)} | ${fixed(value.metrics?.ece)} |`).join('\n')
+    `| ${name} | ${value.train_n} | ${value.test_n} | ${value.metrics?.catches ?? 'n/a'} | ${value.metrics?.failures ?? 'n/a'} | ${fixed(value.metrics?.brier)} | ${fixed(value.strict_model_metrics?.brier)} | ${value.metrics && value.strict_model_metrics ? fixed(value.metrics.brier - value.strict_model_metrics.brier) : value.reason || 'n/a'} |`).join('\n')
   const countRows = (key) => Object.entries(audit.candidates[key] || {}).map(([name, count]) => `| ${name} | ${count} |`).join('\n')
   const bestEmpirical = Object.entries(evaluation.validation).filter(([name]) => name.startsWith('empirical'))
     .sort((a, b) => a[1].brier - b[1].brier)[0]?.[0]
@@ -348,7 +370,7 @@ function reportMarkdown(audit, split, evaluation, decision, featureAudit, files)
     `${audit.archive.join_validated_sessions} sessions (${audit.archive.join_validated_plays} plays) had documented all-play joins to saved tracker logs. ` +
     `Opportunity definition \`${OPPORTUNITY_DEFINITION_VERSION}\` retained ${eligible} primary-outfielder airborne opportunities: ${catches} catches and ${failures} defensible failures. ` +
     `Fouls, home runs without a defensible attempt, ground/low-air balls, non-primary fielders, unjoined sessions, malformed/quarantined rows, annotations, unresolved events, errors, rebounds, Buddy/special mechanics, wall plays, truncation, and missing fixed-window projections were excluded.\n\n` +
-    `Class imbalance is substantial: ${(100 * catches / eligible).toFixed(1)}% catches and ${(100 * failures / eligible).toFixed(1)}% failures. No malformed authoritative play rows or quarantined sessions were found. Three otherwise join-validated captures have incomplete final headers; their surviving joined plays were retained, but they make no claim about frames after the last recoverable play. Official-error rulings are not exhaustively persisted in standalone play files; ${audit.separated_play_classes.annotated_official_errors_non_exhaustive} error-labelled annotation snapshots were excluded, and physical bobbles were never promoted to official errors.\n\n` +
+    `Class imbalance is substantial: ${(100 * catches / eligible).toFixed(1)}% catches and ${(100 * failures / eligible).toFixed(1)}% failures. ${audit.archive.malformed_sessions.length} malformed and ${audit.archive.quarantined_sessions.length} quarantined sessions were found. ${audit.archive.incomplete_headers.length} captures have incomplete final headers; their surviving joined plays were retained, but they make no claim about frames after the last recoverable play. Official-error rulings are not exhaustively persisted in standalone play files; ${audit.separated_play_classes.annotated_official_errors_non_exhaustive} error-labelled annotation snapshots were excluded, and physical bobbles were never promoted to official errors.\n\n` +
     `| Eligible position | Count |\n|---|---:|\n${countRows('eligible_by_position')}\n\n` +
     `| Eligible direction | Count |\n|---|---:|\n${countRows('eligible_by_direction')}\n\n` +
     `| Eligible park | Count |\n|---|---:|\n${countRows('eligible_by_park')}\n\n` +
@@ -370,32 +392,28 @@ function reportMarkdown(audit, split, evaluation, decision, featureAudit, files)
     `Direction:\n\n| Direction | N | Catches | Failures | Brier | ECE | AUC |\n|---|---:|---:|---:|---:|---:|---:|\n${sliceRows(evaluation.final_test.by_direction)}\n\n` +
     `Position:\n\n| Position | N | Catches | Failures | Brier | ECE | AUC |\n|---|---:|---:|---:|---:|---:|---:|\n${sliceRows(evaluation.final_test.by_position)}\n\n` +
     `Difficulty (audit stratum from actual resolution geometry, never a predictor):\n\n| Band (u/s) | N | Catches | Failures | Brier | ECE | AUC |\n|---|---:|---:|---:|---:|---:|---:|\n${sliceRows(evaluation.final_test.by_difficulty_band)}\n\n` +
-    `### Sensitivity and uncertainty\n\n| Scenario | Train N | Test N | Test catches | Test failures | Brier | ECE |\n|---|---:|---:|---:|---:|---:|---:|\n${sensitivityRows}\n\n` +
+    `### Sensitivity and uncertainty\n\nEach scenario refits the selected model on its own training rows and is scored against the strict model on the same test plays; the gate is the absolute difference. Scenarios with fewer than ${ACTIVATION_CRITERIA.minimum_rows_per_probability_bin} test plays are not evaluable. (Method changed on 2026-09-18, after the first refit, by Jason's decision: the earlier version compared Brier scores on different sets of plays and so measured their difficulty, not the model.)\n\n| Scenario | Train N | Test N | Test catches | Test failures | Scenario Brier | Strict model, same plays | Change |\n|---|---:|---:|---:|---:|---:|---:|---:|\n${sensitivityRows}\n\n` +
     `The unassisted-only population collapses to ${evaluation.sensitivity.exclude_assisted_movement.test_n} test play, so it cannot validate a separate no-glide model. ` +
-    `The grouped bootstrap improvement over climatology was ${fixed(evaluation.final_test.grouped_bootstrap.lower_95)} to ${fixed(evaluation.final_test.grouped_bootstrap.upper_95)} Brier points (95% interval), but only ${split.partitions.test.sessions.length} test sessions contributed; the minimum test-size gates still fail. ` +
-    `Leave-one-park-out ECE ranged from ${fixed(Math.min(...parkEces))} to ${fixed(Math.max(...parkEces))} in parks with enough outcomes, and every reported park exceeded the 0.08 calibration target.\n\n` +
+    `The grouped bootstrap improvement over climatology was ${fixed(evaluation.final_test.grouped_bootstrap.lower_95)} to ${fixed(evaluation.final_test.grouped_bootstrap.upper_95)} Brier points (95% interval) across ${split.partitions.test.sessions.length} test sessions. ` +
+    `Leave-one-park-out ECE ranged from ${fixed(Math.min(...parkEces))} to ${fixed(Math.max(...parkEces))} in the ${parkEces.length} parks with enough outcomes; ${parkEces.filter((value) => value > ACTIVATION_CRITERIA.maximum_test_ece).length} exceeded the ${ACTIVATION_CRITERIA.maximum_test_ece} calibration target.\n\n` +
     `## Activation standard\n\nAcceptance criteria were encoded before final-test evaluation in the model utility and copied verbatim into the evaluation artifact. ` +
     `Activation requires at least ${ACTIVATION_CRITERIA.minimum_eligible_opportunities} eligible opportunities and ${ACTIVATION_CRITERIA.minimum_failures} failures; an untouched test of at least ${ACTIVATION_CRITERIA.minimum_final_test_opportunities}/${ACTIVATION_CRITERIA.minimum_final_test_failures}; ` +
     `ECE at most ${ACTIVATION_CRITERIA.maximum_test_ece}; at least ${(ACTIVATION_CRITERIA.minimum_relative_brier_improvement_vs_climatology * 100).toFixed(0)}% Brier improvement; populated probability ranges; no session/park dominance; stable exclusions; positive grouped-bootstrap improvement; and zero post-outcome leakage.\n\n` +
     `## Files and reproducibility\n\n${files.map((file) => `- \`${path.relative(ROOT, file).replaceAll('\\', '/')}\``).join('\n')}\n\n` +
     `Reproduce with \`node scripts/calibrate_catch_probability.mjs --refresh-features\`. The candidate artifact is explicitly status \`${decision.decision === 'activate' ? 'active' : 'rejected'}\`; rejected artifacts cannot be loaded by the frozen scorer.\n\n` +
     `## Verification\n\n` +
-    `- \`node --test tests/catch-probability.test.mjs\`: 7/7 passed.\n` +
-    `- \`python -m unittest tests/catch_preoutcome_features_test.py\`: 2/2 passed.\n` +
-    `- \`npm.cmd run test:tracker\`: 400/400 passed.\n` +
-    `- \`npm.cmd run test:defense\`: 31/31 passed.\n` +
-    `- A repeated calibration run produced byte-identical SHA-256 hashes for every generated artifact and this report.\n` +
-    `- \`npm run test:metrics\`, \`npm run test:war\`, and \`npm run build\` were not required: expected-stat utilities, WAR inputs, and runtime JavaScript were deliberately untouched.\n\n` +
+    `Checks for a change to this pipeline: \`node --test tests/catch-probability.test.mjs\`, \`python -m unittest tests/catch_preoutcome_features_test.py\`, \`npm run test:tracker\` and \`npm run test:defense\`. Their results belong to the change that ran them, not to this generated report.\n\n` +
     `## Exact next collection needs\n\nCollect at least ${collectionOpportunityDeficit} additional eligible opportunities and ${collectionFailureDeficit} additional failures, whichever takes longer, while keeping every new game paired with its saved tracker log. ` +
     `Because grouped final testing also needs ${ACTIVATION_CRITERIA.minimum_final_test_opportunities} opportunities and ${ACTIVATION_CRITERIA.minimum_final_test_failures} failures, reserve complete new sessions for test rather than topping up with individual plays. ` +
-    `Allocate at least 100 of the new opportunities and 20 failures to untouched test sessions. Prioritize the 6–8 u/s boundary band with both catches and failures, plus successful catches above 8 u/s; the existing easy bands contain almost no failures and should not be force-balanced artificially. Rotate LF/CF/RF and add one full join-validated game at Bowser Jr. Playroom, Daisy Cruiser, DK Jungle, Luigi's Mansion, Peach Ice Garden, and Wario City, plus two at Wario Stadium, before repeating Bowser/Mario/Yoshi. ` +
+    `Allocate at least 100 of the new opportunities and 20 failures to untouched test sessions. Prioritize the 6–8 u/s boundary band with both catches and failures, plus successful catches above 8 u/s; the existing easy bands contain almost no failures and should not be force-balanced artificially. Rotate LF/CF/RF, and favour parks with the fewest eligible opportunities above (a park with none is not scored at all). ` +
     `Record ordinary airborne misses deliberately; do not substitute CPU-only fielding, wall catches, Buddy/special plays, or ground balls.\n`
 }
 
 function main() {
   fs.mkdirSync(OUTPUT, { recursive: true })
-  ensureFeatures(process.argv.includes('--refresh-features'))
-  const sessions = loadSessions()
+  const joinValidated = joinValidatedSessions()
+  ensureFeatures(process.argv.includes('--refresh-features'), joinValidated)
+  const sessions = loadSessions(joinValidated)
   const relatedGroups = findRelatedCaptureGroups(sessions)
   sessions.forEach((session) => { session.related_capture_group = relatedGroups[session.stem] })
   const featureRows = readJsonl(FEATURE_PATH).rows
@@ -456,6 +474,7 @@ function main() {
       grouped_bootstrap: bootstrap,
     },
     leave_one_park_out: leaveOneParkOut(eligible, selectedModel),
+    sensitivity_method: 'paired: each scenario model vs the strict model on the scenario\'s own test rows; scenarios with fewer test rows than minimum_rows_per_probability_bin are not evaluable (since 2026-09-18)',
     sensitivity,
     activation: decision,
     collection_target: {
@@ -506,7 +525,7 @@ function main() {
     exclusions: Object.keys(audit.candidates.exclusions),
     outcome_value: 'actual catch minus frozen expected catch probability',
   })
-  const reportPath = path.join(ROOT, 'docs', 'catch-probability-calibration-2026-09-05.md')
+  const reportPath = path.join(ROOT, 'docs', `catch-probability-calibration-${ANALYSIS_DATE}.md`)
   const files = [
     path.join(ROOT, 'scripts', 'export_catch_preoutcome_features.py'),
     path.join(ROOT, 'scripts', 'catch_probability_model.mjs'),

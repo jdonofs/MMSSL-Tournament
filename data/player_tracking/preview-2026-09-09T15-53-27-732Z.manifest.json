@@ -1,0 +1,38 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260909T155408Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260909T155408Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260909T155408Z.bin",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "recorded_utc": "20260909T155408Z",
+  "park": "peach_ice_garden",
+  "stadium_byte": 4,
+  "day_night_bytes": [
+    0,
+    0
+  ],
+  "is_night": false,
+  "frames": 6913,
+  "missed_frames": 0,
+  "duration_seconds": 115.87,
+  "checksum_sha256": "d75b1d64b8f9bf9b4cd041af26506ebc41bea27a1d22ce0187d393a59e2bfd69",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 60,
+    "plays_seen": 3,
+    "plays_emitted": 3,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260909T155408Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\peach_ice_garden-20260909T155408Z.pitches.jsonl",
+    "mean_feed_ms": 0.0782,
+    "max_feed_ms": 1.589,
+    "max_play_build_ms": 62.5,
+    "replay_duplicates": 0,
+    "pitches_emitted": 3,
+    "pitch_replay_increments": 0
+  }
+}

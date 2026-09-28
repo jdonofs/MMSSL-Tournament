@@ -1,11 +1,12 @@
 // Narrow, shared boundary between persisted game data and official statistics.
 //
 // Live tracker summaries are intentionally not inputs here. They are a scorebook display
-// projection; official Stats/profile totals come only from durable PA, pitch, run, stint and
-// fielder rows whose parent game is complete. This also gives every consumer the same handling
-// for reopened/active/abandoned games and for an accidentally repeated tracker write.
+// projection; stats come from durable PA, pitch, run, stint and fielder rows.
+// Consumers can opt into active games when showing live totals. Historical/profile callers
+// retain completed-only totals, and abandoned/excluded games never enter either view.
 
 const COMPLETE_STATUSES = new Set(['complete', 'completed'])
+const ACTIVE_STATUSES = new Set(['active', 'in_progress'])
 
 export function isCompletedStatGame(game = {}) {
   return COMPLETE_STATUSES.has(String(game.status || '').toLowerCase())
@@ -102,13 +103,15 @@ export function reconcileStatSource({
   pitches = [],
   runs = [],
   gameFielders = [],
+  includeActiveGames = false,
 } = {}) {
-  const completedGames = games.filter(isCompletedStatGame)
-  const completedGameKeys = new Set(completedGames.map(getStatGameKey))
+  const selectedGames = games.filter((game) => isCompletedStatGame(game)
+    || (includeActiveGames && ACTIVE_STATUSES.has(String(game.status || '').toLowerCase())))
+  const selectedGameKeys = new Set(selectedGames.map(getStatGameKey))
 
   const select = (rows, kind) => {
     const deduped = dedupeStatRows(rows, kind)
-    const selected = deduped.filter((row) => completedGameKeys.has(getStatGameKey(row)))
+    const selected = deduped.filter((row) => selectedGameKeys.has(getStatGameKey(row)))
     return {
       rows: selected,
       coverage: {
@@ -127,7 +130,7 @@ export function reconcileStatSource({
   const fielder = select(gameFielders, 'gameFielders')
 
   return {
-    games: completedGames,
+    games: selectedGames,
     plateAppearances: pa.rows,
     pitchingStints: stint.rows,
     pitches: pitch.rows,
@@ -136,8 +139,8 @@ export function reconcileStatSource({
     coverage: {
       games: {
         input: games.length,
-        included: completedGames.length,
-        excludedNonFinal: games.length - completedGames.length,
+        included: selectedGames.length,
+        excludedNonFinal: games.length - selectedGames.length,
       },
       plateAppearances: pa.coverage,
       pitchingStints: stint.coverage,

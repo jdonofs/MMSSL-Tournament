@@ -254,6 +254,17 @@ function positionFor(pa) {
   return null
 }
 
+// A hit scored by hand is a tap on the park artwork, and that tap is the
+// record. The artwork view draws it exactly where it was tapped; the diagram,
+// which has no image to tap on, places it from the distance and angle derived
+// from the tap. Tracker rows carry world coordinates and never take this path.
+function tappedSpotFor(pa) {
+  if (pa.hit_world_x != null || pa.hit_x == null || pa.hit_y == null) return null
+  const x = Number(pa.hit_x)
+  const y = Number(pa.hit_y)
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
+}
+
 function HitTooltip({ pa, position, onClose, stadiumLabel, characterName }) {
   const flipUp = position.y > VIEWBOX * 0.55
   const distance = pa.hit_distance_ft == null ? null : Number(pa.hit_distance_ft)
@@ -327,7 +338,11 @@ function HitTooltip({ pa, position, onClose, stadiumLabel, characterName }) {
         ? <div style={{ color: '#FDE68A', fontWeight: 700 }}>⬤ Barrel</div>
         : null}
       {pa.hit_world_x == null
-        ? <div style={{ color: '#94A3B8', fontStyle: 'italic' }}>approximate — from launch angle</div>
+        ? (
+          <div style={{ color: '#94A3B8', fontStyle: 'italic' }}>
+            {pa.tracker_contact_seq == null ? 'placed by hand' : 'approximate — from launch angle'}
+          </div>
+        )
         : null}
       {pa.id != null ? (
         <div style={{ marginTop: 4 }}>
@@ -353,7 +368,7 @@ export default function VectorSprayChart({
     const map = new Map()
     plateAppearances.forEach((pa) => {
       if (!pa.hit_stadium_key || !hasMeasuredGeometry(pa.hit_stadium_key)) return
-      if (!positionFor(pa)) return
+      if (!positionFor(pa) && !tappedSpotFor(pa)) return
       if (!map.has(pa.hit_stadium_key)) map.set(pa.hit_stadium_key, [])
       map.get(pa.hit_stadium_key).push(pa)
     })
@@ -396,6 +411,12 @@ export default function VectorSprayChart({
     return source
       .map((pa, index) => {
         const world = positionFor(pa)
+        const tapped = tappedSpotFor(pa)
+        // On the artwork a tap is drawn solid: it sits exactly where it was
+        // placed, which is the whole of what a hand-scored hit records.
+        if (showImage && tapped) {
+          return { pa, point: { x: (tapped.x / 100) * VIEWBOX, y: (tapped.y / 100) * VIEWBOX }, exact: true, key: pa.id ?? `i${index}` }
+        }
         if (!world) return null
         // On the artwork, positions run through the park's homography — the
         // exact transform for a plane in perspective — rather than the
@@ -623,7 +644,7 @@ export default function VectorSprayChart({
               width: 9, height: 9, borderRadius: '50%', background: 'none',
               border: '2px solid #94A3B8', display: 'inline-block',
             }} />
-            <span style={{ fontSize: 11, color: '#94A3B8' }}>approximate</span>
+            <span style={{ fontSize: 11, color: '#94A3B8' }}>placed by hand or estimated</span>
           </div>
         ) : null}
       </div>

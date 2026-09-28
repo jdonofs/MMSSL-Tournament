@@ -143,7 +143,8 @@ create table season_plate_appearances (
 );
 
 create table pitches (
-  id serial primary key,
+  -- uuid, as in production; a serial id here hid a bigint cast on this key.
+  id uuid primary key default gen_random_uuid(),
   game_id int,
   pa_id int references plate_appearances(id) on delete cascade,
   pitch_number_pa int,
@@ -156,7 +157,8 @@ create table pitches (
 );
 
 create table season_pitches (
-  id serial primary key,
+  -- uuid, as in production; a serial id here hid a bigint cast on this key.
+  id uuid primary key default gen_random_uuid(),
   season_id int,
   game_id int,
   pa_id int references season_plate_appearances(id) on delete cascade,
@@ -170,7 +172,8 @@ create table season_pitches (
 );
 
 create table runs_scored (
-  id serial primary key,
+  -- uuid, as in production; a serial id here hid a bigint cast on this key.
+  id uuid primary key default gen_random_uuid(),
   game_id int,
   pa_id int references plate_appearances(id) on delete cascade,
   inning int,
@@ -184,7 +187,8 @@ create table runs_scored (
 );
 
 create table season_runs_scored (
-  id serial primary key,
+  -- uuid, as in production; a serial id here hid a bigint cast on this key.
+  id uuid primary key default gen_random_uuid(),
   season_id int,
   game_id int,
   pa_id int references season_plate_appearances(id) on delete cascade,
@@ -205,7 +209,10 @@ create table tracking_sessions (
   source_id bigint,
   stadium_key text,
   format_version text,
-  status text,
+  -- Production's check, as it stood before 20260918133000 widened it. Without
+  -- it here the suite passed statuses production refused.
+  status text constraint tracking_sessions_status_check check (status in (
+    'recording', 'captured', 'derived', 'ingested', 'quarantined', 'failed')),
   recorded_utc timestamptz,
   completed_utc timestamptz,
   raw_stem text not null,
@@ -284,7 +291,12 @@ create table runner_opportunities (
   competition_type text,
   game_id bigint,
   pa_id bigint,
-  origin_base text,
+  runner_id text,
+  -- Production as it stands before 20260922120000: the table was built for
+  -- runners already on a base, so the batter-runner has no origin to start
+  -- from. This is the live catalog's definition, verbatim in effect.
+  origin_base text constraint runner_opportunities_origin_base_check
+    check (origin_base in ('first', 'second', 'third')),
   target_base text,
   responsible_fielder_position text,
   tracking_play_id bigint,

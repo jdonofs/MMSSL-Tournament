@@ -62,7 +62,7 @@ test('the category list is the one the console offers', () => {
     'wrong_result', 'wrong_player', 'wrong_location', 'wrong_trajectory',
     'wrong_attempt', 'wrong_contact', 'wrong_possession', 'wrong_ability',
     'wrong_throw', 'wrong_runner', 'missing_event', 'wrong_measurement',
-    'stadium_event', 'other',
+    'stadium_event', 'swing_mode', 'input_mode', 'other',
   ])
 })
 

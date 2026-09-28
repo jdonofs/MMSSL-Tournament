@@ -264,17 +264,17 @@ export default function TournamentCreate() {
       if (bracketFormat === 'round_robin') {
         bracketGames = getRoundRobinSchedule(seedingIds).map((m, i) => ({
           tournament_id: newTournament.id, game_code: `G${i + 1}`, stage: m.stage,
-          team_a_player_id: m.teamA, team_b_player_id: m.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending',
+          team_a_player_id: m.teamA, team_b_player_id: m.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending', stats_source: 'tracker',
         }))
       } else if (bracketFormat === 'single') {
         bracketGames = generateSingleElimBracket(seedingIds).map((g, i) => ({
           tournament_id: newTournament.id, game_code: `G${i + 1}`, stage: g.stage,
-          team_a_player_id: g.teamA, team_b_player_id: g.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending',
+          team_a_player_id: g.teamA, team_b_player_id: g.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending', stats_source: 'tracker',
         }))
       } else {
         bracketGames = buildDoubleElimBracket(seedingIds).map((g, i) => ({
           tournament_id: newTournament.id, game_code: `G${i + 1}`, stage: g.stage,
-          team_a_player_id: g.teamA, team_b_player_id: g.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending',
+          team_a_player_id: g.teamA, team_b_player_id: g.teamB, team_a_runs: 0, team_b_runs: 0, status: 'pending', stats_source: 'tracker',
         }))
       }
       if (bracketGames.length > 0) {

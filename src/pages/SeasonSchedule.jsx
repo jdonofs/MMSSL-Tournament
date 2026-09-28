@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, MapPin, Moon, Sun } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
+import { createRefreshCoordinator } from '../utils/refreshCoordinator'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
 import { useToast } from '../context/ToastContext'
@@ -260,7 +261,7 @@ function SeasonGameDetail({
               })}
               type="button"
             >
-              {startPending ? 'Opening…' : game.status === 'scheduled' ? 'Start Game' : 'Resume Game'}
+              {startPending ? 'Opening…' : game.status === 'scheduled' ? 'Open Game' : 'View Game'}
             </button>
           ) : null}
         </div>
@@ -317,6 +318,8 @@ export default function SeasonSchedule() {
   const [liveOutsByGameId, setLiveOutsByGameId] = useState({})
   const [trackerStatsByGameId, setTrackerStatsByGameId] = useState({})
   const liveDataRequestRef = useRef(0)
+  const seasonGameIds = useMemo(() => schedule.map((game) => game.id).filter(Boolean), [schedule])
+  const seasonGameIdsKey = seasonGameIds.map(String).join(',')
 
   useEffect(() => {
     supabase.from('stadiums').select('*').then(({ data }) => {
@@ -339,7 +342,9 @@ export default function SeasonSchedule() {
           .from('season_plate_appearances')
           .select('game_id,result,outs_on_play')
           .eq('season_id', currentSeason.id)),
-        fetchAllRows(() => supabase.from('season_tracker_live_stats').select('*')),
+        seasonGameIds.length
+          ? fetchAllRows(() => supabase.from('season_tracker_live_stats').select('*').in('game_id', seasonGameIds))
+          : Promise.resolve({ data: [], error: null }),
       ])
 
       if (!active || requestId !== liveDataRequestRef.current) return
@@ -354,38 +359,55 @@ export default function SeasonSchedule() {
         setLiveOutsByGameId(next)
       }
       if (!trackerError) {
-        const seasonGameIds = new Set((schedule || []).map((game) => String(game.id)))
+        const visibleGameIds = new Set(seasonGameIds.map(String))
         setTrackerStatsByGameId(Object.fromEntries(
           (trackerRows || [])
-            .filter((row) => seasonGameIds.has(String(row.game_id)))
+            .filter((row) => visibleGameIds.has(String(row.game_id)))
             .map((row) => [String(row.game_id), row]),
         ))
       }
     }
 
-    loadLiveData()
+    const refreshCoordinator = createRefreshCoordinator({
+      run: loadLiveData,
+      delayMs: 200,
+      maxWaitMs: 1000,
+      isPaused: () => document.visibilityState === 'hidden',
+    })
+    const refresh = () => refreshCoordinator.request()
+    refreshCoordinator.request({ immediate: true })
+    let hasSubscribed = false
 
     const channel = supabase
       .channel(`season-schedule-live-${currentSeason.id}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances', filter: `season_id=eq.${currentSeason.id}` }, () => {
-        loadLiveData()
+        refresh()
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_tracker_live_stats' }, loadLiveData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_tracker_live_stats' }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_schedule', filter: `season_id=eq.${currentSeason.id}` }, () => {
-        loadLiveData()
-        refreshSeasons(selectedSeasonId).catch(() => {})
+        refresh()
       })
-      .subscribe()
-    const pollInterval = setInterval(() => {
-      if (!document.hidden) loadLiveData()
-    }, 3000)
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (hasSubscribed) refreshCoordinator.request({ immediate: true })
+        hasSubscribed = true
+      })
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshCoordinator.resume()
+    }
+    const handleOnline = () => refreshCoordinator.request({ immediate: true })
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('online', handleOnline)
 
     return () => {
       active = false
-      clearInterval(pollInterval)
+      liveDataRequestRef.current += 1
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('online', handleOnline)
+      refreshCoordinator.dispose()
       supabase.removeChannel(channel)
     }
-  }, [currentSeason?.id, refreshSeasons, schedule, selectedSeasonId])
+  }, [currentSeason?.id, seasonGameIdsKey])
 
   useEffect(() => {
     if (Object.keys(scheduleOverrides).length === 0) return
@@ -548,11 +570,6 @@ export default function SeasonSchedule() {
       const saved = await persistGameSetup(game)
       if (!saved) return
 
-      if (game.status === 'scheduled') {
-        const { error } = await supabase.from('season_schedule').update({ status: 'in_progress' }).eq('id', game.id)
-        if (error) throw error
-      }
-
       refreshSeasons(selectedSeasonId).catch(() => {})
       navigate(buildScorebookPath({ gameId: game.id, source: 'season' }))
     } catch (error) {
@@ -669,7 +686,7 @@ export default function SeasonSchedule() {
             const canEditStadium = canEditStadiumForGame(game)
             const showSetStadiumPill = !isCompleted && !game.stadium && canEditStadium
             const showStartPill = !isCompleted && !isLocked && Boolean(game.stadium)
-            const startLabel = game.status === 'in_progress' ? 'Resume Game' : 'Start Game'
+            const startLabel = game.status === 'in_progress' ? 'View Game' : 'Open Game'
             return (
               <button
                 key={game.id}

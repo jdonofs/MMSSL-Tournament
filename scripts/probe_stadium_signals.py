@@ -65,6 +65,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import collect_player_tracking as collector
 from collect_player_tracking import (
     FIELDER_POINTER_TABLE,
     FIELDER_STRIDE,
@@ -558,6 +559,7 @@ def sweep_session(args):
     runs = np.zeros(width, dtype=int)            # onsets, summed over fielders
     together = np.zeros(width, dtype=int)        # onsets with >=8 fielders at once
     examples = {}
+    onset_examples = {}
     # Seeded from the FIRST frame, not from zeros. Starting at zero makes every
     # byte that is already non-zero at capture start look like it just switched
     # on, and since that happens to all nine fielders at once it counterfeits
@@ -574,6 +576,11 @@ def sweep_session(args):
             continue
         onset = up & ~previous
         runs += onset.sum(axis=0)
+        for actor_index, offset_index in zip(*np.nonzero(onset)):
+            bucket = onset_examples.setdefault(int(offset_index), [])
+            if len(bucket) <= args.max_runs:
+                bucket.append((frame.timer, names[int(actor_index)],
+                               int(block[starts[int(actor_index)] + lo + int(offset_index)])))
         wide = onset.sum(axis=0) >= min(args.simultaneous, len(starts))
         together += wide
         for index in np.flatnonzero(wide):
@@ -599,6 +606,11 @@ def sweep_session(args):
         print(f"  +0x{offset:03X} {wide:12d} {total:13d}  {tag}{flag}")
         for timer, who in examples.get(offset - lo, [])[:3]:
             print(f"           frame {timer}: {len(who)} fielders")
+        if not wide:
+            sample = onset_examples.get(offset - lo, [])[:3]
+            if sample:
+                print("           " + ", ".join(
+                    f"{who}@{timer}=0x{value:02X}" for timer, who, value in sample))
     if not rows:
         print(f"  nothing fires {args.max_runs} times or fewer in this range")
     return 0
@@ -706,6 +718,44 @@ def selftest(args):
           "10 of each")
     print("          the planted byte is the only separator left")
     print("  stun:   a whole-defence stun labelled ALL is found, 36 dazed vs 54 clean")
+    return 0
+
+
+def follow(args):
+    """Print candidate addresses live so they can be checked against the screen.
+
+    The flag was advertised and never written, so it raised NameError. It exists
+    because `--motion` narrows a sweep to a shortlist and cannot go the last
+    step: only a person watching the game can say which shortlisted number is
+    the object on screen.
+
+    IT PRINTS A MATRIX, NOT A TRIPLE. The Peach Ice Garden shortlist reads
+    (x, 0.00, 1.00) at every candidate, which is not a position -- it is the
+    translation column of a 3x4 transform sitting next to an identity rotation,
+    so the three coordinates are 16 bytes apart and no triple scanner could ever
+    have found them together. Twelve floats from the address given, with the
+    translation column called out, so both readings are on screen at once and
+    whichever one is real can be recognised.
+    """
+    dme = hook()
+    addresses = [int(a, 0) for a in args.follow] or [collector.BARREL_POSITION]
+    print("  ".join(f"0x{a:08X}" for a in addresses))
+    print("m03/m13/m23 is the translation if these are 3x4 matrices; "
+          "the plain triple is the first three floats.")
+    print("Ctrl-C to stop.")
+    try:
+        while True:
+            parts = []
+            for address in addresses:
+                raw = dme.read_bytes(address - 0xC, 48)
+                m = struct.unpack(">12f", raw)
+                parts.append(f"0x{address:08X} xyz=({m[3]:7.2f},{m[7]:7.2f},"
+                             f"{m[11]:7.2f}) triple=({m[3]:7.2f},{m[4]:6.2f},"
+                             f"{m[5]:6.2f})")
+            print("   " + " | ".join(parts))
+            time.sleep(args.follow_interval)
+    except KeyboardInterrupt:
+        pass
     return 0
 
 

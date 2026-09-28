@@ -1,0 +1,1721 @@
+{
+  "schema": "sluggers-evidence-annotations",
+  "version": 1,
+  "schedule_seed": 20260928,
+  "instructions": "Fill after the game from the console annotations and your own notes. Leave actual null where the plan was followed; set confirmed_no_deviation true only for PAs/halves you are sure of. unsure is a valid value.",
+  "plate_appearances": [
+    {
+      "pa": 1,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "charge_long",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 2,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "changeup",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 3,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "normal",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 4,
+      "planned": {
+        "batter_action": "charge_early",
+        "pitch_action": "release_early",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 5,
+      "planned": {
+        "batter_action": "bunt",
+        "pitch_action": "normal",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 6,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "release_early",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 7,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "changeup",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 8,
+      "planned": {
+        "batter_action": "charge_early",
+        "pitch_action": "charge_short",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 9,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "charge_long",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 10,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "charge_short",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 11,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "changeup",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 12,
+      "planned": {
+        "batter_action": "bunt_pull_back",
+        "pitch_action": "changeup",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 13,
+      "planned": {
+        "batter_action": "bunt",
+        "pitch_action": "charge_long",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 14,
+      "planned": {
+        "batter_action": "bunt_pull_back",
+        "pitch_action": "changeup",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 15,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "changeup",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 16,
+      "planned": {
+        "batter_action": "bunt_pull_back",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 17,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "normal",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 18,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "normal",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 19,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "charge_short",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 20,
+      "planned": {
+        "batter_action": "bunt",
+        "pitch_action": "changeup",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 21,
+      "planned": {
+        "batter_action": "charge_late",
+        "pitch_action": "charge_long",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 22,
+      "planned": {
+        "batter_action": "bunt_pull_back",
+        "pitch_action": "charge_short",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 23,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "release_late",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 24,
+      "planned": {
+        "batter_action": "bunt_pull_back",
+        "pitch_action": "changeup",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 25,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "release_early",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 26,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "star",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 27,
+      "planned": {
+        "batter_action": "charge_early",
+        "pitch_action": "charge_short",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 28,
+      "planned": {
+        "batter_action": "charge_late",
+        "pitch_action": "normal",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 29,
+      "planned": {
+        "batter_action": "star_swing",
+        "pitch_action": "release_late",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 30,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "changeup",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 31,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "changeup",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 32,
+      "planned": {
+        "batter_action": "star_swing",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 33,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "charge_long",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 34,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "normal",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 35,
+      "planned": {
+        "batter_action": "charge_late",
+        "pitch_action": "star",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 36,
+      "planned": {
+        "batter_action": "bunt_pull_back",
+        "pitch_action": "charge_short",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 37,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 38,
+      "planned": {
+        "batter_action": "star_swing",
+        "pitch_action": "charge_long",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 39,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "star",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 40,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "normal",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 41,
+      "planned": {
+        "batter_action": "bunt",
+        "pitch_action": "normal",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 42,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "charge_short",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 43,
+      "planned": {
+        "batter_action": "charge_early",
+        "pitch_action": "charge_short",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 44,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "charge_short",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 45,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 46,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "charge_long",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 47,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "normal",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 48,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "charge_short",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 49,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "normal",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 50,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 51,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 52,
+      "planned": {
+        "batter_action": "charge_early",
+        "pitch_action": "normal",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 53,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "changeup",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 54,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "release_late",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 55,
+      "planned": {
+        "batter_action": "star_swing",
+        "pitch_action": "changeup",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 56,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "star",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 57,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "release_early",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 58,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "charge_long",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 59,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "release_late",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 60,
+      "planned": {
+        "batter_action": "charge_late",
+        "pitch_action": "release_late",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 61,
+      "planned": {
+        "batter_action": "charge_late",
+        "pitch_action": "release_late",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 62,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "star",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 63,
+      "planned": {
+        "batter_action": "bunt",
+        "pitch_action": "normal",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 64,
+      "planned": {
+        "batter_action": "star_swing",
+        "pitch_action": "release_early",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 65,
+      "planned": {
+        "batter_action": "charge_late",
+        "pitch_action": "release_early",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 66,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "changeup",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 67,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "star",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 68,
+      "planned": {
+        "batter_action": "charge_early",
+        "pitch_action": "star",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 69,
+      "planned": {
+        "batter_action": "charge_late",
+        "pitch_action": "release_early",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 70,
+      "planned": {
+        "batter_action": "charge_late",
+        "pitch_action": "release_early",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 71,
+      "planned": {
+        "batter_action": "star_swing",
+        "pitch_action": "release_late",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 72,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "normal",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 73,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "normal",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 74,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "charge_short",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 75,
+      "planned": {
+        "batter_action": "bunt",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 76,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "charge_long",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 77,
+      "planned": {
+        "batter_action": "bunt",
+        "pitch_action": "charge_short",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 78,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 79,
+      "planned": {
+        "batter_action": "bunt",
+        "pitch_action": "changeup",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 80,
+      "planned": {
+        "batter_action": "charge_medium",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "left_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 81,
+      "planned": {
+        "batter_action": "take",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 82,
+      "planned": {
+        "batter_action": "charge_early",
+        "pitch_action": "release_late",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 83,
+      "planned": {
+        "batter_action": "charge_long",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 84,
+      "planned": {
+        "batter_action": "star_swing",
+        "pitch_action": "charge_long",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 85,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "normal",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 86,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "charge_medium",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 87,
+      "planned": {
+        "batter_action": "charge_short",
+        "pitch_action": "normal",
+        "pitch_aim": "outside_left"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 88,
+      "planned": {
+        "batter_action": "charge_early",
+        "pitch_action": "charge_long",
+        "pitch_aim": "outside_right"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 89,
+      "planned": {
+        "batter_action": "slap",
+        "pitch_action": "star",
+        "pitch_aim": "right_edge"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "pa": 90,
+      "planned": {
+        "batter_action": "star_swing",
+        "pitch_action": "charge_long",
+        "pitch_aim": "middle"
+      },
+      "actual": {
+        "batter_action": null,
+        "pitch_action": null,
+        "pitch_aim": null
+      },
+      "pitch_level_deviations": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    }
+  ],
+  "half_innings": [
+    {
+      "inning": 1,
+      "half": "top",
+      "planned": {
+        "fielding_condition": "buddy_throw",
+        "running_condition": "no_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 1,
+      "half": "bottom",
+      "planned": {
+        "fielding_condition": "dive_every_chance",
+        "running_condition": "short_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 2,
+      "half": "top",
+      "planned": {
+        "fielding_condition": "dive_every_chance",
+        "running_condition": "no_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 2,
+      "half": "bottom",
+      "planned": {
+        "fielding_condition": "miss_jump",
+        "running_condition": "sustained_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 3,
+      "half": "top",
+      "planned": {
+        "fielding_condition": "buddy_attack",
+        "running_condition": "no_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 3,
+      "half": "bottom",
+      "planned": {
+        "fielding_condition": "jump_every_chance",
+        "running_condition": "no_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 4,
+      "half": "top",
+      "planned": {
+        "fielding_condition": "miss_dive",
+        "running_condition": "delayed_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 4,
+      "half": "bottom",
+      "planned": {
+        "fielding_condition": "buddy_attack",
+        "running_condition": "no_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 5,
+      "half": "top",
+      "planned": {
+        "fielding_condition": "control_no_special",
+        "running_condition": "short_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 5,
+      "half": "bottom",
+      "planned": {
+        "fielding_condition": "selection_change",
+        "running_condition": "delayed_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 6,
+      "half": "top",
+      "planned": {
+        "fielding_condition": "buddy_jump",
+        "running_condition": "delayed_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 6,
+      "half": "bottom",
+      "planned": {
+        "fielding_condition": "buddy_jump",
+        "running_condition": "delayed_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 7,
+      "half": "top",
+      "planned": {
+        "fielding_condition": "jump_every_chance",
+        "running_condition": "sustained_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 7,
+      "half": "bottom",
+      "planned": {
+        "fielding_condition": "miss_dive",
+        "running_condition": "no_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 8,
+      "half": "top",
+      "planned": {
+        "fielding_condition": "miss_jump",
+        "running_condition": "sustained_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 8,
+      "half": "bottom",
+      "planned": {
+        "fielding_condition": "buddy_throw",
+        "running_condition": "sustained_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 9,
+      "half": "top",
+      "planned": {
+        "fielding_condition": "selection_change",
+        "running_condition": "short_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    },
+    {
+      "inning": 9,
+      "half": "bottom",
+      "planned": {
+        "fielding_condition": "control_no_special",
+        "running_condition": "short_shake"
+      },
+      "actual": {
+        "fielding_condition": null,
+        "running_condition": null
+      },
+      "events": [],
+      "confirmed_no_deviation": null,
+      "notes": ""
+    }
+  ],
+  "session_deviations": []
+}

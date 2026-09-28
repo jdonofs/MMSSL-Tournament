@@ -13,6 +13,28 @@ test('runner telemetry matches canonical names across database and game ID space
   assert.equal(runnerDestinationsFromPlay({ entries, result: '1B', play: { ...play, truncated: true } }), null)
 })
 
+test('a retired runner carries the base the throw that got him was going to', () => {
+  // Yoshi Park 2026-08-31, PA 45: Tiny Kong scores from second on a single --
+  // or tries to -- and the left fielder's throw home records the out.
+  const entries = [
+    { id: 'batter', origin: 'plate', isBatter: true, characterName: 'Daisy' },
+    { id: 'second', origin: 'second', isBatter: false, characterName: 'Tiny Kong' },
+  ]
+  const play = {
+    runners: { BAT: { character: 'Daisy', bases_ran: 1 }, R2: { character: 'Tiny Kong', bases_ran: 3 } },
+    throws: [
+      { outs_recorded: 0, target_base: 'second', runner_at_arrival: { character: 'Daisy' } },
+      { outs_recorded: 1, target_base: 'home', runner_at_arrival: { character: 'Tiny Kong', character_id: 30 } },
+    ],
+  }
+  const rows = runnerDestinationsFromPlay({ entries, result: '1B', outRunners: [{ characterName: 'Tiny Kong' }], play })
+  assert.deepEqual(rows.map((row) => [row.destination, row.attemptedBase]), [['first', undefined], ['out', 'home']])
+  // No out-recording throw names him: the base stays unknown rather than guessed.
+  const unthrown = runnerDestinationsFromPlay({ entries, result: '1B', outRunners: [{ characterName: 'Tiny Kong' }],
+    play: { ...play, throws: [play.throws[0]] } })
+  assert.equal(unthrown[1].attemptedBase, undefined)
+})
+
 test('runner resolution rejects stale slots, duplicate bases and absent measurements', () => {
   const entry = { id: 'first', origin: 'first', characterName: 'Mario' }
   assert.equal(runnerDestinationsFromPlay({ entries: [entry], play: { runners: { R1: { character: 'Mario', batting_index: -1, bases_ran: 3 } } } }), null)
@@ -281,6 +303,41 @@ test('a measured throwing error is charged to the thrower and leaves the hit alo
   assert.equal(atBat.error_notation, 'G6-E6')
 })
 
+test('a lost close play on a lead runner re-scores a logged single as a safe fielder choice', () => {
+  const state = createTrackerPreviewState()
+  feed(state, [
+    'Bowser vs. Luigi',
+    'Count: 0-0',
+    'Fair ball!',
+    'Luigi recorded a single!',
+    'Bowser vs. Mario',
+  ])
+  applyTrackerPreviewPlay(state, trackingPlay({
+    batter: 'Luigi',
+    batted_ball_class: 'fair_in_play',
+    runners: {
+      BAT: { character: 'Luigi', batting_index: 0, bases_ran: 1 },
+      R2: { character: 'Yoshi', batting_index: 4, bases_ran: 1 },
+    },
+    fielders: { SS: { character: 'Bowser' }, '3B': { character: 'Blooper' } },
+    fielding_events: [fieldingEvent({
+      event_type: 'possession', by: 'SS', character: 'Bowser',
+      ball_contact: 'confirmed', secured: true,
+    })],
+    throws: [throwRecord({
+      thrower_position: 'SS', thrower_character: 'Bowser',
+      receiver_position: '3B', receiver_character: 'Blooper',
+      target_base: 'third', outs_recorded: 0,
+      runner_at_arrival: { runner: 'R2', character: 'Yoshi', margin_s: 0.2 },
+    })],
+    close_plays: [{ by: '3B', character: 'Blooper', won_by: 'runner', flag_value: 2 }],
+  }))
+  const atBat = trackerPreviewSnapshot(state).display_at_bat
+  assert.equal(atBat.result, 'FC')
+  assert.equal(atBat.outs_on_play, 0)
+  assert.equal(atBat.fielder_choice_out, true)
+})
+
 test('a runner knocking the ball loose is never charged as a throwing error', () => {
   const state = createTrackerPreviewState()
   feed(state, [
@@ -357,6 +414,73 @@ test('the completed at-bat stays visible while the next empty matchup begins', (
   assert.equal(snapshot.display_at_bat.result, 'HBP')
   assert.equal(snapshot.display_at_bat.saved_to_database, false)
   assert.deepEqual(snapshot.display_at_bat.pitches.map((pitch) => pitch.result), ['hbp'])
+})
+
+test('the explicit walked line records ball four and resolves the plate appearance', () => {
+  const state = createTrackerPreviewState()
+  const snapshot = feed(state, [
+    'Green Noki vs. Luigi',
+    'Count: 0-0',
+    'Count: 1-0',
+    'Count: 2-0',
+    'Count: 3-0',
+    'Green Noki walked Luigi!',
+  ])
+  const pa = snapshot.display_at_bat
+  assert.equal(pa.result, 'BB')
+  assert.equal(pa.is_official_ab, false)
+  assert.deepEqual(pa.pitches.at(-1), {
+    ...pa.pitches.at(-1),
+    result: 'ball',
+    count_balls_before: 3,
+    count_strikes_before: 0,
+    count_balls_after: 4,
+    count_strikes_after: 0,
+  })
+})
+
+test('a complete joined fair play recovers an omitted hit announcement', () => {
+  const state = createTrackerPreviewState()
+  feed(state, [
+    'Mario vs. Green Shy Guy',
+    'Count: 0-0',
+    'Fair ball!',
+    'Fair ball fielded!',
+  ])
+  applyTrackerPreviewPlay(state, trackingPlay({
+    batter: 'Green Shy Guy',
+    batted_ball_class: 'fair_in_play',
+    runners: {
+      BAT: { character: 'Green Shy Guy', character_id: 46, batting_index: 0, bases_ran: 1 },
+    },
+  }))
+  assert.equal(trackerPreviewSnapshot(state).display_at_bat.result, '1B')
+})
+
+test('a recovered hit still becomes reached on error when an ordinary bobble caused it', () => {
+  const state = createTrackerPreviewState()
+  feed(state, [
+    'Green Noki vs. Blue Yoshi',
+    'Count: 0-0',
+    'Fair ball!',
+    'Magikoopa bobbled the ball!',
+    'Fair ball fielded!',
+  ])
+  applyTrackerPreviewPlay(state, trackingPlay({
+    batter: 'Blue Yoshi',
+    batted_ball_class: 'fair_in_play',
+    runners: {
+      BAT: { character: 'Blue Yoshi', character_id: 17, batting_index: 0, bases_ran: 2 },
+    },
+    fielding_events: [fieldingEvent({
+      by: '2B', character: 'Magikoopa', ball_contact: 'confirmed', secured: false,
+      mechanic: 'ordinary', ball_landed_before_contact: true,
+    })],
+  }))
+  const pa = trackerPreviewSnapshot(state).display_at_bat
+  assert.equal(pa.result, 'ROE')
+  assert.equal(pa.is_error, true)
+  assert.equal(pa.error_character, 'Magikoopa')
 })
 
 test('the next matchup snapshot resolves actual runner destinations', () => {
@@ -1208,6 +1332,27 @@ test('an RBI announced on a reached-on-error is not credited', () => {
   assert.equal(atBat.result, 'ROE')
   assert.equal(atBat.is_error, true)
   assert.equal(atBat.rbi, 0)
+})
+
+// Season game 2811 (Peach Ice Garden, 2026-09-18): the executable announced
+// the homer and both runs, then never printed "Bowser recorded 2 RBI!".
+test('a home run whose RBI line never came still credits every run on it', () => {
+  const state = createTrackerPreviewState()
+  const snapshot = feed(state, [
+    'Mario vs. Bowser',
+    '1 outs',
+    'Count: 0-0',
+    'Wario is on second.',
+    'Fair ball!',
+    'Wario recorded a run!',
+    'Mario was charged with an earned run',
+    'Bowser recorded a run!',
+    'Mario was charged with an earned run',
+    'Bowser hits a two-run homer off of Mario!',
+  ])
+  const atBat = snapshot.display_at_bat
+  assert.equal(atBat.result, 'HR')
+  assert.equal(atBat.rbi, 2)
 })
 
 // The tracker announces the matchup BEFORE the out count, so a plate appearance

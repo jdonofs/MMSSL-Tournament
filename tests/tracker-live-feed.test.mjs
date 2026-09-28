@@ -11,6 +11,11 @@ import {
 } from '../src/utils/trackerLiveFeed.js'
 import { buildTrackerBetResolutionConfig } from '../scripts/tracker_betting_sync.mjs'
 import {
+  INTERRUPTED_SHUTDOWN_TIMEOUT_MS,
+  POSTGAME_SHUTDOWN_TIMEOUT_MS,
+  trackerShutdownTimeoutMs,
+} from '../scripts/tracker_shutdown_policy.mjs'
+import {
   applyPaDerivedTrackerInningState,
   applyTrackerInningStateMessage,
   captureTrackerPutout,
@@ -26,6 +31,14 @@ import {
   trackerPitchStatFields,
   trackerStarPitchPaFlags,
 } from '../scripts/tracker_play_events.mjs'
+
+test('normal postgame shutdown leaves enough time for full capture ingestion', () => {
+  assert.equal(trackerShutdownTimeoutMs('tracker_exit'), POSTGAME_SHUTDOWN_TIMEOUT_MS)
+  assert.equal(trackerShutdownTimeoutMs('game_completed'), POSTGAME_SHUTDOWN_TIMEOUT_MS)
+  assert.equal(trackerShutdownTimeoutMs('manual_stop'), POSTGAME_SHUTDOWN_TIMEOUT_MS)
+  assert.equal(POSTGAME_SHUTDOWN_TIMEOUT_MS, 10 * 60_000)
+  assert.equal(trackerShutdownTimeoutMs('signal'), INTERRUPTED_SHUTDOWN_TIMEOUT_MS)
+})
 
 test('keeps explicit tracker inning state when PA outs are one short', () => {
   const state = { inning: 1, isTop: false, outs: 2 }
@@ -76,6 +89,23 @@ test('treats a reset fixture as fresh even when a stale tracker feed row still e
     away_score: 0,
     home_score: 0,
   }, 1), false)
+
+  const resetGame = {
+    id: 42, status: 'scheduled', stats_source: 'tracker',
+    away_score: null, home_score: null, live_state: {},
+  }
+  const staleStats = {
+    updated_at: '2026-09-01T12:00:00Z',
+    live_feed: { scoreBySide: { a: 6, b: 2 }, inning: 5, gameEnded: true },
+  }
+  assert.equal(applyTrackerLiveStateToGame(resetGame, staleStats, { isSeason: true }), resetGame)
+  const resetTournamentGame = {
+    id: 42, status: 'pending', stats_source: 'tracker',
+    team_a_runs: 0, team_b_runs: 0, live_state: {},
+  }
+  assert.equal(applyTrackerLiveStateToGame(resetTournamentGame, staleStats), resetTournamentGame)
+  const activeGame = { ...resetGame, status: 'in_progress' }
+  assert.equal(applyTrackerLiveStateToGame(activeGame, staleStats, { isSeason: true }).away_score, 6)
 })
 
 test('uses PA outs as an inning-state fallback before tracker state arrives', () => {

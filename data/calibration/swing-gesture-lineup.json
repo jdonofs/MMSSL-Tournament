@@ -1,0 +1,300 @@
+{
+  "generatedAt": "2026-09-23T01:26:11.988Z",
+  "game": {
+    "id": null,
+    "table": "calibration",
+    "sourceId": null,
+    "stadium": "Mario Stadium",
+    "stadiumIndex": 0,
+    "isNight": false,
+    "homeAwaySwapped": false,
+    "calibration": {
+      "chemistryMode": "inherited_from_2948",
+      "percentCompleteBefore": null,
+      "swingTest": {
+        "schemaVersion": 1,
+        "status": "gesture_discovery_only",
+        "purpose": "slap_charge_gesture_calibration",
+        "defaultLabelRule": "slap on top, charge on bottom, all three innings.",
+        "perModeTarget": 12,
+        "annotationCategory": "swing_mode",
+        "annotationNoteFormat": "swing_mode=<charge|slap|unsure>; pitch=<n|all>; reason=<what happened>",
+        "blocks": [
+          {
+            "inning": 1,
+            "half": "top",
+            "batting": "away",
+            "mode": "slap"
+          },
+          {
+            "inning": 1,
+            "half": "bottom",
+            "batting": "home",
+            "mode": "charge"
+          },
+          {
+            "inning": 2,
+            "half": "top",
+            "batting": "away",
+            "mode": "slap"
+          },
+          {
+            "inning": 2,
+            "half": "bottom",
+            "batting": "home",
+            "mode": "charge"
+          },
+          {
+            "inning": 3,
+            "half": "top",
+            "batting": "away",
+            "mode": "slap"
+          },
+          {
+            "inning": 3,
+            "half": "bottom",
+            "batting": "home",
+            "mode": "charge"
+          }
+        ],
+        "objectives": [
+          {
+            "id": "top_slap",
+            "annotationCategory": "swing_mode",
+            "instruction": "Top half, all three innings: slap every swing, no charge at all."
+          },
+          {
+            "id": "bottom_charge",
+            "annotationCategory": "swing_mode",
+            "instruction": "Bottom half, all three innings: charge every swing to full before releasing."
+          },
+          {
+            "id": "exaggerate",
+            "annotationCategory": "swing_mode",
+            "instruction": "Make each mode as unambiguous as you can. This session has to separate the two gestures by itself, with no borderline swings to lean on."
+          },
+          {
+            "id": "deviation",
+            "annotationCategory": "swing_mode",
+            "instruction": "Any swing that came out as the other mode, or that you are not sure about, flag on its at-bat with the actual mode and the pitch number. Unflagged swings are taken as the plan says."
+          },
+          {
+            "id": "star_swing",
+            "annotationCategory": "swing_mode",
+            "instruction": "Stars are off for this game. If a star swing happens anyway, flag it as swing_mode=unsure -- a star swing is neither slap nor charge."
+          },
+          {
+            "id": "takes_and_bunts",
+            "annotationCategory": "swing_mode",
+            "instruction": "Take and bunt freely. Both are already separated by the capture and are excluded from the slap/charge sample without a flag."
+          },
+          {
+            "id": "next_session_swap",
+            "annotationCategory": "swing_mode",
+            "instruction": "NEXT session: swap which physical remote is port 1. That alone breaks the port/mode collinearity this session has, and the pair becomes fittable."
+          }
+        ],
+        "confounds": [
+          {
+            "kind": "port_mode_collinear",
+            "detail": "port 1 bats only in top halves (slap) and port 2 only in bottom halves (charge), so controller port predicts swing mode perfectly",
+            "consequence": "no classifier may be fitted or scored on this session alone",
+            "remedy": "swap which remote is port 1 in the next session, then pool the two"
+          }
+        ],
+        "usableFor": [
+          "gesture_discovery"
+        ],
+        "notUsableFor": [
+          "classifier_fit",
+          "classifier_validation"
+        ]
+      }
+    }
+  },
+  "miiCount": 29,
+  "rules": [
+    3,
+    0,
+    0,
+    0
+  ],
+  "away": {
+    "label": "Away",
+    "playerId": null,
+    "playerName": "Jason",
+    "slots": [
+      {
+        "battingSlot": 0,
+        "fieldingSlot": 0,
+        "positionId": "pitcher",
+        "charIndex": 11,
+        "siteName": "Waluigi",
+        "characterId": 5,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 1,
+        "fieldingSlot": 1,
+        "positionId": "catcher",
+        "charIndex": 2,
+        "siteName": "Donkey Kong",
+        "characterId": 36,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 2,
+        "fieldingSlot": 2,
+        "positionId": "firstBase",
+        "charIndex": 19,
+        "siteName": "Bowser Jr.",
+        "characterId": 8,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 3,
+        "fieldingSlot": 3,
+        "positionId": "secondBase",
+        "charIndex": 37,
+        "siteName": "King Boo",
+        "characterId": 21,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 4,
+        "fieldingSlot": 4,
+        "positionId": "thirdBase",
+        "charIndex": 61,
+        "siteName": "Brown Kritter",
+        "characterId": 18,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 5,
+        "fieldingSlot": 5,
+        "positionId": "shortStop",
+        "charIndex": 32,
+        "siteName": "Purple Toad",
+        "characterId": 51,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 6,
+        "fieldingSlot": 6,
+        "positionId": "leftField",
+        "charIndex": 12,
+        "siteName": "Koopa",
+        "characterId": 68,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 7,
+        "fieldingSlot": 7,
+        "positionId": "centerField",
+        "charIndex": 26,
+        "siteName": "Green Noki",
+        "characterId": 41,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 8,
+        "fieldingSlot": 8,
+        "positionId": "rightField",
+        "charIndex": 47,
+        "siteName": "Gray Shy Guy",
+        "characterId": 39,
+        "miiColor": null
+      }
+    ],
+    "captainSlot": 9
+  },
+  "home": {
+    "label": "Home",
+    "playerId": null,
+    "playerName": "Jason",
+    "slots": [
+      {
+        "battingSlot": 0,
+        "fieldingSlot": 0,
+        "positionId": "pitcher",
+        "charIndex": 5,
+        "siteName": "Daisy",
+        "characterId": 1,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 1,
+        "fieldingSlot": 1,
+        "positionId": "catcher",
+        "charIndex": 38,
+        "siteName": "Petey Piranha",
+        "characterId": 24,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 2,
+        "fieldingSlot": 2,
+        "positionId": "firstBase",
+        "charIndex": 60,
+        "siteName": "Red Kritter",
+        "characterId": 25,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 3,
+        "fieldingSlot": 3,
+        "positionId": "secondBase",
+        "charIndex": 17,
+        "siteName": "Birdo",
+        "characterId": 6,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 4,
+        "fieldingSlot": 4,
+        "positionId": "thirdBase",
+        "charIndex": 53,
+        "siteName": "Boomerang Bro",
+        "characterId": 35,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 5,
+        "fieldingSlot": 5,
+        "positionId": "shortStop",
+        "charIndex": 29,
+        "siteName": "Blue Toad",
+        "characterId": 32,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 6,
+        "fieldingSlot": 6,
+        "positionId": "leftField",
+        "charIndex": 42,
+        "siteName": "Red Koopa",
+        "characterId": 69,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 7,
+        "fieldingSlot": 7,
+        "positionId": "centerField",
+        "charIndex": 68,
+        "siteName": "Yellow Yoshi",
+        "characterId": 62,
+        "miiColor": null
+      },
+      {
+        "battingSlot": 8,
+        "fieldingSlot": 8,
+        "positionId": "rightField",
+        "charIndex": 70,
+        "siteName": "Pink Yoshi",
+        "characterId": 50,
+        "miiColor": null
+      }
+    ],
+    "captainSlot": 5
+  }
+}

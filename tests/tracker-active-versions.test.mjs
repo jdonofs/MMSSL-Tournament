@@ -24,6 +24,7 @@ import {
   fetchSupersededTrackingPlayIds,
   isLegacyTrackingSchema,
   onlyActiveTrackingFacts,
+  onlyActiveTrackingPlays,
   supersededTrackingPlayIds,
 } from '../src/utils/activeTrackingVersions.js'
 import { recomputeAdvancedMetrics } from '../scripts/recompute_advanced_metrics.mjs'
@@ -178,6 +179,13 @@ test('the exclusion set is a Set, and the result object is refused as one', () =
     /not the fetch result/)
 })
 
+test('tracking play rows use their own ids when inactive versions are removed', () => {
+  const rows = [{ id: 1 }, { id: 2 }]
+  assert.deepEqual(onlyActiveTrackingPlays(rows, new Set(['2'])), [{ id: 1 }])
+  assert.throws(() => onlyActiveTrackingPlays(rows, { data: new Set(['2']) }),
+    /not the fetch result/)
+})
+
 test('supersededTrackingPlayIds names only the plays of an inactive version', () => {
   const excluded = supersededTrackingPlayIds(
     [{ id: 1, is_active: true }, { id: 2, is_active: false }],
@@ -241,4 +249,36 @@ test('recomputation runs, and excludes the superseded version, when membership i
     'the active version is modelled')
   assert.equal(superseded.model_version ?? null, null,
     'the superseded version is not, and keeps whatever it had')
+})
+
+test('recomputation can leave one season untouched while updating other records', async () => {
+  const client = createTrackerFakeSupabase({
+    plate_appearances: [
+      { id: 1, game_id: 10, inning: 1, result: '1B', outs_on_play: 0 },
+    ],
+    season_plate_appearances: [
+      { id: 2, game_id: 20, season_id: 74, inning: 1, result: '1B', outs_on_play: 0 },
+      { id: 3, game_id: 30, season_id: 37, inning: 1, result: '1B', outs_on_play: 0 },
+    ],
+    runner_opportunities: [],
+    double_play_opportunities: [],
+    fielding_opportunities: [
+      { id: 1, tracking_play_id: 101, expected_out_probability: null, outs_above_average: null },
+      { id: 2, tracking_play_id: 102, expected_out_probability: null, outs_above_average: null },
+      { id: 3, tracking_play_id: 103, expected_out_probability: null, outs_above_average: null },
+    ],
+    tracking_sessions: [{ id: 1, is_active: true }],
+    tracking_plays: [
+      { id: 101, tracking_session_id: 1, competition_type: 'tournament', pa_id: 1 },
+      { id: 102, tracking_session_id: 1, competition_type: 'season', pa_id: 2 },
+      { id: 103, tracking_session_id: 1, competition_type: 'season', pa_id: 3 },
+    ],
+  })
+
+  const summary = await recomputeAdvancedMetrics(client, { excludeSeasonIds: [74] })
+  assert.deepEqual(summary.excludedSeasonIds, ['74'])
+  assert.notEqual(client.db.fielding_opportunities[0].model_version, undefined)
+  assert.equal(client.db.fielding_opportunities[1].model_version, undefined,
+    'the excluded season keeps its existing modeled fields')
+  assert.notEqual(client.db.fielding_opportunities[2].model_version, undefined)
 })

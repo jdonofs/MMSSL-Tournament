@@ -446,6 +446,16 @@ export default function FieldPlayBuilder({
   primaryMarkerLabel = null,
   secondaryMarkerLabel = null,
   showFielderMarkers = true,
+  // WHERE THE BALL WENT, when a stadium bent it. Two markers and nothing
+  // between them read as a straight line from the landing to the fielded spot,
+  // and at Wario City that line is a journey the ball never made: an arrow
+  // rewrites its heading mid-roll, so it arrives from a direction the picture
+  // does not show. Points are image percentages, in the order the ball passed
+  // through them; an empty list draws nothing and every other park is
+  // unchanged.
+  pathSpots = [],
+  pathAccent = '#F97316',
+  pathLabel = null,
 }) {
   const viewportRef = useRef(null)
   const containerRef = useRef(null)
@@ -689,6 +699,45 @@ export default function FieldPlayBuilder({
             </>
           )
         })() : null}
+        {pathSpots.length > 1 ? (
+          <svg
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            style={{
+              position: 'absolute', inset: 0, width: '100%', height: '100%',
+              pointerEvents: 'none', overflow: 'visible',
+            }}
+          >
+            <polyline
+              points={pathSpots.map((spot) => `${spot.x},${spot.y}`).join(' ')}
+              fill="none"
+              stroke={pathAccent}
+              strokeWidth="0.5"
+              strokeDasharray="1.6 1.2"
+              vectorEffect="non-scaling-stroke"
+              opacity="0.9"
+            />
+          </svg>
+        ) : null}
+        {pathSpots.slice(1, -1).map((spot, index) => (
+          <div
+            key={`path-${index}`}
+            title={pathLabel || 'Redirected here'}
+            style={{
+              position: 'absolute',
+              left: `${spot.x}%`,
+              top: `${spot.y}%`,
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: `${pathAccent}55`,
+              border: `1.5px solid ${pathAccent}`,
+              transform: 'translate(-50%, -50%)',
+              pointerEvents: 'none',
+              boxShadow: `0 0 0 2px ${pathAccent}1A`,
+            }}
+          />
+        ))}
         {secondarySpot ? (() => {
           const dist = estimateHitDistance(secondarySpot, stadiumConfig)
           return (

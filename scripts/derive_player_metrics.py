@@ -52,6 +52,8 @@ from collections import Counter, deque
 from pathlib import Path
 
 from player_tracking_io import Session, dumps_play, session_snapshot_builder
+from export_catch_preoutcome_features import WINDOW_FRAMES as PREOUTCOME_WINDOW_FRAMES
+from export_catch_preoutcome_features import project as project_preoutcome_flight
 
 # Character ids are the game's own, extracted from the tracker's CHAR_ID_TO_NAME
 # and cross-checked against mss_autoteam.py's captain list and its
@@ -122,8 +124,24 @@ STILL_SPEED_UPS = 0.4
 # Measured against the game's own run_speed attribute, that inverted the metric
 # -- per-character fielder sprint speed correlated at -0.66, King K. Rool
 # (run_speed 10) reading 10.20 u/s while Yoshi (90) read 8.45.
+#
+# THE FIELDER CEILING IS NOW A FALLBACK. The game stores each character's own
+# top speed at +0x0F0, so Track.assists uses that character's figure and only
+# falls back to this one where the field is missing. The runner ceiling still
+# applies to every runner: the offense actor class does not carry the field.
 ASSIST_SPEED_UPS_RUNNER = 11.0
 ASSIST_SPEED_UPS_FIELDER = 8.7
+
+# Slack above a character's own top speed before a step counts as a glide. One
+# sample is one frame of game clock, so a step can straddle the frame a glide
+# begins on and read slightly high without being assisted.
+GLIDE_TOLERANCE_UPS = 0.5
+
+# How far past contact to look for the game's own landing prediction. It is
+# written on the contact frame itself in most plays but can lag it by a frame or
+# two, and the window has to stay short: the slot is cleared between balls, so a
+# long search would find the NEXT play's prediction rather than this one's.
+PROJECTED_LANDING_SEARCH_FRAMES = 8
 
 # A play is abandoned if it runs longer than this; something has gone wrong with
 # the state flags and a 90-second "play" would poison every aggregate.
@@ -216,8 +234,11 @@ MIN_THROW_SPEED_MPS = 2.0
 # the first real session flew at 182 and 208 mph against a normal spread of 79
 # to 123.
 #
-# The frozen world is the signature, and it is what the detector keys on rather
-# than the speed: nothing else in a live play stops all nine actors at once.
+# The frozen world is supporting timing evidence, not identity. A DK Jungle
+# close-play contest also stopped all nine actors and produced a 2.79 s gap,
+# which proved a freeze-only detector can invent chemistry. The game's
+# buddy_thrower scalar is the identity signal; every MSSTRK02 capture carries
+# it and every labelled Buddy Throw sets it.
 #
 # The partner cannot be found in the position data -- everything is frozen -- but
 # the game names it in a scalar. Across eight Buddy Throws in two parks it was
@@ -272,6 +293,26 @@ TARGET_BASE_RADIUS_UNITS = 5.0
 # which is the distinction the operator drew -- the throw was off the bag, and
 # nobody advanced on it.
 RECEIVER_PULLED_OFF_BASE_UNITS = 2.0
+# AN INACCURATE THROW, from the game's own numbers rather than from where the
+# receiver ended up. THROW_AIM_ADDRESS (player_tracking_io.py) is where the game
+# aimed the throw and THROW_DESTINATION_ADDRESS is where it actually sent it, so
+# the gap between them is the error the game gave the throw -- known on the
+# release frame, before the ball lands. Across all 2,383 archived throws
+# (2026-09-11) the ball landed a median 0.20u from the destination. Of the 1,816
+# aimed at a receiver already standing on the aim point, the 18 off target have
+# a 2.22-7.66u gap and the other 1,798 never more than 0.94u; all 18 are between
+# characters with bad chemistry, including all five the operator annotated. Bad
+# chemistry is a chance, not a rule: 121 bad-chemistry throws have no gap at all.
+#
+# It separates what `receiver_pulled_off_base` cannot: Wario to King K. Rool at
+# home caught him 2.2u off the plate and landed 0.06u from its aim point -- K. Rool
+# was not on the plate, and the throw was fine.
+#
+# A throw to a receiver still moving is not judged: aim point and destination
+# part there between neutral pairs too (218 of the 258 gaps over 3u), so the gap
+# is not an error. A capture without a destination falls back to the landing.
+THROW_AIM_STANDING_UNITS = 0.5
+THROW_OFF_TARGET_UNITS = 1.5
 THROWING_ERROR_RUNNER_DISTANCE_UNITS = 3.0
 THROWING_ERROR_RUNNER_CLOSING_UNITS = 2.0
 # A glove knock-out can briefly look like a very slow throw: possession changes
@@ -314,15 +355,54 @@ class Track:
         self.kind = kind
         self.times = []
         self.points = []
+        # The game's own speed for this actor, per sample, in u/s -- None on an
+        # offense actor, whose class does not carry the field. See
+        # ACTOR_FIELDS["speed"] in collect_player_tracking.py.
+        self.game_speeds = []
+        # The character's top speed from +0x0F0, as the LOWEST value seen
+        # across the play.
+        #
+        # It is a per-character constant almost everywhere -- 89 of 92 distinct
+        # values across the whole archive -- but three characters (Boomerang
+        # Bro., Baby Peach, Baby Daisy) also show a value at exactly 1.8x their
+        # base, and what raises it is not yet known. Until it is, the ceiling
+        # takes the base: a raised ceiling silently reclassifies glide as
+        # running, which is the exact error this field was brought in to fix,
+        # whereas a base ceiling at worst calls a genuine boost a glide and says
+        # so in `assist_units`.
+        self.max_speed = None
 
     @property
     def assist_speed_ups(self) -> float:
         return (ASSIST_SPEED_UPS_RUNNER if self.kind == "offense"
                 else ASSIST_SPEED_UPS_FIELDER)
 
-    def add(self, t: float, point: tuple):
+    @property
+    def has_game_speed(self) -> bool:
+        """Whether the game told us this actor's speed on every sample."""
+        return bool(self.game_speeds) and all(
+            speed is not None for speed in self.game_speeds)
+
+    def add(self, t: float, point: tuple, game_speed: float | None = None,
+            max_speed: float | None = None, character: int | None = None):
         self.times.append(t)
         self.points.append(point)
+        self.game_speeds.append(game_speed)
+        # ONLY FROM FRAMES THIS CHARACTER IS ACTUALLY IN. A play window can span
+        # a change of sides, and the nine fielder objects are rewritten with the
+        # other team when it does -- so a later frame at this slot can be a
+        # different character entirely, carrying their top speed. The track's
+        # own character is fixed at its first frame, so taking the value from
+        # every frame silently mixed the two.
+        #
+        # It cost 6.93% of fielder rows a wrong ceiling and inverted the metric:
+        # Toadette (run_speed 80) came out at the slowest value in the cast.
+        # Within one character the field never moves -- 0 changes in 360,009
+        # samples -- so matching on it is exact rather than a tolerance.
+        if character is not None and character != self.character:
+            return
+        if max_speed and (self.max_speed is None or max_speed < self.max_speed):
+            self.max_speed = max_speed
 
     def path_length(self) -> float:
         """Ground distance covered, excluding teleports.
@@ -348,8 +428,32 @@ class Track:
                    if step <= TELEPORT_UNITS and assisted)
 
     def assists(self) -> list:
-        """Per step, whether the game moved this actor faster than it can run."""
+        """Per step, whether the game moved this actor faster than it can run.
+
+        THE CEILING IS PER CHARACTER, because the game stores each character's
+        top speed and there is no reason to keep guessing one number for all of
+        them. ASSIST_SPEED_UPS_FIELDER had to sit above the fastest character's
+        run and below the slowest character's glide at the same time, and those
+        two windows overlap: the game glides the SLOW characters hardest to get
+        them to the ball, so a single ceiling let King K. Rool's glide through
+        as running while clipping Yoshi's real sprint.
+
+        +0x0F0 closes that. Yoshi's ceiling is 8.46 u/s and King K. Rool's is
+        7.26, each the game's own figure for that character.
+
+        NOTE THAT +0x0E4 IS NOT USABLE HERE and the first version of this tried
+        to. It is the actor's true velocity whatever is causing it -- it tracks
+        a glide just as faithfully as a run, which is why it reproduces the
+        finite-difference speed to a median 0.0003 u/s -- so it cannot tell the
+        two apart. It reads 0.0 only for the instantaneous position rewrites,
+        which TELEPORT_UNITS already handles.
+
+        Runners keep the flat threshold: the offense actor class does not carry
+        either field. See ACTOR_FIELDS in collect_player_tracking.py.
+        """
         ceiling = self.assist_speed_ups
+        if self.kind != "offense" and self.max_speed:
+            ceiling = self.max_speed + GLIDE_TOLERANCE_UPS
         out = []
         for step, t0, t1 in zip(self.steps(), self.times, self.times[1:]):
             dt = t1 - t0
@@ -380,10 +484,12 @@ class Track:
     def window(self, end_t: float) -> "Track":
         """A copy covering only up to `end_t`."""
         clipped = Track(self.name, self.character, self.index, self.kind)
-        for t, point in zip(self.times, self.points):
+        for t, point, speed in zip(self.times, self.points, self.game_speeds):
             if t > end_t:
                 break
-            clipped.add(t, point)
+            # The clip carries this track's own character, so the max speed it
+            # already resolved is kept rather than re-filtered against nothing.
+            clipped.add(t, point, speed, self.max_speed, self.character)
         return clipped
 
     def displacement(self) -> float:
@@ -489,6 +595,13 @@ def summarise_track(track: Track, moved_threshold: float = ROUTE_MIN_PATH_UNITS,
         "bolt": sprint_mps * 3.280839895 >= 30.0,
         "teleports": track.teleports(),
     }
+    # The character's top speed as the game itself stores it, not as measured
+    # off this play. A fielder who never had to run flat out still has one, so
+    # this is the attribute and `sprint_speed_ups` is the performance -- the two
+    # answer different questions and the pipeline had only ever had the second.
+    if track.max_speed:
+        out["max_speed_ups"] = round(track.max_speed, 3)
+        out["max_speed_fps"] = round(track.max_speed * 3.280839895, 3)
     if path >= moved_threshold and not frozen_frames:
         out["reaction_s"] = track.reaction()
         # Route efficiency is only defined for someone who actually went
@@ -597,6 +710,25 @@ def detect_possession_carries(frames: list, contact_t: float,
     """
     live = [snapshot for snapshot in frames
             if snapshot["t"] - contact_t <= live_end + 1e-9]
+    by_timer = {snapshot["timer"]: snapshot for snapshot in live}
+
+    def ball_speed_before(timer: int):
+        """The loose ball's horizontal speed on its way into a possession frame.
+
+        None when the two frames before possession are not both a free ball --
+        a relay taken straight out of another glove has no approach to measure.
+        """
+        before, earlier = by_timer.get(timer - 1), by_timer.get(timer - 2)
+        if before is None or earlier is None:
+            return None
+        if any(int(snapshot["state"].get("ball_holder", -1)) >= 0
+               for snapshot in (before, earlier)):
+            return None
+        elapsed = before["t"] - earlier["t"]
+        if elapsed <= 0:
+            return None
+        return round(math.dist(before["ball"][::2], earlier["ball"][::2]) / elapsed, 3)
+
     carries = []
     track = None
     start_frame = None
@@ -627,6 +759,10 @@ def detect_possession_carries(frames: list, contact_t: float,
                     # is what separates a leaping catch's follow-through from
                     # an impulse delivered to a fielder on their feet.
                     "airborne_at_start": airborne_start,
+                    # How fast the ball was travelling when they took it. A
+                    # ball can only shove a fielder if it arrives with
+                    # something behind it; see KNOCKBACK_BALL_SPEED_UPS.
+                    "ball_speed_at_start_ups": ball_speed_before(start_frame),
                 })
         track = None
         start_frame = None
@@ -645,7 +781,9 @@ def detect_possession_carries(frames: list, contact_t: float,
                           actor.get("kind", "fielder"))
             start_frame = snapshot["timer"]
             airborne_start = bool(actor.get("airborne"))
-        track.add(snapshot["t"] - contact_t, actor["pos"])
+        track.add(snapshot["t"] - contact_t, actor["pos"],
+                  actor.get("speed"), actor.get("max_speed"),
+                  actor.get("character"))
         end_frame = snapshot["timer"]
     finish()
     return carries
@@ -665,6 +803,24 @@ BARREL_HIT_UNITS = 2.5
 # something happened -- the distance says they were in the same place, this says
 # one of them was moved.
 BARREL_KNOCKBACK_FRAMES = 30
+
+# HOW FAR A LIVE BARREL HAS TO TRAVEL before the interval is believed.
+#
+# THE SLOT IS NOT THE BARREL ANY MORE. 0x92AF5490 was identified live on
+# 2026-09-03 and captured from the next session on, and in both DK Jungle
+# captures that record it the address is dead: dk_jungle-20260912T150755Z reads
+# all-zero on 108,535 of 110,962 frames and garbage (-8.9e33) on the rest, with
+# no cannon sentinel ever present, and dk_jungle-20260904T161731Z reads all-zero
+# on 77,371 of 77,581 with one 137-frame run of a CONSTANT (0.2523, -0.1100,
+# 0.0). That constant clears every existing guard -- finite, in range, non-zero,
+# away from both sentinels -- so it reads as a live barrel parked 0.28u from
+# home plate, which is precisely the Mario Stadium failure the park gate was
+# added for, arriving instead through the one park the gate lets through.
+#
+# A measured barrel is fired from a cannon and crosses the outfield at 19-25
+# u/s, covering tens of units. One that never moved a unit is not a barrel, and
+# this is the cheapest test that separates the two without inventing a radius.
+BARREL_MIN_TRAVEL_UNITS = 1.0
 
 
 # WHAT DROVE THE FIELDER BACK. `classify_carry_motion` was built out of the
@@ -696,13 +852,60 @@ BARREL_KNOCKBACK_FRAMES = 30
 # 26.8). The jump began before the ball arrived, so where both are true the
 # capture cannot separate them and the leap is the one that was already
 # happening.
+# AND THE GAME MOVES FIELDERS BY ITSELF, which looks exactly like a knockback.
+# On 09-11 PA50 Bowser caught a liner, the train floored him two frames later,
+# the ball rolled out of his glove and sat there, and 104 frames later he took
+# possession of it again from 4.18u away: the ball snapped into his glove and
+# the game slid him 1.65u onto its spot, 5.39 u/s on the frame before and 16.98
+# u/s on the frame after. That passes every knockback test -- fastest first,
+# only slowing, dead straight -- with nothing to deliver it, because the ball it
+# names was crawling at 0.93 u/s. PA23's train-struck ball arrived at 13.0 u/s
+# and drove Toadsworth back 4.6u, which is the real thing.
+#
+# This bound sits between the two measured cases and is PROVISIONAL: the ball
+# speed is a new field, so the archive has not been re-derived with it yet.
+KNOCKBACK_BALL_SPEED_UPS = 4.0
+
+
 def name_carry_impulses(carries: list, first_touch: dict | None, throws: list,
                         knocked_frames: dict) -> None:
     """Record what delivered each knockback, in place."""
     for carry in carries:
-        if carry.get("motion") != "knockback":
-            continue
         start = carry["start_frame"]
+        speed_in = carry.get("ball_speed_at_start_ups")
+        arrived_fast = None if speed_in is None else speed_in >= KNOCKBACK_BALL_SPEED_UPS
+        on_first_touch = bool(first_touch and first_touch.get("by") == carry["by"]
+                              and first_touch.get("frame") == start)
+        # A SHOVE THE GAME CUT SHORT. The track ends when the ball leaves the
+        # glove, so a fielder floored just after the catch keeps only the first
+        # frames of the shove the ball gave him -- too few for
+        # classify_carry_motion, which needs three moving frames, and far under
+        # the narrative's one-unit floor. 09-11 PA50: Bowser went from a
+        # standstill to 12.8 u/s on the frame he caught a ball arriving at 19.7
+        # u/s, moving in the ball's own direction of travel, and the train
+        # floored him two frames later. Jason watched it -- "it was the hit that
+        # drove him back", "yes it was at the moment of the catch" -- and the
+        # derivation had thrown it away and described a glide 1.8 s later.
+        #
+        # ONE play in the whole archive meets this, so it is deliberately
+        # narrow and PROVISIONAL at n=1: the catch frame, a ball measured
+        # arriving fast, and a knockdown of that same fielder within two frames
+        # of the track's end. The other 17 carries a knockdown ends run 17
+        # frames or longer and classify on their own shape; the slow ones
+        # (0.5-2.9 u/s) fail the ball-speed test.
+        cut_short = [frame for frame in knocked_frames.get(carry["by"] + "@frame", [])
+                     if carry["end_frame"] < frame <= carry["end_frame"] + 2]
+        interrupted = bool(carry.get("motion") != "knockback" and cut_short
+                           and on_first_touch and arrived_fast)
+        if carry.get("motion") != "knockback" and not interrupted:
+            continue
+        if interrupted:
+            # The distance is an artefact of the interruption; the speed is the
+            # measurement, so the sentence leads with it.
+            carry["truncated_by_knockdown"] = True
+            carry["impulse"] = "batted_ball"
+            carry["impulse_frame"] = start
+            continue
         floored = [frame for frame in knocked_frames.get(carry["by"] + "@frame", [])
                    if carry["start_frame"] <= frame <= carry["end_frame"]]
         arrivals = [throw for throw in throws
@@ -710,14 +913,20 @@ def name_carry_impulses(carries: list, first_touch: dict | None, throws: list,
                     and throw.get("arrival_frame") == start]
         touched = bool(first_touch and first_touch.get("by") == carry["by"]
                        and first_touch.get("frame") == start)
+        speed = carry.get("ball_speed_at_start_ups")
+        crawling = None if speed is None else speed < KNOCKBACK_BALL_SPEED_UPS
         if floored:
             carry["impulse"] = "knockdown"
         elif carry.get("airborne_at_start"):
             carry["impulse"] = "leap"
         elif arrivals:
             carry["impulse"] = "thrown_ball"
-        elif touched:
+        # An unmeasurable approach keeps the old answer; only a ball MEASURED
+        # to be crawling loses the right to be called the thing that shoved them.
+        elif touched and crawling is not True:
             carry["impulse"] = "batted_ball"
+        elif crawling:
+            carry["impulse"] = "possession_glide"
         else:
             carry["impulse"] = None
         carry["impulse_frame"] = start
@@ -757,6 +966,19 @@ def detect_barrel_events(frames: list, contact_t: float, live_end: float,
             points = current["path"]
             distance = sum(math.dist(a[::2], b[::2])
                            for a, b in zip(points, points[1:]))
+            # A BARREL MOVES. The zero guard above rejects an all-zero slot and
+            # the range guard rejects garbage, but neither rejects a small
+            # CONSTANT -- and that is what the slot actually holds now.
+            # dk_jungle-20260904T161731Z reads (0.2523, -0.1100, 0.0) for 137
+            # consecutive frames: finite, in range, non-zero, away from both
+            # cannon sentinels, and therefore "a live barrel" by every test
+            # there was. It produced no event only because those frames fell
+            # outside every play window, which is luck rather than a guard.
+            # Measured barrels cross the outfield at 19-25 u/s and travel tens
+            # of units; one that never moved a single unit is not a barrel.
+            if distance < BARREL_MIN_TRAVEL_UNITS:
+                current = None
+                return
             approaches = []
             # `None` means the session predates the knockdown flag and has
             # nothing better; an EMPTY dict means the flag was captured and did
@@ -948,6 +1170,49 @@ FIELDING_ACTION_FORCED = (FIELDING_ACTION_STAR_BALL, FIELDING_ACTION_YOSHI_EGG)
 # animation that coincided with a ball, not a play on one.
 FIELDING_REACH_LIMIT_UNITS = 12.0
 
+# Freezie disappearance supplies the event; proximity supplies its cause. The
+# labelled breaks split cleanly: a ball that breaks one is at most 6.2u from
+# its centre, while the new buddy-attack control has the ball 43.9u away and
+# the attacking fielder 2.5u away. These generous limits sit outside those
+# observations without turning a merely nearby actor into the cause.
+FREEZIE_BALL_CONTACT_LIMIT_UNITS = 7.0
+FREEZIE_BUDDY_CONTACT_LIMIT_UNITS = 6.0
+
+# A ball rebounding from a frozen fielder has its own unmistakable physical
+# trace. The labelled Blue Kritter example reverses 136 degrees at 3.1u. The
+# detector retains room for the actor/ball body radii while requiring a large
+# direction change, so an ordinary pass by a frozen actor is not an event.
+FROZEN_FIELDER_BALL_CONTACT_UNITS = 4.0
+FROZEN_FIELDER_REBOUND_TURN_DEGREES = 60.0
+FREEZIE_BALL_REBOUND_CONTACT_UNITS = 4.0
+FREEZIE_BALL_REBOUND_TURN_DEGREES = 60.0
+
+# DAISY CRUISER'S DAY TABLES. Five operator-labelled ball/table contacts across
+# two independent sessions split into two physical signatures:
+#
+#   * the ball reverses vertically 1.90-2.13u above the field when it lands on
+#     a tabletop;
+#   * it turns 52-132 degrees 1.44-2.28u up when it strikes a table edge.
+#
+# Ordinary turf contacts sit at 0.25-0.40u. The one labelled near-miss has
+# three such ground bounces and no candidate above 1u. The back wall in the
+# same labelled play turns the ball at radius 101u, beyond this table zone.
+# These are consequence-side measurements: the impact coordinate is a place a
+# table was OBSERVED, not a claim that every table's object is captured.
+TABLE_MIN_CONTACT_HEIGHT_UNITS = 1.0
+TABLE_MAX_CONTACT_HEIGHT_UNITS = 3.0
+TABLE_MIN_VERTICAL_SPEED_UPS = 1.0
+TABLE_MIN_SIDE_TURN_DEGREES = 45.0
+TABLE_MIN_RADIUS_UNITS = 45.0
+TABLE_MAX_RADIUS_UNITS = 90.0
+TABLE_FIELDER_EXCLUSION_FRAMES = 12
+TABLE_CONTACT_GROUP_FRAMES = 12
+TABLE_OBJECT_MATCH_UNITS = 12.0
+TABLE_TRANSFORM_COPY_OFFSET = 0x30
+TABLE_ACTIVE_VALUE = 1
+TABLE_BREAK_CONTACT_UNITS = 12.0
+TABLE_THROW_PATH_UNITS = 8.0
+
 # The value `buddy_jump_flag` takes while the game runs a Buddy Jump. See
 # detect_buddy_jumps for why the other observed value is not one.
 BUDDY_JUMP_FLAG_ACTIVE = 2
@@ -1038,8 +1303,41 @@ CATCH_TYPE_NAMES = {
 CATCH_TYPE_ATTRIBUTION_FRAMES = 2
 
 
+# WHAT A REACH MEASUREMENT NEEDS, beyond which approach the fielder chose.
+#
+# The workbook publishes a catch RADIUS per character per approach -- how far
+# from the body the glove reaches on an ordinary catch, on a dive, on a leap.
+# A radius is only comparable against a measured SEPARATION: how far the ball
+# actually was from the fielder when the attempt resolved. Nothing here
+# recorded that, so the approach windows could say Tiny Kong dove and could not
+# say whether the dive was a stretch or a formality.
+#
+# The separation is taken at the closest point of the window rather than at its
+# end, because a missed dive keeps travelling after the ball is past and its
+# last frame is not where the attempt was decided. Height is reported relative
+# to the fielder's own feet, not as an absolute ball y, so that a wall catch on
+# the Daisy Cruiser deck and one at ground level are the same number.
+#
+# ONE OBSERVED CATCH IS A LOWER BOUND ON THE RADIUS AND NEVER THE RADIUS.
+# The fielder is not obliged to catch at full stretch, so the largest
+# separation seen is only the largest that has happened -- the true reach is at
+# least that and unknown above it. Failures are what bound it from the other
+# side, which is why a window that never secures the ball is kept and marked
+# rather than dropped.
+def _horizontal(a, b) -> float | None:
+    if not a or not b:
+        return None
+    return math.dist((a[0], a[2]), (b[0], b[2]))
+
+
 def detect_catch_approaches(frames: list, contact_t: float) -> list:
-    """One record per contiguous non-zero `catch_type` window per fielder."""
+    """One record per contiguous non-zero `catch_type` window per fielder.
+
+    Each window carries the geometry the reach comparison needs: the closest
+    the ball came to the fielder while the approach was live, the ball's height
+    above that fielder's feet at that moment, and the assistance flags that
+    disqualify the window from being read as ordinary mechanics.
+    """
     approaches = []
     active = {}
 
@@ -1049,6 +1347,24 @@ def detect_catch_approaches(frames: list, contact_t: float) -> list:
             return
         window["end_frame"] = last["timer"]
         window["end_t"] = round(last["t"] - contact_t, 4)
+        closest = window.pop("_closest", None)
+        window["separation_units"] = (
+            round(closest["separation"], 3) if closest else None)
+        window["separation_3d_units"] = (
+            round(closest["separation_3d"], 3) if closest else None)
+        window["relative_height_units"] = (
+            round(closest["relative_height"], 3) if closest else None)
+        window["ball_height_units"] = (
+            round(closest["ball_height"], 3) if closest else None)
+        window["closest_frame"] = closest["frame"] if closest else None
+        window["closest_t"] = (
+            round(closest["t"] - contact_t, 4) if closest else None)
+        # The glide is how the fielder GOT there; what disqualifies a reach
+        # measurement is the game still moving the body on the frame the
+        # attempt resolved.
+        window["assisted_at_closest"] = bool(closest and closest["glided"])
+        window["assisted"] = bool(
+            window["assist_frames"] or window["buddy_jump_frames"])
         approaches.append(window)
 
     previous = None
@@ -1073,12 +1389,52 @@ def detect_catch_approaches(frames: list, contact_t: float) -> list:
                     "start_frame": snapshot["timer"],
                     "start_t": round(snapshot["t"] - contact_t, 4),
                     "airborne_frames": 0,
+                    "buddy_jump_frames": 0,
+                    "assist_frames": 0,
+                    "max_speed_ups": None,
                 }
                 window = active[name]
             if window is not None:
                 window["frames"] = window.get("frames", 0) + 1
                 if actor.get("airborne"):
                     window["airborne_frames"] += 1
+                if actor.get("buddy_jump"):
+                    window["buddy_jump_frames"] += 1
+                # The game reports 0.0 ground speed for exactly the frames it
+                # is GLIDING the body to the ball (see ACTOR_FIELDS in the
+                # collector). A window with glided frames is the game closing
+                # the gap, not the character's reach.
+                glided = False
+                if actor.get("speed") == 0 and previous is not None:
+                    before = previous["actors"].get(name)
+                    if before and before.get("pos") and actor.get("pos"):
+                        if math.dist(before["pos"], actor["pos"]) > 1e-4:
+                            window["assist_frames"] += 1
+                            glided = True
+                # Already u/s out of player_tracking_io; do not scale again.
+                if actor.get("max_speed") and window["max_speed_ups"] is None:
+                    window["max_speed_ups"] = round(actor["max_speed"], 3)
+                separation = _horizontal(snapshot.get("ball"), actor.get("pos"))
+                if separation is not None:
+                    ball = snapshot["ball"]
+                    # THE CLOSEST POINT IS CHOSEN IN 3D, not on the ground
+                    # plane. A catch radius bounds a reach, and a ball passing
+                    # directly overhead is at its smallest HORIZONTAL
+                    # separation exactly when it is furthest out of reach --
+                    # picking that frame would report a dive under a ball four
+                    # units up as a 0.7-unit attempt.
+                    separation_3d = math.dist(ball, actor["pos"])
+                    closest = window.get("_closest")
+                    if closest is None or separation_3d < closest["separation_3d"]:
+                        window["_closest"] = {
+                            "separation": separation,
+                            "separation_3d": separation_3d,
+                            "relative_height": ball[1] - actor["pos"][1],
+                            "ball_height": ball[1],
+                            "frame": snapshot["timer"],
+                            "t": snapshot["t"],
+                            "glided": glided,
+                        }
         previous = snapshot
     for name in list(active):
         finish(name, previous)
@@ -1155,6 +1511,2014 @@ def _ball_motion_change(frames: list, index: int) -> dict:
         "outgoing_speed_ups": round(speed_out, 3),
         "trajectory_turn_degrees": round(turn, 3) if turn is not None else None,
     }
+
+
+def detect_frozen_fielder_ball_contacts(frames: list, contact_t: float,
+                                        live_end: float, order: list) -> list:
+    """Ball releases/rebounds at a fielder while their freeze flag is active."""
+    candidates = []
+    for index in range(8, len(frames) - 8):
+        snapshot = frames[index]
+        if snapshot["t"] - contact_t > live_end:
+            break
+        if snapshot["state"].get("ball_holder") != -1:
+            continue
+        for name, actor in snapshot["actors"].items():
+            if actor.get("kind") != "fielder" or not actor.get("frozen"):
+                continue
+            distance = math.dist(snapshot["ball"], actor["pos"])
+            if distance > FROZEN_FIELDER_BALL_CONTACT_UNITS:
+                continue
+            motion = _ball_motion_change(frames, index)
+            turn = motion.get("trajectory_turn_degrees")
+            if turn is None or turn < FROZEN_FIELDER_REBOUND_TURN_DEGREES:
+                continue
+            candidates.append((index, name, distance, motion))
+
+    # The turn is visible across several neighbouring samples. Collapse that
+    # run to the closest approach, but keep later separated rebounds.
+    groups = []
+    for candidate in candidates:
+        index, name, _, _ = candidate
+        if (groups and name == groups[-1][-1][1]
+                and frames[index]["timer"] <= frames[groups[-1][-1][0]]["timer"] + 1):
+            groups[-1].append(candidate)
+        else:
+            groups.append([candidate])
+
+    events = []
+    for group in groups:
+        index, name, distance, motion = min(group, key=lambda item: item[2])
+        snapshot = frames[index]
+        actor = snapshot["actors"][name]
+        previous_holder = frames[index - 1]["state"].get("ball_holder")
+        actor_index = order.index(name) if name in order else None
+        outcome = ("knocked_loose" if previous_holder == actor_index
+                   else "rebound")
+        # Use possession witnessed earlier on THIS play, not last_ball_holder:
+        # that scalar can still name someone from the previous play before a
+        # newly batted ball has ever entered a glove.
+        prior_holder = next((earlier["state"].get("ball_holder")
+                             for earlier in reversed(frames[:index])
+                             if isinstance(earlier["state"].get("ball_holder"), int)
+                             and earlier["state"].get("ball_holder") >= 0), None)
+        source_name = (order[prior_holder]
+                       if prior_holder is not None
+                       and prior_holder < len(order) else None)
+        source = (snapshot["actors"].get(source_name)
+                  if source_name is not None else None)
+        event = {
+            "by": name,
+            "character_id": actor["character"],
+            "character": character_name(actor["character"]),
+            "t": round(snapshot["t"] - contact_t, 4),
+            "frame": snapshot["timer"],
+            "outcome": outcome,
+            "at": [round(value, 3) for value in actor["pos"]],
+            "ball_at": [round(value, 3) for value in snapshot["ball"]],
+            "distance_units": round(distance, 3),
+            **motion,
+        }
+        if source_name is not None and source_name != name and source is not None:
+            event.update({
+                "source_thrower_position": source_name,
+                "source_thrower_character_id": source["character"],
+                "source_thrower_character": character_name(source["character"]),
+            })
+        events.append(event)
+    return events
+
+
+def attribute_freezie_breaks(freezie_breaks: list, frames: list,
+                              buddy_attacks: list, throws: list) -> None:
+    """Attach the measured cause of each Freezie disappearance in place."""
+    snapshots = {snapshot["timer"]: snapshot for snapshot in frames}
+    frame_indices = {snapshot["timer"]: index
+                     for index, snapshot in enumerate(frames)}
+    order = [name for name, actor in frames[0]["actors"].items()
+             if actor.get("kind") == "fielder"] if frames else []
+    for broken in freezie_breaks:
+        frame = broken["frame"]
+        snapshot = snapshots.get(frame)
+        at = tuple(broken["at"])
+        if snapshot is None:
+            broken["cause"] = {"type": "unknown"}
+            continue
+
+        attack_candidates = []
+        for attack in buddy_attacks:
+            if not attack.get("hit"):
+                continue
+            if not (attack["timer"] <= frame
+                    < attack["timer"] + attack["frames"]):
+                continue
+            actor = snapshot["actors"].get(attack["by"])
+            if actor is None:
+                continue
+            distance = math.dist(actor["pos"], at)
+            if distance <= FREEZIE_BUDDY_CONTACT_LIMIT_UNITS:
+                attack_candidates.append((distance, attack))
+
+        # When both are nearby, the exact successful buddy-attack window plus
+        # the closer body is stronger causal evidence than ball proximity.
+        if attack_candidates:
+            distance, attack = min(attack_candidates, key=lambda item: item[0])
+            ball_distance = broken.get("distance_units")
+            if ball_distance is None or distance < ball_distance:
+                broken["cause"] = {
+                    "type": "fielder_buddy_attack",
+                    "by": attack["by"],
+                    "character_id": attack["character_id"],
+                    "character": attack["character"],
+                    "attack_timer": attack["timer"],
+                    "distance_units": round(distance, 3),
+                }
+                attack["clears_freezie"] = True
+                continue
+
+        active_throw = next((throw for throw in throws
+                             if throw["launch_frame"] <= frame
+                             <= throw["arrival_frame"]), None)
+        ball_near = (broken.get("distance_units") is not None
+                     and broken["distance_units"]
+                     <= FREEZIE_BALL_CONTACT_LIMIT_UNITS)
+        if active_throw is not None and ball_near:
+            broken["cause"] = {
+                "type": "thrown_ball",
+                "by": active_throw["thrower_position"],
+                "character_id": active_throw["thrower_character_id"],
+                "character": active_throw["thrower_character"],
+                "throw_sequence": active_throw["sequence"],
+            }
+        elif ball_near and snapshot["state"].get("ball_status") == 2:
+            # A Freezie can interrupt a throw before anybody receives it, so
+            # detect_throws has no possession pair to publish. The transition
+            # into ball_status 2 plus possession witnessed earlier on this play
+            # still establishes the throw and its source.
+            index = frame_indices[frame]
+            prior_holder = next((earlier["state"].get("ball_holder")
+                                 for earlier in reversed(frames[:index])
+                                 if isinstance(
+                                     earlier["state"].get("ball_holder"), int)
+                                 and earlier["state"].get("ball_holder") >= 0),
+                                None)
+            if prior_holder is not None and prior_holder < len(order):
+                name = order[prior_holder]
+                actor = snapshot["actors"][name]
+                broken["cause"] = {
+                    "type": "thrown_ball",
+                    "by": name,
+                    "character_id": actor["character"],
+                    "character": character_name(actor["character"]),
+                    "throw_sequence": None,
+                    "source": "live_throw_state_after_witnessed_possession",
+                }
+            else:
+                broken["cause"] = {"type": "unknown"}
+        elif ball_near:
+            broken["cause"] = {"type": "batted_ball"}
+        else:
+            broken["cause"] = {"type": "unknown"}
+
+
+def detect_freezie_ball_rebounds(frames: list, contact_t: float,
+                                  live_end: float,
+                                  freezie_breaks: list) -> list:
+    """Physical ball contacts where the Freezie remains intact."""
+    candidates = []
+    for index in range(8, len(frames) - 8):
+        snapshot = frames[index]
+        if snapshot["t"] - contact_t > live_end:
+            break
+        if snapshot["state"].get("ball_holder") != -1:
+            continue
+        motion = _ball_motion_change(frames, index)
+        turn = motion.get("trajectory_turn_degrees")
+        if turn is None or turn < FREEZIE_BALL_REBOUND_TURN_DEGREES:
+            continue
+        for freezie in snapshot.get("freezies", []):
+            if not freezie.get("active") or freezie.get("pos") is None:
+                continue
+            distance = math.dist(snapshot["ball"], freezie["pos"])
+            if distance <= FREEZIE_BALL_REBOUND_CONTACT_UNITS:
+                candidates.append((index, freezie["slot"], distance, motion))
+
+    groups = []
+    for candidate in candidates:
+        index, slot, _, _ = candidate
+        if (groups and slot == groups[-1][-1][1]
+                and frames[index]["timer"]
+                <= frames[groups[-1][-1][0]]["timer"] + 1):
+            groups[-1].append(candidate)
+        else:
+            groups.append([candidate])
+
+    break_frames = {(broken["slot"], broken["frame"])
+                    for broken in freezie_breaks}
+    order = [name for name, actor in frames[0]["actors"].items()
+             if actor.get("kind") == "fielder"] if frames else []
+    events = []
+    for group in groups:
+        index, slot, distance, motion = min(group, key=lambda item: item[2])
+        snapshot = frames[index]
+        if any(broken_slot == slot and abs(broken_frame - snapshot["timer"]) <= 8
+               for broken_slot, broken_frame in break_frames):
+            continue
+        freezie = next(item for item in snapshot["freezies"]
+                       if item["slot"] == slot)
+        prior_holder = next((earlier["state"].get("ball_holder")
+                             for earlier in reversed(frames[:index])
+                             if isinstance(earlier["state"].get("ball_holder"), int)
+                             and earlier["state"].get("ball_holder") >= 0), None)
+        phase = "batted_ball"
+        event = {
+            "slot": slot,
+            "t": round(snapshot["t"] - contact_t, 4),
+            "frame": snapshot["timer"],
+            "outcome": "remained_active",
+            "phase": phase,
+            "at": [round(value, 3) for value in freezie["pos"]],
+            "ball_at": [round(value, 3) for value in snapshot["ball"]],
+            "distance_units": round(distance, 3),
+            **motion,
+        }
+        if prior_holder is not None and prior_holder < len(order):
+            name = order[prior_holder]
+            actor = snapshot["actors"][name]
+            event.update({
+                "phase": "thrown_ball",
+                "source_thrower_position": name,
+                "source_thrower_character_id": actor["character"],
+                "source_thrower_character": character_name(actor["character"]),
+            })
+        events.append(event)
+    return events
+
+
+def daisy_table_objects(props: list | None) -> list:
+    """The ten paired 3x4 table transforms in a Daisy Cruiser snapshot.
+
+    Each table owns a transform and an identical copy exactly 0x30 bytes
+    later. The active byte is at +0x8A from the first transform. Requiring the
+    pair, scale, heading and field location keeps unrelated stadium matrices
+    out without hard-coding this match's half-inning-dependent coordinates.
+    """
+    usable = [prop for prop in props or () if prop.get("pos") is not None]
+    by_address = {prop.get("address"): prop for prop in usable}
+    tables = []
+    for prop in usable:
+        address = prop.get("address")
+        copy = by_address.get(address + TABLE_TRANSFORM_COPY_OFFSET) \
+            if isinstance(address, int) else None
+        if copy is None:
+            continue
+        x, y, z = prop["pos"]
+        radius = math.hypot(x, z)
+        same_transform = (
+            math.dist(prop["pos"], copy["pos"]) <= 1e-4
+            and abs((prop.get("scale") or 0) - 1.0) <= 1e-4
+            and abs((copy.get("scale") or 0) - 1.0) <= 1e-4
+            and abs(prop.get("heading_degrees") or 0) <= 1e-3
+            and abs(copy.get("heading_degrees") or 0) <= 1e-3
+        )
+        if not same_transform or abs(y) > 0.01 or not 45 <= radius <= 95:
+            continue
+        tables.append({
+            **prop,
+            "active_raw": prop.get("active_raw"),
+            "active": prop.get("active_raw") == TABLE_ACTIVE_VALUE,
+        })
+    return tables
+
+
+def _horizontal_segment_distance(point: tuple, start: tuple, end: tuple) -> float:
+    px, pz = point[0], point[2]
+    ax, az = start[0], start[2]
+    bx, bz = end[0], end[2]
+    dx, dz = bx - ax, bz - az
+    length_sq = dx * dx + dz * dz
+    if length_sq <= 1e-9:
+        return math.hypot(px - ax, pz - az)
+    amount = max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / length_sq))
+    return math.hypot(px - (ax + amount * dx), pz - (az + amount * dz))
+
+
+def detect_table_breaks(frames: list, contact_t: float, park: str | None,
+                        is_night: bool | None, buddy_attacks: list,
+                        throws: list) -> list:
+    """Table-object +0x8A transitions, attributed to a measured contact."""
+    if park != "daisy_cruiser" or is_night is not False:
+        return []
+    previous = {}
+    breaks = []
+    for snapshot in frames:
+        tables = daisy_table_objects(snapshot.get("props"))
+        for table in tables:
+            address = table["address"]
+            active = table.get("active")
+            was_active = previous.get(address)
+            previous[address] = active
+            if was_active is not True or active is not False:
+                continue
+            frame = snapshot["timer"]
+            at = tuple(table["pos"])
+            cause = {"type": "unknown"}
+
+            for attack in buddy_attacks:
+                start = attack.get("timer")
+                end = start + attack.get("frames", 0) if isinstance(start, int) else None
+                actor = snapshot["actors"].get(attack.get("by"))
+                distance = (math.dist(tuple(actor["pos"])[::2], at[::2])
+                            if actor and actor.get("pos") else math.inf)
+                if (attack.get("hit") and start is not None and end is not None
+                        and start - 2 <= frame <= end + 3
+                        and distance <= TABLE_BREAK_CONTACT_UNITS):
+                    cause = {
+                        "type": "fielder_buddy_attack",
+                        "by": attack.get("by"),
+                        "character_id": attack.get("character_id"),
+                        "character": attack.get("character"),
+                        "distance_units": round(distance, 3),
+                    }
+                    break
+
+            if cause["type"] == "unknown":
+                for throw in throws:
+                    release = throw.get("release_frame")
+                    arrival = throw.get("arrival_frame")
+                    start, end = throw.get("start"), throw.get("end")
+                    if (not isinstance(release, int) or not isinstance(arrival, int)
+                            or not start or not end or not release - 2 <= frame <= arrival + 2):
+                        continue
+                    distance = _horizontal_segment_distance(at, tuple(start), tuple(end))
+                    if distance <= TABLE_THROW_PATH_UNITS:
+                        cause = {
+                            "type": "thrown_ball",
+                            "by": throw.get("thrower_position"),
+                            "character_id": throw.get("thrower_character_id"),
+                            "character": throw.get("thrower_character"),
+                            "throw_sequence": throw.get("sequence"),
+                            "distance_units": round(distance, 3),
+                        }
+                        break
+
+            ball = tuple(snapshot["ball"])
+            ball_distance = math.dist(ball, at)
+            if (cause["type"] == "unknown" and ball_distance <= TABLE_BREAK_CONTACT_UNITS \
+                    and snapshot["state"].get("ball_holder") == -1):
+                cause = {"type": "batted_ball", "distance_units": round(ball_distance, 3)}
+
+            breaks.append({
+                "t": round(snapshot["t"] - contact_t, 4),
+                "frame": frame,
+                "table": {
+                    "address": address,
+                    "at": [round(value, 3) for value in at],
+                    "scale": table.get("scale"),
+                    "heading_degrees": table.get("heading_degrees"),
+                },
+                "ball_at": [round(value, 3) for value in ball],
+                "ball_distance_units": round(ball_distance, 3),
+                "active_before": True,
+                "active_after": False,
+                "cause": cause,
+            })
+    return breaks
+
+
+def detect_table_ball_contacts(frames: list, contact_t: float, live_end: float,
+                               park: str | None, is_night: bool | None,
+                               fielding_events: list,
+                               first_touch: dict | None = None) -> list:
+    """Measured ball rebounds from Daisy Cruiser's daytime tables.
+
+    The old captures do not contain the table object allocation, so this uses
+    the collision itself to record an observed table location. A future
+    capture may also carry structurally shortlisted props; when one is close
+    to the impact it is attached as the table centre and object address.
+    """
+    if park != "daisy_cruiser" or is_night is not False:
+        return []
+
+    fielder_frames = [event.get("frame") for event in fielding_events
+                      if isinstance(event.get("frame"), int)]
+    candidates = []
+    for index in range(8, len(frames) - 8):
+        snapshot = frames[index]
+        if snapshot["t"] - contact_t > live_end:
+            break
+        # This detector describes the BATTED BALL'S meeting with a table. Once
+        # a glove has secured it, releases and throw arrivals generate large
+        # turns of their own. Table breaks on a later throw need the table's
+        # disappearance flag, which older captures do not contain and which is
+        # deliberately not guessed from those possession transitions.
+        if (first_touch and isinstance(first_touch.get("frame"), int)
+                and snapshot["timer"] >= first_touch["frame"]):
+            break
+        if snapshot["state"].get("ball_holder") != -1:
+            continue
+        x, y, z = snapshot["ball"]
+        radius = math.hypot(x, z)
+        if (y < TABLE_MIN_CONTACT_HEIGHT_UNITS
+                or y > TABLE_MAX_CONTACT_HEIGHT_UNITS
+                or radius < TABLE_MIN_RADIUS_UNITS
+                or radius > TABLE_MAX_RADIUS_UNITS):
+            continue
+        if any(abs(snapshot["timer"] - frame)
+               <= TABLE_FIELDER_EXCLUSION_FRAMES
+               for frame in fielder_frames):
+            continue
+
+        before = frames[index - 4]
+        after = frames[index + 4]
+        before_dt = snapshot["t"] - before["t"]
+        after_dt = after["t"] - snapshot["t"]
+        if before_dt <= 0 or after_dt <= 0:
+            continue
+        incoming_vertical = (y - before["ball"][1]) / before_dt
+        outgoing_vertical = (after["ball"][1] - y) / after_dt
+        top_bounce = (incoming_vertical <= -TABLE_MIN_VERTICAL_SPEED_UPS
+                      and outgoing_vertical >= TABLE_MIN_VERTICAL_SPEED_UPS)
+        motion = _ball_motion_change(frames, index)
+        turn = motion.get("trajectory_turn_degrees")
+        speed_in = motion.get("incoming_speed_ups")
+        speed_out = motion.get("outgoing_speed_ups")
+        side_rebound = (
+            turn is not None and turn >= TABLE_MIN_SIDE_TURN_DEGREES
+            and speed_in is not None and speed_out is not None
+            and speed_in >= 5.0 and speed_out >= 1.0
+            # Every labelled edge impact loses most of its speed. Requiring
+            # that loss rejects star-ball curves, Buddy launches and receiver
+            # acquisitions, all of which turn while gaining speed.
+            and speed_out <= speed_in * 0.8
+        )
+        if not top_bounce and not side_rebound:
+            continue
+        candidates.append({
+            "index": index,
+            "top_bounce": top_bounce,
+            "side_rebound": side_rebound,
+            "incoming_vertical_ups": incoming_vertical,
+            "outgoing_vertical_ups": outgoing_vertical,
+            "motion": motion,
+        })
+
+    # A reversal spans several centred velocity windows. Collapse the run to
+    # the lowest point for a top bounce, or the sharpest turn for an edge hit.
+    groups = []
+    for candidate in candidates:
+        frame = frames[candidate["index"]]["timer"]
+        if (groups and frame - frames[groups[-1][-1]["index"]]["timer"]
+                <= TABLE_CONTACT_GROUP_FRAMES):
+            groups[-1].append(candidate)
+        else:
+            groups.append([candidate])
+
+    events = []
+    for group in groups:
+        top = [candidate for candidate in group if candidate["top_bounce"]]
+        if top:
+            chosen = min(top, key=lambda candidate:
+                         frames[candidate["index"]]["ball"][1])
+            kind = "tabletop_bounce"
+        else:
+            chosen = max(group, key=lambda candidate:
+                         candidate["motion"].get("trajectory_turn_degrees") or 0)
+            kind = "table_edge_rebound"
+        index = chosen["index"]
+        snapshot = frames[index]
+        at = tuple(snapshot["ball"])
+
+        # A nearby structurally captured prop is identified BY the independent
+        # collision, never by its transform shape alone. Until such a capture
+        # exists, table remains null and `at` is still the observed location.
+        table = None
+        # Captured TABLES, not captured props: season game 2767 recorded the
+        # wrong prop cluster, and treating that as "no table here" vetoed every
+        # table hit in the game.
+        captured_tables = daisy_table_objects(snapshot.get("props"))
+        props_captured = bool(captured_tables)
+        props = [prop for prop in captured_tables if prop.get("active")]
+        if props:
+            closest = min(props, key=lambda prop: math.dist(at, prop["pos"]))
+            distance = math.dist(at, closest["pos"])
+            if distance <= TABLE_OBJECT_MATCH_UNITS:
+                table = {
+                    "address": closest.get("address"),
+                    "at": [round(value, 3) for value in closest["pos"]],
+                    "distance_units": round(distance, 3),
+                    "scale": closest.get("scale"),
+                    "heading_degrees": closest.get("heading_degrees"),
+                }
+        # Once the capture contains the actual table objects, the physics
+        # signature is only a candidate until it lands on an ACTIVE table.
+        # This rejects PA50 in the 2026-09-11 game: the table was broken by a
+        # buddy attack first and the ball turned 19u away afterward.
+        if props_captured and table is None:
+            continue
+
+        events.append({
+            "t": round(snapshot["t"] - contact_t, 4),
+            "frame": snapshot["timer"],
+            "at": [round(value, 3) for value in at],
+            "impact_kind": kind,
+            "height_units": round(at[1], 3),
+            "radius_units": round(math.hypot(at[0], at[2]), 3),
+            "incoming_vertical_ups": round(
+                chosen["incoming_vertical_ups"], 3),
+            "outgoing_vertical_ups": round(
+                chosen["outgoing_vertical_ups"], 3),
+            **chosen["motion"],
+            "table": table,
+            "location_source": ("captured_table_transform_at_ball_contact"
+                                if table else "measured_ball_contact"),
+        })
+    return events
+
+
+# WARIO CITY'S DIRECTIONAL ARROWS. The arrow does not deflect the ball; it
+# REWRITES its horizontal velocity. On one frame the horizontal speed is SET to
+# a fixed value and the heading SNAPS to the arrow's own axis, which the ball
+# then holds to +-0.002 degrees for as long as it keeps rolling while the speed
+# decays normally. Nothing else in this archive does that: a bounce, a boot, a
+# fielder deflection and a wall all change speed AND direction together, and by
+# amounts that vary with what hit what.
+#
+# MEASURE THE SPEED AS PER-FRAME DISPLACEMENT, NEVER AS A WALL-CLOCK DERIVATIVE.
+# `t` is the game's own 60 Hz counter here, so consecutive frames are exact; a
+# derivative taken against elapsed wall time jitters the same six events over
+# 11.4-12.1 u/s and no tolerance tight enough to mean anything survives it.
+#
+# THE IMPOSED SPEED IS A CONSTANT, AND AT NIGHT IT IS EXACTLY 2.25x THE DAY ONE.
+# Measured over four sessions and 23 operator-annotated redirects:
+#
+#     day     0.199085 units/frame   (11.945 u/s at 60 Hz)
+#     night   0.447941 units/frame   (26.877 u/s at 60 Hz)
+#
+# 0.447941 / 0.199085 = 2.250000. So this is ONE constant and ONE multiplier,
+# and the operator's "the arrows are stronger at night" is 2.25x, exactly.
+#
+# THE CONSTANT IS UNITS PER FRAME AND MUST NOT BE STORED AS UNITS PER SECOND.
+# The game writes a displacement, and the deriver's own frame rate is 59.94 --
+# so a constant expressed in u/s is 0.1% wrong the moment anything converts it,
+# which is five times this tolerance. Written as u/s it read 26.8496 against a
+# 26.8774 target and the night session's six redirects came back as zero. The
+# displacement is the invariant; the frame rate is not in the measurement at
+# all, and appears below only to report a speed a human can read.
+ARROW_IMPOSED_STEP_UNITS = 0.199085
+ARROW_NIGHT_MULTIPLIER = 2.25
+# Wide enough for the 32-bit rounding that splits the same magnitude into
+# different heading components (the two arrow families differ by 1 part in
+# 13,000) and far inside the gap to anything else: the nearest non-arrow match
+# in the archive is a ball decaying THROUGH this value with no turn at all,
+# which the turn gate below removes regardless.
+ARROW_STEP_TOLERANCE_UNITS = 0.0004
+# The heading has to actually turn. A rolling ball passes through the imposed
+# speed constantly on its way down, and 32 of the 39 speed matches in
+# wario_city-20260905T191040Z are exactly that -- turn under one degree. The
+# smallest turn at a labelled arrow across four sessions is 62.8 degrees.
+ARROW_MIN_TURN_DEGREES = 45.0
+# ...and then HOLD it. This is what separates an arrow from the pitch-to-bat
+# transition, which also matches the displacement for one frame while the ball
+# crosses the plate: the four such matches in wario_city-20260904T144308Z all
+# sat within 3 units of home plate and left at 17-680 u/s, because the bat had
+# just hit the ball. An arrow's heading is still the same number eight frames
+# later.
+#
+# EIGHT, MEASURED. Swept against the 23 operator-annotated redirects in the four
+# Wario City sessions, counting a detection outside every annotated PA window as
+# a false positive:
+#
+#     hold  4   22/23 annotated   0 unannotated
+#     hold  6   22/23             0
+#     hold  8   22/23             0
+#     hold 10   21/23             0
+#     hold 12   21/23             0
+#
+# Nothing is bought above 8 and one real event is lost: 20260902 PA7 holds the
+# imposed heading for exactly 8 frames before a fielder reaches the ball. The
+# 23rd is 20260902 PA55, which holds it for ZERO -- and the operator's note on
+# that play says why: "ball hit arrow, but dark bones buddy attacked before ball
+# could get away". A redirect with no frames of outgoing travel has no outgoing
+# direction to measure, so that one is honestly missing rather than wrongly
+# gated.
+ARROW_HOLD_FRAMES = 8
+ARROW_HOLD_TOLERANCE_DEGREES = 1.0
+# How close the ball has to pass to an arrow for that arrow to be named as the
+# one it hit. The six night redirects sit 2.5-4.7 units from the object whose
+# heading matches, and the next-nearest arrow sharing that axis is 20 units away
+# in every case. This is not a proximity argument on its own: the heading has to
+# match to within half a degree as well.
+ARROW_MATCH_RADIUS_UNITS = 9.0
+# An arrow imposes an AXIS, and the ball keeps the sign it arrived with, so the
+# measured bearing is the object's heading or that heading turned 180 degrees.
+ARROW_AXIS_TOLERANCE_DEGREES = 0.5
+
+
+def arrow_imposed_step_units(is_night: bool | None) -> float:
+    """The per-frame displacement a Wario City arrow writes, by variant."""
+    return ARROW_IMPOSED_STEP_UNITS * (ARROW_NIGHT_MULTIPLIER if is_night else 1.0)
+
+
+def _ball_frame_step(frames: list, index: int):
+    """Horizontal displacement over one GAME frame, or None across a gap."""
+    if index <= 0:
+        return None
+    if frames[index]["timer"] != frames[index - 1]["timer"] + 1:
+        return None
+    now, before = frames[index]["ball"], frames[index - 1]["ball"]
+    return (now[0] - before[0], now[2] - before[2])
+
+
+def _match_arrow(snapshot: dict, heading: float):
+    """The captured arrow whose axis AND position fit this redirect, or None."""
+    candidates = []
+    for prop in snapshot.get("props") or []:
+        position = prop.get("pos")
+        object_heading = prop.get("heading_degrees")
+        if position is None or object_heading is None:
+            continue
+        # The axis, not the direction: the ball keeps the sign it arrived with.
+        axis = abs(((object_heading - heading + 90) % 180) - 90)
+        if axis > ARROW_AXIS_TOLERANCE_DEGREES:
+            continue
+        distance = math.dist(snapshot["ball"][::2], position[::2])
+        if distance <= ARROW_MATCH_RADIUS_UNITS:
+            candidates.append((distance, prop, object_heading))
+    if not candidates:
+        return None
+    distance, prop, object_heading = min(candidates, key=lambda item: item[0])
+    return {
+        "address": prop.get("address"),
+        "heading_degrees": object_heading,
+        "at": [round(value, 3) for value in prop["pos"]],
+        "distance_units": round(distance, 3),
+    }
+
+
+def detect_arrow_redirects(frames: list, contact_t: float, live_end: float,
+                           fps: float, park: str | None,
+                           is_night: bool | None) -> list:
+    """Frames where a directional arrow rewrote the ball's horizontal velocity.
+
+    Park-gated for the reason every hazard here is: the signature is a speed and
+    a turn, and the speed alone also matches a fielder deflection at Mario
+    Stadium. Returns [] everywhere but Wario City.
+    """
+    if park != "wario_city":
+        return []
+    target = arrow_imposed_step_units(is_night)
+    events = []
+    for index in range(2, len(frames) - ARROW_HOLD_FRAMES - 1):
+        snapshot = frames[index]
+        if snapshot["t"] - contact_t > live_end:
+            break
+        # An arrow only ever acts on a ball nobody is holding, and all 23
+        # labelled redirects agree. Cheap, and it removes the possession
+        # artefacts that match the speed while a fielder carries the ball.
+        if snapshot["state"].get("ball_holder") != -1:
+            continue
+        step = _ball_frame_step(frames, index)
+        previous = _ball_frame_step(frames, index - 1)
+        if step is None or previous is None:
+            continue
+        displacement = math.hypot(*step)
+        if abs(displacement - target) > ARROW_STEP_TOLERANCE_UNITS:
+            continue
+        if math.hypot(*previous) < 1e-9:
+            continue
+        heading = math.degrees(math.atan2(step[0], step[1]))
+        before = math.degrees(math.atan2(previous[0], previous[1]))
+        turn = abs(((heading - before + 180) % 360) - 180)
+        if turn < ARROW_MIN_TURN_DEGREES:
+            continue
+        held = 0
+        for ahead in range(1, ARROW_HOLD_FRAMES + 1):
+            later = _ball_frame_step(frames, index + ahead)
+            if later is None or math.hypot(*later) < 1e-9:
+                break
+            drift = abs(((math.degrees(math.atan2(later[0], later[1])) - heading
+                          + 180) % 360) - 180)
+            if drift > ARROW_HOLD_TOLERANCE_DEGREES:
+                break
+            held += 1
+        if held < ARROW_HOLD_FRAMES:
+            continue
+        if events and snapshot["timer"] - events[-1]["frame"] <= 30:
+            continue
+        events.append({
+            "t": round(snapshot["t"] - contact_t, 4),
+            "frame": snapshot["timer"],
+            "at": [round(value, 3) for value in snapshot["ball"]],
+            "incoming_speed_ups": round(math.hypot(*previous) * fps, 3),
+            "outgoing_speed_ups": round(displacement * fps, 3),
+            # The measurement itself, in the units the game writes it in.
+            "imposed_step_units": round(displacement, 6),
+            "heading_degrees": round(heading, 4),
+            "incoming_heading_degrees": round(before, 4),
+            "turn_degrees": round(turn, 3),
+            "held_frames": held,
+            # Named only when this session actually captured the objects. A
+            # session recorded before the props were located says null rather
+            # than guessing which arrow it was.
+            "arrow": _match_arrow(snapshot, heading),
+        })
+    return events
+
+
+# WARIO CITY'S MANHOLES. Five of them, and unlike the arrows their positions do
+# NOT change between matches -- measured identical in the 2026-09-09 and
+# 2026-09-10 captures, and identical between the start and end memory dumps of
+# each. The operator says the same: "the manholes are always there and in the
+# same spot". So these are park constants, while the ALLOCATION that holds them
+# still moves and is still located structurally at capture time.
+#
+#     ( 50, -0.4, -40)  right foul territory
+#     ( 30, -0.4, -75)  right-centre
+#     (  0, -0.4, +11)  behind home plate -- the operator counted four and this
+#                       is the fifth; nothing is hit there and the camera does
+#                       not look at it
+#     (-30, -0.4, -75)  left-centre
+#     (-50, -0.4, -40)  left foul territory
+#
+# y = -0.4 is recessed below the field. They are the same object class as the
+# arrows -- 0xAC stride, translation at +0x0C/+0x1C/+0x2C -- drawn at uniform
+# scale 0.7 with heading 0.
+WARIO_MANHOLES = (
+    (50.0, -0.4, -40.0), (30.0, -0.4, -75.0), (0.0, -0.4, 11.0),
+    (-30.0, -0.4, -75.0), (-50.0, -0.4, -40.0),
+)
+
+# How close the floored fielder has to be for a manhole to be NAMED as what
+# floored him. Every one of the nine knockdown onsets in the two annotated night
+# sessions sits between 3.08 and 3.82 units from a manhole -- a band that tight
+# over nine events is the eruption's own knockback distance, not a coincidence
+# of whatever happened to be nearest.
+#
+# THE CONTROL IS WHAT MAKES THIS AN ATTRIBUTION AND NOT A PROXIMITY ARGUMENT.
+# Fielders stand ON these manholes routinely and are not knocked down: the
+# closest an UPRIGHT fielder came is 0.04 units in one session and 0.92 in the
+# other, and 620 fielder-frames were spent inside four units of a manhole
+# mid-cycle with nobody floored. Distance alone therefore predicts nothing --
+# which is exactly the operator's account, that a manhole only stuns "if water
+# spouts out from it, which only happens on certain plays". The knockdown FLAG
+# is what says somebody went down; this only says which manhole was under them.
+MANHOLE_KNOCKDOWN_RADIUS_UNITS = 5.0
+
+# A BALL CAN LAND ON AN ERUPTING MANHOLE. Operator, 2026-09-10 PA36: "the ball
+# hit the explodnng manhole, which is why it went out of the park for a ground
+# rule double, not a hommerun... the ball is not shown landing, but it did land,
+# just on the raised manhole."
+#
+# Measured on that play: at frame 32219->32220 the ball's VERTICAL velocity
+# reverses, -0.152 to +0.118 units/frame, at y = 3.02 and 2.4 units from the
+# (30, -75) manhole -- while the horizontal step carries on decaying smoothly,
+# 0.4402 to 0.4383, with no change of heading at all. That is a bounce off a
+# raised surface about 2.7 units up, and it is the opposite signature to an
+# arrow, which rewrites the horizontal and leaves the vertical alone.
+#
+# It also explains a null `landing`: the landing detector waits for the ball to
+# reach the ground, and this ball never did -- it bounced off the manhole and
+# left the park. Reporting the strike is what turns "no landing" from a missing
+# measurement into a described one.
+MANHOLE_BALL_STRIKE_RADIUS_UNITS = 5.0
+# Ground contact in this park sits at y = 0.25-0.6. Three units up is not the
+# ground by any reading, and the one measured strike is at 3.02.
+MANHOLE_BALL_STRIKE_MIN_HEIGHT_UNITS = 1.5
+# A bounce reverses the vertical and keeps the horizontal. Past this the ball
+# was turned as well, which is an arrow or an actor and not a flat surface.
+MANHOLE_BALL_STRIKE_MAX_TURN_DEGREES = 20.0
+
+
+def wario_manhole_spots(props: list | None) -> list:
+    """The manholes to measure against: the captured ones, else the constants.
+
+    A session that located them carries the real allocation, which is the
+    stronger evidence and also the check -- if a capture ever disagrees with the
+    constants above, that is worth knowing rather than papering over. A session
+    recorded before they were located (2026-09-09 found the arrows and missed
+    the manholes by 6.7 KB) still resolves, because their positions are fixed.
+    """
+    found = []
+    for prop in props or ():
+        position = prop.get("pos")
+        scale = prop.get("scale")
+        if position is None or scale is None:
+            continue
+        if abs(scale - 0.7) < 1e-6 and abs(position[1] + 0.4) < 1e-3:
+            spot = (round(position[0], 3), round(position[1], 3), round(position[2], 3))
+            if spot not in found:
+                found.append(spot)
+    return found or list(WARIO_MANHOLES)
+
+
+def _nearest_manhole(point, spots):
+    """(distance, spot) for the closest manhole to an (x, y, z) point."""
+    if not spots:
+        return None, None
+    distance, spot = min(
+        (math.dist((point[0], point[2]), (item[0], item[2])), item) for item in spots)
+    return distance, spot
+
+
+def name_manhole_knockdowns(knockdowns: list, frames: list, park: str | None,
+                            spots: list) -> None:
+    """Attach the manhole that floored each fielder, in place.
+
+    `knockdown_flag` is park-neutral and says only that something hit somebody.
+    At Wario City the something is a manhole, and this says which. Everywhere
+    else it is left unnamed, exactly as before.
+    """
+    if park != "wario_city":
+        return
+    snapshots = {snapshot["timer"]: snapshot for snapshot in frames}
+    for knock in knockdowns:
+        snapshot = snapshots.get(knock.get("frame"))
+        actor = (snapshot or {}).get("actors", {}).get(knock.get("by"))
+        if actor is None:
+            continue
+        distance, spot = _nearest_manhole(actor["pos"], spots)
+        if distance is None:
+            continue
+        # RECORDED EVEN WHEN IT DECLINES. A knockdown this leaves unnamed is not
+        # a measurement that failed, it is a measurement that came out far --
+        # and the difference matters, because Wario City has a cause that is
+        # not the stadium at all (see the Luigi plays in the 2026-09-10 game:
+        # floored with no ball contact, 24-29u from any manhole). Without the
+        # distance on the record there is no way to tell that apart from a
+        # manhole the radius just missed.
+        knock["manhole_distance_units"] = round(distance, 3)
+        if distance > MANHOLE_KNOCKDOWN_RADIUS_UNITS:
+            continue
+        knock["hazard"] = "manhole_water"
+        knock["manhole_at"] = [round(value, 3) for value in spot]
+
+
+# BOWSER CASTLE. Jason, 2026-09-05, five annotations: King Bob-omb throws bombs
+# that floor fielders, a Bowser statue in centre field breathes fire, and lava
+# falls. None of it was ever named -- the park reported no stadium events at all
+# while 33 hazard onsets sat measured in the capture and were discarded, because
+# the burned byte is only read out when a captain's star swing claims it.
+#
+# TWO BYTES CARRY THE WHOLE PARK. The bomb sets knocked_down (+0x23F); both
+# fires set burned (+0x23E). Measured across all four captures:
+#
+#   THE BOMB's flag holds value 1 for exactly 40 frames and then value 2. 15
+#     onsets, and all three of Jason's labelled bombs are this shape (f33839,
+#     f36879, f68063). The tail varies from 26 to 73 frames; phase one never
+#     does. Birdo's star swing is 1x39 -> 2x40, a frame short of it, and is
+#     named from the star-swing flag before this runs.
+#   FIVE ONSETS NEVER REACH VALUE 2 -- single runs of 34, 59, 91, 112 and 127
+#     frames. They floor fielders who are not in the play, at scattered
+#     mid-outfield spots, and one fires between plays entirely. No annotation
+#     covers any of them, so they stay UNNAMED with their shape recorded. The
+#     next labelled Bowser Castle game is what resolves them.
+#
+#   THE STATUE stands 11u in front of the centre-field fence. Six burns land on
+#     a flat front at z = -88.3 +- 0.6 spanning x -10 to +10, across four
+#     sessions, day and night, six different characters -- a fixed object's
+#     footprint, placed from what it does exactly as the pipes were. The other
+#     seven burns are scattered through left and right field. That is a gap
+#     rather than a threshold: statue-side max 0.60u, lava-side min 19.28u.
+BOWSER_CASTLE_STATUE_FRONT_Z = -88.3
+BOWSER_CASTLE_STATUE_FRONT_X = (-10.5, 10.5)
+# Five times the furthest measured statue burn, and still six times under the
+# nearest lava burn.
+BOWSER_CASTLE_STATUE_RADIUS_UNITS = 3.0
+BOMB_KNOCKDOWN_PHASE_ONE_FRAMES = 40
+
+
+def statue_front_distance(point) -> float:
+    """Ground distance from a point to the centre-field statue's measured front."""
+    low, high = BOWSER_CASTLE_STATUE_FRONT_X
+    return math.dist((point[0], point[2]),
+                     (min(max(point[0], low), high), BOWSER_CASTLE_STATUE_FRONT_Z))
+
+
+def name_bowser_castle_burns(burns: list, frames: list, park: str | None,
+                             claimed: set) -> list:
+    """Bowser Castle's two fire hazards, told apart by where the fielder stood.
+
+    A captain's fire star swing writes the same byte and is already claimed by
+    name_star_swing_effects, which keeps it. Every other park's burns are
+    star-claimed too -- all 19 of them in the archive -- so this names the only
+    unclaimed set there is.
+    """
+    if park != "bowser_castle":
+        return []
+    snapshots = {snapshot["timer"]: snapshot for snapshot in frames}
+    named = []
+    for burn in burns:
+        if (burn["by"], burn["frame"]) in claimed:
+            continue
+        snapshot = snapshots.get(burn["frame"])
+        actor = ((snapshot or {}).get("actors") or {}).get(burn["by"])
+        if actor is None:
+            continue
+        # A FLAG THAT OUTLIVED ITS OWNER IS NOT AN EVENT. The burned byte is not
+        # cleared when the sides change: one run began with three outs already
+        # recorded and stayed up for 468 frames through the intermission, by
+        # which point the slot held the other team's player (character 42 -> 56
+        # at f44501) at frozen coordinates. Its duration describes two different
+        # people, so it is dropped and says why.
+        last = snapshots.get(burn["frame"] + burn["frames"] - 1)
+        last_actor = ((last or {}).get("actors") or {}).get(burn["by"])
+        if last_actor is not None and last_actor["character"] != actor["character"]:
+            # KEPT IN THE RECORD, unnamed, saying why. A measurement that came
+            # out unusable is not the same as one that never happened, and
+            # without the reason on the record a 468-frame burn simply vanishes.
+            burn["discarded"] = "flag_outlived_the_side_change"
+            burn["hazard"] = None
+            named.append(burn)
+            continue
+        distance = statue_front_distance(actor["pos"])
+        # Recorded even where it declines to name, exactly as the manhole does:
+        # a burn this puts on the lava is a measurement that came out far, and
+        # without the distance there is no telling that from one the radius
+        # just missed.
+        burn["statue_front_distance_units"] = round(distance, 3)
+        burn["at"] = [round(value, 3) for value in actor["pos"]]
+        burn["hazard"] = ("statue_fire"
+                          if distance <= BOWSER_CASTLE_STATUE_RADIUS_UNITS
+                          else "falling_lava")
+        named.append(burn)
+    return named
+
+
+def name_bomb_knockdowns(knockdowns: list, park: str | None) -> None:
+    """King Bob-omb's bombs, named from the knockdown flag's own phases, in place.
+
+    Runs after the star swing, and never overrides a named hazard.
+    """
+    if park != "bowser_castle":
+        return
+    for knock in knockdowns:
+        phases = knock.get("phases")
+        if not phases:
+            continue
+        knock["phase_shape"] = "->".join(f"{value}x{count}" for value, count in phases)
+        if knock.get("hazard"):
+            continue
+        value, held = phases[0]
+        if (value == 1 and held == BOMB_KNOCKDOWN_PHASE_ONE_FRAMES
+                and len(phases) > 1):
+            knock["hazard"] = "bob_omb_bomb"
+            knock["hazard_source"] = "knockdown_flag_phases"
+
+
+# YOSHI PARK'S SIX PIPES. Jason, 2026-09-11: one each in left- and right-centre,
+# one down each foul line, and one out of play beside first and beside third; a
+# ball can go into one and come out of another, and a fielder who dives into one
+# is stunned. No pipe object is inside any captured region, so these are park
+# constants, placed from what the pipes DO in the five Yoshi Park captures:
+#
+#     (-21.9, -70.0)  left_centre        ( 21.9, -70.0)  right_centre
+#     (-38.1, -48.6)  left_field_line    ( 38.1, -48.6)  right_field_line
+#     (-29.9, -16.0)  third_base_foul    ( 29.9, -16.0)  first_base_foul
+#
+#   CENTRE PIPES. The only round hole in five games of fielder occupancy, ~2u in
+#   radius; the left and right holes are mirror images to 0.1u.
+#   LINE PIPES. Three free balls rebounding off a vertical surface -- 09-11 frame
+#   64092 on the left, 08-31T03 27482 and 08-31T14 57732 on the right -- each
+#   traced 2u back along its normal, agreeing to ~0.5u once mirrored. The 09-11
+#   left fielder's dive into it began 2.1u from that centre.
+#   FOUL PIPES. The night Piranha Plant holds the ball exactly 4.93u out from its
+#   pipe along the line it then spits it (left-centre: 0.8 degrees from the
+#   occupancy hole), and the third-base spit in 08-31T03 PA28 puts that pipe at
+#   (-29.9, -16.0). The first-base pipe is that point mirrored; nothing has
+#   measured it on its own yet.
+#
+# Every pipe is more than 26u from its nearest neighbour, far outside any radius
+# below.
+YOSHI_PIPES = (
+    ("left_centre", (-21.9, 0.0, -70.0)),
+    ("right_centre", (21.9, 0.0, -70.0)),
+    ("left_field_line", (-38.1, 0.0, -48.6)),
+    ("right_field_line", (38.1, 0.0, -48.6)),
+    ("third_base_foul", (-29.9, 0.0, -16.0)),
+    ("first_base_foul", (29.9, 0.0, -16.0)),
+)
+
+# A BALL THROUGH A PIPE. Both transits on disk are night ones (08-31T03 PA1 and
+# PA28, annotated "the piranha plant in the pipe ate the ball and brought it to a
+# new pipe"), and both run the same three phases:
+#
+#   held     the ball stops dead 2.0-4.1u from the entry pipe
+#   carried  a straight line to the exit pipe in exactly 45 frames, at constant
+#            velocity in all three axes -- no gravity and no drag
+#   held     117 frames 4.93u from the exit pipe, then spat out at 0.199 u/f
+#
+# No daytime transit has been captured, so nothing here depends on that exact
+# shape. A transit is any unbroken run of frames a free ball cannot produce on
+# its own -- stopped dead, moving at constant velocity, or jumping more than
+# PIPE_JUMP_UNITS in one frame -- that STARTS beside one pipe and ENDS beside a
+# different one. The different pipe is what keeps a dive catch out: the game
+# also freezes a free ball in mid-air while a fielder dives at it (09-11 frames
+# 40128 and 73378, one of them 5.6u from a pipe), and that ball goes nowhere.
+PIPE_TRANSIT_RADIUS_UNITS = 6.0
+# Faster than a 95 mph batted ball moves in a frame (0.71u), and slower than both
+# measured snaps into a carry (2.03u and 2.91u).
+PIPE_JUMP_UNITS = 2.0
+# The two carries covered 0.93 and 1.48 u/f. A roll decelerates and a flight
+# falls, so neither holds its velocity to a thousandth of a unit two frames running.
+PIPE_CARRY_MIN_STEP_UNITS = 0.25
+PIPE_CARRY_TOLERANCE_UNITS = 1e-3
+PIPE_STOPPED_UNITS = 1e-4
+# The snap from a hold into a carry breaks the constant-velocity test for one
+# frame, so a run survives that many ordinary frames before it ends.
+PIPE_RUN_GAP_FRAMES = 3
+
+# A PIRANHA PLANT HITTING A FIELDER WHILE IT HAS THE BALL. Three reviewed
+# onsets now make the signature exact rather than anecdotal:
+#
+#   08-31T03 f1834  RF, 25 frames after the plant takes the ball, 1.81u away
+#   08-31T03 f1974  LF, 21 frames before the plant spits it, 1.12u away
+#   09-12T14 f23967 3B, 21 frames before the plant spits it, 0.85u away
+#
+# All three raise the game's knockdown flag while the free ball is in the
+# already-detected Piranha transport, beside the affected fielder. No other
+# archived play has a knockdown during any pipe transit. The endpoint window
+# prevents an unrelated hit during the cross-field carry from being attributed
+# to the plant, and horizontal distance is used because the held ball is 4u
+# above the fielder's ground position.
+PIRANHA_TRANSIT_MIN_HELD_FRAMES = 100
+PIRANHA_HIT_ENDPOINT_WINDOW_FRAMES = 30
+PIRANHA_HIT_BALL_RADIUS_UNITS = 2.5
+
+# A FIELDER WHO RUNS INTO A PIPE IS STUNNED, on the shared hazard-stun byte
+# (+0x243) -- the same run a Daisy Cruiser table and a Luigi's Mansion grave
+# produce. The three onsets at Yoshi Park in five games:
+#
+#   09-11 frame 64054     LF Baby Mario dives (catch_type 3) 2.1u from the
+#                         left-field-line pipe and is thrown back to 3.2u
+#   08-31T13 frame 2385   RF Petey Piranha, walking with the ball, is pushed
+#                         straight out from the right-centre pipe to 4.1u. No
+#                         dive: running into one does it too
+#   08-30 frame 40639     Bowser Jr.'s paint, 14.8u from the nearest pipe;
+#                         star_swing_effects claims it before this runs
+PIPE_STUN_RADIUS_UNITS = 5.0
+
+
+def _nearest_pipe(point):
+    """(distance, name, spot) for the Yoshi Park pipe closest to an (x, y, z) point."""
+    return min((math.hypot(point[0] - spot[0], point[2] - spot[2]), name, spot)
+               for name, spot in YOSHI_PIPES)
+
+
+def _free_ball_step(frames: list, index: int):
+    """The ball's 3D displacement into `index`, or None unless it was free on both frames."""
+    if index <= 0:
+        return None
+    now, before = frames[index], frames[index - 1]
+    if now["timer"] != before["timer"] + 1:
+        return None
+    if (now["state"].get("ball_holder") != -1
+            or before["state"].get("ball_holder") != -1):
+        return None
+    step = tuple(a - b for a, b in zip(now["ball"], before["ball"]))
+    return step if all(math.isfinite(value) for value in step) else None
+
+
+def detect_pipe_transits(frames: list, contact_t: float, live_end: float,
+                         park: str | None, is_night: bool | None,
+                         buddy_handoffs: list | None = None) -> list:
+    """Balls that went into one Yoshi Park pipe and came out of another."""
+    if park != "yoshi_park":
+        return []
+    unnatural = []
+    for index in range(1, len(frames)):
+        if frames[index]["t"] - contact_t > live_end:
+            break
+        step = _free_ball_step(frames, index)
+        if step is None:
+            continue
+        horizontal = math.hypot(step[0], step[2])
+        if horizontal < PIPE_STOPPED_UNITS:
+            unnatural.append((index, "held"))
+            continue
+        if math.hypot(*step) > PIPE_JUMP_UNITS:
+            unnatural.append((index, "jump"))
+            continue
+        previous = _free_ball_step(frames, index - 1)
+        if (previous is not None and horizontal >= PIPE_CARRY_MIN_STEP_UNITS
+                and all(abs(a - b) <= PIPE_CARRY_TOLERANCE_UNITS
+                        for a, b in zip(step, previous))):
+            unnatural.append((index, "carried"))
+
+    runs = []
+    for index, kind in unnatural:
+        if runs and index - runs[-1][-1][0] <= PIPE_RUN_GAP_FRAMES + 1:
+            runs[-1].append((index, kind))
+        else:
+            runs.append([(index, kind)])
+
+    transits = []
+    for run in runs:
+        first, last = run[0][0], run[-1][0]
+        # The last ordinary frame before the run is where the ball met the pipe;
+        # the last frame of the run is where it was released.
+        entry_at, exit_at = frames[first - 1]["ball"], frames[last]["ball"]
+        entry_distance, entry_pipe, entry_spot = _nearest_pipe(entry_at)
+        exit_distance, exit_pipe, exit_spot = _nearest_pipe(exit_at)
+        if (entry_distance > PIPE_TRANSIT_RADIUS_UNITS
+                or exit_distance > PIPE_TRANSIT_RADIUS_UNITS
+                or entry_pipe == exit_pipe):
+            continue
+        # A BUDDY HANDOFF HOLDS THE BALL TOO. The handoff is played as a
+        # cutscene -- the ball hangs unheld at a constant height while the
+        # animation runs -- which is the same "held then carried" signature a
+        # pipe leaves, and the endpoints can fall near two different pipes by
+        # coincidence. yoshi_park-20260911T220152Z play 94 is one: a run from
+        # frame 72046 to 72116 read as left_centre -> left_field_line, with the
+        # ball pinned at y=3.0 at both ends and the exit landing exactly on the
+        # handoff's own action_end_frame (71998-72116). A ball inside a pipe is
+        # not simultaneously inside a fielder's handoff animation, so a run that
+        # sits wholly within one belongs to the handoff.
+        entry_frame, exit_frame = frames[first]["timer"], frames[last]["timer"]
+        if any(start is not None and end is not None
+               and start <= entry_frame and exit_frame <= end
+               for start, end in ((handoff.get("action_start_frame"),
+                                   handoff.get("action_end_frame"))
+                                  for handoff in buddy_handoffs or ())):
+            continue
+        kinds = [kind for _, kind in run]
+        held_frames = kinds.count("held")
+        # Captures before 2026-09-02 did not record the day/night bytes. Their
+        # two operator-labelled Piranha transports are still distinguishable:
+        # the plant holds the ball for 141-166 frames, versus 26 in both known
+        # daytime pipe transits. This also lets those earlier positives remain
+        # part of the detector's regression set.
+        legacy_piranha = (is_night is None
+                           and held_frames >= PIRANHA_TRANSIT_MIN_HELD_FRAMES)
+        transits.append({
+            "t": round(frames[first]["t"] - contact_t, 4),
+            "frame": frames[first]["timer"],
+            "exit_t": round(frames[last]["t"] - contact_t, 4),
+            "exit_frame": frames[last]["timer"],
+            "transit_s": round(frames[last]["t"] - frames[first - 1]["t"], 4),
+            "entry_pipe": entry_pipe,
+            "entry_pipe_at": list(entry_spot),
+            "entry_at": [round(value, 3) for value in entry_at],
+            "entry_distance_units": round(entry_distance, 3),
+            "exit_pipe": exit_pipe,
+            "exit_pipe_at": list(exit_spot),
+            "exit_at": [round(value, 3) for value in exit_at],
+            "exit_distance_units": round(exit_distance, 3),
+            "held_frames": held_frames,
+            "carried_frames": kinds.count("carried"),
+            "jump_frames": kinds.count("jump"),
+            # A Piranha Plant does the carrying at night and the pipe does it by
+            # day. Legacy captures use the independently reviewed long-hold
+            # signature above instead of pretending their missing byte was day.
+            "mechanism": ("piranha_plant" if is_night is True or legacy_piranha
+                          else "pipe" if is_night is False else None),
+        })
+    return transits
+
+
+def name_piranha_knockdowns(knockdowns: list, frames: list,
+                            pipe_transits: list, park: str | None) -> None:
+    """Name a fielder floored by the plant taking or spitting the live ball."""
+    if park != "yoshi_park":
+        return
+    by_timer = {snapshot["timer"]: snapshot for snapshot in frames}
+    for knock in knockdowns:
+        if knock.get("hazard"):
+            continue
+        frame = knock.get("frame")
+        snapshot = by_timer.get(frame)
+        actor = ((snapshot or {}).get("actors") or {}).get(knock.get("by"))
+        if actor is None:
+            continue
+        for transit in pipe_transits:
+            if transit.get("mechanism") != "piranha_plant":
+                continue
+            entry_delta = frame - transit["frame"]
+            exit_delta = transit["exit_frame"] - frame
+            if entry_delta < 0 or exit_delta < 0:
+                continue
+            endpoint_delta = min(entry_delta, exit_delta)
+            if endpoint_delta > PIRANHA_HIT_ENDPOINT_WINDOW_FRAMES:
+                continue
+            distance = math.dist(actor["pos"][::2], snapshot["ball"][::2])
+            if distance > PIRANHA_HIT_BALL_RADIUS_UNITS:
+                continue
+            phase = "eat" if entry_delta <= exit_delta else "spit"
+            pipe_key = "entry_pipe" if phase == "eat" else "exit_pipe"
+            pipe_at_key = "entry_pipe_at" if phase == "eat" else "exit_pipe_at"
+            knock.update({
+                "hazard": "piranha_plant",
+                "hazard_source": "knockdown_during_piranha_transport",
+                "piranha_phase": phase,
+                "pipe": transit.get(pipe_key),
+                "pipe_at": transit.get(pipe_at_key),
+                "ball_at": [round(value, 3) for value in snapshot["ball"]],
+                "ball_distance_units": round(distance, 3),
+                "endpoint_delta_frames": endpoint_delta,
+            })
+            break
+
+
+def name_pipe_stuns(impact_stuns: list, claimed: set, approaches: list,
+                    park: str | None) -> list:
+    """The impact stuns at Yoshi Park that a pipe caused, with the pipe named."""
+    if park != "yoshi_park":
+        return []
+    named = []
+    for stun in impact_stuns:
+        if stun.get("at") is None or (stun["by"], stun["frame"]) in claimed:
+            continue
+        distance, pipe, spot = _nearest_pipe(stun["at"])
+        if distance > PIPE_STUN_RADIUS_UNITS:
+            continue
+        window = approach_at(approaches, stun["by"], stun["frame"])
+        named.append({
+            **stun,
+            "pipe": pipe,
+            "pipe_at": list(spot),
+            "pipe_distance_units": round(distance, 3),
+            "dive": bool(window and window.get("dive")),
+        })
+    return named
+
+
+# YOSHI PARK'S TRAIN. Jason, 2026-09-11, seven annotations: "the train drives
+# around the outfield in a constant same path like a normal train does... it
+# starts in the lf wall, drives into the rf wall, then comes back out in the lf
+# wall." It floors fielders on the knockdown flag (+0x23F), and at night the
+# Wiggler does the same thing along the same wall.
+#
+# THE TRAIN'S DIRECT POSITION IS CAPTURED IN NEW SESSIONS. The full-memory
+# probes from two day games found a stable copy at 0x811F84DC: it followed the
+# outfield loop and was within 12u of the floored fielder at all 26 sampled
+# train knockdowns. Older captures do not contain that address, so their honest
+# fallback remains the measured fence band: all annotated hits were 1.6-7.9u
+# inside the fence, while non-train causes were 13u or more inside.
+TRAIN_FENCE_BAND_UNITS = 9.0
+TRAIN_CONTACT_RADIUS_UNITS = 12.0
+
+_FENCES = {}
+
+
+def park_fence(park: str) -> list:
+    """(angle_degrees, radius) samples of a park's measured fence, origin-relative.
+
+    Read from src/utils/parkGeometry.js, the copy the preview already draws with,
+    so the deriver cannot disagree with it about where the wall is.
+    """
+    if park not in _FENCES:
+        import re
+        from pathlib import Path
+        source = (Path(__file__).resolve().parent.parent / "src" / "utils"
+                  / "parkGeometry.js").read_text(encoding="utf-8")
+        match = re.search(rf"\b{park}: \[\s*((?:\[-?[\d.]+, -?[\d.]+\],?\s*)+)\]", source)
+        _FENCES[park] = ([(float(angle), float(radius)) for angle, radius
+                          in re.findall(r"\[(-?[\d.]+), (-?[\d.]+)\]", match.group(1))]
+                         if match else [])
+    return _FENCES[park]
+
+
+def inside_fence_units(park: str, point) -> float | None:
+    """How far inside the fence a ground point stands, along the ray from the origin."""
+    x, z = point[0], point[2]
+    angle = math.degrees(math.atan2(x, -z))
+    fence = park_fence(park)
+    for (a0, r0), (a1, r1) in zip(fence, fence[1:]):
+        if not a0 <= angle <= a1:
+            continue
+        p0 = (r0 * math.sin(math.radians(a0)), -r0 * math.cos(math.radians(a0)))
+        p1 = (r1 * math.sin(math.radians(a1)), -r1 * math.cos(math.radians(a1)))
+        ray = (math.sin(math.radians(angle)), -math.cos(math.radians(angle)))
+        edge = (p1[0] - p0[0], p1[1] - p0[1])
+        denominator = ray[0] * edge[1] - ray[1] * edge[0]
+        if abs(denominator) < 1e-9:
+            return None
+        wall = (p0[0] * edge[1] - p0[1] * edge[0]) / denominator
+        return wall - math.hypot(x, z)
+    return None
+
+
+def name_train_knockdowns(knockdowns: list, frames: list, park: str | None,
+                          is_night: bool | None = None) -> None:
+    """Name the knockdowns Yoshi Park's train caused, in place.
+
+    Runs after the star swing, and never overrides a named hazard.
+    """
+    if park != "yoshi_park":
+        return
+    by_timer = {snapshot["timer"]: snapshot for snapshot in frames}
+    for knock in knockdowns:
+        if knock.get("hazard"):
+            continue
+        snapshot = by_timer.get(knock.get("frame"))
+        actor = ((snapshot or {}).get("actors") or {}).get(knock.get("by"))
+        if actor is None:
+            continue
+        # 0x811F84DC is confirmed for the day train. Night replaces it with
+        # the Wiggler, whose separate object address still has to be located.
+        train = (snapshot or {}).get("train") if is_night is False else None
+        train_at = (train or {}).get("pos")
+        if train_at is not None:
+            distance = math.dist(actor["pos"][::2], train_at[::2])
+            knock["train_at"] = [round(value, 3) for value in train_at]
+            knock["train_distance_units"] = round(distance, 3)
+            knock["hazard_source"] = "train_position"
+            # Direct evidence gets a veto as well as a positive case. If the
+            # train was elsewhere, proximity to the wall cannot overrule it.
+            if distance <= TRAIN_CONTACT_RADIUS_UNITS:
+                knock["hazard"] = "train"
+            continue
+        inside = inside_fence_units(park, actor["pos"])
+        if inside is None:
+            continue
+        knock["fence_inside_units"] = round(inside, 3)
+        if inside <= TRAIN_FENCE_BAND_UNITS:
+            knock["hazard"] = "train"
+            knock["hazard_source"] = "fence_band"
+
+
+def name_knocked_loose_throws(throws: list, knockdowns: list) -> None:
+    """A "throw" released on the frame its own thrower was floored, renamed in place.
+
+    The game drops the ball out of the glove on the frame the knockdown flag
+    rises, and a floored fielder throws nothing: 09-11 PA77's "Baby Mario threw
+    to Diddy Kong at 20 mph" was the train flooring Baby Mario (frame 74862, the
+    ball placed at y=0.500 beside him) and then hitting the loose ball. Across
+    2408 archived throws the release lands exactly on the thrower's knockdown
+    four times -- that train once, a captain's star swing three times. One
+    launched three frames BEFORE its thrower went down is a real throw and keeps
+    its name.
+    """
+    for throw in throws:
+        knock = next((entry for entry in knockdowns
+                      if entry.get("by") == throw["thrower_position"]
+                      and entry.get("frame") == throw["release_frame"]), None)
+        if knock is None:
+            continue
+        throw["is_throw"] = False
+        throw["event_type"] = "knocked_loose"
+        throw["is_relay"] = False
+        throw["knocked_loose_by"] = knock.get("hazard")
+        throw["knocked_loose_captain"] = knock.get("star_swing_captain")
+    # A throw that follows nothing but a ball knocked loose was not relayed.
+    for index, throw in enumerate(throws):
+        if throw.get("is_relay") and throw.get("is_throw") is not False:
+            throw["is_relay"] = any(earlier.get("is_throw") is not False
+                                    for earlier in throws[:index])
+
+
+# HOW CLOSE THE OTHER SIDE OF A CLOSE PLAY HAS TO BE. A close play is a contest
+# between two characters, but the flag is written on the FIELDER alone, so the
+# record named one of them and left the runner anonymous.
+#
+# The runner is measured rather than read off the scoring. Across all 16 close
+# plays in the archive exactly one occupied runner comes within 2.53 units of
+# the contesting fielder while the flag is up, and the next nearest offense
+# actor is never closer than 23.7. Nothing lands in between, so the rule is the
+# nearest occupied runner and the gate sits in the empty band.
+#
+# NOT THE THROW MARGIN. RUNNER_AT_BASE_UNITS above times a throw against a
+# runner and says nothing about this button-mash contest; the two are separate
+# measurements of separate mechanics and neither one implies the other.
+CLOSE_PLAY_CONTEST_UNITS = 6.0
+
+
+def name_close_play_runners(close_plays: list, frames: list) -> None:
+    """Name the runner contesting each close play, in place.
+
+    An EMPTY runner slot sits parked on its bag, which at third is a unit and a
+    half from the fielder taking the throw -- nearer than the runner actually
+    sliding in. Only occupied slots (`index >= 0`) are candidates, which is the
+    same test every other offense measurement here applies.
+
+    The separation is carried with the name: it is the evidence, and a record
+    that cannot say how close the two were cannot be checked later.
+    """
+    if not close_plays:
+        return
+    by_frame = {snapshot["timer"]: snapshot for snapshot in frames}
+    for event in close_plays:
+        start = event.get("frame")
+        length = event.get("frames") or 0
+        if start is None:
+            continue
+        nearest = {}
+        for timer in range(start, start + length + 1):
+            snapshot = by_frame.get(timer)
+            if snapshot is None:
+                continue
+            fielder = snapshot["actors"].get(event["by"])
+            if fielder is None:
+                continue
+            for name, actor in snapshot["actors"].items():
+                if actor["kind"] != "offense" or actor["index"] < 0:
+                    continue
+                gap = math.dist(fielder["pos"][::2], actor["pos"][::2])
+                if name not in nearest or gap < nearest[name][0]:
+                    nearest[name] = (gap, actor["character"])
+        if not nearest:
+            continue
+        name, (gap, character) = min(nearest.items(), key=lambda row: row[1][0])
+        if gap > CLOSE_PLAY_CONTEST_UNITS:
+            continue
+        event["runner"] = name
+        event["runner_character_id"] = character
+        event["runner_character"] = character_name(character)
+        event["runner_separation_units"] = round(gap, 3)
+
+
+# ...AND IT HITS THE BALL. Jason, 09-11 PA77: "the train hit baby mario twice
+# and the ball once". What it does to a loose ball, measured: a shove sideways
+# in a single frame that leaves the fall alone. The last incoming frame is
+# 74886, where the ball sits 1.2u up and 2.6u inside the wall crawling at 1.275
+# u/s; the step INTO 74887 carries it away at 8.9 u/s inward while its height
+# keeps to the same gravity curve. The record names 74886 -- the frame whose
+# position it carries -- and reports that frame's own incoming speed rather than
+# an average straddling the impact. The 09-11T19 test game holds the other: a ball
+# in the air 6.4u inside the wall sent straight back at the speed it arrived
+# with (frame 148773), nobody within 3.6u and no glove for another 200 frames.
+#
+# The train is still not in memory, so this is named by ruling out everything
+# else that turns a ball there:
+#   THE WALL. A ball that reaches it ends 0.28u past the fence line and pops up
+#     a quarter unit -- 14 times in four games, train or no train, and PA77's own
+#     wall bounce 66 frames before the hit is one of them. So the band starts
+#     half a unit inside the line.
+#   THE GROUND. A bounce turns a fall into a rise. Neither hit did.
+#   A GLOVE. Every fielder touch is a fielding event or a throw launch.
+#   A DEAD BALL. A home-run replay holds the ball perfectly still 25-40u up.
+#     The ceiling below is a guess at the train's height, not a measurement:
+#     both hits were under 1.3u.
+# The left-field foul pole protrudes into the playable field. PA 106 of the
+# 2026-09-11 day game hit that wall 0.956u inside the surveyed fence and was
+# previously called a train collision. Both reviewed train-ball hits were at
+# least 2.61u inside, so 1.5u preserves them and excludes the pole/wall skin.
+TRAIN_BALL_MIN_INSIDE_UNITS = 1.5
+TRAIN_BALL_MAX_HEIGHT_UNITS = 3.0
+# PA77's shove was 7.6 u/s; a loose ball this far inside the wall does not
+# change horizontal speed by half that on its own.
+TRAIN_BALL_MIN_CHANGE_UPS = 4.0
+TRAIN_BALL_BOUNCE_UPS = 0.6
+TRAIN_BALL_MIN_SPEED_GAIN_UPS = 4.0
+TRAIN_BALL_MIN_TURN_DEGREES = 10.0
+TRAIN_BALL_MAX_SPEED_UPS = 100.0
+TRAIN_BALL_WINDOW_FRAMES = 3
+TRAIN_BALL_EXCLUSION_FRAMES = 6
+# HOW FAR THE BALL HAS TO GO before a glove takes it. A ball that was in a
+# glove on the next frame having moved a hundredth of a unit was not knocked
+# anywhere: that is the possession snap. Measured over the regenerated Yoshi
+# archive, the gap is enormous -- the 203017Z control took 1 frame and 0.012u,
+# while the nearest real hit took 24 frames and 6.53u and the two reviewed ones
+# 82 and 202 frames (10.2u and 23.2u). So this is a gap, not a tuned threshold.
+TRAIN_BALL_PICKUP_MIN_UNITS = 1.0
+TRAIN_BALL_GROUP_FRAMES = 10
+
+
+def detect_train_ball_hits(frames: list, contact_t: float, live_end: float,
+                           fps: float, park: str | None, is_night: bool | None,
+                           fielding_events: list, throws: list,
+                           knockdowns: list | None = None) -> list:
+    """Loose balls Yoshi Park's train knocked away inside the outfield wall.
+
+    Run after name_knocked_loose_throws: a knocked-loose "throw" is not a glove,
+    and its launch is often the train's own hit.
+    """
+    if park != "yoshi_park":
+        return []
+    touched = [event["frame"] for event in fielding_events
+               if isinstance(event.get("frame"), int)]
+    touched += [throw["launch_frame"] for throw in throws
+                if throw.get("is_throw") is not False]
+    secured = sorted((event["frame"], event.get("by")) for event in fielding_events
+                     if event.get("secured") and isinstance(event.get("frame"), int))
+    released = sorted(throw["launch_frame"] for throw in throws
+                      if isinstance(throw.get("launch_frame"), int))
+    # A FLOORED FIELDER DROPS THE BALL, and that is a release. The gate below
+    # exists so the dead-ball transition's holder clear cannot turn a caught
+    # ball into a loose one, and its own comment allows "a measured knockdown
+    # after possession" -- which was never implemented, because a dropped ball
+    # only appears in `throws` when the derivation happened to build a throw
+    # record for it. 09-11 PA33 is what that costs: the train floored Yellow
+    # Pianta twice, the ball rolled out of his glove with no throw to rename,
+    # and the hit that sent it back toward the infield 107 frames later was
+    # discarded as "not loose". Jason saw it from the couch -- "it had mostly
+    # stopped, then suddenly started speeding up back towards the infield, with
+    # nobody touching it" -- and the frames agree: 0.90 u/s to 8.95 u/s in one
+    # frame at f34316, the fielder flat on the ground 3.1u away.
+    dropped = sorted((knock["frame"], knock.get("by")) for knock in knockdowns or ()
+                     if isinstance(knock.get("frame"), int))
+    def next_possession(index: int):
+        """Who picked the ball up after the train hit it, and where.
+
+        MEASURED, not reconstructed from the event lists. A second pickup by the
+        fielder who already had the ball leaves no new fielding event -- 09-11
+        PA33 holds one possession record for two pickups -- so an answer built
+        from `fielding_events` reports "no fielder reached it" for a ball that
+        was fetched 159 frames later. The next frame the ball is in a glove is
+        the thing that actually ends the chase the shove created.
+        """
+        for later in frames[index + 1:]:
+            if later["t"] - contact_t > live_end:
+                break
+            owner = locked_fielder(later)
+            if owner is None:
+                continue
+            return {
+                "pickup_frame": later["timer"],
+                "pickup_t": round(later["t"] - contact_t, 4),
+                "pickup_by": owner,
+                "pickup_character": character_name(
+                    later["actors"][owner]["character"]),
+                "pickup_at": [round(value, 3) for value in later["ball"]],
+            }
+        return None
+
+    span = TRAIN_BALL_WINDOW_FRAMES
+    candidates = []
+    for index in range(span, len(frames) - span - 1):
+        snapshot = frames[index]
+        if snapshot["t"] - contact_t > live_end:
+            break
+        # The steps into the three frames before, the one that changed, and the
+        # three after -- all of a free ball, none of it dead still.
+        steps = [_free_ball_step(frames, k)
+                 for k in range(index - span + 1, index + span + 2)]
+        if any(step is None or not any(step) for step in steps):
+            continue
+        if snapshot["ball"][1] > TRAIN_BALL_MAX_HEIGHT_UNITS:
+            continue
+        inside = inside_fence_units(park, snapshot["ball"])
+        if (inside is None
+                or not TRAIN_BALL_MIN_INSIDE_UNITS <= inside <= TRAIN_FENCE_BAND_UNITS):
+            continue
+        if any(abs(snapshot["timer"] - frame) <= TRAIN_BALL_EXCLUSION_FRAMES
+               for frame in touched):
+            continue
+        # A caught/secured ball is not loose merely because the game's holder
+        # byte later clears during the dead-ball transition. It must have been
+        # released by a real throw or by a measured knockdown after possession.
+        prior_secured = next(((frame, by) for frame, by in reversed(secured)
+                              if frame < snapshot["timer"]), None)
+        prior_release = next((frame for frame in reversed(released)
+                              if frame < snapshot["timer"]), None)
+        if prior_secured is not None:
+            held_since, holder = prior_secured
+            floored = next((frame for frame, by in reversed(dropped)
+                            if held_since <= frame < snapshot["timer"]
+                            and (by is None or by == holder)), None)
+            if ((prior_release is None or prior_release < held_since)
+                    and floored is None):
+                continue
+        incoming = [sum(step[axis] for step in steps[:span]) / span for axis in range(3)]
+        outgoing = [sum(step[axis] for step in steps[span + 1:]) / span for axis in range(3)]
+        change = math.hypot(outgoing[0] - incoming[0], outgoing[2] - incoming[2]) * fps
+        if change < TRAIN_BALL_MIN_CHANGE_UPS:
+            continue
+        if (incoming[1] * fps <= -TRAIN_BALL_BOUNCE_UPS
+                and outgoing[1] * fps >= TRAIN_BALL_BOUNCE_UPS):
+            continue
+        jolt = math.hypot(steps[span][0] - steps[span - 1][0],
+                          steps[span][2] - steps[span - 1][2])
+        candidates.append((index, jolt, inside, incoming, outgoing, change))
+
+    groups = []
+    for candidate in candidates:
+        if (groups and frames[candidate[0]]["timer"]
+                - frames[groups[-1][-1][0]]["timer"] <= TRAIN_BALL_GROUP_FRAMES):
+            groups[-1].append(candidate)
+        else:
+            groups.append([candidate])
+
+    hits = []
+    for group in groups:
+        index, _, inside, incoming, outgoing, change = max(group, key=lambda entry: entry[1])
+        snapshot = frames[index]
+        speed_in = math.hypot(incoming[0], incoming[2])
+        speed_out = math.hypot(outgoing[0], outgoing[2])
+        turn = None
+        if speed_in > 1e-9 and speed_out > 1e-9:
+            cosine = max(-1.0, min(1.0, (incoming[0] * outgoing[0] + incoming[2] * outgoing[2])
+                                   / (speed_in * speed_out)))
+            turn = math.degrees(math.acos(cosine))
+        speed_in_ups = speed_in * fps
+        speed_out_ups = speed_out * fps
+        if max(speed_in_ups, speed_out_ups) > TRAIN_BALL_MAX_SPEED_UPS:
+            continue
+        if ((turn is None or turn < TRAIN_BALL_MIN_TURN_DEGREES)
+                and speed_out_ups - speed_in_ups < TRAIN_BALL_MIN_SPEED_GAIN_UPS):
+            continue
+        pickup = next_possession(index)
+        # A BALL THAT WENT STRAIGHT INTO A GLOVE WAS NOT KNOCKED ANYWHERE.
+        # yoshi_park-20260911T203017Z contact 28389 is the reviewed control:
+        # 43.7 u/s in, 1.05 u/s out, a 179.6-degree turn at ground height -- and
+        # possession on the very next frame with the ball 0.012u away. Tiny Kong
+        # had secured that ball 285 frames earlier and the train merely crossed
+        # it; what reverses here is the possession snap. The `prior_secured` gate
+        # used to hide this, and once a knockdown of the holder counted as a
+        # release (which 09-11 PA33 needs) it came back, so the exclusion has to
+        # be stated on its own terms.
+        if pickup is not None:
+            travelled = math.dist(snapshot["ball"][::2], pickup["pickup_at"][::2])
+            if (pickup["pickup_frame"] - snapshot["timer"] <= TRAIN_BALL_EXCLUSION_FRAMES
+                    and travelled < TRAIN_BALL_PICKUP_MIN_UNITS):
+                continue
+        train = snapshot.get("train") if is_night is False else None
+        train_at = (train or {}).get("pos")
+        train_distance = None
+        cause_source = "kinematic_exclusion"
+        if train_at is not None:
+            train_distance = math.dist(snapshot["ball"][::2], train_at[::2])
+            if train_distance > TRAIN_CONTACT_RADIUS_UNITS:
+                continue
+            cause_source = "train_position"
+        hits.append({
+            "t": round(snapshot["t"] - contact_t, 4),
+            # The last frame on the incoming path; the next is already moving
+            # the new way.
+            "frame": snapshot["timer"],
+            "at": [round(value, 3) for value in snapshot["ball"]],
+            "height_units": round(snapshot["ball"][1], 3),
+            "fence_inside_units": round(inside, 3),
+            "incoming_speed_ups": round(speed_in_ups, 3),
+            "outgoing_speed_ups": round(speed_out_ups, 3),
+            "velocity_change_ups": round(change, 3),
+            "turn_degrees": round(turn, 3) if turn is not None else None,
+            "train_at": ([round(value, 3) for value in train_at]
+                         if train_at is not None else None),
+            "train_distance_units": (round(train_distance, 3)
+                                     if train_distance is not None else None),
+            # WHAT THE SHOVE COST: how far the ball went from the hit to the
+            # glove that ended up with it, and how long that took. Jason asked
+            # for exactly this instead of the distance to the wall -- "so we
+            # know the true impact of it hitting the train".
+            **(pickup or {}),
+            "carried_to_pickup_units": (
+                round(math.dist(snapshot["ball"][::2], pickup["pickup_at"][::2]), 3)
+                if pickup is not None else None),
+            "pickup_delay_s": (
+                round(pickup["pickup_t"] - (snapshot["t"] - contact_t), 4)
+                if pickup is not None else None),
+            "cause_source": cause_source,
+            # The Wiggler runs the same wall at night. A session that never
+            # recorded the day/night bytes says null.
+            "mechanism": {False: "train", True: "wiggler"}.get(is_night),
+        })
+    return hits
+
+
+# ...AND IT SWALLOWS THE BALL, WHICH IS A HOME RUN. Jason, 09-11 PA83: "the
+# ball landed inside of the train, which when that happens on yoshi park, its a
+# homerun. hopefully this will help us detect this event". It does better than
+# help: the capture states it on three independent bytes and infers nothing.
+#
+# At frame 77983 the ball stopped being a ball and BECAME the train. Its x and z
+# went equal to the train's own captured position -- 0.000 apart, not close --
+# and stayed equal for 119 frames while it rode from centre out toward right
+# field at the train's own 10.3-10.8 u/s with its height pinned to 0. The
+# game's `home_run_flag` rose 0 -> 1 on that exact frame, and the ride ended
+# when the play went dead (game_state 2 -> 20) and the ball froze at the last
+# spot the train left it while the train carried on.
+#
+# The descent into it is an ordinary flight: 21 u/s down a clean arc, closing
+# to 1.08u from the train at f77980, no glove within reach. So the plain
+# train-ball hit the detector above records one frame earlier is this same
+# event seen from outside, and the call site drops it in favour of this.
+#
+# Two frames of exact agreement is the test, not one: a ball passing over the
+# train's origin in flight could match for a single frame, and requiring the
+# ball to be at rest height as well leaves it nothing to match on.
+TRAIN_BALL_CAPTURE_UNITS = 0.05
+TRAIN_BALL_CAPTURE_HEIGHT_UNITS = 0.25
+TRAIN_BALL_CAPTURE_MIN_FRAMES = 2
+
+
+def detect_train_ball_captures(frames: list, contact_t: float, live_end: float,
+                               fps: float, park: str | None,
+                               is_night: bool | None) -> list:
+    """Balls Yoshi Park's train swallowed: the ball's position IS the train's.
+
+    Day only. 0x811F84DC is the day train; at night the Wiggler runs the same
+    wall and its object has not been located, so there is nothing to compare
+    the ball against and this says nothing rather than guessing.
+    """
+    if park != "yoshi_park" or is_night is not False:
+        return []
+
+    def riding(snapshot) -> bool:
+        train_at = (snapshot.get("train") or {}).get("pos")
+        if train_at is None:
+            return False
+        if int((snapshot.get("state") or {}).get("ball_holder", -1)) >= 0:
+            return False
+        if snapshot["ball"][1] > TRAIN_BALL_CAPTURE_HEIGHT_UNITS:
+            return False
+        return math.dist(snapshot["ball"][::2],
+                         train_at[::2]) <= TRAIN_BALL_CAPTURE_UNITS
+
+    groups = []
+    for index, snapshot in enumerate(frames):
+        if snapshot["t"] - contact_t > live_end:
+            break
+        if not riding(snapshot):
+            continue
+        if groups and index - groups[-1][-1] == 1:
+            groups[-1].append(index)
+        else:
+            groups.append([index])
+
+    rides = []
+    for group in groups:
+        if len(group) < TRAIN_BALL_CAPTURE_MIN_FRAMES:
+            continue
+        first, last = frames[group[0]], frames[group[-1]]
+        before = frames[group[0] - 1] if group[0] > 0 else None
+        flag = int((first.get("state") or {}).get("home_run_flag", 0) or 0)
+        flag_before = int((before.get("state") or {}).get("home_run_flag", 0) or 0
+                          ) if before is not None else None
+        rides.append({
+            "t": round(first["t"] - contact_t, 4),
+            "frame": first["timer"],
+            "at": [round(value, 3) for value in first["ball"]],
+            "frames": len(group),
+            "seconds": round(len(group) / fps, 4),
+            "exit_frame": last["timer"],
+            "exit_at": [round(value, 3) for value in last["ball"]],
+            "carried_units": round(math.dist(first["ball"][::2],
+                                             last["ball"][::2]), 3),
+            "arrival_speed_ups": (
+                round(math.dist(before["ball"][::2], frames[group[0] - 2]["ball"][::2])
+                      * fps, 3) if before is not None and group[0] > 1 else None),
+            # The game's own verdict, on the frame of the swallow. This is what
+            # makes the sentence a statement rather than a park anecdote.
+            "home_run_flag": flag,
+            "home_run_flag_rose": (None if flag_before is None
+                                   else bool(flag and not flag_before)),
+            "cause_source": "train_position",
+            "mechanism": {False: "train", True: "wiggler"}.get(is_night),
+        })
+    return rides
+
+
+# A CAPTAIN'S STAR SWING FLOORS FIELDERS with no ball contact at all -- Luigi's
+# tornado, Wario's bomb, DK's barrel. The knockdown flag cannot tell that from a
+# park hazard, and neither can its length: Wario City's manhole knockdowns run
+# the same 79-80 frames. The game's own flag can; see "star_swing" in
+# STATE_FIELDS.
+#
+# The flag's VALUE is which captain swung. Measured over eight sessions and 70
+# pulses, and no value ever appeared on two different batters. 11 is Bowser:
+# all five 11 pulses in the archive (Daisy Cruiser x3, Wario City x2) are his
+# plate appearances. An unseen value is recorded raw with no name rather than
+# guessed.
+STAR_SWING_CAPTAINS = {
+    1: "Mario", 2: "Luigi", 3: "Donkey Kong", 4: "Diddy Kong", 5: "Peach",
+    6: "Daisy", 7: "Wario", 8: "Waluigi", 9: "Yoshi", 10: "Birdo",
+    11: "Bowser", 12: "Bowser Jr.",
+}
+# Matched per PLAY, not per frame, and how long after the flag drops the fielder
+# goes down is a property of the CAPTAIN. Across 27 knockdowns at 10 parks:
+# Luigi's land inside the pulse, Birdo's inside it or up to 36 frames after,
+# Wario's 5-19 frames after, and Donkey Kong's exactly 22 frames after in all 8
+# cases -- 21 frames after the fielder takes possession. None lands on the
+# fielder's own touch (0 of 27 within 5 frames), so "the ball does it on
+# contact" is not the mechanism.
+#
+# This bound is the slowest measured captain with room, and it deliberately
+# leaves 8 knockdowns unnamed that fall 75-310 frames after a star swing. All 8
+# are at Bowser Castle, Bowser Jr. Playroom or Yoshi Park, which floor 44
+# fielders on plays with NO star swing; 5 belong to Mario, Yoshi and Diddy Kong,
+# who have no in-bound knockdown anywhere to fit a lag to, and the other 3 are
+# well past Wario's and Birdo's own measured lags.
+STAR_SWING_KNOCKDOWN_AFTER_FRAMES = 60
+# THE SWING'S EFFECT IS AT THE BALL; A PARK OBJECT'S IS NOT. 26 of 27 knockdowns
+# the per-play window named had the floored fielder within 5.63u of the ball
+# inside 30 frames either side -- Donkey Kong's barrel at 0.00u in all 8 -- and
+# the 27th was 31.3u away with the ball in the first baseman's glove: a Yoshi
+# Park night-game knockdown the window had handed to Birdo. Nothing sits between
+# 5.63 and 31.3.
+#
+# A VETO, NOT A PROOF. 20 of the 56 knockdowns on plays with no star swing at all
+# were also that close to the ball, because fielders converge on it. Being near
+# the ball cannot say a star swing did it; being 31u from it says one did not.
+STAR_SWING_BALL_WINDOW_FRAMES = 30
+STAR_SWING_BALL_UNITS = 6.0
+# BIRDO'S EGG FLIES AHEAD OF THE BALL, so her knockdowns sit further from it than
+# anyone's. Her eleven in the archive: pitchers at 0.6-2.6u, shortstops at
+# 4.4-6.5u -- and the 6.48u one, yoshi_park-20260911T164801Z frame 45123, is the
+# only knockdown the 6.0 bound ever refused on a real star swing. Jason annotated
+# it: "funky kong was hit by birdos cannon swing star swing. she sends an egg out
+# in front of the balls path". The nearest knockdown in a Birdo window that is
+# NOT hers is still the 31.3u night one above.
+STAR_SWING_BALL_UNITS_BY_CAPTAIN = {10: 10.0}
+
+
+def _closest_to_ball(motion_frames: list, name: str, frame: int, window: int):
+    """Closest the named fielder came to the ball within `window` frames of `frame`."""
+    best = None
+    for snapshot in motion_frames:
+        if abs(snapshot["timer"] - frame) > window:
+            continue
+        actor = (snapshot.get("actors") or {}).get(name)
+        ball = snapshot.get("ball")
+        if actor is None or ball is None:
+            continue
+        here, there = actor["pos"][::2], ball[::2]
+        if not all(math.isfinite(value) for value in (*here, *there)):
+            continue
+        units = math.dist(here, there)
+        best = units if best is None else min(best, units)
+    return best
+
+
+def detect_star_swing(motion_frames: list, contact_timer: int) -> dict | None:
+    """The captain star swing on this play, from the game's own flag, or None."""
+    run = []
+    for snapshot in motion_frames:
+        value = int(snapshot["state"].get("star_swing", 0) or 0)
+        if value:
+            run.append((snapshot["timer"], value))
+        elif run:
+            break
+    # The swing raises it. A run that starts after the ball has already left the
+    # plate is not this play's swing -- and a held star swing keeps the ball at
+    # the plate ~91 frames, which is why this compares against contact rather
+    # than a few frames around it.
+    if not run or run[0][0] > contact_timer:
+        return None
+    return {
+        "value": run[0][1],
+        "captain": STAR_SWING_CAPTAINS.get(run[0][1]),
+        "start_frame": run[0][0],
+        "end_frame": run[-1][0],
+        "frames": run[-1][0] - run[0][0] + 1,
+    }
+
+
+def name_star_swing_knockdowns(knockdowns: list, star_swing: dict | None,
+                               barrel_events: list, motion_frames: list) -> None:
+    """Name the knockdowns a captain's star swing caused, in place.
+
+    Runs AFTER the park hazards, and never overrides one. A manhole has its own
+    object evidence and a DK Jungle barrel has its own trajectory; either keeps
+    its knockdown. What is left on a star-swing play, inside the measured lag, is
+    the swing's.
+    """
+    if not star_swing:
+        return
+    # THE HITS LIVE ONE LEVEL DOWN. A barrel event is an INTERVAL and carries
+    # `approaches[]`; `by` and `hit` are fields of an approach, not of the
+    # interval, so reading them here collected a set of Nones and the exclusion
+    # never fired. Latent rather than harmless: the archive holds no barrel
+    # events at all (see docs/final-stat-expansion-backend-handoff.md), so the
+    # first capture that records one would have handed a confirmed barrel hit to
+    # the star swing as well, charging one knockdown to two causes.
+    barrel_hits = {
+        approach.get("by")
+        for event in barrel_events or ()
+        for approach in (event.get("approaches") or ())
+        if approach.get("hit")
+    }
+    for knock in knockdowns:
+        if knock.get("hazard") or knock.get("by") in barrel_hits:
+            continue
+        frame = knock.get("frame")
+        if frame is None or frame < star_swing["start_frame"]:
+            continue
+        if frame > star_swing["end_frame"] + STAR_SWING_KNOCKDOWN_AFTER_FRAMES:
+            continue
+        # Recorded whether or not it vetoes, so a declined knockdown carries the
+        # measurement that declined it rather than a silent null.
+        units = _closest_to_ball(motion_frames, knock.get("by"), frame,
+                                 STAR_SWING_BALL_WINDOW_FRAMES)
+        if units is not None:
+            knock["star_swing_ball_units"] = round(units, 3)
+        limit = STAR_SWING_BALL_UNITS_BY_CAPTAIN.get(
+            star_swing["value"], STAR_SWING_BALL_UNITS)
+        if units is None or units > limit:
+            continue
+        knock["hazard"] = "star_swing"
+        knock["star_swing_captain"] = star_swing["captain"]
+        knock["star_swing_value"] = star_swing["value"]
+
+
+# A CAPTAIN'S STAR SWING THAT DISABLES WITHOUT FLOORING. Each effect writes a
+# fielder byte that something else also writes -- the paint shares +0x243 with a
+# Daisy Cruiser table, the heart shares +0x242 with DK Jungle's flower gas -- so
+# the byte alone never names the cause. The captain the star-swing flag names
+# has to be the one whose effect writes that byte.
+#
+# Every onset in the three annotated Daisy Cruiser games (08-31, 09-04, 09-11):
+#   Bowser Jr. paint    +0x243   90f   6 of 6 on his swings
+#   Peach heart         +0x242  120f   5 of 5 on hers (Jason: male fielders only)
+#   Mario fireball      +0x23E   89f   4 of 4, each on the star_ball misplay frame
+#   Bowser fire breath  +0x23E   89f   4 of 4, 2-7.5u from the ball
+# None of the three Yoshi-egg forced misplays in the 09-04 game raised +0x23E.
+# Bowser Castle raises +0x23E 13 times over three sessions on plays with no
+# fire swing -- the park's own fire -- so a Mario or Bowser swing there can
+# still coincide with one.
+# A flower-gas onset on some other captain's swing at DK Jungle (the 08-28 game
+# has one on Mario's and one on Wario's) is not claimed, because the byte does
+# not match the captain.
+STAR_SWING_EFFECTS = {
+    1: ("burned", "fireball"),
+    5: ("sprayed", "heart"),
+    11: ("burned", "fire_breath"),
+    12: ("impact_stun", "paint"),
+}
+
+
+def name_star_swing_effects(star_swing: dict | None, stuns_by_flag: dict) -> list:
+    """The fielders a captain's star swing disabled, from the byte its effect writes."""
+    if not star_swing:
+        return []
+    flag, effect = STAR_SWING_EFFECTS.get(star_swing["value"], (None, None))
+    return [
+        {**stun, "flag": flag, "effect": effect,
+         "star_swing_captain": star_swing["captain"],
+         "star_swing_value": star_swing["value"]}
+        for stun in stuns_by_flag.get(flag, ())
+        if stun.get("frame") is not None and stun["frame"] >= star_swing["start_frame"]
+        # +0x243 value 1 is DK's statue POW; Bowser Jr. paint uses value 2.
+        # A coincident captain swing must not claim the park's separate stun.
+        and (effect != "paint" or stun.get("flag_value") == 2)
+    ]
+
+
+def name_star_swing_breaks(breaks: list, star_swing: dict | None) -> None:
+    """Hand a break no measured contact explains to the play's star swing, in place.
+
+    Bowser's fire breath broke a Daisy Cruiser table 15.7u from the ball with no
+    buddy attack or throw near it (Jason, daisy_cruiser-20260911T152720Z PA 55):
+    the fire is not the ball, so the contact geometry cannot see it. Only an
+    `unknown` cause is claimed, from the swing's first frame to the same lag the
+    knockdowns allow; a buddy attack, a throw or the batted ball keeps its break.
+    """
+    if not star_swing:
+        return
+    for broken in breaks:
+        frame = broken.get("frame")
+        if frame is None or (broken.get("cause") or {}).get("type") != "unknown":
+            continue
+        if not (star_swing["start_frame"] <= frame
+                <= star_swing["end_frame"] + STAR_SWING_KNOCKDOWN_AFTER_FRAMES):
+            continue
+        broken["cause"] = {
+            "type": "star_swing",
+            "captain": star_swing["captain"],
+            "value": star_swing["value"],
+        }
+
+
+def detect_manhole_ball_strikes(frames: list, contact_t: float, live_end: float,
+                                 fps: float, park: str | None,
+                                 spots: list) -> list:
+    """Frames where the ball bounced off an erupting manhole, above the ground."""
+    if park != "wario_city" or not spots:
+        return []
+    events = []
+    for index in range(2, len(frames) - 2):
+        snapshot = frames[index]
+        if snapshot["t"] - contact_t > live_end:
+            break
+        if snapshot["state"].get("ball_holder") != -1:
+            continue
+        step = _ball_frame_step(frames, index)
+        previous = _ball_frame_step(frames, index - 1)
+        if step is None or previous is None:
+            continue
+        rise = snapshot["ball"][1] - frames[index - 1]["ball"][1]
+        fall = frames[index - 1]["ball"][1] - frames[index - 2]["ball"][1]
+        # Descending, then rising: a bounce and not a launch or an apex.
+        if not (fall < -0.02 and rise > 0.02):
+            continue
+        if snapshot["ball"][1] < MANHOLE_BALL_STRIKE_MIN_HEIGHT_UNITS:
+            continue
+        distance, spot = _nearest_manhole(snapshot["ball"], spots)
+        if distance is None or distance > MANHOLE_BALL_STRIKE_RADIUS_UNITS:
+            continue
+        speed_in, speed_out = math.hypot(*previous), math.hypot(*step)
+        if speed_in < 1e-9 or speed_out < 1e-9:
+            continue
+        cosine = max(-1.0, min(1.0, (previous[0] * step[0] + previous[1] * step[1])
+                               / (speed_in * speed_out)))
+        turn = math.degrees(math.acos(cosine))
+        if turn > MANHOLE_BALL_STRIKE_MAX_TURN_DEGREES:
+            continue
+        if events and snapshot["timer"] - events[-1]["frame"] <= 30:
+            continue
+        events.append({
+            "t": round(snapshot["t"] - contact_t, 4),
+            "frame": snapshot["timer"],
+            "at": [round(value, 3) for value in snapshot["ball"]],
+            "height_units": round(snapshot["ball"][1], 3),
+            "manhole_at": [round(value, 3) for value in spot],
+            "distance_units": round(distance, 3),
+            "descent_ups": round(fall * fps, 3),
+            "rebound_ups": round(rise * fps, 3),
+            "horizontal_speed_ups": round(speed_out * fps, 3),
+            "turn_degrees": round(turn, 3),
+        })
+    return events
 
 
 def detect_fielding_action_events(frames: list, contact_t: float,
@@ -1416,6 +3780,91 @@ def detect_buddy_jumps(frames: list, contact_t: float, live_end: float) -> list:
     return jumps
 
 
+# THE BALL'S OWN PATH, as measured, for anything that has to DRAW the play.
+#
+# The field view used to be given three points -- contact, landing, first touch
+# -- and drew straight lines between them. That is the truth only when nothing
+# happened in between, and at Wario City something usually did. Worse, the two
+# cases where the ball is most interesting have none of those points: a home run
+# and a ball that leaves play have no landing and no first touch at all, so the
+# diagram drew nothing and said "no measured endpoint" about a ball whose whole
+# flight is sitting in these frames. The operator, 2026-09-10 PA93: "we should
+# be tracking the full path of the ball, regardless of what happened. this also
+# includes homeruns as those are not being tracked either."
+#
+# WHERE IT STOPS. A ball in a glove is not a ball in flight -- its coordinates
+# become the glove's, and past the play they become the dead-ball reset, which
+# is how eleven Daisy Cruiser catches once came to sit three feet from home
+# plate. So the path ends at the FIRST possession, or at the end of the live
+# window, whichever comes first, and never runs past either.
+#
+# Sampled rather than dumped: at 60 Hz a seven-second flight is 420 points and
+# nothing drawn at screen scale can tell them from 70. The endpoint is always
+# kept exactly, whatever the stride does.
+BALL_PATH_STRIDE_FRAMES = 6
+BALL_PATH_MAX_POINTS = 120
+
+
+def measure_ball_path(frames: list, contact_t: float, live_end: float,
+                      first_touch: dict | None, possession_carries: list) -> list:
+    """Every measured ball position from contact to the first glove, sampled."""
+    stop_timer = None
+    for carry in possession_carries or ():
+        timer = carry.get("start_frame")
+        if timer is not None:
+            stop_timer = timer if stop_timer is None else min(stop_timer, timer)
+    if first_touch is not None and first_touch.get("frame") is not None:
+        stop_timer = (first_touch["frame"] if stop_timer is None
+                      else min(stop_timer, first_touch["frame"]))
+
+    live = []
+    for snapshot in frames:
+        t = snapshot["t"] - contact_t
+        if t < 0 or t > live_end:
+            continue
+        if stop_timer is not None and snapshot["timer"] > stop_timer:
+            break
+        ball = snapshot.get("ball")
+        if ball is None or not all(math.isfinite(value) for value in ball):
+            continue
+        live.append((snapshot["timer"], round(t, 4), ball))
+    if not live:
+        return []
+
+    stride = max(BALL_PATH_STRIDE_FRAMES,
+                 math.ceil(len(live) / BALL_PATH_MAX_POINTS))
+    kept = live[::stride]
+    if kept[-1][0] != live[-1][0]:
+        kept.append(live[-1])
+    return [{"frame": timer, "t": t, "at": [round(value, 3) for value in ball]}
+            for timer, t, ball in kept]
+
+
+def measure_preoutcome_flight(frames: list, contact_timer) -> dict:
+    """The catch model's flight projection, from the first 12 frames only.
+
+    Recorded on every play so the catch probability of a ball the stadium
+    redirected can be scored at ingest: the window ends long before any table,
+    arrow or pipe, so the projection describes the ball the park never touched.
+    The fit itself is export_catch_preoutcome_features.project, shared so the
+    feature a live play is scored on is the one the model was fitted on.
+    """
+    if contact_timer is None:
+        return {"valid": False, "reason": "missing_contact_timer", "features": None}
+    samples = []
+    for snapshot in frames:
+        offset = snapshot["timer"] - contact_timer
+        if 0 <= offset < PREOUTCOME_WINDOW_FRAMES:
+            ball = snapshot.get("ball")
+            if ball is not None:
+                samples.append((snapshot["timer"],
+                                tuple(float(value) for value in ball)))
+        if offset >= PREOUTCOME_WINDOW_FRAMES - 1:
+            break
+    features, reason = project_preoutcome_flight(samples)
+    return {"valid": features is not None, "reason": reason, "features": features}
+
+
 def detect_landing(frames: list, contact_t: float, live_end: float,
                    first_touch: dict | None):
     """When and where the ball first reached the ground.
@@ -1543,12 +3992,11 @@ def detect_throws(frames: list, contact_t: float, live_end: float,
         launch = samples[first_index]
         release = flight["release"]
         frozen = frozen_fielder_frames(samples[:first_index + 1])
-        # Two independent answers: the frozen cutscene, and the game's own
-        # scalar. Either one is enough to call it, and they are both recorded
-        # so a disagreement shows up as a disagreement rather than as a silent
-        # choice between them.
+        # The game names a Buddy Throw explicitly. A frozen cutscene remains a
+        # useful duration measurement, but cannot classify it: close-play
+        # contests freeze the world too.
         buddy_named = named_fielder(samples, "buddy_thrower", order)
-        buddy_throw = frozen >= BUDDY_THROW_MIN_FREEZE_FRAMES or buddy_named is not None
+        buddy_throw = buddy_named is not None
         # The game's own flag for a Laser Beam, up for exactly this throw's
         # flight. Read over the whole flight rather than at one frame, because
         # the release frame the segmentation picks and the frame the game raises
@@ -1576,6 +4024,22 @@ def detect_throws(frames: list, contact_t: float, live_end: float,
         receiver_pulled_off_base = (
             receiver_distance_from_target is not None
             and receiver_distance_from_target > RECEIVER_PULLED_OFF_BASE_UNITS)
+        # WHERE THE GAME AIMED IT AND WHERE IT SENT IT, one frame after
+        # release. See THROW_OFF_TARGET_UNITS for why only a throw aimed at a
+        # standing receiver is judged.
+        aimed = by_timer.get(release["timer"] + 1)
+        aim_at = aimed.get("throw_aim") if aimed else None
+        destination_at = aimed.get("throw_destination") if aimed else None
+        aim_miss = aim_to_receiver = destination_error = None
+        if aim_at is not None and receiver_name in aimed["actors"]:
+            aim_miss = math.dist(aim_at[::2], end_ball[::2])
+            aim_to_receiver = math.dist(aim_at[::2], aimed["actors"][receiver_name]["pos"][::2])
+            if destination_at is not None:
+                destination_error = math.dist(aim_at[::2], destination_at[::2])
+        off_target = (aim_miss is not None
+                      and aim_to_receiver <= THROW_AIM_STANDING_UNITS
+                      and (destination_error if destination_error is not None
+                           else aim_miss) > THROW_OFF_TARGET_UNITS)
 
         # HOW CLOSE THE PLAY WAS. The ball's arrival is measured and so is where
         # every runner is standing on that frame, and the gap between them is
@@ -1688,6 +4152,21 @@ def detect_throws(frames: list, contact_t: float, live_end: float,
             # frame the ball got there.
             "runner_at_arrival": runner_at_arrival,
             "receiver_pulled_off_base": receiver_pulled_off_base,
+            # The game's aim point one frame after release, how far the ball
+            # landed from it, and whether that makes this an inaccurate throw.
+            # See THROW_OFF_TARGET_UNITS.
+            "aim_at": [round(value, 3) for value in aim_at] if aim_at is not None else None,
+            "aim_miss_units": round(aim_miss, 3) if aim_miss is not None else None,
+            "aim_to_receiver_units": (round(aim_to_receiver, 3)
+                                      if aim_to_receiver is not None else None),
+            # Where the game actually sent the ball, and how far that is from
+            # the aim point: the error the throw was given, which off_target
+            # keys on. See THROW_OFF_TARGET_UNITS.
+            "destination_at": ([round(value, 3) for value in destination_at]
+                               if destination_at is not None else None),
+            "destination_error_units": (round(destination_error, 3)
+                                        if destination_error is not None else None),
+            "off_target": off_target,
             "peak_speed_mps": round(max(stable), 4),
             "peak_speed_mph": round(max(stable) * METRES_PER_SECOND_TO_MPH, 3),
             "median_speed_mps": round(statistics.median(stable), 4),
@@ -1957,11 +4436,17 @@ class PlayDeriver:
     """
 
     def __init__(self, fps: float = GAME_FRAME_RATE, suppress_replays: bool = True,
-                 build_executor=None, park: str | None = None):
+                 build_executor=None, park: str | None = None,
+                 is_night: bool | None = None):
         self.fps = fps
         # Only used to decide what a measured flag may be CALLED. Nothing is
         # measured differently because of it.
         self.park = park
+        # THE VARIANT IS NOT COSMETIC HERE, unlike `park` above. Wario City's
+        # arrows impose 11.9455 u/s by day and exactly 2.25x that at night, so a
+        # deriver that does not know which one it is watching measures neither.
+        # See ARROW_IMPOSED_SPEED_UPS.
+        self.is_night = is_night
         self.suppress_replays = suppress_replays
         # WHERE build_play RUNS. Closing a play costs 42-87 ms on the archived
         # sessions -- route summaries, throw segmentation and split
@@ -2048,7 +4533,7 @@ class PlayDeriver:
     def _timed_build(self, active, bags, truncated: bool) -> dict:
         started = time.perf_counter()
         play = build_play(active, bags, self.fps, truncated=truncated,
-                          park=self.park)
+                          park=self.park, is_night=self.is_night)
         self.last_build_seconds = time.perf_counter() - started
         self.max_build_seconds = max(self.max_build_seconds,
                                      self.last_build_seconds)
@@ -2245,6 +4730,79 @@ PITCH_GAME_STATE = 1
 # instead of silently swallowing every pitch after it.
 MAX_PITCH_RESOLUTION_SECONDS = 20.0
 
+# THE HORIZONTAL STRIKE-ZONE CORE AND OUTER EDGE, measured from 141 taken
+# pitches across ten sessions.  Called strikes reached |x|=0.6344; called balls
+# began at |x|=0.6250, so the exact edge is character/height sensitive and must
+# not be represented as a single magic line.  Pitches inside 0.60 are safely in,
+# pitches outside 0.70 are safely out, and the overlapping edge remains
+# `shadow`.  A taken call is stronger evidence and overrides the geometry.
+PITCH_ZONE_IN_MAX_ABS_X = 0.60
+PITCH_ZONE_OUT_MIN_ABS_X = 0.70
+
+
+def classify_pitch_zone(offer: str, outcome: str,
+                        plate_x_units: float | None) -> tuple[str, bool | None, str]:
+    """Return (zone, is_chase, source) without guessing at the plate edge."""
+    if offer == "take" and outcome == "ball":
+        return "out", False, "taken_ball"
+    if offer == "take" and outcome == "strike":
+        return "in", False, "taken_strike"
+    if plate_x_units is None or not math.isfinite(plate_x_units):
+        return "unknown", None, "plate_location_missing"
+    distance = abs(plate_x_units)
+    if distance <= PITCH_ZONE_IN_MAX_ABS_X:
+        zone = "in"
+    elif distance >= PITCH_ZONE_OUT_MIN_ABS_X:
+        zone = "out"
+    else:
+        return "shadow", None, "horizontal_shadow_band_v1"
+    return zone, bool(offer == "swing" and zone == "out"), "horizontal_zone_v1"
+
+
+def _star_meter_drop(previous: dict, state: dict, running: dict) -> None:
+    """Add one frame's meter drops to a pitch's running total.
+
+    THE DEDUCTION DOES NOT LAND INSIDE THE PITCH. A star pitch is paid for on
+    the very frame the game's pitch counter rises -- the same frame the pitch's
+    `before` snapshot is taken -- so differencing that snapshot against the
+    pitch's resolution compared two post-deduction readings and reported 0. In
+    mario_stadium-20260925T165659Z the fielding meter walks 250 -> 200 -> 183
+    -> 133 -> 94 -> 55 -> 5 across nine annotated star pitches and the old
+    arithmetic called every one of them 0 spent. The drop is therefore measured
+    from the frame BEFORE the release onwards; see _begin.
+
+    Summing FRAME-TO-FRAME drops rather than differencing the two ends also
+    stops an award landing mid-pitch from cancelling a real spend. The meter is
+    not a continuous recharge: it is awarded in discrete jumps.
+    """
+    for side in ("away", "home"):
+        was = previous.get(f"{side}_star_meter")
+        now = state.get(f"{side}_star_meter")
+        if was is None or now is None:
+            continue
+        running[side] = (running.get(side) or 0) + max(0, was - now)
+
+
+def _star_meter_spend(half, drops: dict) -> dict:
+    """What each side spent off its star meter across one pitch.
+
+    The batting side spending is a star swing. The FIELDING side spending is a
+    star pitch, which no metric in this project has measured before -- the
+    existing `star_swing` flag is a captain-swing byte and is silent on pitching
+    and on ordinary characters.
+
+    Absent meters give None, never 0: a session recorded before 2026-09-25 has
+    no meter bytes at all, and "no evidence" must not read as "spent nothing".
+    """
+    batting, fielding = (("away", "home") if half == 0 else
+                         ("home", "away") if half == 1 else (None, None))
+    out = {"batting_star_meter_spent": None, "fielding_star_meter_spent": None}
+    if batting is None:
+        return out
+    for role, side in (("batting", batting), ("fielding", fielding)):
+        out[f"{role}_star_meter_spent"] = drops.get(side)
+    return out
+
 
 class PitchDeriver:
     """Frames in, one record per pitch out.
@@ -2288,6 +4846,32 @@ class PitchDeriver:
         # number of pitches in the tracker's own log for the same game.
         self._pa_key = None
         self._pitch_high = 0
+        # THE CHARGE LATCH. Neither charge field can be read as a level, because
+        # each one goes stale in a different way: when a charge is abandoned the
+        # frame counter drops to 0 and THE METER KEEPS its last value, and when a
+        # swing makes contact the meter resets to 0.0 and THE COUNTER FREEZES
+        # where it was until the next plate appearance. Reading either as "is a
+        # charge up right now" therefore carries the previous pitch's answer
+        # forward: gating on a non-zero meter called 95% of the swings in three
+        # real games a charge, including pitches nobody charged.
+        #
+        # A RISE is the one reading that cannot be stale. The counter only ever
+        # increases while the charge is actually being held, so a rise during a
+        # pitch is a live charge and its value at the last rise is the size of
+        # it. The latch is set by a rise, cleared when the counter drops, and
+        # cleared again as each pitch resolves, because a pitch consumes the
+        # charge that was up for it. It is updated every frame rather than only
+        # while a pitch is open, since a batter starts charging before the pitch
+        # is released.
+        self._charge_previous = None
+        self._charge_live = False
+        self._charge_frames = 0
+        self._charge_release_timer = None
+        # A batter can begin the swing a few frames before the game increments
+        # its pitch counter. Track onset globally so the new pitch does not see
+        # an already-running animation with no start time.
+        self._swing_previous = None
+        self._swing_onset_timer = None
 
     # -- the frame loop ----------------------------------------------------
 
@@ -2297,6 +4881,9 @@ class PitchDeriver:
         previous, self.previous_state = self.previous_state, state
         if previous is None:
             return []
+
+        self._track_swing_onset(snapshot, state)
+        self._track_charge(snapshot, state)
 
         released = []
         if self.open is not None:
@@ -2329,7 +4916,7 @@ class PitchDeriver:
                 # outcome observed. It is emitted saying exactly that.
                 if self.open is not None:
                     released.append(self._close(snapshot, "unknown", "superseded"))
-                self._begin(snapshot, state)
+                self._begin(snapshot, previous, state)
         return released
 
     def flush(self) -> list:
@@ -2342,9 +4929,15 @@ class PitchDeriver:
 
     # -- one pitch ---------------------------------------------------------
 
-    def _begin(self, snapshot: dict, state: dict) -> None:
+    def _begin(self, snapshot: dict, previous: dict, state: dict) -> None:
         pitcher = snapshot["actors"].get("P") or {}
+        # The star-meter deduction for a star pitch lands on THIS frame, so
+        # the running total has to start one frame earlier. See
+        # _star_meter_drop.
+        meter_drop: dict = {}
+        _star_meter_drop(previous, state, meter_drop)
         self.open = {
+            "meter_drop": meter_drop,
             "pitch_timer": snapshot["timer"],
             "t": snapshot["t"],
             "last_timer": snapshot["timer"],
@@ -2359,26 +4952,84 @@ class PitchDeriver:
             # the ball arrived. See _offer for why the second is the answer.
             "swing_shown": False,
             "bunt_shown": False,
+            "star_swing_shown": False,
             "swing_frames": 0,
             "bunt_frames": 0,
             "closest_units": None,
+            # The sample nearest the front/back plane of home plate.  Keep the
+            # coordinates, not just the old radial distance: chase decisions
+            # require knowing where the pitch crossed the plate.  This is raw
+            # evidence; zone classification happens separately so a later
+            # calibration can improve without changing what was measured.
+            "plate_distance_units": None,
+            "plate_location": None,
+            "plate_timer": None,
             "swing_at_plate": 0,
             "bunt_at_plate": 0,
+            # First frame on which the ordinary swing animation counter rises.
+            # This is the release target for a held charge.  Keep it separate
+            # from `swing_timer`, which is the contact frame used to join the
+            # pitch to its batted-ball play.
+            "swing_start_timer": (
+                self._swing_onset_timer
+                if (state.get("swing_frames") or 0) > 0 else None
+            ),
             "swing_timer": None,
         }
+
+    def _track_charge(self, snapshot: dict, state: dict) -> None:
+        """Follow the batter's charge across frames. See the latch in __init__."""
+        counter = state.get("swing_charge_frames")
+        if counter is None:
+            return
+        previous, self._charge_previous = self._charge_previous, counter
+        if previous is None:
+            return
+        if counter > previous:
+            self._charge_live = True
+            self._charge_frames = counter
+            self._charge_release_timer = snapshot["timer"]
+        elif counter < previous:
+            # The charge was abandoned, or the game cleared it between batters.
+            self._charge_live = False
+            self._charge_frames = 0
+            self._charge_release_timer = None
+
+    def _track_swing_onset(self, snapshot: dict, state: dict) -> None:
+        """Latch swing onset even when it precedes the pitch-counter rise."""
+        counter = state.get("swing_frames")
+        if counter is None:
+            return
+        previous, self._swing_previous = self._swing_previous, counter
+        if previous is not None and previous == 0 and counter > 0:
+            self._swing_onset_timer = snapshot["timer"]
+
+    def _take_charge(self) -> tuple:
+        """The charge this pitch was swung with, consuming it."""
+        held = ((self._charge_frames, self._charge_release_timer)
+                if self._charge_live else (0, None))
+        self._charge_live = False
+        self._charge_frames = 0
+        self._charge_release_timer = None
+        return held
 
     def _track(self, snapshot: dict, previous: dict, state: dict) -> None:
         pitch = self.open
         pitch["last_timer"] = snapshot["timer"]
         pitch["last_t"] = snapshot["t"]
+        _star_meter_drop(previous, state, pitch["meter_drop"])
         for counter, shown in (("swing_frames", "swing_shown"),
                                ("bunt_frames", "bunt_shown")):
             was = previous.get(counter) or 0
             now = state.get(counter) or 0
             if was == 0 and now > 0:
                 pitch[shown] = True
+                if counter == "swing_frames" and pitch["swing_start_timer"] is None:
+                    pitch["swing_start_timer"] = snapshot["timer"]
             if pitch[shown]:
                 pitch[counter] = max(pitch[counter], now)
+        if state.get("star_swing"):
+            pitch["star_swing_shown"] = True
         # WHERE THE BALL GOT CLOSEST TO THE PLATE, and what the bat was doing
         # there. A pitch resolves after the ball has gone by -- the count does
         # not change until it reaches the catcher -- so the resolving frame is
@@ -2388,6 +5039,12 @@ class PitchDeriver:
             pitch["closest_units"] = radius
             pitch["swing_at_plate"] = state.get("swing_frames") or 0
             pitch["bunt_at_plate"] = state.get("bunt_frames") or 0
+        plate_distance = abs(snapshot["ball"][2])
+        if (pitch["plate_distance_units"] is None
+                or plate_distance < pitch["plate_distance_units"]):
+            pitch["plate_distance_units"] = plate_distance
+            pitch["plate_location"] = tuple(snapshot["ball"])
+            pitch["plate_timer"] = snapshot["timer"]
 
     @staticmethod
     def _offer(pitch: dict) -> str:
@@ -2446,6 +5103,30 @@ class PitchDeriver:
         before = pitch["situation"]
         after = snapshot.get("state") or {}
         offer = self._offer(pitch)
+        plate_x = (None if pitch["plate_location"] is None
+                   else pitch["plate_location"][0])
+        pitch_zone, is_chase, zone_source = classify_pitch_zone(
+            offer, outcome, plate_x)
+        star_swing = bool(pitch["star_swing_shown"]
+                          or (before.get("star_swing") or 0)
+                          or (after.get("star_swing") or 0))
+        # Every pitch consumes the charge latch, whether or not it was swung at,
+        # so an abandoned charge can never be credited to a later pitch.
+        charge_frames, charge_release_timer = self._take_charge()
+        swing_start_timer = (pitch["swing_start_timer"]
+                             if offer == "swing" else None)
+        # Every resolved pitch consumes any onset latch. A late swing on a take
+        # must not become the next pitch's swing.
+        self._swing_onset_timer = None
+        # Whether this capture carries the charge fields at all. A session
+        # recorded before they were named reads back with the key absent, and
+        # that has to stay `ordinary_unknown` -- no evidence is not a slap.
+        charge_readable = "swing_charge_frames" in before
+        swing_mode = ("bunt" if offer == "bunt" else
+                      "star" if offer == "swing" and star_swing else
+                      ("charge" if charge_frames > 0 else "slap")
+                      if offer == "swing" and charge_readable else
+                      "ordinary_unknown" if offer == "swing" else "none")
         return {
             "pitch_timer": pitch["pitch_timer"],
             "resolved_timer": snapshot["timer"],
@@ -2465,6 +5146,33 @@ class PitchDeriver:
             # THE FACT THIS EXISTS FOR. The tracker log cannot see it, and it is
             # what separates a swinging strike from a called one.
             "offer": offer,
+            # Slap versus charge, off the charge counter in the same struct as
+            # the animation counters -- NOT off swing_frames, which is the same
+            # animation either way and which contact freezes, so hard contact
+            # looks like a short swing. The counter is read as a rise rather
+            # than a level; see the latch in __init__ for why a level is a lie.
+            "swing_mode": swing_mode,
+            "swing_mode_source": ("bunt_frames" if swing_mode == "bunt" else
+                                  "star_swing" if swing_mode == "star" else
+                                  "swing_charge_frames_rise"
+                                  if swing_mode in ("charge", "slap") else
+                                  "swing_charge_state_absent" if offer == "swing" else
+                                  "no_offer"),
+            # How long the charge was held. NULL, never 0, when the capture
+            # cannot say: a measured slap is 0 frames of charge, and "not
+            # charged" and "no evidence either way" must stay separable.
+            "swing_charge_frames": (charge_frames if charge_readable
+                                    and offer == "swing" else None),
+            # How far before the swing animation began the charge counter last
+            # rose.  The counter freezes when the batter releases the charge;
+            # measuring to pitch resolution instead made a whiff look dozens
+            # of frames later than a contact swing. Null when there was no
+            # charge to release or no observed swing onset.
+            "swing_charge_release_timing_frames": (
+                None if (charge_release_timer is None or offer != "swing"
+                         or swing_start_timer is None)
+                else swing_start_timer - charge_release_timer),
+            "swing_start_timer": swing_start_timer,
             "swing_frames": pitch["swing_frames"],
             "bunt_frames": pitch["bunt_frames"],
             # A stance the batter got into and came out of before the ball
@@ -2474,6 +5182,16 @@ class PitchDeriver:
             "bunt_shown": pitch["bunt_shown"],
             "closest_units": (None if pitch["closest_units"] is None
                               else round(pitch["closest_units"], 3)),
+            "plate_x_units": (None if pitch["plate_location"] is None
+                              else round(pitch["plate_location"][0], 4)),
+            "plate_y_units": (None if pitch["plate_location"] is None
+                              else round(pitch["plate_location"][1], 4)),
+            "plate_z_units": (None if pitch["plate_location"] is None
+                              else round(pitch["plate_location"][2], 4)),
+            "plate_timer": pitch["plate_timer"],
+            "pitch_zone": pitch_zone,
+            "pitch_zone_source": zone_source,
+            "is_chase": is_chase,
             "outcome": outcome,
             "outcome_source": how,
             # The batted ball, if there was one. The play joined on this frame
@@ -2485,6 +5203,40 @@ class PitchDeriver:
             # and about 91 on a star swing.
             "contact": pitch["swing_timer"] is not None,
             "swing_timer": pitch["swing_timer"],
+            # THE SCORE THIS PITCH WAS THROWN AT. Retroactive: these bytes were
+            # always inside the captured block and merely had no name until
+            # 2026-09-25. Every downstream value model needs the game state a
+            # decision was made in, and stars in particular are handed out by a
+            # comeback rule that favours the trailing team -- so a star decision
+            # read without the score re-measures the deficit.
+            "away_score": before.get("away_score"),
+            "home_score": before.get("home_score"),
+            # THE TEAM STAR METERS, at this pitch's release frame and at its
+            # resolution. NOT retroactive: they sit below where this project
+            # captured until 2026-09-25, so every earlier session reads None
+            # rather than zero. None and 0 are different answers -- 0 is an
+            # empty meter.
+            #
+            # `away_star_meter`/`home_star_meter` are read at the release frame,
+            # which is AFTER a star pitch has been charged for. They are the raw
+            # readings and are left alone; the spend below is what says a star
+            # was paid for.
+            "away_star_meter": before.get("away_star_meter"),
+            "home_star_meter": before.get("home_star_meter"),
+            "away_star_meter_after": after.get("away_star_meter"),
+            "home_star_meter_after": after.get("home_star_meter"),
+            # What each side spent on this pitch. The batting side spending is a
+            # star swing; the FIELDING side spending is a star pitch, which
+            # nothing in this project has ever measured. The meter is a bar, not
+            # a count: the amount is one of the three costs in the capture
+            # header, and which one names the spender (captain, own captain,
+            # ordinary) -- except that regular and own-captain are both 50, so
+            # only the 100 of a borrowed captain is distinguishable. Summed from
+            # frame-to-frame falls starting one frame before the release, so an
+            # award landing mid-pitch cannot cancel a spend; see
+            # _star_meter_drop.
+            **_star_meter_spend(before.get("inning_half"),
+                                pitch["meter_drop"]),
         }
 
 
@@ -2527,7 +5279,8 @@ def main() -> int:
     # frames come from, which is the whole point: a live play and its postgame
     # restatement cannot disagree because one of them took a different path.
     builder = session_snapshot_builder(session, offset, ball_frame, fps)
-    deriver = PlayDeriver(fps=fps, park=session.header.get("park"))
+    deriver = PlayDeriver(fps=fps, park=session.header.get("park"),
+                          is_night=session.header.get("is_night"))
     pitcher = PitchDeriver(fps=fps)
 
     print(f"session {session.stem.name}  park={session.header['park']}")
@@ -2649,7 +5402,7 @@ def final_bases_ran(frames: list, name: str,
 
 
 def build_play(active: dict, bags: dict, fps: float, truncated: bool,
-               park: str | None = None) -> dict:
+               park: str | None = None, is_night: bool | None = None) -> dict:
     frames = active["frames"]
     motion_frames = []
     seen_timers = set()
@@ -2672,12 +5425,24 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
     sprayed_frames = {}
     sprayed_onsets = {}
     spraying = set()
+    sprayed_night_frames = {}
+    sprayed_night_onsets = {}
+    spraying_night = set()
+    impact_stun_frames = {}
+    impact_stun_onsets = {}
+    impact_stunning = set()
+    burned_frames = {}
+    burned_onsets = {}
+    burning = set()
     knocked_frames = {}
     knocked_onsets = {}
     knocking = set()
     close_play_frames = {}
     close_play_onsets = {}
     contesting = set()
+    attack_frames = {}
+    attack_onsets = {}
+    attacking = set()
     for snapshot in frames:
         for name, actor in snapshot["actors"].items():
             track = tracks.get(name)
@@ -2685,7 +5450,9 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
                 track = tracks[name] = Track(
                     name, actor["character"], actor["index"],
                     actor.get("kind", "fielder"))
-            track.add(snapshot["t"] - contact_t, actor["pos"])
+            track.add(snapshot["t"] - contact_t, actor["pos"],
+                      actor.get("speed"), actor.get("max_speed"),
+                      actor.get("character"))
             if actor["airborne"]:
                 airborne[name] = airborne.get(name, 0) + 1
             # A freeze is one contiguous 120-frame run, but a fielder can be
@@ -2703,8 +5470,14 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
             if actor.get("frozen"):
                 if name not in freezing:
                     freezing.add(name)
+                    # THE ABSOLUTE FRAME, beside the relative time. A freeze
+                    # carried only `t` -- seconds since contact -- so nothing
+                    # downstream could give it a stable identity the way every
+                    # other effect has one, and a re-ingest had to reconstruct
+                    # the frame by multiplying back through the frame rate. The
+                    # timer is right here; recording it costs nothing.
                     frozen_onsets.setdefault(name, []).append(
-                        [round(snapshot["t"] - contact_t, 4), 0])
+                        [round(snapshot["t"] - contact_t, 4), 0, snapshot["timer"]])
                 frozen_onsets[name][-1][1] += 1
                 frozen_frames[name] = frozen_frames.get(name, 0) + 1
             else:
@@ -2716,22 +5489,74 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
                 if name not in spraying:
                     spraying.add(name)
                     sprayed_onsets.setdefault(name, []).append(
-                        [round(snapshot["t"] - contact_t, 4), 0])
+                        [round(snapshot["t"] - contact_t, 4), 0, snapshot["timer"]])
                 sprayed_onsets[name][-1][1] += 1
                 sprayed_frames[name] = sprayed_frames.get(name, 0) + 1
             else:
                 spraying.discard(name)
+            # DK Jungle's flowers change effect bytes with the day/night park
+            # variant. Keep this stream separate from +0x242: that byte still
+            # identifies Peach's heart swing at night, while +0x2CA has four
+            # night-DK onsets matching four labelled flower hits exactly.
+            if actor.get("sprayed_night"):
+                if name not in spraying_night:
+                    spraying_night.add(name)
+                    sprayed_night_onsets.setdefault(name, []).append(
+                        [round(snapshot["t"] - contact_t, 4), 0, snapshot["timer"]])
+                sprayed_night_onsets[name][-1][1] += 1
+                sprayed_night_frames[name] = sprayed_night_frames.get(name, 0) + 1
+            else:
+                spraying_night.discard(name)
+            # Burned by a fire star swing (+0x23E): Mario's fireball or Bowser's
+            # breath. Recorded at every park; name_star_swing_effects says whose.
+            if actor.get("burned"):
+                if name not in burning:
+                    burning.add(name)
+                    burned_onsets.setdefault(name, []).append(
+                        [round(snapshot["t"] - contact_t, 4), 0, snapshot["timer"]])
+                burned_onsets[name][-1][1] += 1
+                burned_frames[name] = burned_frames.get(name, 0) + 1
+            else:
+                burning.discard(name)
+            # Generic impact stun. +0x243 is shared by a Daisy Cruiser table
+            # collision and Bowser Jr.'s paint, so this loop records only the
+            # measured state. Causal table attribution happens after the
+            # captain-star flag for this play has been resolved.
+            if actor.get("impact_stun"):
+                if name not in impact_stunning:
+                    impact_stunning.add(name)
+                    impact_stun_onsets.setdefault(name, []).append(
+                        [round(snapshot["t"] - contact_t, 4), 0,
+                         snapshot["timer"], int(actor["impact_stun"])])
+                impact_stun_onsets[name][-1][1] += 1
+                impact_stun_frames[name] = impact_stun_frames.get(name, 0) + 1
+            else:
+                impact_stunning.discard(name)
             # Knocked down by a stadium hazard. Park-neutral on purpose: the
             # flag says a fielder was floored and never says by what, which is
             # the barrel here, the manhole at Wario City and a Chain Chomp at
             # Bowser Jr. Naming the cause is the caller's job when it can.
             if actor.get("knocked_down"):
+                value = int(actor["knocked_down"])
                 if name not in knocking:
                     knocking.add(name)
                     knocked_onsets.setdefault(name, []).append(
                         [round(snapshot["t"] - contact_t, 4), 0])
                     knocked_onsets.setdefault(name + "@frame", []).append(
                         snapshot["timer"])
+                    # THE FLAG'S PHASES, carried in a parallel list so the two
+                    # existing readers keep their two-element unpacking. The
+                    # VALUE is what separates Bowser Castle's causes: a bomb
+                    # runs 1 for exactly 40 frames and then 2, while five
+                    # onsets there never reach 2 at all. See
+                    # name_bomb_knockdowns.
+                    knocked_onsets.setdefault(name + "@phases", []).append(
+                        [[value, 0]])
+                phases = knocked_onsets[name + "@phases"][-1]
+                if phases[-1][0] == value:
+                    phases[-1][1] += 1
+                else:
+                    phases.append([value, 1])
                 knocked_onsets[name][-1][1] += 1
                 knocked_frames[name] = knocked_frames.get(name, 0) + 1
             else:
@@ -2751,6 +5576,27 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
                 close_play_frames[name] = close_play_frames.get(name, 0) + 1
             else:
                 contesting.discard(name)
+            # THE BUDDY ATTACK, counted like the states above. Onsets rather
+            # than frames, because a fielder can swing twice on one play and the
+            # second swing is a separate event. Park-neutral: the flag says a
+            # fielder swiped at something and never says at what, so naming the
+            # Freezie is the caller's job -- see buddy_attack_flag in
+            # collect_player_tracking.py.
+            if actor.get("buddy_attack"):
+                if name not in attacking:
+                    attacking.add(name)
+                    attack_onsets.setdefault(name, []).append(
+                        [round(snapshot["t"] - contact_t, 4), 0,
+                         snapshot["timer"], False])
+                attack_onsets[name][-1][1] += 1
+                # +0x267 is the successful-contact latch. Only sample it while
+                # this attack is active: it remains up afterward, and must not
+                # make a later missed swing inherit the earlier hit.
+                if actor.get("buddy_attack_hit"):
+                    attack_onsets[name][-1][3] = True
+                attack_frames[name] = attack_frames.get(name, 0) + 1
+            else:
+                attacking.discard(name)
             action = actor["fielding_action"]
             if actor.get("contact_counter"):
                 contact_counter_frames[name] = (
@@ -2765,6 +5611,35 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
                     forced_misplay_frames.get(name, 0) + 1)
             elif action == FIELDING_ACTION_BUDDY_HANDOFF:
                 buddy_handoff_frames[name] = buddy_handoff_frames.get(name, 0) + 1
+
+    # A FREEZIE BREAK is the object's own active byte dropping 1 -> 0. The Peach
+    # captures supply the missing control: every annotated break has this
+    # transition, while the annotated near misses do not. Cause is attributed
+    # later from the ball/throw/attack geometry; the disappearance itself must
+    # be recorded before deciding what broke it.
+    freezie_breaks = []
+    previous_freezies = {}
+    for snapshot in frames:
+        for freezie in snapshot.get("freezies", []):
+            slot = freezie["slot"]
+            was_active = previous_freezies.get(slot)
+            is_active = freezie["active"]
+            if was_active is True and not is_active and freezie.get("pos"):
+                at = tuple(freezie["pos"])
+                ball = tuple(snapshot["ball"])
+                freezie_breaks.append({
+                    "slot": slot,
+                    "t": round(snapshot["t"] - contact_t, 4),
+                    "frame": snapshot["timer"],
+                    "at": [round(value, 3) for value in at],
+                    "ball_at": [round(value, 3) for value in ball],
+                    "horizontal_distance_units": round(
+                        math.dist(ball[::2], at[::2]), 3),
+                    "distance_units": round(math.dist(ball, at), 3),
+                    "active_before": True,
+                    "active_after": False,
+                })
+            previous_freezies[slot] = is_active
 
     # First touch: the earliest frame in which the ball's own coordinates sit on
     # top of a fielder's. That coincidence is exact to the float when someone is
@@ -2838,6 +5713,28 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
     caught_in_flight = batted_ball_class == "fair_caught"
     landing = (None if caught_in_flight
                else detect_landing(frames, contact_t, live_end, first_touch))
+    # WHERE THE BALL WOULD HAVE FIRST TOUCHED DOWN, as the game itself worked it
+    # out on the contact frame. See BALL_LANDING_PREDICTION in
+    # player_tracking_io.py.
+    #
+    # This is not a second opinion on `landing`; across 61 batted balls the two
+    # agree to a median 0.14u. It is the answer in the cases where `landing` is
+    # not available or is short BY CONSTRUCTION -- a ball caught in flight never
+    # lands, and a ball that clears the fence or strikes a wall stops where it
+    # was interrupted rather than where it was going. Those are exactly the
+    # plays carry has always been wrong on.
+    projected_landing = None
+    for snapshot in frames[:PROJECTED_LANDING_SEARCH_FRAMES]:
+        point = snapshot.get("landing_prediction")
+        if point is not None:
+            projected_landing = {
+                "at": [round(point[0], 3), round(point[2], 3)],
+                "frame": snapshot["timer"],
+                "distance_units": round(
+                    math.dist((point[0], point[2]),
+                              (frames[0]["ball"][0], frames[0]["ball"][2])), 3),
+            }
+            break
     # How each fielder went to the ball. This is a separate signal from the
     # action enum above: the enum says what happened to the ball once it was
     # reached, `catch_type` says whether the fielder had to dive or leap to
@@ -3044,11 +5941,17 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
     name_carry_impulses(possession_carries, first_touch, throws, knocked_onsets)
     barrel_events = detect_barrel_events(frames, contact_t, live_end,
                                         knockdowns=knocked_onsets, park=park)
+    frozen_fielder_ball_contacts = detect_frozen_fielder_ball_contacts(
+        frames, contact_t, live_end, order)
 
     freezes = []
-    flower_sprays = []
+    gas_stuns = []
+    gas_stuns_night = []
     knockdowns = []
+    impact_stuns = []
+    burns = []
     close_plays = []
+    buddy_attacks = []
     fielders = {}
     for name, track in tracks.items():
         if frames[0]["actors"][name]["kind"] != "fielder":
@@ -3057,40 +5960,111 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
         entry["airborne_frames"] = airborne.get(name, 0)
         entry["frozen_frames"] = frozen_frames.get(name, 0)
         entry["frozen_seconds"] = round(frozen_frames.get(name, 0) / fps, 4)
-        entry["frozen_at_s"] = [t for t, _ in frozen_onsets.get(name, [])] or None
-        for onset, run_frames in frozen_onsets.get(name, []):
+        entry["frozen_at_s"] = [t for t, _, _ in frozen_onsets.get(name, [])] or None
+        for onset, run_frames, at_frame in frozen_onsets.get(name, []):
             freezes.append({
                 "by": name,
                 "character_id": track.character,
                 "character": character_name(track.character),
                 "t": onset,
+                "frame": at_frame,
                 "frames": run_frames,
                 "seconds": round(run_frames / fps, 4),
             })
-        entry["sprayed_frames"] = sprayed_frames.get(name, 0)
-        entry["sprayed_seconds"] = round(sprayed_frames.get(name, 0) / fps, 4)
-        entry["sprayed_at_s"] = [t for t, _ in sprayed_onsets.get(name, [])] or None
-        # THE MEASUREMENT IS ALWAYS KEPT -- sprayed_frames/seconds/at_s above are
-        # written for every park. Only the NAME is gated. +0x242 fires at DK
-        # Jungle and at Daisy Cruiser, and only DK Jungle's is established as a
-        # flower; calling Daisy's four unlabelled runs "flower gas" would invent
-        # a hazard that park does not have.
-        for onset, run_frames in (sprayed_onsets.get(name, [])
-                                  if park == "dk_jungle" else []):
-            flower_sprays.append({
+        entry["buddy_attack_frames"] = attack_frames.get(name, 0)
+        entry["buddy_attack_at_s"] = [t for t, _, _, _ in attack_onsets.get(name, [])] or None
+        for onset, run_frames, timer, hit in attack_onsets.get(name, []):
+            buddy_attacks.append({
                 "by": name,
                 "character_id": track.character,
                 "character": character_name(track.character),
                 "t": onset,
                 "frames": run_frames,
                 "seconds": round(run_frames / fps, 4),
+                "timer": timer,
+                "hit": hit,
+                # Filled from an object disappearance below. The attack latch
+                # alone says contact, not what it contacted.
+                "clears_freezie": False,
+            })
+        entry["sprayed_frames"] = sprayed_frames.get(name, 0)
+        entry["sprayed_seconds"] = round(sprayed_frames.get(name, 0) / fps, 4)
+        entry["sprayed_at_s"] = [t for t, _, _ in sprayed_onsets.get(name, [])] or None
+        # THE MEASUREMENT IS ALWAYS KEPT -- sprayed_frames/seconds/at_s above are
+        # written for every park. Only the NAME is gated, once the star swing is
+        # known: +0x242 is DK Jungle's flower gas and also Peach's heart swing
+        # at any park, so calling Daisy's runs "flower gas" would invent a
+        # hazard that park does not have.
+        for onset, run_frames, at_frame in sprayed_onsets.get(name, []):
+            gas_stuns.append({
+                "by": name,
+                "character_id": track.character,
+                "character": character_name(track.character),
+                "t": onset,
+                "frame": at_frame,
+                "frames": run_frames,
+                "seconds": round(run_frames / fps, 4),
+            })
+        entry["sprayed_night_frames"] = sprayed_night_frames.get(name, 0)
+        entry["sprayed_night_seconds"] = round(
+            sprayed_night_frames.get(name, 0) / fps, 4)
+        entry["sprayed_night_at_s"] = [
+            t for t, _, _ in sprayed_night_onsets.get(name, [])] or None
+        for onset, run_frames, at_frame in sprayed_night_onsets.get(name, []):
+            gas_stuns_night.append({
+                "by": name,
+                "character_id": track.character,
+                "character": character_name(track.character),
+                "t": onset,
+                "frame": at_frame,
+                "frames": run_frames,
+                "seconds": round(run_frames / fps, 4),
+                "source_byte": "+0x2CA",
+            })
+        entry["burned_frames"] = burned_frames.get(name, 0)
+        entry["burned_seconds"] = round(burned_frames.get(name, 0) / fps, 4)
+        entry["burned_at_s"] = [t for t, _, _ in burned_onsets.get(name, [])] or None
+        for onset, run_frames, at_frame in burned_onsets.get(name, []):
+            burns.append({
+                "by": name,
+                "character_id": track.character,
+                "character": character_name(track.character),
+                "t": onset,
+                "frame": at_frame,
+                "frames": run_frames,
+                "seconds": round(run_frames / fps, 4),
+            })
+        entry["impact_stun_frames"] = impact_stun_frames.get(name, 0)
+        entry["impact_stun_seconds"] = round(
+            impact_stun_frames.get(name, 0) / fps, 4)
+        entry["impact_stun_at_s"] = [
+            t for t, _, _, _ in impact_stun_onsets.get(name, [])] or None
+        for onset, run_frames, at_frame, flag_value in impact_stun_onsets.get(name, []):
+            onset_snapshot = next(
+                (snapshot for snapshot in frames
+                 if snapshot["timer"] == at_frame), None)
+            actor_at = (onset_snapshot["actors"].get(name)
+                        if onset_snapshot else None)
+            impact_stuns.append({
+                "by": name,
+                "character_id": track.character,
+                "character": character_name(track.character),
+                "t": onset,
+                "frame": at_frame,
+                "frames": run_frames,
+                "seconds": round(run_frames / fps, 4),
+                "flag_value": flag_value,
+                "at": ([round(value, 3) for value in actor_at["pos"]]
+                       if actor_at else None),
             })
         entry["knocked_down_frames"] = knocked_frames.get(name, 0)
         entry["knocked_down_seconds"] = round(knocked_frames.get(name, 0) / fps, 4)
         entry["knocked_down_at_s"] = [t for t, _ in knocked_onsets.get(name, [])] or None
-        for (onset, run_frames), at_frame in zip(
+        phase_runs = knocked_onsets.get(name + "@phases", [])
+        for index, ((onset, run_frames), at_frame) in enumerate(zip(
                 knocked_onsets.get(name, []),
-                knocked_onsets.get(name + "@frame", [])):
+                knocked_onsets.get(name + "@frame", []))):
+            phases = phase_runs[index] if index < len(phase_runs) else None
             knockdowns.append({
                 "by": name,
                 "character_id": track.character,
@@ -3099,6 +6073,12 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
                 "frame": at_frame,
                 "frames": run_frames,
                 "seconds": round(run_frames / fps, 4),
+                # How long the flag held each value, in order. Kept for every
+                # park: the shape is what names a Bowser Castle bomb, and it is
+                # the only thing that separates the five onsets there that no
+                # annotation covers.
+                "phases": ([[value, count] for value, count in phases]
+                           if phases else None),
             })
         entry["close_play_frames"] = close_play_frames.get(name, 0)
         entry["close_play_at_s"] = [
@@ -3178,6 +6158,97 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
                 entry.update(jump)
         fielders[name] = entry
 
+    attribute_freezie_breaks(freezie_breaks, frames, buddy_attacks, throws)
+    freezie_ball_rebounds = detect_freezie_ball_rebounds(
+        frames, contact_t, live_end, freezie_breaks)
+    arrow_redirects = detect_arrow_redirects(
+        frames, contact_t, live_end, fps, park, is_night)
+    table_ball_contacts = detect_table_ball_contacts(
+        frames, contact_t, live_end, park, is_night, fielding_events,
+        first_touch)
+    table_breaks = detect_table_breaks(
+        frames, contact_t, park, is_night, buddy_attacks, throws)
+    manhole_spots = (wario_manhole_spots(frames[0].get("props") if frames else None)
+                     if park == "wario_city" else [])
+    manhole_ball_strikes = detect_manhole_ball_strikes(
+        frames, contact_t, live_end, fps, park, manhole_spots)
+
+    name_manhole_knockdowns(
+        knockdowns, frames, park,
+        wario_manhole_spots(frames[0].get("props") if frames else None)
+        if park == "wario_city" else [])
+
+    star_swing = detect_star_swing(motion_frames, active["contact_timer"])
+    name_star_swing_knockdowns(knockdowns, star_swing, barrel_events, motion_frames)
+    # The transit supplies the Piranha's measured ball path. Attribute its
+    # synchronized knockdown before the wall-band train fallback gets a chance
+    # to claim the same generic flag.
+    pipe_transits = detect_pipe_transits(frames, contact_t, live_end, park, is_night,
+                                         buddy_handoffs)
+    name_piranha_knockdowns(knockdowns, frames, pipe_transits, park)
+    name_train_knockdowns(knockdowns, frames, park, is_night)
+    name_close_play_runners(close_plays, frames)
+    name_star_swing_breaks(table_breaks, star_swing)
+    name_star_swing_breaks(freezie_breaks, star_swing)
+    star_swing_effects = name_star_swing_effects(star_swing, {
+        "impact_stun": impact_stuns, "sprayed": gas_stuns, "burned": burns})
+    # A Peach heart at DK Jungle writes the flower-gas byte; it is hers, not
+    # the flower's.
+    claimed = {(effect["by"], effect["frame"]) for effect in star_swing_effects}
+    # Bowser Castle's statue fire and falling lava, both on the burned byte, and
+    # King Bob-omb's bombs, named from the knockdown flag's phases.
+    fire_hazards = name_bowser_castle_burns(burns, frames, park, claimed)
+    name_bomb_knockdowns(knockdowns, park)
+    flower_candidates = gas_stuns_night if is_night is True else gas_stuns
+    flower_sprays = [
+        {**{key: value for key, value in stun.items() if key != "frame"},
+         "source_byte": stun.get("source_byte", "+0x242")}
+        for stun in flower_candidates
+        if park == "dk_jungle" and (stun["by"], stun["frame"]) not in claimed
+    ]
+    # DK Jungle night statue POW. The value-1 effect has exactly three onsets
+    # in the labelled game, all 91 frames long and all matching the three
+    # operator-confirmed POW stuns. The three visible no-hit activations remain
+    # absent because no fielder effect byte rises for them.
+    dk_pow_stuns = [
+        {**stun, "hazard": "dk_pow"}
+        for stun in impact_stuns
+        if park == "dk_jungle" and is_night is True
+        and stun.get("flag_value") == 1
+        and (stun["by"], stun["frame"]) not in claimed
+    ]
+    # Daytime Daisy Cruiser has one stadium object class: tables. The raw stun
+    # flag is also raised by Bowser Jr.'s paint, and the star-swing flag names
+    # that competing cause. A non-star onset at this park is therefore a table
+    # collision; its actor position is the observed table location until a
+    # captured transform supplies the centre.
+    table_stuns = [
+        {**stun, "location_source": "stunned_fielder_at_contact"}
+        for stun in impact_stuns
+        if park == "daisy_cruiser" and is_night is False and star_swing is None
+    ]
+    # Yoshi Park: a ball through a pipe, and a fielder stunned by running into one.
+    pipe_stuns = name_pipe_stuns(impact_stuns, claimed, catch_approaches, park)
+    # A floored fielder's dropped ball is not a throw -- and at Yoshi Park the
+    # train that floored them can hit it next.
+    name_knocked_loose_throws(throws, knockdowns)
+    train_ball_hits = detect_train_ball_hits(
+        frames, contact_t, live_end, fps, park, is_night, fielding_events, throws,
+        knockdowns)
+    train_ball_captures = detect_train_ball_captures(
+        frames, contact_t, live_end, fps, park, is_night)
+    # The one-frame jolt on the way into the train is the swallow seen from
+    # outside. Reporting both says the train hit the ball and then, separately,
+    # took it.
+    train_ball_hits = [
+        hit for hit in train_ball_hits
+        if not any(0 <= ride["frame"] - hit["frame"] <= 2
+                   for ride in train_ball_captures)]
+
+    ball_path = measure_ball_path(frames, contact_t, live_end, first_touch,
+                                  possession_carries)
+    preoutcome_flight = measure_preoutcome_flight(frames, active["contact_timer"])
+
     rebound_catch = None
     if (caught_in_flight and failed_contacts and first_touch
             and first_touch["by"] not in deflected_by):
@@ -3220,6 +6291,26 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
                 math.dist(track.points[0][::2], bag[::2]), 3)
         entry["five_foot_splits_s"] = cumulative_distance_splits(track)
         runners[name] = entry
+
+    # WHERE EVERY RUNNER WAS WHEN THE BALL WAS FIRST SECURED. The CPU decides
+    # every send and hold, and this is the moment it has to decide against: how
+    # far the runner still has to go when a fielder has the ball. Matched on the
+    # batting index rather than the slot, because an advancing runner can move
+    # between slots mid-play.
+    touch_snapshot = (
+        next((s for s in frames if s["timer"] == first_touch["frame"]), None)
+        if first_touch is not None else None)
+    if touch_snapshot is not None:
+        for name, entry in runners.items():
+            index = frames[0]["actors"][name]["index"]
+            if index < 0:
+                continue
+            actor = next(
+                (candidate for candidate in touch_snapshot["actors"].values()
+                 if candidate["kind"] == "offense" and candidate["index"] == index),
+                None)
+            if actor is not None:
+                entry["at_first_possession"] = [round(value, 3) for value in actor["pos"]]
 
     # Home to first, for the batter-runner. The first-base bag is whatever the
     # empty R1 slot measured, so this is right in any park.
@@ -3279,6 +6370,46 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
         tuple(round(value, 3) for value in frames[index]["ball"])
         for index in range(0, signature_limit, signature_step)
     )
+
+    # HOW EACH APPROACH ENDED. The fielding events already carry the approach
+    # they belong to; this is the same join read the other way, so that a dive
+    # can be counted as an attempt whether or not it produced an event. An
+    # approach with no event at all did not touch the ball -- that is the miss,
+    # and it is the half of the sample that bounds the reach from above.
+    for window in catch_approaches:
+        matched = [
+            event for event in fielding_events
+            if event.get("by") == window["by"]
+            and event.get("approach_start_frame") == window["start_frame"]
+        ]
+        secured = any(event.get("secured") for event in matched)
+        touched = any(event.get("ball_contact") == "confirmed"
+                      for event in matched)
+        source = "fielding_event"
+        if window["catch_type"] == CATCH_TYPE_THROW and not matched:
+            # `fielding_events` covers the batted ball only, so a receiver's
+            # catch is not one. The throw record is where that lives, and the
+            # arrival frame is what identifies it.
+            arrived = [
+                throw for throw in throws
+                if throw.get("receiver_position") == window["by"]
+                and throw.get("arrival_frame") is not None
+                and window["start_frame"] <= throw["arrival_frame"]
+                <= window["end_frame"] + CATCH_TYPE_ATTRIBUTION_FRAMES
+            ]
+            if arrived:
+                secured = touched = True
+            source = "throw"
+        window["secured"] = secured
+        window["touched"] = touched
+        window["outcome"] = ("secured" if secured
+                             else "touched" if touched
+                             else "missed" if matched else "no_contact")
+        window["outcome_source"] = source
+        window["mechanics"] = sorted({
+            event.get("mechanic") for event in matched if event.get("mechanic")
+        }) or None
+
     return {
         "contact_timer": active["contact_timer"],
         "swing_timer": active.get("swing_timer"),
@@ -3305,6 +6436,7 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
         "batted_ball_class": batted_ball_class,
         "contact_at": [round(v, 3) for v in frames[0]["ball"]],
         "landing": landing,
+        "projected_landing": projected_landing,
         "deflections": deflections,
         "forced_misplays": forced_misplays,
         "buddy_handoffs": buddy_handoffs,
@@ -3318,8 +6450,85 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
         # the object that did it is not in the captured region -- this says a
         # fielder was held, not what held him.
         "freezes": freezes,
+        # Every buddy attack a fielder made on this play. The animation and
+        # successful-contact latch stay separate; `clears_freezie` requires the
+        # Freezie's own disappearance on that attack, not the latch alone.
+        "buddy_attacks": buddy_attacks,
+        # Object-confirmed disappearances with their separately measured cause:
+        # batted ball, thrown ball, buddy attack, or unknown.
+        "freezie_breaks": freezie_breaks,
+        # Close ball contact plus a large trajectory turn, with the object's
+        # active byte proving that it survived the collision.
+        "freezie_ball_rebounds": freezie_ball_rebounds,
+        # A large measured trajectory turn at close range while the fielder's
+        # independently discovered freeze flag is active.
+        "frozen_fielder_ball_contacts": frozen_fielder_ball_contacts,
+        # WARIO CITY ONLY. Frames where an arrow rewrote the ball's horizontal
+        # velocity: the imposed speed, the bearing it snapped to, the bearing it
+        # arrived on, and -- when this session captured the objects -- which
+        # arrow it was. Empty at every other park by construction.
+        "arrow_redirects": arrow_redirects,
+        # DAISY CRUISER DAY ONLY. The collision supplies an observed table
+        # location even in older captures that did not include the object
+        # allocation. A future prop-enabled capture may also name its transform.
+        "table_ball_contacts": table_ball_contacts,
+        "table_breaks": table_breaks,
+        "impact_stuns": impact_stuns,
+        "table_stuns": table_stuns,
+        # YOSHI PARK ONLY. A ball that went into one pipe and came out of
+        # another, with both pipes named; and a fielder stunned by running or
+        # diving into one. See YOSHI_PIPES.
+        "pipe_transits": pipe_transits,
+        "pipe_stuns": pipe_stuns,
+        # DK JUNGLE NIGHT ONLY. A fielder hit by the centre-field statue POW.
+        "dk_pow_stuns": dk_pow_stuns,
+        # BOWSER CASTLE ONLY. The centre-field statue's fire and the falling
+        # lava, separated by the fielder's measured distance to the statue's
+        # surveyed front. Empty at every other park, where every burn in the
+        # archive belongs to a captain's star swing.
+        "fire_hazards": fire_hazards,
+        # YOSHI PARK ONLY. A sharp horizontal turn of a loose ball inside the
+        # outfield wall, away from the ground, wall and every measured glove.
+        "train_ball_hits": train_ball_hits,
+        # YOSHI PARK ONLY. The ball went INTO the train: its position became the
+        # train's own and the game's home-run flag rose on that frame. See
+        # detect_train_ball_captures.
+        "train_ball_captures": train_ball_captures,
+        # THE CONSEQUENCE, stated where a consumer will trip over it. A redirect
+        # means the ball's resting place is NOT on the path it was hit along, so
+        # anything that draws a line from the landing to where the ball was
+        # fielded is drawing a journey that did not happen, and any route charged
+        # against the resting place overstates the chase. See
+        # `distance_to_landing_units` and the field view.
+        "path_redirected_by_stadium": bool(arrow_redirects or table_ball_contacts
+                                           or pipe_transits or train_ball_hits
+                                           or train_ball_captures),
+        # THE MEASURED PATH, for anything that draws the play. Sampled ball
+        # positions from contact to the first glove -- see measure_ball_path.
+        # This is the only field that describes a home run's flight or a ball
+        # that left play: both have a null `landing` and a null `first_touch`.
+        "ball_path": ball_path,
+        # Contact through contact+11 frames, fitted exactly as the catch model's
+        # features were. Scores the no-gimmick catch chance of a redirected ball.
+        "preoutcome_flight": preoutcome_flight,
         "flower_sprays": flower_sprays,
+        # `hazard` names what floored them only where something MEASURED says so:
+        # a Wario City manhole (name_manhole_knockdowns) or a captain's star
+        # swing at any park (name_star_swing_knockdowns). Anything else stays
+        # unnamed -- the flag says somebody went down, not why.
         "knockdowns": knockdowns,
+        # The captain star swing on this play from the game's own flag: which
+        # captain, and the frames it was up. Null on an ordinary swing.
+        "star_swing": star_swing,
+        # Fielders that swing disabled without flooring: Bowser Jr.'s paint,
+        # Peach's heart, Mario's fireball, Bowser's fire breath. Named only when
+        # the byte that fired is the one this captain's effect writes.
+        "star_swing_effects": star_swing_effects,
+        # The ball bouncing off an erupting manhole, above the ground. This is
+        # also why `landing` can be null on such a play: the ball never reached
+        # the ground to land on.
+        "manhole_ball_strikes": manhole_ball_strikes,
+        "manholes_surveyed": [list(spot) for spot in manhole_spots] or None,
         "close_plays": close_plays,
         # Every dive and leap on the play, including the ones that never
         # reached the ball -- those produce no fielding event at all, and they
@@ -3343,6 +6552,15 @@ def build_play(active: dict, bags: dict, fps: float, truncated: bool,
         "ninety_foot_split_s": ninety_foot_split,
         "fielders": fielders,
         "runners": runners,
+        # The bags this capture measured (empty runner slots sit on them) and
+        # home as the contact point, in world x/z -- what a runner's or a
+        # fielder's distance to a base is measured against.
+        "bases": {
+            base: [round(bag[0], 3), round(bag[2], 3)]
+            for base, bag in (("first", bags.get("R1")), ("second", bags.get("R2")),
+                              ("third", bags.get("R3")), ("home", home))
+            if bag is not None
+        },
         "_trajectory_signature": trajectory_signature,
     }
 
@@ -3551,7 +6769,8 @@ def report(plays: list, bags: dict, out_path: Path,
             home_to_first_times.append(play["home_to_first_s"])
         arm_speeds.extend(
             throw["peak_speed_mph"] for throw in play.get("throws", [])
-            if throw.get("peak_speed_mph") is not None)
+            if throw.get("is_throw") is not False
+            and throw.get("peak_speed_mph") is not None)
 
     def line(label, values, unit, lower_is_better=False):
         if not values:
@@ -3607,7 +6826,7 @@ def report(plays: list, bags: dict, out_path: Path,
               "speed.")
 
     buddies = [throw for play in plays for throw in play.get("throws", [])
-               if throw.get("buddy_throw")]
+               if throw.get("is_throw") is not False and throw.get("buddy_throw")]
     if buddies:
         held = statistics.median(throw["buddy_freeze_s"] for throw in buddies)
         print()
@@ -3619,7 +6838,8 @@ def report(plays: list, bags: dict, out_path: Path,
               + ", ".join(f"{pair} x{n}" for pair, n in partners.most_common()))
 
     aimed = [throw for play in plays for throw in play.get("throws", [])
-             if throw.get("intended_target_position")
+             if throw.get("is_throw") is not False
+             and throw.get("intended_target_position")
              and throw["intended_target_position"] != throw["receiver_position"]]
     if aimed:
         print()

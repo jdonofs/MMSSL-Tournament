@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
+import { createRefreshCoordinator } from '../utils/refreshCoordinator'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useTournament } from '../context/TournamentContext'
@@ -105,6 +106,21 @@ export default function Home() {
     }
 
     let isActive = true
+    const rankingCache = new Map()
+    const rankingVersions = new Map()
+    const readRankingSnapshot = async (key, loader) => {
+      if (rankingCache.has(key)) return rankingCache.get(key)
+      const version = rankingVersions.get(key) || 0
+      const result = await loader()
+      if (!result?.error && version === (rankingVersions.get(key) || 0)) rankingCache.set(key, result)
+      return result
+    }
+    const invalidateRanking = (...keys) => {
+      keys.forEach((key) => {
+        rankingCache.delete(key)
+        rankingVersions.set(key, (rankingVersions.get(key) || 0) + 1)
+      })
+    }
 
     const loadRankingData = async () => {
       if (isActive) {
@@ -121,13 +137,13 @@ export default function Home() {
         { data: fieldersData, error: fieldersError },
         { data: pitchesData },
       ] = await Promise.all([
-        fetchAllRows(() => supabase.from('draft_picks').select('*').eq('tournament_id', currentTournament.id).order('pick_number')),
-        fetchAllRows(() => supabase.from('characters').select('*').order('name')),
-        fetchAllRows(() => supabase.from('games').select('id,tournament_id')),
-        fetchAllRows(() => supabase.from('plate_appearances').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('pitching_stints').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('game_fielders').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id')),
+        readRankingSnapshot('draft_picks', () => fetchAllRows(() => supabase.from('draft_picks').select('*').eq('tournament_id', currentTournament.id).order('pick_number'))),
+        readRankingSnapshot('characters', () => fetchAllRows(() => supabase.from('characters').select('*').order('name'))),
+        readRankingSnapshot('games', () => fetchAllRows(() => supabase.from('games').select('id,tournament_id'))),
+        readRankingSnapshot('plate_appearances', () => fetchAllRows(() => supabase.from('plate_appearances').select('*').order('created_at'))),
+        readRankingSnapshot('pitching_stints', () => fetchAllRows(() => supabase.from('pitching_stints').select('*').order('created_at'))),
+        readRankingSnapshot('game_fielders', () => fetchAllRows(() => supabase.from('game_fielders').select('*').order('created_at'))),
+        readRankingSnapshot('pitches', () => fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id'))),
       ])
 
       const error = draftPicksError || charactersError || gamesError || paError || pitchingError || fieldersError
@@ -172,19 +188,48 @@ export default function Home() {
       setRankingsLoading(false)
     }
 
-    loadRankingData()
+    const refreshCoordinator = createRefreshCoordinator({
+      run: loadRankingData,
+      delayMs: 500,
+      maxWaitMs: 1500,
+      isPaused: () => document.visibilityState === 'hidden',
+    })
+    const refresh = (...keys) => {
+      invalidateRanking(...keys)
+      refreshCoordinator.request()
+    }
+    const refreshAll = () => {
+      invalidateRanking('draft_picks', 'characters', 'games', 'plate_appearances', 'pitching_stints', 'game_fielders', 'pitches')
+      refreshCoordinator.request({ immediate: true })
+    }
+    refreshCoordinator.request({ immediate: true })
+    let hasSubscribed = false
 
     const channel = supabase
       .channel(`home-rankings-${currentTournament.id}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks', filter: `tournament_id=eq.${currentTournament.id}` }, loadRankingData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'games', filter: `tournament_id=eq.${currentTournament.id}` }, loadRankingData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, loadRankingData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, loadRankingData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, loadRankingData)
-      .subscribe()
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks', filter: `tournament_id=eq.${currentTournament.id}` }, () => refresh('draft_picks'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games', filter: `tournament_id=eq.${currentTournament.id}` }, () => refresh('games'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, () => refresh('plate_appearances'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, () => refresh('pitching_stints'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, () => refresh('game_fielders'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitches' }, () => refresh('pitches'))
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (hasSubscribed) refreshAll()
+        hasSubscribed = true
+      })
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshAll()
+    }
+    const handleOnline = refreshAll
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('online', handleOnline)
 
     return () => {
       isActive = false
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('online', handleOnline)
+      refreshCoordinator.dispose()
       supabase.removeChannel(channel)
     }
   }, [currentTournament?.id])

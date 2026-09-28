@@ -48,6 +48,19 @@ import {
   resolveStarAbility,
   resolveThrowingAbility,
 } from './tracker_abilities.mjs'
+import { chemistryNamesMatch, getChemistry } from '../src/data/chemistry.js'
+
+/** True when either character lists the other as bad chemistry and neither as good. */
+function haveBadChemistry(first, second) {
+  if (!first || !second) return false
+  const a = getChemistry(first)
+  const b = getChemistry(second)
+  const good = a.good.some((name) => chemistryNamesMatch(name, second))
+    || b.good.some((name) => chemistryNamesMatch(name, first))
+  const bad = a.bad.some((name) => chemistryNamesMatch(name, second))
+    || b.bad.some((name) => chemistryNamesMatch(name, first))
+  return bad && !good
+}
 
 export const CLAUSE_STATUSES = Object.freeze([
   'observed', 'derived', 'inferred', 'unknown', 'pending', 'not_applicable', 'mismatch',
@@ -136,6 +149,24 @@ function zoneFor(angleDeg, trajectory, distanceFeet = null) {
  * The frame is the one parkGeometry.js documents: -Z toward centre field, +X
  * toward first base. So a positive angle is toward right field.
  */
+// WHICH WAY THE TRAIN SENT IT. Jason asked for the direction beside the
+// distance ("can we start including the direction it was hit in"). For a ball
+// already deep in the outfield the useful direction is radial: a shove back
+// toward the infield is a different play from one driven further into the
+// corner, and the left/right zone alone says neither. Ten feet is the band
+// where "back toward the infield" stops being a rounding error.
+const TRAIN_PUSH_RADIAL_UNITS = 3.0
+
+function trainPushDirection(from, to) {
+  if (!Array.isArray(from) || !Array.isArray(to)) return null
+  const before = Math.hypot(from[0], from[2])
+  const after = Math.hypot(to[0], to[2])
+  if (after <= before - TRAIN_PUSH_RADIAL_UNITS) return 'back toward the infield'
+  if (after >= before + TRAIN_PUSH_RADIAL_UNITS) return 'further out toward the wall'
+  const zone = zoneFor(directionDegrees(to), null, after * FEET_PER_UNIT)
+  return zone ? `along the wall toward ${zone}` : 'along the wall'
+}
+
 export function directionDegrees(point) {
   if (!Array.isArray(point) || point.length < 3) return null
   const [x, , z] = point
@@ -161,6 +192,17 @@ function isFoulPlay(play) {
 
 // One definition of the scale, the same one tracker_preview_state.mjs uses.
 const FEET_PER_UNIT = 3.280839895
+
+// FEET IN THE ENGLISH, UNITS IN THE EVIDENCE. The operator reads these
+// sentences and the game's unit is not something anybody watching a baseball
+// game thinks in: "can we stop referring to things as units in this
+// interpretation? start converting to feet." Every `evidence` payload keeps the
+// measurement in the units it was measured in, so nothing downstream has to be
+// re-derived to read it -- only the sentence converts.
+function feet(units, digits = 1) {
+  const value = Number(units)
+  return Number.isFinite(value) ? (value * FEET_PER_UNIT).toFixed(digits) : null
+}
 
 // How far the ball actually finished from the plate. The at-bat's own distance
 // is the right answer when the join is sound, but a play carries its own
@@ -581,7 +623,7 @@ function describeFieldingEvent(builder, event, { play, atBat = null }) {
       ...base,
       category: 'possession',
       text: `${Who} ${tossedBy ? 'took the ball' : 'secured the ball'}${tail}`
-        + `${offGround ? `, ${height.toFixed(1)} units off the ground` : ''}.`,
+        + `${offGround ? `, ${feet(height)} ft off the ground` : ''}.`,
       status: 'observed',
       evidence: {
         ...base.evidence,
@@ -714,6 +756,13 @@ function describeFieldingEvent(builder, event, { play, atBat = null }) {
       return
     }
     // The physical boot and the scoring decision are different claims.
+    // When the serialized PA already carries a reason this announced bobble
+    // was vetoed, the outcome section below explains that ruling once. Do not
+    // precede it with "no determination is available" for the same fielder.
+    if (!atBat?.is_error && atBat?.error_vetoed_reason
+        && atBat.fielding_events?.bobble === event.character) {
+      return
+    }
     //
     // On a play the batter did not survive, the second one is not open: an
     // error requires a misplay that prolonged the time at bat, prolonged the
@@ -819,8 +868,8 @@ function describeFieldingEvent(builder, event, { play, atBat = null }) {
       ...base,
       category: 'attempt',
       text: `${Who} was in a fielding animation, but the ball never came within reach`
-        + `${Number.isFinite(reach) ? ` — it stayed ${reach.toFixed(1)} units away` : ''}`
-        + `${Number.isFinite(ballHeight) && ballHeight > 5 ? `, ${ballHeight.toFixed(1)} units overhead` : ''}.`,
+        + `${Number.isFinite(reach) ? ` — it stayed ${feet(reach)} ft away` : ''}`
+        + `${Number.isFinite(ballHeight) && ballHeight > 5 ? `, ${feet(ballHeight)} ft overhead` : ''}.`,
       status: 'derived',
       evidence: {
         ...base.evidence,
@@ -847,6 +896,226 @@ function describeFieldingEvent(builder, event, { play, atBat = null }) {
     text: `The tracker detected an attempt by ${who} but could not determine whether contact occurred.`,
     status: 'unknown',
     evidence: { ...base.evidence, ability_resolution: ability },
+  })
+}
+
+function describeTableBallContact(builder, contact) {
+  const [x, , z] = contact.table?.at || contact.at || []
+  const where = Number.isFinite(x) && Number.isFinite(z)
+    ? ` at field coordinates (${x.toFixed(1)}, ${z.toFixed(1)})`
+    : ''
+  const height = Number(contact.height_units)
+  const action = contact.impact_kind === 'table_edge_rebound'
+    ? 'rebounded from the edge of a table'
+    : 'bounced on top of a table'
+  builder.add({
+    category: 'mechanic',
+    text: `The ball ${action}${where}`
+      + (Number.isFinite(height) ? `, ${feet(height)} ft above the field` : '')
+      + '.',
+    status: 'observed',
+    source: 'player_tracking_play.table_ball_contacts[] '
+      + '(free-ball velocity reversal above the Daisy Cruiser field)',
+    evidence: contact,
+    t: contact.t ?? null,
+    frame: contact.frame ?? null,
+  })
+}
+
+function describeTableStun(builder, stun, atBat) {
+  const who = fielderPhrase(stun.character, stun.by, atBat)
+  const seconds = Number(stun.seconds)
+  builder.add({
+    category: 'mechanic',
+    text: `${capitalized(who)} collided with a table and was stunned`
+      + (Number.isFinite(seconds) ? ` for ${seconds.toFixed(1)} s` : '')
+      + '.',
+    status: 'derived',
+    source: 'player_tracking_play.table_stuns[] '
+      + '(Daisy Cruiser day impact-stun flag, with captain star swings excluded)',
+    evidence: stun,
+    t: stun.t ?? null,
+    frame: stun.frame ?? null,
+  })
+}
+
+// YOSHI PARK'S PIPES. Named from where the stunned fielder stood against the six
+// surveyed pipes, and only when no captain's star swing claimed the byte first.
+function describePipeStun(builder, stun, atBat) {
+  const who = fielderPhrase(stun.character, stun.by, atBat)
+  const seconds = Number(stun.seconds)
+  const pipe = stun.pipe ? `the ${String(stun.pipe).replace(/_/g, ' ')} pipe` : 'a pipe'
+  builder.add({
+    category: 'mechanic',
+    text: `${capitalized(who)} ${stun.dive ? 'dove' : 'ran'} into ${pipe} and was stunned`
+      + (Number.isFinite(seconds) ? ` for ${seconds.toFixed(1)} s` : '')
+      + '.',
+    status: 'derived',
+    source: 'player_tracking_play.pipe_stuns[] '
+      + '(Yoshi Park impact-stun flag beside a surveyed pipe, captain star swings excluded)',
+    evidence: stun,
+    t: stun.t ?? null,
+    frame: stun.frame ?? null,
+  })
+}
+
+// The measured path carries the ball in a straight line from one pipe to the
+// other, which is not a flight: without this a reader sees a ball crossing the
+// outfield a few units up.
+function describePipeTransits(builder, play) {
+  for (const transit of play.pipe_transits || []) {
+    const into = transit.entry_pipe
+      ? `the ${String(transit.entry_pipe).replace(/_/g, ' ')} pipe` : 'a pipe'
+    const outOf = transit.exit_pipe
+      ? `the ${String(transit.exit_pipe).replace(/_/g, ' ')} pipe` : 'another pipe'
+    const seconds = Number(transit.transit_s)
+    const after = Number.isFinite(seconds) ? ` ${seconds.toFixed(1)} s later` : ''
+    builder.add({
+      category: 'mechanic',
+      text: transit.mechanism === 'piranha_plant'
+        ? `A Piranha Plant took the ball down ${into} and spat it out of ${outOf}${after}.`
+        : `The ball went into ${into} and came out of ${outOf}${after}.`,
+      status: 'observed',
+      source: 'player_tracking_play.pipe_transits[] '
+        + '(a free ball held, carried at constant velocity or jumped between two surveyed pipes)',
+      evidence: transit,
+      t: transit.t ?? null,
+      frame: transit.frame ?? null,
+    })
+  }
+}
+
+function describeTableBreak(builder, broken, atBat) {
+  const [x, , z] = broken.table?.at || []
+  const where = Number.isFinite(x) && Number.isFinite(z)
+    ? ` at field coordinates (${x.toFixed(1)}, ${z.toFixed(1)})`
+    : ''
+  const cause = broken.cause || {}
+  let sentence
+  let status = 'observed'
+  if (cause.type === 'fielder_buddy_attack') {
+    const who = capitalized(fielderPhrase(cause.character, cause.by, atBat))
+    sentence = `${who} broke the table${where} with a buddy attack.`
+  } else if (cause.type === 'thrown_ball') {
+    const who = fielderPhrase(cause.character, cause.by, atBat)
+    sentence = `The throw from ${who} broke the table${where}.`
+  } else if (cause.type === 'batted_ball') {
+    sentence = `The batted ball broke the table${where}.`
+  } else if (cause.type === 'star_swing') {
+    // Bowser's fire breath is not the ball, so no contact geometry sees it
+    // (Jason, daisy_cruiser-20260911T152720Z PA 55). Named by elimination
+    // inside the swing, hence derived.
+    const owner = cause.captain ? `${cause.captain}'s` : "A captain's"
+    sentence = `${owner} star swing broke the table${where}.`
+    status = 'derived'
+  } else {
+    sentence = `A table broke${where}, but the tracker could not determine what struck it.`
+    status = 'unknown'
+  }
+  builder.add({
+    category: 'mechanic',
+    text: sentence,
+    status,
+    source: 'player_tracking_play.table_breaks[] '
+      + '(paired Daisy Cruiser table active flag changed from 1 to 0, attributed by contact geometry)',
+    evidence: broken,
+    t: broken.t ?? null,
+    frame: broken.frame ?? null,
+  })
+}
+
+function describeFreezieBreak(builder, broken, atBat) {
+  const [x, , z] = broken.at || []
+  const where = Number.isFinite(x) && Number.isFinite(z)
+    ? ` at field coordinates (${x.toFixed(1)}, ${z.toFixed(1)})`
+    : ''
+  const cause = broken.cause || {}
+  let eventText = `The ball broke a Freezie${where}.`
+  let status = 'observed'
+  if (cause.type === 'thrown_ball') {
+    const who = fielderPhrase(cause.character, cause.by, atBat)
+    eventText = `The throw from ${who} broke a Freezie${where}.`
+  } else if (cause.type === 'fielder_buddy_attack') {
+    const who = fielderPhrase(cause.character, cause.by, atBat)
+    eventText = `${capitalized(who)} broke a Freezie with a buddy attack${where}.`
+  } else if (cause.type === 'batted_ball') {
+    eventText = `The batted ball broke a Freezie${where}.`
+  } else if (cause.type === 'star_swing') {
+    const owner = cause.captain ? `${cause.captain}'s` : "A captain's"
+    eventText = `${owner} star swing broke a Freezie${where}.`
+    status = 'derived'
+  } else if (cause.type === 'unknown') {
+    eventText = `A Freezie broke${where}; the capture does not establish what hit it.`
+  }
+  builder.add({
+    category: 'mechanic',
+    text: eventText,
+    status,
+    source: 'player_tracking_play.freezie_breaks[] (Freezie +0x8A 1->0 + contact geometry)',
+    evidence: broken,
+    t: broken.t ?? null,
+    frame: broken.frame ?? null,
+  })
+}
+
+// A FIELDER'S BUDDY ATTACK -- the swipe they make at whatever is in their path.
+// +0x265 measures the animation and +0x267 whether it connected. A Freezie
+// break is named only when the object itself disappears during that contact;
+// the attack latch alone still cannot make that claim. The sentence says only
+// that they attacked and sits in the fielding timeline at its own frame: "on
+// the way to the ball" read after a catch it preceded (Jason,
+// daisy_cruiser-20260911T152720Z PA 20).
+function describeBuddyAttack(builder, attack, atBat) {
+  const who = fielderPhrase(attack.character, attack.by, atBat)
+  builder.add({
+    category: 'mechanic',
+    text: `${capitalized(who)} buddy-attacked.`,
+    status: 'observed',
+    source: 'player_tracking_play.buddy_attacks[] (fielder +0x265/+0x267)',
+    evidence: {
+      ...attack,
+      why: attack.hit
+        ? 'measured buddy-attack animation and successful-contact latch on the fielder actor'
+        : 'measured buddy-attack animation without a successful-contact latch',
+    },
+    t: attack.t ?? null,
+    frame: attack.timer ?? null,
+  })
+}
+
+// A CAPTAIN'S STAR SWING THAT DISABLED A FIELDER WITHOUT FLOORING THEM. The
+// deriver names one only when the byte that fired is the byte this captain's
+// effect writes (STAR_SWING_EFFECTS in derive_player_metrics.py). Bowser Jr.'s
+// paint shares its byte with a Daisy table and Peach's heart shares hers with
+// DK Jungle's flower gas, so the byte on its own would be a guess.
+const STAR_SWING_EFFECT_PHRASE = {
+  paint: (who) => `paint stunned ${who}`,
+  heart: (who) => `heart swing charmed ${who}, who could not move`,
+  fireball: (who) => `fireball stunned ${who}`,
+  fire_breath: (who) => `fire breath stunned ${who}`,
+}
+const STAR_SWING_EFFECT_BYTE = { impact_stun: '+0x243', sprayed: '+0x242', burned: '+0x23E' }
+
+function describeStarSwingEffect(builder, effect, atBat) {
+  const who = fielderPhrase(effect.character, effect.by, atBat)
+  const seconds = Number(effect.seconds)
+  const owner = effect.star_swing_captain ? `${effect.star_swing_captain}'s` : "A captain's"
+  const phrase = STAR_SWING_EFFECT_PHRASE[effect.effect]?.(who) || `star swing stunned ${who}`
+  builder.add({
+    category: 'mechanic',
+    text: `${owner} ${phrase}`
+      + (Number.isFinite(seconds) && seconds > 0 ? ` for ${seconds.toFixed(1)} s` : '')
+      + '.',
+    status: 'observed',
+    source: `player_tracking_play.star_swing_effects[] (fielder ${STAR_SWING_EFFECT_BYTE[effect.flag] || effect.flag}`
+      + ' on a captain star-swing play)',
+    evidence: {
+      ...effect,
+      why: 'measured disable flag on the fielder, on a play whose star-swing flag '
+        + '(0x900D954A) names the captain whose effect writes that flag',
+    },
+    t: effect.t ?? null,
+    frame: effect.frame ?? null,
   })
 }
 
@@ -877,8 +1146,51 @@ function describeFielding(builder, { atBat, play }) {
     action_start_frame: approach.start_frame ?? null,
     action_end_frame: approach.end_frame ?? null,
   }))
-  const observations = [...events, ...approaches].sort((a, b) => (a.t ?? 0) - (b.t ?? 0))
-  for (const event of observations) describeFieldingEvent(builder, event, { play, atBat })
+  // These are one timeline, not separate feature sections. In particular, a
+  // table bounce followed by a wall/fielding contact must be narrated in that
+  // order rather than in whichever order the detector functions happen to be
+  // called below.
+  const tableContacts = (play.table_ball_contacts || []).map((event) => ({
+    ...event, _narrative_type: 'table_ball_contact',
+  }))
+  const tableStuns = (play.table_stuns || []).map((event) => ({
+    ...event, _narrative_type: 'table_stun',
+  }))
+  const tableBreaks = (play.table_breaks || []).map((event) => ({
+    ...event, _narrative_type: 'table_break',
+  }))
+  // A fielder stunned before the ball reaches them has to read as stunned
+  // first, so the star-swing effects join the same timeline.
+  const starSwingEffects = (play.star_swing_effects || []).map((event) => ({
+    ...event, _narrative_type: 'star_swing_effect',
+  }))
+  // A buddy attack and whatever it broke happen on the way to the ball, so
+  // they read before the catch. The attack's start frame is `timer`.
+  const buddyAttacks = (play.buddy_attacks || []).map((event) => ({
+    ...event, frame: event.timer ?? null, _narrative_type: 'buddy_attack',
+  }))
+  const freezieBreaks = (play.freezie_breaks || []).map((event) => ({
+    ...event, _narrative_type: 'freezie_break',
+  }))
+  // A fielder who ran into a Yoshi Park pipe reads in order with the chase it cut short.
+  const pipeStuns = (play.pipe_stuns || []).map((event) => ({
+    ...event, _narrative_type: 'pipe_stun',
+  }))
+  const observations = [
+    ...events, ...approaches, ...tableContacts, ...tableStuns, ...tableBreaks, ...starSwingEffects,
+    ...buddyAttacks, ...freezieBreaks, ...pipeStuns,
+  ].sort((a, b) => (a.frame ?? Number.MAX_SAFE_INTEGER) - (b.frame ?? Number.MAX_SAFE_INTEGER))
+  describePipeTransits(builder, play)
+  for (const event of observations) {
+    if (event._narrative_type === 'table_ball_contact') describeTableBallContact(builder, event)
+    else if (event._narrative_type === 'table_stun') describeTableStun(builder, event, atBat)
+    else if (event._narrative_type === 'pipe_stun') describePipeStun(builder, event, atBat)
+    else if (event._narrative_type === 'table_break') describeTableBreak(builder, event, atBat)
+    else if (event._narrative_type === 'star_swing_effect') describeStarSwingEffect(builder, event, atBat)
+    else if (event._narrative_type === 'buddy_attack') describeBuddyAttack(builder, event, atBat)
+    else if (event._narrative_type === 'freezie_break') describeFreezieBreak(builder, event, atBat)
+    else describeFieldingEvent(builder, event, { play, atBat })
+  }
 
   // A FIELDER THE GAME FROZE. This is measured, not inferred: the fielder
   // struct carries a flag that is up for exactly the 120 frames he cannot
@@ -894,9 +1206,10 @@ function describeFielding(builder, { atBat, play }) {
   // fires at all four hand-annotated flower sprays in a session recorded before
   // it was found, at NEITHER annotated barrel hit, and on two fielders at once
   // for the play the operator described that way. At THIS park that is a
-  // flower. The flag is not park-exclusive the way the Freezie flag is -- Daisy
-  // Cruiser fires it too, unlabelled -- so the sentence is gated on the play
-  // being at DK Jungle and says nothing about what it means elsewhere.
+  // flower. The flag is not park-exclusive the way the Freezie flag is -- it is
+  // also Peach's heart star swing, at any park -- so the sentence is gated on
+  // the play being at DK Jungle, and the deriver hands the onset on a Peach
+  // swing to star_swing_effects instead.
   for (const spray of play.flower_sprays || []) {
     const who = fielderPhrase(spray.character, spray.by, atBat)
     const seconds = Number(spray.seconds)
@@ -907,7 +1220,7 @@ function describeFielding(builder, { atBat, play }) {
           ? ` for ${seconds.toFixed(1)} s` : '')
         + ', and was dazed rather than beaten to the ball.',
       status: 'observed',
-      source: 'player_tracking_play.flower_sprays[] (fielder +0x242)',
+      source: `player_tracking_play.flower_sprays[] (fielder ${spray.source_byte || '+0x242'})`,
       evidence: {
         ...spray,
         why: 'measured gas flag on the fielder actor; DK Jungle only, and absent '
@@ -915,6 +1228,70 @@ function describeFielding(builder, { atBat, play }) {
       },
       t: spray.t ?? null,
       frame: null,
+    })
+  }
+
+  // DK JUNGLE NIGHT'S STATUE POW. +0x243 value 1 rose for exactly the three
+  // annotated POW hits in the night game, always for 91 frames. Activations
+  // that visibly hit nobody produce no entry, which is the intended result:
+  // the tracker reports affected players, not an unobserved object animation.
+  for (const stun of play.dk_pow_stuns || []) {
+    const who = fielderPhrase(stun.character, stun.by, atBat)
+    const seconds = Number(stun.seconds)
+    builder.add({
+      category: 'mechanic',
+      text: `The DK statue POW knocked down ${who}`
+        + (Number.isFinite(seconds) && seconds > 0 ? ` for ${seconds.toFixed(1)} s` : '')
+        + '.',
+      status: 'observed',
+      source: 'player_tracking_play.dk_pow_stuns[] (fielder +0x243 value 1)',
+      evidence: {
+        ...stun,
+        why: 'measured value-1 impact-stun flag at DK Jungle night; all three '
+          + 'onsets match operator-confirmed statue POW hits',
+      },
+      t: stun.t ?? null,
+      frame: stun.frame ?? null,
+    })
+  }
+
+  // BOWSER CASTLE'S TWO FIRES, on one byte, told apart by where the fielder
+  // stood. The statue is a fixed object 11 ft in front of the centre-field
+  // fence -- six burns on a flat front spanning 20 units of x, across four
+  // sessions and six characters -- and every other burn is 19u or further from
+  // it, scattered through left and right. A captain's fire star swing writes
+  // the same byte and is named by star_swing_effects instead.
+  for (const fire of play.fire_hazards || []) {
+    // A burn the derivation dropped -- the flag outlived a side change, so its
+    // duration describes two different people -- stays in the record with its
+    // reason and is not narrated as an event.
+    if (!fire.hazard) continue
+    const who = fielderPhrase(fire.character, fire.by, atBat)
+    const seconds = Number(fire.seconds)
+    const forHowLong = Number.isFinite(seconds) && seconds > 0
+      ? ` for ${seconds.toFixed(1)} s` : ''
+    const statue = fire.hazard === 'statue_fire'
+    const distance = Number(fire.statue_front_distance_units)
+    builder.add({
+      category: 'mechanic',
+      text: statue
+        ? `The center-field statue breathed fire over ${who}, stunning them${forHowLong}.`
+        : `Falling lava caught ${who}${forHowLong}.`,
+      status: 'observed',
+      source: 'player_tracking_play.fire_hazards[] (fielder +0x23E, with the '
+        + 'measured distance to the statue\'s surveyed front)',
+      evidence: {
+        ...fire,
+        why: statue
+          ? 'measured fire flag with the fielder on the statue\'s surveyed front '
+            + `(${Number.isFinite(distance) ? `${distance.toFixed(2)}u` : 'on it'}); `
+            + 'every statue burn measured 0.60u or nearer, every lava burn 19.28u or further'
+          : 'measured fire flag with the fielder clear of the statue front '
+            + `(${Number.isFinite(distance) ? `${distance.toFixed(1)}u away` : 'well clear'}), `
+            + 'which is where the falling lava lands',
+      },
+      t: fire.t ?? null,
+      frame: fire.frame ?? null,
     })
   }
 
@@ -951,6 +1328,177 @@ function describeFielding(builder, { atBat, play }) {
     })
   }
 
+  for (const rebound of play.freezie_ball_rebounds || []) {
+    const source = rebound.source_thrower_character
+      ? fielderPhrase(
+        rebound.source_thrower_character,
+        rebound.source_thrower_position,
+        atBat,
+      )
+      : null
+    const subject = rebound.phase === 'thrown_ball' && source
+      ? `The throw from ${source}`
+      : 'The batted ball'
+    builder.add({
+      category: 'mechanic',
+      text: `${subject} bounced off a Freezie, but the Freezie remained intact.`,
+      status: 'observed',
+      source: 'player_tracking_play.freezie_ball_rebounds[]',
+      evidence: rebound,
+      t: rebound.t ?? null,
+      frame: rebound.frame ?? null,
+    })
+  }
+
+  // THE BALL CAME DOWN ON AN ERUPTING MANHOLE. This is the reason a play can
+  // have no `landing` at all and still be complete: the landing detector waits
+  // for the ball to reach the ground, and this ball never did. The operator's
+  // words for it -- "the ball is not shown landing, but it did land, just on
+  // the raised manhole" -- are a missing measurement only until the strike is
+  // named, at which point they are an explained one.
+  for (const strike of play.manhole_ball_strikes || []) {
+    const at = strike.manhole_at
+    const where = Array.isArray(at) ? `${at[0].toFixed(0)}, ${at[2].toFixed(0)}` : null
+    builder.add({
+      category: 'mechanic',
+      text: `The ball came down on the erupting manhole${where ? ` at ${where}` : ''}`
+        + ` and bounced off it ${feet(strike.height_units)} ft above the`
+        + ' ground, so it never reached the ground to land on.',
+      status: 'observed',
+      source: 'player_tracking_play.manhole_ball_strikes[] '
+        + '(vertical reversal above ground at a surveyed manhole)',
+      evidence: strike,
+      t: strike.t ?? null,
+      frame: strike.frame ?? null,
+    })
+  }
+
+  // YOSHI PARK'S TRAIN HIT THE BALL. New captures place the train beside the
+  // measured jolt directly. Older captures keep the stricter inference that
+  // rules out the wall, ground, a secured ball and every glove.
+  for (const hit of play.train_ball_hits || []) {
+    const inside = Number(hit.fence_inside_units)
+    const directlyObserved = hit.cause_source === 'train_position'
+    const who = hit.mechanism === 'wiggler' ? 'The Wiggler' : 'The train'
+    // WHAT IT COST, rather than where it happened. "i see what the train
+    // hitting the ball is doing, its saying how far before the wall it hit. id
+    // like it to instead say how far it hit the ball before a fielder picks it
+    // up, so we know the true impact of it hitting the train" -- so the
+    // sentence measures the chase the shove created, and names its direction.
+    //
+    // The derivation measures the pickup off the possession frame, because a
+    // second pickup by the fielder who already had the ball files no new
+    // fielding event. A capture derived before that field existed has no
+    // pickup and keeps the older wall sentence rather than inventing one.
+    const travel = Number(hit.carried_to_pickup_units)
+    const delay = Number(hit.pickup_delay_s)
+    const pickupWho = hit.pickup_by || hit.pickup_character
+      ? fielderPhrase(hit.pickup_character, hit.pickup_by, atBat)
+      : null
+    const pushedToward = trainPushDirection(hit.at, hit.pickup_at)
+    builder.add({
+      category: 'mechanic',
+      text: Number.isFinite(travel) && pickupWho
+        ? `${who} hit the ball and sent it ${feet(travel)} ft`
+          + `${pushedToward ? ` ${pushedToward}` : ''}, where `
+          + `${pickupWho} picked it up`
+          + `${Number.isFinite(delay) ? ` ${delay.toFixed(1)} s later` : ''}.`
+        : `${who} hit the ball`
+          + `${Number.isFinite(inside) ? ` ${feet(inside)} ft inside the outfield wall` : ''}`
+          + '; no fielder reached it.',
+      status: directlyObserved ? 'observed' : 'inferred',
+      source: directlyObserved
+        ? 'player_tracking_play.train_ball_hits[] (measured train and ball positions at the one-frame impact)'
+        : 'player_tracking_play.train_ball_hits[] '
+          + '(a one-frame turn of a loose ball inside the wall, off the ground and clear of every glove)',
+      evidence: hit,
+      t: hit.t ?? null,
+      frame: hit.frame ?? null,
+    })
+  }
+
+  // THE BALL WENT INTO THE TRAIN, and that is a home run. "this is an
+  // interaction so rare i completely forgot about it... the ball landed inside
+  // of the train, which when that happens on yoshi park, its a homerun."
+  // Nothing here is inferred: the ball's position becomes the train's own to
+  // the last decimal, it rides there at the train's speed with its height
+  // pinned to the ground, and the game's home-run flag rises on that frame.
+  for (const ride of play.train_ball_captures || []) {
+    const carried = Number(ride.carried_units)
+    const seconds = Number(ride.seconds)
+    const named = ride.mechanism === 'wiggler' ? 'the Wiggler' : 'the train'
+    builder.add({
+      category: 'mechanic',
+      text: `The ball landed inside ${named}, which Yoshi Park scores as a home run`
+        + `${Number.isFinite(carried) ? `, and rode it ${feet(carried)} ft` : ''}`
+        + `${Number.isFinite(seconds) ? ` over ${seconds.toFixed(1)} s` : ''}.`,
+      status: 'observed',
+      source: 'player_tracking_play.train_ball_captures[] (ball position equal to the '
+        + 'captured train position, with the game\'s home_run_flag rising on that frame)',
+      evidence: {
+        ...ride,
+        why: ride.home_run_flag_rose
+          ? 'the ball\'s position became the train\'s own and home_run_flag rose 0 -> 1 '
+            + 'on that exact frame'
+          : 'the ball\'s position became the train\'s own and it rode there at the '
+            + 'train\'s speed at ground height',
+      },
+      t: ride.t ?? null,
+      frame: ride.frame ?? null,
+    })
+  }
+
+  // WARIO CITY'S ARROWS. Said out loud rather than left in the JSON, because
+  // the consequence is a WRONG picture rather than a missing one: the ball's
+  // resting place is not on the line it was hit along, so a reader who is not
+  // told about the redirect reads the fielded spot as where the ball was hit.
+  // `observed` -- the imposed displacement and the held bearing are both
+  // measured off the ball, and the arrow, when the session captured the
+  // objects, is named by matching its own heading to within half a degree
+  // rather than by being nearby.
+  for (const redirect of play.arrow_redirects || []) {
+    const at = redirect.arrow?.at
+    const where = at
+      ? `the arrow at ${at[0].toFixed(0)}, ${at[2].toFixed(0)}`
+      : 'a directional arrow'
+    const speed = typeof redirect.outgoing_speed_ups === 'number'
+      ? ` at ${redirect.outgoing_speed_ups.toFixed(1)} u/s`
+      : ''
+    builder.add({
+      category: 'mechanic',
+      text: `The ball hit ${where} and turned ${Math.round(redirect.turn_degrees)}`
+        + ` degrees, leaving on a bearing of ${Math.round(redirect.heading_degrees)}`
+        + ` degrees${speed}. Where it came to rest is not on the path it was hit along.`,
+      status: 'observed',
+      source: 'player_tracking_play.arrow_redirects[] '
+        + '(imposed per-frame displacement + held bearing)',
+      evidence: redirect,
+      t: redirect.t ?? null,
+      frame: redirect.frame ?? null,
+    })
+  }
+
+  for (const contact of play.frozen_fielder_ball_contacts || []) {
+    const frozen = fielderPhrase(contact.character, contact.by, atBat)
+    const source = contact.source_thrower_character
+      ? fielderPhrase(contact.source_thrower_character, contact.source_thrower_position, atBat)
+      : null
+    const eventText = contact.outcome === 'knocked_loose'
+      ? `The ball came loose from frozen ${frozen}.`
+      : source
+        ? `The throw from ${source} bounced off frozen ${frozen}.`
+        : `The ball bounced off frozen ${frozen}.`
+    builder.add({
+      category: 'mechanic',
+      text: eventText,
+      status: 'observed',
+      source: 'player_tracking_play.frozen_fielder_ball_contacts[]',
+      evidence: contact,
+      t: contact.t ?? null,
+      frame: contact.frame ?? null,
+    })
+  }
+
   for (const freeze of play.freezes || []) {
     const who = fielderPhrase(freeze.character, freeze.by, atBat)
     builder.add({
@@ -976,6 +1524,37 @@ function describeFielding(builder, { atBat, play }) {
     const who = fielderPhrase(carry.character, carry.by, atBat)
     const speed = Number(carry.peak_speed_ups)
 
+    // A SHOVE THE GAME CUT SHORT, reported on speed rather than distance. The
+    // ball drove them back and a knockdown took it out of the glove two frames
+    // later, which ends the possession track -- so the distance that survives
+    // is an artefact of the interruption and the one-unit floor below would
+    // bin the whole observation. The operator watched this happen and the
+    // derivation described a glide 1.8 s later instead.
+    if (carry.truncated_by_knockdown) {
+      const ballSpeed = Number(carry.ball_speed_at_start_ups)
+      builder.add({
+        category: 'mechanic',
+        text: `${capitalized(who)} was driven back by the batted ball at the catch`
+          + `${Number.isFinite(speed) ? `, from a standstill to ${feet(speed)} ft/s` : ''}`
+          + ', before the knockdown took the ball out of their glove.',
+        status: 'derived',
+        source: 'player_tracking_play.possession_carries[].truncated_by_knockdown '
+          + '+ .ball_speed_at_start_ups',
+        evidence: {
+          ...carry,
+          why: 'the move begins on the frame they took the ball and runs in the '
+            + 'ball\'s own direction of travel, and the ball was measured arriving fast',
+          cause: Number.isFinite(ballSpeed)
+            ? `batted_ball, measured arriving at ${ballSpeed.toFixed(1)} u/s on frame ${carry.impulse_frame}`
+            : `batted_ball, measured arriving on frame ${carry.impulse_frame}`,
+          note: 'the distance is cut off by the knockdown, so the speed is the measurement',
+        },
+        t: carry.start_t ?? null,
+        frame: carry.start_frame ?? null,
+      })
+      continue
+    }
+
     // Something moved the fielder, and it was not the fielder. Reported because
     // it is measured and because the alternative was silence: the same ground,
     // covered by a Ball Dash character, used to read as a carry.
@@ -994,16 +1573,27 @@ function describeFielding(builder, { atBat, play }) {
       // was noise wearing the clothes of an observation.
       if (!(displacement >= KNOCKBACK_NARRATIVE_FLOOR_UNITS)) continue
       const leaping = carry.impulse === 'leap'
+      // THE GAME MOVES FIELDERS BY ITSELF. A fielder handed possession of a
+      // ball that was crawling gets slid onto its spot, which has the exact
+      // shape of a knockback and nothing to deliver it -- so the sentence says
+      // that instead of reporting an unexplained shove.
+      const glided = carry.impulse === 'possession_glide'
+      const ballSpeed = Number(carry.ball_speed_at_start_ups)
       const pushedBy = KNOCKBACK_IMPULSE_PHRASE[carry.impulse] || null
       builder.add({
         category: 'mechanic',
         text: leaping
-          ? `${capitalized(who)} carried ${displacement.toFixed(1)} units past the catch `
+          ? `${capitalized(who)} carried ${feet(displacement)} ft past the catch `
             + 'on their own leap rather than being driven back by the ball.'
-          : `${capitalized(who)} was driven back `
-            + `${displacement.toFixed(1)} units `
-            + 'while holding the ball rather than running with it'
-            + (pushedBy ? `; ${pushedBy}.` : '; the capture does not say what pushed them.'),
+          : glided
+            ? `${capitalized(who)} slid ${feet(displacement)} ft onto the ball as the game `
+              + 'handed them possession, rather than being driven back by it'
+              + `${Number.isFinite(ballSpeed)
+                ? ` — the ball was crawling at ${feet(ballSpeed)} ft/s.` : '.'}`
+            : `${capitalized(who)} was driven back `
+              + `${feet(displacement)} ft `
+              + 'while holding the ball rather than running with it'
+              + (pushedBy ? `; ${pushedBy}.` : '; the capture does not say what pushed them.'),
         status: 'derived',
         source: 'player_tracking_play.possession_carries[].motion + .impulse',
         evidence: {
@@ -1011,9 +1601,12 @@ function describeFielding(builder, { atBat, play }) {
           why: 'fastest on the first frame, never sped up again, and dead straight',
           cause: leaping
             ? LEAP_CARRY_EVIDENCE
-            : carry.impulse
-              ? `${carry.impulse}, measured arriving on frame ${carry.impulse_frame}`
-              : 'not captured; nothing arrived on the frame the impulse began',
+            : glided
+              ? 'the game\'s own possession glide: the ball they took was measured '
+                + 'crawling, so it cannot be what moved them'
+              : carry.impulse
+                ? `${carry.impulse}, measured arriving on frame ${carry.impulse_frame}`
+                : 'not captured; nothing arrived on the frame the impulse began',
         },
         t: carry.start_t ?? null,
         frame: carry.start_frame ?? null,
@@ -1030,8 +1623,8 @@ function describeFielding(builder, { atBat, play }) {
     if (!ability) continue
     builder.add({
       category: 'ability',
-      text: `${who} carried the ball ${Number(carry.distance_units).toFixed(1)} units`
-        + `${Number.isFinite(speed) && speed > 0 ? ` at up to ${speed.toFixed(1)} u/s` : ''}`
+      text: `${who} carried the ball ${feet(carry.distance_units)} ft`
+        + `${Number.isFinite(speed) && speed > 0 ? ` at up to ${feet(speed)} ft/s` : ''}`
         + ', with Ball Dash, which is a passive carry-speed bonus rather than a move.',
       status: 'observed',
       source: 'player_tracking_play.possession_carries[] + CHARACTER_FIELDING_ABILITY',
@@ -1063,27 +1656,101 @@ function describeFielding(builder, { atBat, play }) {
       (barrel.approaches || []).filter((a) => a.hit).map((a) => a.by)),
   )
   const barrelPark = atBat?.hit_stadium_key === 'dk_jungle'
+  const repeatedKnockdowns = new Set()
   for (const knock of play.knockdowns || []) {
     if (barrelFloored.has(knock.by)) continue
     const who = fielderPhrase(knock.character, knock.by, atBat)
     const seconds = Number(knock.seconds)
     const forHowLong = Number.isFinite(seconds) && seconds > 0
       ? ` for ${seconds.toFixed(1)} s` : ''
+    // AT WARIO CITY THE MANHOLE IS NAMED, and unlike the barrel it is named
+    // from a measurement rather than from being the park's only candidate:
+    // `hazard` is set only when the floored fielder was standing on one of the
+    // five surveyed manholes. All fourteen knockdown onsets across the five
+    // Wario City sessions sit between 3.08 and 3.82 units from a manhole, by
+    // day and by night alike, while an UPRIGHT fielder gets within 0.04 units
+    // of one without being touched -- so this is the eruption's own knockback
+    // distance and not "whatever happened to be nearest".
+    const manhole = knock.hazard === 'manhole_water' ? knock.manhole_at : null
+    const manholeWhere = Array.isArray(manhole)
+      ? ` at ${manhole[0].toFixed(0)}, ${manhole[2].toFixed(0)}` : ''
+    // A CAPTAIN'S STAR SWING, named from the game's own flag, and checked BEFORE
+    // the DK Jungle inference below. That inference assumed the barrel is the
+    // only thing at DK Jungle that floors anybody -- and Wario's bomb and
+    // Luigi's tornado floor fielders at every park, DK Jungle included, where
+    // the 2026-08-28 game had both. Calling those "a barrel" was wrong.
+    const starSwing = knock.hazard === 'star_swing'
+    const swingOwner = starSwing && knock.star_swing_captain
+      ? `${knock.star_swing_captain}'s star swing` : "A captain's star swing"
+    // YOSHI PARK'S TRAIN. New day captures hold its direct position; older
+    // captures name it by the independently validated wall band and stay inferred.
+    const train = knock.hazard === 'train'
+    // YOSHI PARK'S NIGHT PIRANHA PLANTS. The plant's transport of the ball is
+    // observed independently; this knockdown is attributed when the flag rises
+    // beside that held ball within 30 frames of the eat/spit endpoint.
+    const piranha = knock.hazard === 'piranha_plant'
+    const piranhaPipe = knock.pipe
+      ? `the ${String(knock.pipe).replace(/_/g, ' ')} pipe` : 'a pipe'
+    // KING BOB-OMB'S BOMB, named from the flag's own phases: value 1 for
+    // exactly 40 frames and then value 2, the shape measured at all three
+    // labelled bombs. Five Bowser Castle knockdowns never reach value 2 and
+    // stay unnamed rather than being swept in on duration, which names nothing
+    // -- Wario City's manholes run 79-80 frames too.
+    const bomb = knock.hazard === 'bob_omb_bomb'
+    const repeatKey = `${knock.hazard || 'unknown'}:${knock.by || 'unknown'}`
+    const happenedBefore = repeatedKnockdowns.has(repeatKey)
+    repeatedKnockdowns.add(repeatKey)
+    const directlyObservedTrain = train && knock.hazard_source === 'train_position'
     builder.add({
       category: 'mechanic',
-      text: barrelPark
-        ? `A barrel knocked ${who} down${forHowLong}.`
-        : `${capitalized(who)} was knocked down${forHowLong}`
-          + '; the capture does not name what hit them.',
-      status: barrelPark ? 'inferred' : 'observed',
+      text: manhole
+        ? `An erupting manhole${manholeWhere} floored ${who}${forHowLong}.`
+        : starSwing
+          ? `${swingOwner} floored ${who}${forHowLong}.`
+          : train
+            ? `The train knocked ${who} down${happenedBefore ? ' again' : ''} along the outfield wall${forHowLong}.`
+            : piranha
+              ? knock.piranha_phase === 'eat'
+                ? `A Piranha Plant knocked ${who} down as it took the ball into ${piranhaPipe}${forHowLong}.`
+                : `A Piranha Plant knocked ${who} down as it spat the ball out of ${piranhaPipe}${forHowLong}.`
+            : bomb
+              ? `One of King Bob-omb's bombs floored ${who}${forHowLong}.`
+              : barrelPark
+                ? `A barrel knocked ${who} down${forHowLong}.`
+                : `${capitalized(who)} was knocked down${forHowLong}`
+                  + '; the capture does not name what hit them.',
+      status: manhole || starSwing || directlyObservedTrain || bomb
+        ? 'observed' : barrelPark || train || piranha ? 'inferred' : 'observed',
       source: 'player_tracking_play.knockdowns[] (fielder +0x23F)',
       evidence: {
         ...knock,
-        why: barrelPark
-          ? 'measured knockdown flag; the barrel is the only thing at DK Jungle '
-            + 'that floors a fielder, and the barrel object itself is not captured'
-          : 'measured knockdown flag; it marks the impact and not its cause',
-        ...(barrelPark ? { inferred_cause: 'dk_jungle_barrel' } : {}),
+        why: bomb
+          ? 'the measured knockdown flag held value 1 for exactly 40 frames and then '
+            + 'value 2, the shape at all three labelled King Bob-omb bombs; duration '
+            + 'alone names nothing, so an onset that never reaches value 2 stays unnamed'
+          : directlyObservedTrain
+          ? 'the measured knockdown flag rose while the captured train position was beside the fielder'
+          : train
+          ? 'measured knockdown flag, with the floored fielder inside the band along '
+            + 'the Yoshi Park outfield wall that every annotated train hit fell in; '
+            + 'this older capture does not contain the train position'
+          : piranha
+          ? 'the measured knockdown flag rose beside the held ball during an observed '
+            + 'Piranha Plant transport, within 30 frames of the eat/spit endpoint; '
+            + 'all three reviewed Piranha knockdowns and no other archived play match'
+          : manhole
+          ? 'measured knockdown flag, with the floored fielder standing on a '
+            + 'surveyed manhole; a manhole only erupts on some plays, so the '
+            + 'flag is what says it fired and the position is what says which one'
+          : starSwing
+            ? 'measured knockdown flag on a play whose captain star-swing flag '
+              + '(0x900D954A) was up; the flag says a star swing happened and its '
+              + 'value says whose'
+            : barrelPark
+              ? 'measured knockdown flag; the barrel is the only park hazard at DK '
+                + 'Jungle that floors a fielder, and the barrel object itself is not captured'
+              : 'measured knockdown flag; it marks the impact and not its cause',
+        ...(barrelPark && !manhole && !starSwing ? { inferred_cause: 'dk_jungle_barrel' } : {}),
       },
       t: knock.t ?? null,
       frame: knock.frame ?? null,
@@ -1111,12 +1778,12 @@ function describeFielding(builder, { atBat, play }) {
       builder.add({
         category: 'mechanic',
         text: `A ${cannon}barrel reached ${who}, closing to `
-          + `${Number(approach.closest_units).toFixed(1)} units`
+          + `${feet(approach.closest_units)} ft`
           + (approach.knocked_down
             ? `, and knocked them down${Number.isFinite(seconds) && seconds > 0
               ? ` for ${seconds.toFixed(1)} s` : ''}.`
             : Number.isFinite(moved) && moved > 0
-              ? `, and they were moved ${moved.toFixed(1)} units after.`
+              ? `, and they were moved ${feet(moved)} ft after.`
               : '.'),
         status: 'observed',
         source: 'player_tracking_play.barrel_events[] (0x92AF5490)',
@@ -1170,11 +1837,17 @@ function describeFielding(builder, { atBat, play }) {
       // the zone; where the foul came down is not a fielding fact.
       const foul = isFoulPlay(play)
       const zone = foul ? null : zoneFor(directionDegrees(play.landing.at), atBat.trajectory)
+      // A BALL THE TRAIN TOOK NEVER REACHED THE GROUND, so the landing the
+      // detector recorded is the train's own position and the zone it points at
+      // describes where the train was, not where the ball came down.
+      const carriedOff = (play.train_ball_captures || []).length > 0
       builder.add({
         category: 'attempt',
         text: foul
           ? 'No fielder made a play on the foul ball.'
-          : `No fielder made a play on the ball; it landed${zone ? ` in ${zone}` : ''}.`,
+          : carriedOff
+            ? 'No fielder made a play on the ball; the train carried it off.'
+            : `No fielder made a play on the ball; it landed${zone ? ` in ${zone}` : ''}.`,
         status: 'derived',
         source: 'player_tracking_play.landing with no fielding_events',
         evidence: {
@@ -1307,19 +1980,30 @@ function describeThrows(builder, { play, atBat = null }) {
     }
 
     if (throwRecord.is_throw === false || throwRecord.event_type === 'loose_ball_recovery') {
+      // Floored with the ball in the glove: the release IS the knockdown frame.
+      const knockedDown = throwRecord.event_type === 'knocked_loose'
+      const cause = {
+        train: 'The train',
+        star_swing: throwRecord.knocked_loose_captain
+          ? `${throwRecord.knocked_loose_captain}'s star swing` : "A captain's star swing",
+        manhole_water: 'An erupting manhole',
+      }[throwRecord.knocked_loose_by] || 'A knockdown'
       const runner = throwRecord.runner_contact?.character
         || throwRecord.runner_at_arrival?.character
         || 'The arriving runner'
       builder.add({
         category: 'fielding',
-        text: `${runner} knocked the ball loose from ${thrower}; ${receiver} recovered it.`,
+        text: `${knockedDown ? cause : runner} knocked the ball loose from ${thrower}; ${receiver} recovered it.`,
         status: 'derived',
-        source: 'player_tracking_play.throws[].event_type=loose_ball_recovery',
+        source: knockedDown
+          ? "player_tracking_play.throws[].event_type=knocked_loose (released on the thrower's own knockdown frame)"
+          : 'player_tracking_play.throws[].event_type=loose_ball_recovery',
         evidence: {
           ...evidence,
           event_type: throwRecord.event_type,
           caused_by_runner_contact: throwRecord.caused_by_runner_contact === true,
           runner_contact: throwRecord.runner_contact ?? null,
+          knocked_loose_by: throwRecord.knocked_loose_by ?? null,
         },
         t: throwRecord.arrival_t,
         frame: throwRecord.arrival_frame,
@@ -1378,13 +2062,45 @@ function describeThrows(builder, { play, atBat = null }) {
     }
 
     const targetDistance = Number(throwRecord.receiver_distance_from_target_units)
+    // A receiver off the bag is not proof of a bad throw: when the game's aim
+    // point says the ball landed where it was aimed, the receiver was simply
+    // not standing on the base (Wario to King K. Rool at home, 0.06u from aim).
+    const landedOnAim = throwRecord.off_target === false
+      && Number.isFinite(Number(throwRecord.aim_miss_units))
+      && throwRecord.aim_to_receiver_units != null
     if (throwRecord.receiver_pulled_off_base === true && target && Number.isFinite(targetDistance)) {
       builder.add({
         category: 'throw',
-        text: `That inaccurate throw pulled ${receiver} ${targetDistance.toFixed(1)} units away from ${target}.`,
+        text: landedOnAim
+          ? `${capitalized(receiver)} took that throw ${feet(targetDistance)} ft away from ${target}; it landed where it was aimed.`
+          : `That inaccurate throw pulled ${receiver} ${feet(targetDistance)} ft away from ${target}.`,
         status: 'derived',
         source: 'player_tracking_play.throws[].receiver_pulled_off_base',
         evidence,
+        t: throwRecord.arrival_t,
+        frame: throwRecord.arrival_frame,
+      })
+    }
+
+    // THE THROW MISSED WHERE THE GAME AIMED IT. Every such throw in the archive
+    // is between two characters with bad chemistry, so the pairing is named when
+    // the chemistry table agrees -- and a bad pairing is not stated as the cause
+    // of an accurate throw, because 18 of 26 bad-chemistry throws were accurate.
+    const aimMiss = Number(throwRecord.aim_miss_units)
+    if (throwRecord.off_target === true && Number.isFinite(aimMiss)) {
+      const badChemistry = haveBadChemistry(throwRecord.thrower_character, throwRecord.receiver_character)
+      builder.add({
+        category: 'throw',
+        text: `${capitalized(thrower)}'s throw landed ${feet(aimMiss)} ft from where it was aimed`
+          + (badChemistry ? `, a bad-chemistry throw to ${receiver}.` : '.'),
+        status: 'observed',
+        source: 'player_tracking_play.throws[].off_target (aim point 0x900D6E60 vs destination 0x900D6EB0)',
+        evidence: {
+          ...evidence,
+          aim_miss_units: aimMiss,
+          destination_error_units: throwRecord.destination_error_units ?? null,
+          bad_chemistry: badChemistry,
+        },
         t: throwRecord.arrival_t,
         frame: throwRecord.arrival_frame,
       })

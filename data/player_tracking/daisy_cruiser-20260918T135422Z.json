@@ -1,0 +1,3363 @@
+{
+  "format": "MSSTRK02",
+  "park": "daisy_cruiser",
+  "note": "bridge season game 2766",
+  "recorded_utc": "20260918T135422Z",
+  "game_id": "2766",
+  "competition_type": "season",
+  "source_id": "74",
+  "state_base": 2416791552,
+  "state_size": 27968,
+  "extra_regions": [
+    [
+      "yoshi_train_position",
+      2166326492,
+      12
+    ],
+    [
+      "barrel_components",
+      2460899264,
+      384
+    ],
+    [
+      "barrel_transform",
+      2460963840,
+      512
+    ],
+    [
+      "freezie_objects",
+      2460213248,
+      8192
+    ],
+    [
+      "stadium_props",
+      2431267616,
+      94976
+    ]
+  ],
+  "capture_size": 132044,
+  "freezie_array": null,
+  "freezie_count": 5,
+  "freezie_stride": 172,
+  "freezie_transform": 0,
+  "freezie_transform_copy": 48,
+  "freezie_translation": [
+    12,
+    28,
+    44
+  ],
+  "freezie_active_offset": 138,
+  "prop_candidates": [
+    {
+      "address": 2417684456,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        23.0
+      ]
+    },
+    {
+      "address": 2417684648,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        23.0
+      ]
+    },
+    {
+      "address": 2417685208,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        23.0
+      ]
+    },
+    {
+      "address": 2417685400,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        23.0
+      ]
+    },
+    {
+      "address": 2417745316,
+      "heading_degrees": 0.0,
+      "scale": 0.34902,
+      "translation": [
+        0.0,
+        0.0,
+        26.5
+      ]
+    },
+    {
+      "address": 2418396508,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        18.0
+      ]
+    },
+    {
+      "address": 2419250124,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        75.6667,
+        31.0,
+        0.0
+      ]
+    },
+    {
+      "address": 2426588116,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2426588360,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2426588604,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428018032,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -15.0
+      ]
+    },
+    {
+      "address": 2428020608,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -15.0
+      ]
+    },
+    {
+      "address": 2428023168,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -15.0
+      ]
+    },
+    {
+      "address": 2428103780,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428104024,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428104268,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428104512,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428104756,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428112248,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428112492,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428112736,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428113468,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428113712,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428143712,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428143956,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428144200,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428144932,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428145176,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428279320,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -80.0
+      ]
+    },
+    {
+      "address": 2428323160,
+      "heading_degrees": 0.0,
+      "scale": 0.30196,
+      "translation": [
+        0.0,
+        0.0,
+        -132.0
+      ]
+    },
+    {
+      "address": 2428385804,
+      "heading_degrees": 0.0,
+      "scale": 0.30196,
+      "translation": [
+        0.0,
+        0.0,
+        5.0
+      ]
+    },
+    {
+      "address": 2428399580,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        40.0
+      ]
+    },
+    {
+      "address": 2428399772,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        36.0
+      ]
+    },
+    {
+      "address": 2428399964,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        30.0
+      ]
+    },
+    {
+      "address": 2428400156,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        25.5
+      ]
+    },
+    {
+      "address": 2428400348,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        21.0
+      ]
+    },
+    {
+      "address": 2428435528,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428435772,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428436016,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428436748,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428436992,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -56.0
+      ]
+    },
+    {
+      "address": 2428439188,
+      "heading_degrees": 0.0,
+      "scale": 0.34902,
+      "translation": [
+        0.0,
+        0.0,
+        -24.0
+      ]
+    },
+    {
+      "address": 2428439800,
+      "heading_degrees": 0.0,
+      "scale": 0.34902,
+      "translation": [
+        0.0,
+        0.0,
+        24.0
+      ]
+    },
+    {
+      "address": 2431300392,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.0309,
+        -80.3377
+      ]
+    },
+    {
+      "address": 2431300548,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.0309,
+        -80.3377
+      ]
+    },
+    {
+      "address": 2431306028,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5021,
+        -82.0334
+      ]
+    },
+    {
+      "address": 2431306184,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5021,
+        -82.0334
+      ]
+    },
+    {
+      "address": 2431306384,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5022,
+        -82.0296
+      ]
+    },
+    {
+      "address": 2431306540,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5022,
+        -82.0296
+      ]
+    },
+    {
+      "address": 2431306740,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -0.0,
+        1.8199,
+        -88.5651
+      ]
+    },
+    {
+      "address": 2431306896,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -0.0,
+        1.8199,
+        -88.5651
+      ]
+    },
+    {
+      "address": 2431307928,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.457,
+        2.3182,
+        -100.174
+      ]
+    },
+    {
+      "address": 2431308084,
+      "heading_degrees": 0.0,
+      "scale": 0.79304,
+      "translation": [
+        0.457,
+        2.3182,
+        -100.174
+      ]
+    },
+    {
+      "address": 2431308284,
+      "heading_degrees": 45.0,
+      "scale": 1.0,
+      "translation": [
+        -9.9458,
+        2.3182,
+        -97.9301
+      ]
+    },
+    {
+      "address": 2431308440,
+      "heading_degrees": 45.0,
+      "scale": 0.68974,
+      "translation": [
+        -9.9458,
+        2.3182,
+        -97.9301
+      ]
+    },
+    {
+      "address": 2431308640,
+      "heading_degrees": -45.0,
+      "scale": 1.0,
+      "translation": [
+        7.4035,
+        2.3182,
+        -95.0965
+      ]
+    },
+    {
+      "address": 2431308796,
+      "heading_degrees": -45.0,
+      "scale": 1.02857,
+      "translation": [
+        7.4035,
+        2.3182,
+        -95.0965
+      ]
+    },
+    {
+      "address": 2431308996,
+      "heading_degrees": -45.0,
+      "scale": 1.0,
+      "translation": [
+        9.1785,
+        2.3182,
+        -102.5213
+      ]
+    },
+    {
+      "address": 2431309152,
+      "heading_degrees": -45.0,
+      "scale": 1.15997,
+      "translation": [
+        9.1785,
+        2.3182,
+        -102.5213
+      ]
+    },
+    {
+      "address": 2431309352,
+      "heading_degrees": -90.0,
+      "scale": 1.0,
+      "translation": [
+        13.257,
+        2.3182,
+        -87.5889
+      ]
+    },
+    {
+      "address": 2431309508,
+      "heading_degrees": -90.0,
+      "scale": 0.55394,
+      "translation": [
+        13.257,
+        2.3182,
+        -87.5889
+      ]
+    },
+    {
+      "address": 2431309708,
+      "heading_degrees": -125.0,
+      "scale": 1.0,
+      "translation": [
+        3.2918,
+        2.3182,
+        -78.8305
+      ]
+    },
+    {
+      "address": 2431309864,
+      "heading_degrees": -125.0,
+      "scale": 0.5248,
+      "translation": [
+        3.2918,
+        2.3182,
+        -78.8305
+      ]
+    },
+    {
+      "address": 2431310064,
+      "heading_degrees": -125.0,
+      "scale": 1.0,
+      "translation": [
+        9.2624,
+        2.3182,
+        -81.7734
+      ]
+    },
+    {
+      "address": 2431310220,
+      "heading_degrees": -125.0,
+      "scale": 1.02679,
+      "translation": [
+        9.2624,
+        2.3182,
+        -81.7734
+      ]
+    },
+    {
+      "address": 2431310420,
+      "heading_degrees": -155.0,
+      "scale": 1.0,
+      "translation": [
+        2.7156,
+        2.3182,
+        -71.3745
+      ]
+    },
+    {
+      "address": 2431310576,
+      "heading_degrees": -155.0,
+      "scale": 0.7542,
+      "translation": [
+        2.7156,
+        2.3182,
+        -71.3745
+      ]
+    },
+    {
+      "address": 2431310776,
+      "heading_degrees": -135.0,
+      "scale": 1.0,
+      "translation": [
+        12.6662,
+        2.3182,
+        -73.3836
+      ]
+    },
+    {
+      "address": 2431310932,
+      "heading_degrees": -135.0,
+      "scale": 0.68129,
+      "translation": [
+        12.6662,
+        2.3182,
+        -73.3836
+      ]
+    },
+    {
+      "address": 2431311132,
+      "heading_degrees": -55.0,
+      "scale": 1.0,
+      "translation": [
+        13.4035,
+        2.3182,
+        -95.1098
+      ]
+    },
+    {
+      "address": 2431311288,
+      "heading_degrees": -55.0,
+      "scale": 0.54254,
+      "translation": [
+        13.4035,
+        2.3182,
+        -95.1098
+      ]
+    },
+    {
+      "address": 2431311488,
+      "heading_degrees": 25.0,
+      "scale": 1.0,
+      "translation": [
+        -2.7869,
+        2.3182,
+        -105.8842
+      ]
+    },
+    {
+      "address": 2431311644,
+      "heading_degrees": 25.0,
+      "scale": 1.09307,
+      "translation": [
+        -2.7869,
+        2.3182,
+        -105.8842
+      ]
+    },
+    {
+      "address": 2431311844,
+      "heading_degrees": 90.0,
+      "scale": 1.0,
+      "translation": [
+        -11.0128,
+        2.3182,
+        -84.9951
+      ]
+    },
+    {
+      "address": 2431312000,
+      "heading_degrees": 90.0,
+      "scale": 0.89457,
+      "translation": [
+        -11.0128,
+        2.3182,
+        -84.9951
+      ]
+    },
+    {
+      "address": 2431312200,
+      "heading_degrees": 120.0,
+      "scale": 1.0,
+      "translation": [
+        -13.4215,
+        2.3182,
+        -80.6015
+      ]
+    },
+    {
+      "address": 2431312356,
+      "heading_degrees": 120.0,
+      "scale": 0.57425,
+      "translation": [
+        -13.4215,
+        2.3182,
+        -80.6015
+      ]
+    },
+    {
+      "address": 2431312556,
+      "heading_degrees": 140.0,
+      "scale": 1.0,
+      "translation": [
+        -3.032,
+        2.3182,
+        -80.5235
+      ]
+    },
+    {
+      "address": 2431312712,
+      "heading_degrees": 140.0,
+      "scale": 1.12232,
+      "translation": [
+        -3.032,
+        2.3182,
+        -80.5235
+      ]
+    },
+    {
+      "address": 2431312912,
+      "heading_degrees": 140.0,
+      "scale": 1.0,
+      "translation": [
+        -8.5321,
+        2.3182,
+        -75.1253
+      ]
+    },
+    {
+      "address": 2431313068,
+      "heading_degrees": 140.0,
+      "scale": 0.84333,
+      "translation": [
+        -8.5321,
+        2.3182,
+        -75.1253
+      ]
+    },
+    {
+      "address": 2431313268,
+      "heading_degrees": 160.0,
+      "scale": 1.0,
+      "translation": [
+        -6.8325,
+        2.3182,
+        -68.6574
+      ]
+    },
+    {
+      "address": 2431313424,
+      "heading_degrees": 160.0,
+      "scale": 0.63582,
+      "translation": [
+        -6.8325,
+        2.3182,
+        -68.6574
+      ]
+    },
+    {
+      "address": 2431313624,
+      "heading_degrees": 80.0,
+      "scale": 1.0,
+      "translation": [
+        -17.7951,
+        2.3182,
+        -90.2512
+      ]
+    },
+    {
+      "address": 2431313780,
+      "heading_degrees": 80.0,
+      "scale": 0.99412,
+      "translation": [
+        -17.7951,
+        2.3182,
+        -90.2512
+      ]
+    },
+    {
+      "address": 2431313980,
+      "heading_degrees": 50.0,
+      "scale": 1.0,
+      "translation": [
+        -16.0788,
+        2.3182,
+        -97.7034
+      ]
+    },
+    {
+      "address": 2431314136,
+      "heading_degrees": 50.0,
+      "scale": 0.69151,
+      "translation": [
+        -16.0788,
+        2.3182,
+        -97.7034
+      ]
+    },
+    {
+      "address": 2431314336,
+      "heading_degrees": 115.0,
+      "scale": 1.0,
+      "translation": [
+        -19.3462,
+        2.3182,
+        -81.8283
+      ]
+    },
+    {
+      "address": 2431314492,
+      "heading_degrees": 115.0,
+      "scale": 0.91735,
+      "translation": [
+        -19.3462,
+        2.3182,
+        -81.8283
+      ]
+    },
+    {
+      "address": 2431314692,
+      "heading_degrees": -180.0,
+      "scale": 1.0,
+      "translation": [
+        0.2991,
+        2.3182,
+        -65.3854
+      ]
+    },
+    {
+      "address": 2431314848,
+      "heading_degrees": -180.0,
+      "scale": 0.92218,
+      "translation": [
+        0.2991,
+        2.3182,
+        -65.3854
+      ]
+    },
+    {
+      "address": 2431315048,
+      "heading_degrees": -180.0,
+      "scale": 1.0,
+      "translation": [
+        0.0223,
+        2.3182,
+        -87.0925
+      ]
+    },
+    {
+      "address": 2431315204,
+      "heading_degrees": -180.0,
+      "scale": 0.63473,
+      "translation": [
+        0.0223,
+        2.3182,
+        -87.0925
+      ]
+    },
+    {
+      "address": 2431315404,
+      "heading_degrees": 45.0,
+      "scale": 1.0,
+      "translation": [
+        -4.0857,
+        2.3182,
+        -93.9517
+      ]
+    },
+    {
+      "address": 2431315560,
+      "heading_degrees": 45.0,
+      "scale": 1.0147,
+      "translation": [
+        -4.0857,
+        2.3182,
+        -93.9517
+      ]
+    },
+    {
+      "address": 2431315760,
+      "heading_degrees": -95.0,
+      "scale": 1.0,
+      "translation": [
+        18.6528,
+        2.3182,
+        -84.7974
+      ]
+    },
+    {
+      "address": 2431315916,
+      "heading_degrees": -95.0,
+      "scale": 0.69763,
+      "translation": [
+        18.6528,
+        2.3182,
+        -84.7974
+      ]
+    },
+    {
+      "address": 2431316116,
+      "heading_degrees": -60.0,
+      "scale": 1.0,
+      "translation": [
+        16.379,
+        2.3182,
+        -102.2607
+      ]
+    },
+    {
+      "address": 2431316272,
+      "heading_degrees": -60.0,
+      "scale": 0.79147,
+      "translation": [
+        16.379,
+        2.3182,
+        -102.2607
+      ]
+    },
+    {
+      "address": 2431316472,
+      "heading_degrees": 25.0,
+      "scale": 1.0,
+      "translation": [
+        -11.3238,
+        2.3182,
+        -103.5336
+      ]
+    },
+    {
+      "address": 2431316628,
+      "heading_degrees": 25.0,
+      "scale": 0.67353,
+      "translation": [
+        -11.3238,
+        2.3182,
+        -103.5336
+      ]
+    },
+    {
+      "address": 2431316828,
+      "heading_degrees": 140.0,
+      "scale": 1.0,
+      "translation": [
+        -14.3417,
+        2.3182,
+        -71.3298
+      ]
+    },
+    {
+      "address": 2431316984,
+      "heading_degrees": 140.0,
+      "scale": 0.50401,
+      "translation": [
+        -14.3417,
+        2.3182,
+        -71.3298
+      ]
+    },
+    {
+      "address": 2431317184,
+      "heading_degrees": -125.0,
+      "scale": 1.0,
+      "translation": [
+        18.2152,
+        2.3182,
+        -75.6912
+      ]
+    },
+    {
+      "address": 2431317340,
+      "heading_degrees": -125.0,
+      "scale": 0.62813,
+      "translation": [
+        18.2152,
+        2.3182,
+        -75.6912
+      ]
+    },
+    {
+      "address": 2431317540,
+      "heading_degrees": -80.0,
+      "scale": 1.0,
+      "translation": [
+        19.2652,
+        2.3182,
+        -92.5153
+      ]
+    },
+    {
+      "address": 2431317696,
+      "heading_degrees": -80.0,
+      "scale": 0.73561,
+      "translation": [
+        19.2652,
+        2.3182,
+        -92.5153
+      ]
+    },
+    {
+      "address": 2431317896,
+      "heading_degrees": -135.0,
+      "scale": 1.0,
+      "translation": [
+        8.5216,
+        2.3182,
+        -69.0138
+      ]
+    },
+    {
+      "address": 2431318052,
+      "heading_degrees": -135.0,
+      "scale": 1.04793,
+      "translation": [
+        8.5216,
+        2.3182,
+        -69.0138
+      ]
+    },
+    {
+      "address": 2431318252,
+      "heading_degrees": -130.0,
+      "scale": 1.0,
+      "translation": [
+        19.9767,
+        2.3182,
+        -69.0552
+      ]
+    },
+    {
+      "address": 2431318408,
+      "heading_degrees": -130.0,
+      "scale": 0.78386,
+      "translation": [
+        19.9767,
+        2.3182,
+        -69.0552
+      ]
+    },
+    {
+      "address": 2431318608,
+      "heading_degrees": -80.0,
+      "scale": 1.0,
+      "translation": [
+        23.5079,
+        2.3182,
+        -99.6952
+      ]
+    },
+    {
+      "address": 2431318764,
+      "heading_degrees": -80.0,
+      "scale": 0.5704,
+      "translation": [
+        23.5079,
+        2.3182,
+        -99.6952
+      ]
+    },
+    {
+      "address": 2431318964,
+      "heading_degrees": 80.0,
+      "scale": 1.0,
+      "translation": [
+        -24.4101,
+        2.3182,
+        -95.2449
+      ]
+    },
+    {
+      "address": 2431319120,
+      "heading_degrees": 80.0,
+      "scale": 0.55552,
+      "translation": [
+        -24.4101,
+        2.3182,
+        -95.2449
+      ]
+    },
+    {
+      "address": 2431319320,
+      "heading_degrees": 120.0,
+      "scale": 1.0,
+      "translation": [
+        -22.4376,
+        2.3182,
+        -73.912
+      ]
+    },
+    {
+      "address": 2431319476,
+      "heading_degrees": 120.0,
+      "scale": 0.88812,
+      "translation": [
+        -22.4376,
+        2.3182,
+        -73.912
+      ]
+    },
+    {
+      "address": 2431319676,
+      "heading_degrees": 90.0,
+      "scale": 1.0,
+      "translation": [
+        -24.785,
+        2.3182,
+        -84.4152
+      ]
+    },
+    {
+      "address": 2431319832,
+      "heading_degrees": 90.0,
+      "scale": 0.91965,
+      "translation": [
+        -24.785,
+        2.3182,
+        -84.4152
+      ]
+    },
+    {
+      "address": 2431320032,
+      "heading_degrees": 50.0,
+      "scale": 1.0,
+      "translation": [
+        -18.7297,
+        2.3182,
+        -107.2323
+      ]
+    },
+    {
+      "address": 2431320188,
+      "heading_degrees": 50.0,
+      "scale": 0.83928,
+      "translation": [
+        -18.7297,
+        2.3182,
+        -107.2323
+      ]
+    },
+    {
+      "address": 2431320388,
+      "heading_degrees": 20.0,
+      "scale": 1.0,
+      "translation": [
+        -7.3012,
+        2.3182,
+        -114.1397
+      ]
+    },
+    {
+      "address": 2431320544,
+      "heading_degrees": 20.0,
+      "scale": 0.89422,
+      "translation": [
+        -7.3012,
+        2.3182,
+        -114.1397
+      ]
+    },
+    {
+      "address": 2431320744,
+      "heading_degrees": -30.0,
+      "scale": 1.0,
+      "translation": [
+        5.2292,
+        2.3182,
+        -111.3721
+      ]
+    },
+    {
+      "address": 2431320900,
+      "heading_degrees": -30.0,
+      "scale": 0.93452,
+      "translation": [
+        5.2292,
+        2.3182,
+        -111.3721
+      ]
+    },
+    {
+      "address": 2431321100,
+      "heading_degrees": -45.0,
+      "scale": 1.0,
+      "translation": [
+        16.2134,
+        2.3182,
+        -111.0789
+      ]
+    },
+    {
+      "address": 2431321256,
+      "heading_degrees": -45.0,
+      "scale": 0.99957,
+      "translation": [
+        16.2134,
+        2.3182,
+        -111.0789
+      ]
+    },
+    {
+      "address": 2431321456,
+      "heading_degrees": -95.0,
+      "scale": 1.0,
+      "translation": [
+        25.6558,
+        2.3182,
+        -88.5921
+      ]
+    },
+    {
+      "address": 2431321612,
+      "heading_degrees": -95.0,
+      "scale": 1.1221,
+      "translation": [
+        25.6558,
+        2.3182,
+        -88.5921
+      ]
+    },
+    {
+      "address": 2431321812,
+      "heading_degrees": -110.0,
+      "scale": 1.0,
+      "translation": [
+        23.6389,
+        2.3182,
+        -79.6136
+      ]
+    },
+    {
+      "address": 2431321968,
+      "heading_degrees": -110.0,
+      "scale": 0.90774,
+      "translation": [
+        23.6389,
+        2.3182,
+        -79.6136
+      ]
+    },
+    {
+      "address": 2431322168,
+      "heading_degrees": 30.0,
+      "scale": 1.0,
+      "translation": [
+        -32.2289,
+        13.872,
+        -56.1255
+      ]
+    },
+    {
+      "address": 2431322324,
+      "heading_degrees": 30.0,
+      "scale": 1.0,
+      "translation": [
+        -32.2289,
+        13.872,
+        -56.1255
+      ]
+    },
+    {
+      "address": 2431322880,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -75.6436,
+        -0.8375,
+        -1.8633
+      ]
+    },
+    {
+      "address": 2431323036,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -75.6436,
+        -0.8375,
+        -1.8633
+      ]
+    },
+    {
+      "address": 2431323236,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -75.6501,
+        -0.8313,
+        -1.8508
+      ]
+    },
+    {
+      "address": 2431323392,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -75.6501,
+        -0.8313,
+        -1.8508
+      ]
+    },
+    {
+      "address": 2431324116,
+      "heading_degrees": -60.0,
+      "scale": 1.0,
+      "translation": [
+        37.2173,
+        7.6562,
+        -21.5261
+      ]
+    },
+    {
+      "address": 2431324272,
+      "heading_degrees": -60.0,
+      "scale": 1.0,
+      "translation": [
+        37.2173,
+        7.6562,
+        -21.5261
+      ]
+    },
+    {
+      "address": 2431324472,
+      "heading_degrees": 30.0,
+      "scale": 1.0,
+      "translation": [
+        -15.0651,
+        7.5099,
+        -26.0188
+      ]
+    },
+    {
+      "address": 2431324628,
+      "heading_degrees": 30.0,
+      "scale": 1.0,
+      "translation": [
+        -15.0651,
+        7.5099,
+        -26.0188
+      ]
+    },
+    {
+      "address": 2431324828,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5464,
+        -56.0194
+      ]
+    },
+    {
+      "address": 2431324984,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5464,
+        -56.0194
+      ]
+    },
+    {
+      "address": 2431325184,
+      "heading_degrees": -29.2832,
+      "scale": 1.0,
+      "translation": [
+        15.7296,
+        8.3422,
+        -27.3091
+      ]
+    },
+    {
+      "address": 2431325340,
+      "heading_degrees": -29.2832,
+      "scale": 1.0,
+      "translation": [
+        15.7296,
+        8.3422,
+        -27.3091
+      ]
+    },
+    {
+      "address": 2431328908,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        30.3487,
+        0.0,
+        -27.2304
+      ]
+    },
+    {
+      "address": 2431329064,
+      "heading_degrees": 0.0,
+      "scale": 1.0269,
+      "translation": [
+        30.3487,
+        0.0,
+        -27.2304
+      ]
+    },
+    {
+      "address": 2431329264,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        49.3362,
+        0.0,
+        22.0088
+      ]
+    },
+    {
+      "address": 2431329420,
+      "heading_degrees": 0.0,
+      "scale": 1.13549,
+      "translation": [
+        49.3362,
+        0.0,
+        22.0088
+      ]
+    },
+    {
+      "address": 2431329620,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -52.3465,
+        0.0,
+        8.7222
+      ]
+    },
+    {
+      "address": 2431329776,
+      "heading_degrees": 0.0,
+      "scale": 0.97711,
+      "translation": [
+        -52.3465,
+        0.0,
+        8.7222
+      ]
+    },
+    {
+      "address": 2431409916,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -24.0
+      ]
+    },
+    {
+      "address": 2431412076,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -63.0
+      ]
+    },
+    {
+      "address": 2431413592,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -73.0
+      ]
+    },
+    {
+      "address": 2431430660,
+      "heading_degrees": 0.0,
+      "scale": 0.10196,
+      "translation": [
+        0.0,
+        0.0,
+        -44.0
+      ]
+    },
+    {
+      "address": 2433747056,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        75.6667,
+        31.0,
+        0.0
+      ]
+    },
+    {
+      "address": 2433809272,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        75.6667,
+        31.0,
+        0.0
+      ]
+    },
+    {
+      "address": 2441570572,
+      "heading_degrees": 0.0,
+      "scale": 0.30196,
+      "translation": [
+        0.0,
+        0.0,
+        -25.0
+      ]
+    },
+    {
+      "address": 2441664228,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        3.0
+      ]
+    },
+    {
+      "address": 2441664420,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        3.0
+      ]
+    },
+    {
+      "address": 2441664612,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        3.0
+      ]
+    },
+    {
+      "address": 2441689024,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -14.0
+      ]
+    },
+    {
+      "address": 2441690116,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -14.0
+      ]
+    },
+    {
+      "address": 2441691208,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -15.0
+      ]
+    },
+    {
+      "address": 2441692300,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -13.0
+      ]
+    },
+    {
+      "address": 2441693392,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -15.0
+      ]
+    },
+    {
+      "address": 2441694484,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        0.0,
+        -14.0
+      ]
+    },
+    {
+      "address": 2460826848,
+      "heading_degrees": 50.0,
+      "scale": 1.8,
+      "translation": [
+        -85.0,
+        -10.0,
+        -132.0
+      ]
+    },
+    {
+      "address": 2460826896,
+      "heading_degrees": 50.0,
+      "scale": 1.8,
+      "translation": [
+        -85.0,
+        -10.0,
+        -132.0
+      ]
+    },
+    {
+      "address": 2460827564,
+      "heading_degrees": 80.0,
+      "scale": 1.0,
+      "translation": [
+        -90.0,
+        -27.0,
+        -110.0
+      ]
+    },
+    {
+      "address": 2460827612,
+      "heading_degrees": 80.0,
+      "scale": 1.0,
+      "translation": [
+        -90.0,
+        -27.0,
+        -110.0
+      ]
+    },
+    {
+      "address": 2460828784,
+      "heading_degrees": 145.5463,
+      "scale": 1.0,
+      "translation": [
+        -72.0,
+        -36.0,
+        -68.0
+      ]
+    },
+    {
+      "address": 2460828832,
+      "heading_degrees": 145.5463,
+      "scale": 1.0,
+      "translation": [
+        -72.0,
+        -36.0,
+        -68.0
+      ]
+    },
+    {
+      "address": 2460830192,
+      "heading_degrees": 85.54,
+      "scale": 1.0,
+      "translation": [
+        40.2007,
+        3.425,
+        -69.3241
+      ]
+    },
+    {
+      "address": 2460830240,
+      "heading_degrees": 85.54,
+      "scale": 1.0,
+      "translation": [
+        40.2007,
+        3.425,
+        -69.3241
+      ]
+    },
+    {
+      "address": 2460830364,
+      "heading_degrees": -102.312,
+      "scale": 1.0,
+      "translation": [
+        -19.0597,
+        3.425,
+        -74.0258
+      ]
+    },
+    {
+      "address": 2460830412,
+      "heading_degrees": -102.312,
+      "scale": 1.0,
+      "translation": [
+        -19.0597,
+        3.425,
+        -74.0258
+      ]
+    },
+    {
+      "address": 2460830536,
+      "heading_degrees": -13.72,
+      "scale": 1.0,
+      "translation": [
+        -9.1671,
+        3.425,
+        -79.5325
+      ]
+    },
+    {
+      "address": 2460830584,
+      "heading_degrees": -13.72,
+      "scale": 1.0,
+      "translation": [
+        -9.1671,
+        3.425,
+        -79.5325
+      ]
+    },
+    {
+      "address": 2460830708,
+      "heading_degrees": 71.302,
+      "scale": 1.0,
+      "translation": [
+        10.445,
+        3.425,
+        -82.3698
+      ]
+    },
+    {
+      "address": 2460830756,
+      "heading_degrees": 71.302,
+      "scale": 1.0,
+      "translation": [
+        10.445,
+        3.425,
+        -82.3698
+      ]
+    },
+    {
+      "address": 2460830872,
+      "heading_degrees": 85.54,
+      "scale": 1.0,
+      "translation": [
+        40.2007,
+        3.425,
+        -69.3241
+      ]
+    },
+    {
+      "address": 2460831012,
+      "heading_degrees": -102.312,
+      "scale": 1.0,
+      "translation": [
+        -19.0597,
+        3.425,
+        -74.0258
+      ]
+    },
+    {
+      "address": 2460831152,
+      "heading_degrees": -13.72,
+      "scale": 1.0,
+      "translation": [
+        -9.1671,
+        3.425,
+        -79.5325
+      ]
+    },
+    {
+      "address": 2460831292,
+      "heading_degrees": 71.302,
+      "scale": 1.0,
+      "translation": [
+        10.445,
+        3.425,
+        -82.3698
+      ]
+    },
+    {
+      "address": 2460858048,
+      "heading_degrees": 0.0,
+      "scale": 1.36467,
+      "translation": [
+        39.6753,
+        0.0,
+        -68.7197
+      ]
+    },
+    {
+      "address": 2460858188,
+      "heading_degrees": 0.0,
+      "scale": 1.89833,
+      "translation": [
+        -19.3617,
+        0.0,
+        -74.6735
+      ]
+    },
+    {
+      "address": 2460858328,
+      "heading_degrees": 0.0,
+      "scale": 1.95933,
+      "translation": [
+        -8.5386,
+        0.0,
+        -79.5435
+      ]
+    },
+    {
+      "address": 2460858468,
+      "heading_degrees": 0.0,
+      "scale": 1.87233,
+      "translation": [
+        10.233,
+        0.0,
+        -81.8705
+      ]
+    }
+  ],
+  "prop_cluster": [
+    {
+      "address": 2431300392,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.0309,
+        -80.3377
+      ]
+    },
+    {
+      "address": 2431300548,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.0309,
+        -80.3377
+      ]
+    },
+    {
+      "address": 2431306028,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5021,
+        -82.0334
+      ]
+    },
+    {
+      "address": 2431306184,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5021,
+        -82.0334
+      ]
+    },
+    {
+      "address": 2431306384,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5022,
+        -82.0296
+      ]
+    },
+    {
+      "address": 2431306540,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5022,
+        -82.0296
+      ]
+    },
+    {
+      "address": 2431306740,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -0.0,
+        1.8199,
+        -88.5651
+      ]
+    },
+    {
+      "address": 2431306896,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -0.0,
+        1.8199,
+        -88.5651
+      ]
+    },
+    {
+      "address": 2431307928,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.457,
+        2.3182,
+        -100.174
+      ]
+    },
+    {
+      "address": 2431308084,
+      "heading_degrees": 0.0,
+      "scale": 0.79304,
+      "translation": [
+        0.457,
+        2.3182,
+        -100.174
+      ]
+    },
+    {
+      "address": 2431308284,
+      "heading_degrees": 45.0,
+      "scale": 1.0,
+      "translation": [
+        -9.9458,
+        2.3182,
+        -97.9301
+      ]
+    },
+    {
+      "address": 2431308440,
+      "heading_degrees": 45.0,
+      "scale": 0.68974,
+      "translation": [
+        -9.9458,
+        2.3182,
+        -97.9301
+      ]
+    },
+    {
+      "address": 2431308640,
+      "heading_degrees": -45.0,
+      "scale": 1.0,
+      "translation": [
+        7.4035,
+        2.3182,
+        -95.0965
+      ]
+    },
+    {
+      "address": 2431308796,
+      "heading_degrees": -45.0,
+      "scale": 1.02857,
+      "translation": [
+        7.4035,
+        2.3182,
+        -95.0965
+      ]
+    },
+    {
+      "address": 2431308996,
+      "heading_degrees": -45.0,
+      "scale": 1.0,
+      "translation": [
+        9.1785,
+        2.3182,
+        -102.5213
+      ]
+    },
+    {
+      "address": 2431309152,
+      "heading_degrees": -45.0,
+      "scale": 1.15997,
+      "translation": [
+        9.1785,
+        2.3182,
+        -102.5213
+      ]
+    },
+    {
+      "address": 2431309352,
+      "heading_degrees": -90.0,
+      "scale": 1.0,
+      "translation": [
+        13.257,
+        2.3182,
+        -87.5889
+      ]
+    },
+    {
+      "address": 2431309508,
+      "heading_degrees": -90.0,
+      "scale": 0.55394,
+      "translation": [
+        13.257,
+        2.3182,
+        -87.5889
+      ]
+    },
+    {
+      "address": 2431309708,
+      "heading_degrees": -125.0,
+      "scale": 1.0,
+      "translation": [
+        3.2918,
+        2.3182,
+        -78.8305
+      ]
+    },
+    {
+      "address": 2431309864,
+      "heading_degrees": -125.0,
+      "scale": 0.5248,
+      "translation": [
+        3.2918,
+        2.3182,
+        -78.8305
+      ]
+    },
+    {
+      "address": 2431310064,
+      "heading_degrees": -125.0,
+      "scale": 1.0,
+      "translation": [
+        9.2624,
+        2.3182,
+        -81.7734
+      ]
+    },
+    {
+      "address": 2431310220,
+      "heading_degrees": -125.0,
+      "scale": 1.02679,
+      "translation": [
+        9.2624,
+        2.3182,
+        -81.7734
+      ]
+    },
+    {
+      "address": 2431310420,
+      "heading_degrees": -155.0,
+      "scale": 1.0,
+      "translation": [
+        2.7156,
+        2.3182,
+        -71.3745
+      ]
+    },
+    {
+      "address": 2431310576,
+      "heading_degrees": -155.0,
+      "scale": 0.7542,
+      "translation": [
+        2.7156,
+        2.3182,
+        -71.3745
+      ]
+    },
+    {
+      "address": 2431310776,
+      "heading_degrees": -135.0,
+      "scale": 1.0,
+      "translation": [
+        12.6662,
+        2.3182,
+        -73.3836
+      ]
+    },
+    {
+      "address": 2431310932,
+      "heading_degrees": -135.0,
+      "scale": 0.68129,
+      "translation": [
+        12.6662,
+        2.3182,
+        -73.3836
+      ]
+    },
+    {
+      "address": 2431311132,
+      "heading_degrees": -55.0,
+      "scale": 1.0,
+      "translation": [
+        13.4035,
+        2.3182,
+        -95.1098
+      ]
+    },
+    {
+      "address": 2431311288,
+      "heading_degrees": -55.0,
+      "scale": 0.54254,
+      "translation": [
+        13.4035,
+        2.3182,
+        -95.1098
+      ]
+    },
+    {
+      "address": 2431311488,
+      "heading_degrees": 25.0,
+      "scale": 1.0,
+      "translation": [
+        -2.7869,
+        2.3182,
+        -105.8842
+      ]
+    },
+    {
+      "address": 2431311644,
+      "heading_degrees": 25.0,
+      "scale": 1.09307,
+      "translation": [
+        -2.7869,
+        2.3182,
+        -105.8842
+      ]
+    },
+    {
+      "address": 2431311844,
+      "heading_degrees": 90.0,
+      "scale": 1.0,
+      "translation": [
+        -11.0128,
+        2.3182,
+        -84.9951
+      ]
+    },
+    {
+      "address": 2431312000,
+      "heading_degrees": 90.0,
+      "scale": 0.89457,
+      "translation": [
+        -11.0128,
+        2.3182,
+        -84.9951
+      ]
+    },
+    {
+      "address": 2431312200,
+      "heading_degrees": 120.0,
+      "scale": 1.0,
+      "translation": [
+        -13.4215,
+        2.3182,
+        -80.6015
+      ]
+    },
+    {
+      "address": 2431312356,
+      "heading_degrees": 120.0,
+      "scale": 0.57425,
+      "translation": [
+        -13.4215,
+        2.3182,
+        -80.6015
+      ]
+    },
+    {
+      "address": 2431312556,
+      "heading_degrees": 140.0,
+      "scale": 1.0,
+      "translation": [
+        -3.032,
+        2.3182,
+        -80.5235
+      ]
+    },
+    {
+      "address": 2431312712,
+      "heading_degrees": 140.0,
+      "scale": 1.12232,
+      "translation": [
+        -3.032,
+        2.3182,
+        -80.5235
+      ]
+    },
+    {
+      "address": 2431312912,
+      "heading_degrees": 140.0,
+      "scale": 1.0,
+      "translation": [
+        -8.5321,
+        2.3182,
+        -75.1253
+      ]
+    },
+    {
+      "address": 2431313068,
+      "heading_degrees": 140.0,
+      "scale": 0.84333,
+      "translation": [
+        -8.5321,
+        2.3182,
+        -75.1253
+      ]
+    },
+    {
+      "address": 2431313268,
+      "heading_degrees": 160.0,
+      "scale": 1.0,
+      "translation": [
+        -6.8325,
+        2.3182,
+        -68.6574
+      ]
+    },
+    {
+      "address": 2431313424,
+      "heading_degrees": 160.0,
+      "scale": 0.63582,
+      "translation": [
+        -6.8325,
+        2.3182,
+        -68.6574
+      ]
+    },
+    {
+      "address": 2431313624,
+      "heading_degrees": 80.0,
+      "scale": 1.0,
+      "translation": [
+        -17.7951,
+        2.3182,
+        -90.2512
+      ]
+    },
+    {
+      "address": 2431313780,
+      "heading_degrees": 80.0,
+      "scale": 0.99412,
+      "translation": [
+        -17.7951,
+        2.3182,
+        -90.2512
+      ]
+    },
+    {
+      "address": 2431313980,
+      "heading_degrees": 50.0,
+      "scale": 1.0,
+      "translation": [
+        -16.0788,
+        2.3182,
+        -97.7034
+      ]
+    },
+    {
+      "address": 2431314136,
+      "heading_degrees": 50.0,
+      "scale": 0.69151,
+      "translation": [
+        -16.0788,
+        2.3182,
+        -97.7034
+      ]
+    },
+    {
+      "address": 2431314336,
+      "heading_degrees": 115.0,
+      "scale": 1.0,
+      "translation": [
+        -19.3462,
+        2.3182,
+        -81.8283
+      ]
+    },
+    {
+      "address": 2431314492,
+      "heading_degrees": 115.0,
+      "scale": 0.91735,
+      "translation": [
+        -19.3462,
+        2.3182,
+        -81.8283
+      ]
+    },
+    {
+      "address": 2431314692,
+      "heading_degrees": -180.0,
+      "scale": 1.0,
+      "translation": [
+        0.2991,
+        2.3182,
+        -65.3854
+      ]
+    },
+    {
+      "address": 2431314848,
+      "heading_degrees": -180.0,
+      "scale": 0.92218,
+      "translation": [
+        0.2991,
+        2.3182,
+        -65.3854
+      ]
+    },
+    {
+      "address": 2431315048,
+      "heading_degrees": -180.0,
+      "scale": 1.0,
+      "translation": [
+        0.0223,
+        2.3182,
+        -87.0925
+      ]
+    },
+    {
+      "address": 2431315204,
+      "heading_degrees": -180.0,
+      "scale": 0.63473,
+      "translation": [
+        0.0223,
+        2.3182,
+        -87.0925
+      ]
+    },
+    {
+      "address": 2431315404,
+      "heading_degrees": 45.0,
+      "scale": 1.0,
+      "translation": [
+        -4.0857,
+        2.3182,
+        -93.9517
+      ]
+    },
+    {
+      "address": 2431315560,
+      "heading_degrees": 45.0,
+      "scale": 1.0147,
+      "translation": [
+        -4.0857,
+        2.3182,
+        -93.9517
+      ]
+    },
+    {
+      "address": 2431315760,
+      "heading_degrees": -95.0,
+      "scale": 1.0,
+      "translation": [
+        18.6528,
+        2.3182,
+        -84.7974
+      ]
+    },
+    {
+      "address": 2431315916,
+      "heading_degrees": -95.0,
+      "scale": 0.69763,
+      "translation": [
+        18.6528,
+        2.3182,
+        -84.7974
+      ]
+    },
+    {
+      "address": 2431316116,
+      "heading_degrees": -60.0,
+      "scale": 1.0,
+      "translation": [
+        16.379,
+        2.3182,
+        -102.2607
+      ]
+    },
+    {
+      "address": 2431316272,
+      "heading_degrees": -60.0,
+      "scale": 0.79147,
+      "translation": [
+        16.379,
+        2.3182,
+        -102.2607
+      ]
+    },
+    {
+      "address": 2431316472,
+      "heading_degrees": 25.0,
+      "scale": 1.0,
+      "translation": [
+        -11.3238,
+        2.3182,
+        -103.5336
+      ]
+    },
+    {
+      "address": 2431316628,
+      "heading_degrees": 25.0,
+      "scale": 0.67353,
+      "translation": [
+        -11.3238,
+        2.3182,
+        -103.5336
+      ]
+    },
+    {
+      "address": 2431316828,
+      "heading_degrees": 140.0,
+      "scale": 1.0,
+      "translation": [
+        -14.3417,
+        2.3182,
+        -71.3298
+      ]
+    },
+    {
+      "address": 2431316984,
+      "heading_degrees": 140.0,
+      "scale": 0.50401,
+      "translation": [
+        -14.3417,
+        2.3182,
+        -71.3298
+      ]
+    },
+    {
+      "address": 2431317184,
+      "heading_degrees": -125.0,
+      "scale": 1.0,
+      "translation": [
+        18.2152,
+        2.3182,
+        -75.6912
+      ]
+    },
+    {
+      "address": 2431317340,
+      "heading_degrees": -125.0,
+      "scale": 0.62813,
+      "translation": [
+        18.2152,
+        2.3182,
+        -75.6912
+      ]
+    },
+    {
+      "address": 2431317540,
+      "heading_degrees": -80.0,
+      "scale": 1.0,
+      "translation": [
+        19.2652,
+        2.3182,
+        -92.5153
+      ]
+    },
+    {
+      "address": 2431317696,
+      "heading_degrees": -80.0,
+      "scale": 0.73561,
+      "translation": [
+        19.2652,
+        2.3182,
+        -92.5153
+      ]
+    },
+    {
+      "address": 2431317896,
+      "heading_degrees": -135.0,
+      "scale": 1.0,
+      "translation": [
+        8.5216,
+        2.3182,
+        -69.0138
+      ]
+    },
+    {
+      "address": 2431318052,
+      "heading_degrees": -135.0,
+      "scale": 1.04793,
+      "translation": [
+        8.5216,
+        2.3182,
+        -69.0138
+      ]
+    },
+    {
+      "address": 2431318252,
+      "heading_degrees": -130.0,
+      "scale": 1.0,
+      "translation": [
+        19.9767,
+        2.3182,
+        -69.0552
+      ]
+    },
+    {
+      "address": 2431318408,
+      "heading_degrees": -130.0,
+      "scale": 0.78386,
+      "translation": [
+        19.9767,
+        2.3182,
+        -69.0552
+      ]
+    },
+    {
+      "address": 2431318608,
+      "heading_degrees": -80.0,
+      "scale": 1.0,
+      "translation": [
+        23.5079,
+        2.3182,
+        -99.6952
+      ]
+    },
+    {
+      "address": 2431318764,
+      "heading_degrees": -80.0,
+      "scale": 0.5704,
+      "translation": [
+        23.5079,
+        2.3182,
+        -99.6952
+      ]
+    },
+    {
+      "address": 2431318964,
+      "heading_degrees": 80.0,
+      "scale": 1.0,
+      "translation": [
+        -24.4101,
+        2.3182,
+        -95.2449
+      ]
+    },
+    {
+      "address": 2431319120,
+      "heading_degrees": 80.0,
+      "scale": 0.55552,
+      "translation": [
+        -24.4101,
+        2.3182,
+        -95.2449
+      ]
+    },
+    {
+      "address": 2431319320,
+      "heading_degrees": 120.0,
+      "scale": 1.0,
+      "translation": [
+        -22.4376,
+        2.3182,
+        -73.912
+      ]
+    },
+    {
+      "address": 2431319476,
+      "heading_degrees": 120.0,
+      "scale": 0.88812,
+      "translation": [
+        -22.4376,
+        2.3182,
+        -73.912
+      ]
+    },
+    {
+      "address": 2431319676,
+      "heading_degrees": 90.0,
+      "scale": 1.0,
+      "translation": [
+        -24.785,
+        2.3182,
+        -84.4152
+      ]
+    },
+    {
+      "address": 2431319832,
+      "heading_degrees": 90.0,
+      "scale": 0.91965,
+      "translation": [
+        -24.785,
+        2.3182,
+        -84.4152
+      ]
+    },
+    {
+      "address": 2431320032,
+      "heading_degrees": 50.0,
+      "scale": 1.0,
+      "translation": [
+        -18.7297,
+        2.3182,
+        -107.2323
+      ]
+    },
+    {
+      "address": 2431320188,
+      "heading_degrees": 50.0,
+      "scale": 0.83928,
+      "translation": [
+        -18.7297,
+        2.3182,
+        -107.2323
+      ]
+    },
+    {
+      "address": 2431320388,
+      "heading_degrees": 20.0,
+      "scale": 1.0,
+      "translation": [
+        -7.3012,
+        2.3182,
+        -114.1397
+      ]
+    },
+    {
+      "address": 2431320544,
+      "heading_degrees": 20.0,
+      "scale": 0.89422,
+      "translation": [
+        -7.3012,
+        2.3182,
+        -114.1397
+      ]
+    },
+    {
+      "address": 2431320744,
+      "heading_degrees": -30.0,
+      "scale": 1.0,
+      "translation": [
+        5.2292,
+        2.3182,
+        -111.3721
+      ]
+    },
+    {
+      "address": 2431320900,
+      "heading_degrees": -30.0,
+      "scale": 0.93452,
+      "translation": [
+        5.2292,
+        2.3182,
+        -111.3721
+      ]
+    },
+    {
+      "address": 2431321100,
+      "heading_degrees": -45.0,
+      "scale": 1.0,
+      "translation": [
+        16.2134,
+        2.3182,
+        -111.0789
+      ]
+    },
+    {
+      "address": 2431321256,
+      "heading_degrees": -45.0,
+      "scale": 0.99957,
+      "translation": [
+        16.2134,
+        2.3182,
+        -111.0789
+      ]
+    },
+    {
+      "address": 2431321456,
+      "heading_degrees": -95.0,
+      "scale": 1.0,
+      "translation": [
+        25.6558,
+        2.3182,
+        -88.5921
+      ]
+    },
+    {
+      "address": 2431321612,
+      "heading_degrees": -95.0,
+      "scale": 1.1221,
+      "translation": [
+        25.6558,
+        2.3182,
+        -88.5921
+      ]
+    },
+    {
+      "address": 2431321812,
+      "heading_degrees": -110.0,
+      "scale": 1.0,
+      "translation": [
+        23.6389,
+        2.3182,
+        -79.6136
+      ]
+    },
+    {
+      "address": 2431321968,
+      "heading_degrees": -110.0,
+      "scale": 0.90774,
+      "translation": [
+        23.6389,
+        2.3182,
+        -79.6136
+      ]
+    },
+    {
+      "address": 2431322168,
+      "heading_degrees": 30.0,
+      "scale": 1.0,
+      "translation": [
+        -32.2289,
+        13.872,
+        -56.1255
+      ]
+    },
+    {
+      "address": 2431322324,
+      "heading_degrees": 30.0,
+      "scale": 1.0,
+      "translation": [
+        -32.2289,
+        13.872,
+        -56.1255
+      ]
+    },
+    {
+      "address": 2431322880,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -75.6436,
+        -0.8375,
+        -1.8633
+      ]
+    },
+    {
+      "address": 2431323036,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -75.6436,
+        -0.8375,
+        -1.8633
+      ]
+    },
+    {
+      "address": 2431323236,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -75.6501,
+        -0.8313,
+        -1.8508
+      ]
+    },
+    {
+      "address": 2431323392,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -75.6501,
+        -0.8313,
+        -1.8508
+      ]
+    },
+    {
+      "address": 2431324116,
+      "heading_degrees": -60.0,
+      "scale": 1.0,
+      "translation": [
+        37.2173,
+        7.6562,
+        -21.5261
+      ]
+    },
+    {
+      "address": 2431324272,
+      "heading_degrees": -60.0,
+      "scale": 1.0,
+      "translation": [
+        37.2173,
+        7.6562,
+        -21.5261
+      ]
+    },
+    {
+      "address": 2431324472,
+      "heading_degrees": 30.0,
+      "scale": 1.0,
+      "translation": [
+        -15.0651,
+        7.5099,
+        -26.0188
+      ]
+    },
+    {
+      "address": 2431324628,
+      "heading_degrees": 30.0,
+      "scale": 1.0,
+      "translation": [
+        -15.0651,
+        7.5099,
+        -26.0188
+      ]
+    },
+    {
+      "address": 2431324828,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5464,
+        -56.0194
+      ]
+    },
+    {
+      "address": 2431324984,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        0.0,
+        7.5464,
+        -56.0194
+      ]
+    },
+    {
+      "address": 2431325184,
+      "heading_degrees": -29.2832,
+      "scale": 1.0,
+      "translation": [
+        15.7296,
+        8.3422,
+        -27.3091
+      ]
+    },
+    {
+      "address": 2431325340,
+      "heading_degrees": -29.2832,
+      "scale": 1.0,
+      "translation": [
+        15.7296,
+        8.3422,
+        -27.3091
+      ]
+    },
+    {
+      "address": 2431328908,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        30.3487,
+        0.0,
+        -27.2304
+      ]
+    },
+    {
+      "address": 2431329064,
+      "heading_degrees": 0.0,
+      "scale": 1.0269,
+      "translation": [
+        30.3487,
+        0.0,
+        -27.2304
+      ]
+    },
+    {
+      "address": 2431329264,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        49.3362,
+        0.0,
+        22.0088
+      ]
+    },
+    {
+      "address": 2431329420,
+      "heading_degrees": 0.0,
+      "scale": 1.13549,
+      "translation": [
+        49.3362,
+        0.0,
+        22.0088
+      ]
+    },
+    {
+      "address": 2431329620,
+      "heading_degrees": 0.0,
+      "scale": 1.0,
+      "translation": [
+        -52.3465,
+        0.0,
+        8.7222
+      ]
+    },
+    {
+      "address": 2431329776,
+      "heading_degrees": 0.0,
+      "scale": 0.97711,
+      "translation": [
+        -52.3465,
+        0.0,
+        8.7222
+      ]
+    }
+  ],
+  "prop_region": [
+    2431267616,
+    94976
+  ],
+  "prop_region_reason": null,
+  "prop_transform_floats": 12,
+  "prop_translation": [
+    12,
+    28,
+    44
+  ],
+  "arrow_candidates": null,
+  "arrow_cluster": null,
+  "arrow_region": null,
+  "arrow_region_reason": null,
+  "arrow_transform_floats": 12,
+  "arrow_translation": [
+    12,
+    28,
+    44
+  ],
+  "barrel_position": 2460963984,
+  "barrel_candidates": null,
+  "barrel_cluster": null,
+  "barrel_region": null,
+  "barrel_region_reason": null,
+  "barrel_located": false,
+  "barrel_cannons": [
+    [
+      -39.0,
+      4.0,
+      -93.5
+    ],
+    [
+      39.0,
+      4.0,
+      -93.5
+    ]
+  ],
+  "yoshi_train_position": 2166326492,
+  "game_timer_address": 2416835836,
+  "ball_offset": 1824,
+  "actor_fields": {
+    "vtable": 0,
+    "position_a": 4,
+    "scale": 16,
+    "position_b": 56,
+    "batting_index": 41,
+    "character_id": 43,
+    "buddy_jump_flag": 547,
+    "airborne_flag": 558,
+    "catch_type": 684,
+    "bobble_flag": 690,
+    "fielding_contact_counter": 708,
+    "close_play_flag": 582,
+    "frozen_flag": 576,
+    "frozen_timer": 525,
+    "flower_gas_flag": 578,
+    "flower_gas_night_flag": 714,
+    "knockdown_flag": 575,
+    "buddy_attack_flag": 613,
+    "buddy_attack_frames": 523,
+    "buddy_attack_hit_flag": 615,
+    "impact_stun_flag": 579,
+    "burned_flag": 574,
+    "bases_ran": 381,
+    "is_stealing": 408
+  },
+  "state_fields": [
+    [
+      "inning",
+      2416795031,
+      "B"
+    ],
+    [
+      "inning_half",
+      2416795173,
+      "B"
+    ],
+    [
+      "outs",
+      2416794281,
+      "B"
+    ],
+    [
+      "balls",
+      2416794280,
+      "B"
+    ],
+    [
+      "strikes",
+      2416794279,
+      "B"
+    ],
+    [
+      "game_state",
+      2416794664,
+      "B"
+    ],
+    [
+      "last_state",
+      2416794665,
+      "B"
+    ],
+    [
+      "ball_was_hit",
+      2416798356,
+      "B"
+    ],
+    [
+      "ball_status",
+      2416809274,
+      "B"
+    ],
+    [
+      "home_run_flag",
+      2416809276,
+      "B"
+    ],
+    [
+      "ball_holder",
+      2416797385,
+      "b"
+    ],
+    [
+      "last_ball_holder",
+      2416791638,
+      "B"
+    ],
+    [
+      "batter_id",
+      2416798191,
+      "B"
+    ],
+    [
+      "batter_index",
+      2416817657,
+      "B"
+    ],
+    [
+      "batter_bases_ran",
+      2416817997,
+      "B"
+    ],
+    [
+      "pitches",
+      2416797996,
+      "B"
+    ],
+    [
+      "batters_this_inning",
+      2416795189,
+      "B"
+    ],
+    [
+      "num_bases_ran",
+      2416797394,
+      "b"
+    ],
+    [
+      "fair_or_foul",
+      2416809238,
+      ">h"
+    ],
+    [
+      "runs_this_pitch",
+      2416795184,
+      "B"
+    ],
+    [
+      "outs_this_pitch",
+      2416795185,
+      "B"
+    ],
+    [
+      "throw_target",
+      2416809242,
+      ">h"
+    ],
+    [
+      "contact_fielder",
+      2416809250,
+      ">h"
+    ],
+    [
+      "last_contact_fielder",
+      2416809252,
+      ">h"
+    ],
+    [
+      "buddy_thrower",
+      2416797392,
+      ">h"
+    ],
+    [
+      "buddy_partner",
+      2416797390,
+      ">h"
+    ],
+    [
+      "swing_frames",
+      2416798281,
+      "B"
+    ],
+    [
+      "bunt_frames",
+      2416798287,
+      "B"
+    ],
+    [
+      "laser_throw_flag",
+      2416810741,
+      "B"
+    ],
+    [
+      "star_swing",
+      2416809290,
+      "B"
+    ]
+  ],
+  "actors": {
+    "fielders": [
+      {
+        "name": "P",
+        "address": 2416810780,
+        "stride": 748
+      },
+      {
+        "name": "C",
+        "address": 2416811528,
+        "stride": 748
+      },
+      {
+        "name": "1B",
+        "address": 2416812276,
+        "stride": 748
+      },
+      {
+        "name": "2B",
+        "address": 2416813024,
+        "stride": 748
+      },
+      {
+        "name": "3B",
+        "address": 2416813772,
+        "stride": 748
+      },
+      {
+        "name": "SS",
+        "address": 2416814520,
+        "stride": 748
+      },
+      {
+        "name": "LF",
+        "address": 2416815268,
+        "stride": 748
+      },
+      {
+        "name": "CF",
+        "address": 2416816016,
+        "stride": 748
+      },
+      {
+        "name": "RF",
+        "address": 2416816764,
+        "stride": 748
+      }
+    ],
+    "offense": [
+      {
+        "name": "BAT",
+        "address": 2416817616,
+        "stride": 468
+      },
+      {
+        "name": "R1",
+        "address": 2416818084,
+        "stride": 468
+      },
+      {
+        "name": "R2",
+        "address": 2416818552,
+        "stride": 468
+      },
+      {
+        "name": "R3",
+        "address": 2416819020,
+        "stride": 468
+      }
+    ]
+  },
+  "stadium_byte": 7,
+  "day_night_bytes": [
+    1,
+    1
+  ],
+  "is_night": true,
+  "calibration_excluded": false,
+  "calibration_excluded_reason": null,
+  "live_plays_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260918T135422Z.live.jsonl",
+  "live_pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260918T135422Z.pitches.jsonl",
+  "live_position_offset": 4,
+  "frames": 8352,
+  "missed_frames": 1,
+  "fielder_pointers_left_region": true,
+  "duration_seconds": 4098.299,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 30,
+    "plays_seen": 2,
+    "plays_emitted": 2,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260918T135422Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260918T135422Z.pitches.jsonl",
+    "mean_feed_ms": 0.4509,
+    "max_feed_ms": 15.291,
+    "max_play_build_ms": 62.2,
+    "replay_duplicates": 0,
+    "pitches_emitted": 3,
+    "pitch_replay_increments": 1
+  },
+  "checksum_sha256": "6a61a01396dd8c19a4af807451a662159c5919782d4f2451951df36e7e858a91",
+  "stadium_dump_start": {
+    "path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260918T135422Z.memdump.zlib",
+    "start": 2415919104,
+    "end": 2483027968,
+    "bytes": 67108864,
+    "compressed_bytes": 15223451,
+    "sha256": "b3a0955bd9d9e6248f4d4589ec7c4f0909326efa969d68f2911e1f18bbd6efab"
+  },
+  "stadium_dump_end": {
+    "path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\daisy_cruiser-20260918T135422Z.memdump-end.zlib",
+    "start": 2415919104,
+    "end": 2483027968,
+    "bytes": 67108864,
+    "compressed_bytes": 16141810,
+    "sha256": "65389b96dabc63f5e6c1753f5709d316a4160f6893e3d0e8da46a62a08ce2963"
+  }
+}

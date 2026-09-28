@@ -104,6 +104,12 @@ export function resolveTrackerScore({
 
 export function applyTrackerLiveStateToGame(game, trackerStats, options = {}) {
   if (!game || !trackerStats) return game
+  // A reset leaves the game row pending/scheduled at 0-0. A late or blocked
+  // deletion can leave the previous attempt's stats row behind; never paint
+  // that discarded score back over the reset game. The bridge marks a new
+  // match active before its first plate appearance, at which point this feed
+  // is eligible again.
+  if (shouldStartFreshTrackerSession(game, 0)) return game
   const {
     isSeason = false,
     teamAPlayerId = game.team_a_player_id,

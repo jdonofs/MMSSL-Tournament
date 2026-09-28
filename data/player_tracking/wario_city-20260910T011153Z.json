@@ -1,0 +1,3042 @@
+{
+  "format": "MSSTRK02",
+  "park": "wario_city",
+  "note": "standalone preview (no database writes)",
+  "recorded_utc": "20260910T011153Z",
+  "game_id": null,
+  "competition_type": null,
+  "source_id": null,
+  "state_base": 2416791552,
+  "state_size": 27968,
+  "extra_regions": [
+    [
+      "barrel_components",
+      2460899264,
+      384
+    ],
+    [
+      "barrel_transform",
+      2460963840,
+      512
+    ],
+    [
+      "freezie_objects",
+      2460213248,
+      8192
+    ],
+    [
+      "stadium_props",
+      2461034080,
+      116320
+    ]
+  ],
+  "capture_size": 153376,
+  "freezie_array": null,
+  "freezie_count": 5,
+  "freezie_stride": 172,
+  "freezie_transform": 0,
+  "freezie_transform_copy": 48,
+  "freezie_translation": [
+    12,
+    28,
+    44
+  ],
+  "freezie_active_offset": 138,
+  "arrow_candidates": [
+    {
+      "address": 2415922160,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        -2.03,
+        -68.4519
+      ]
+    },
+    {
+      "address": 2416501576,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        -0.7143,
+        22.2685,
+        -139.3856
+      ]
+    },
+    {
+      "address": 2417684456,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        23
+      ]
+    },
+    {
+      "address": 2417684648,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        23
+      ]
+    },
+    {
+      "address": 2417685208,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        23
+      ]
+    },
+    {
+      "address": 2417685400,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        23
+      ]
+    },
+    {
+      "address": 2417745316,
+      "heading_degrees": 0,
+      "scale": 0.34902,
+      "translation": [
+        0,
+        0,
+        26.5
+      ]
+    },
+    {
+      "address": 2418396508,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        18
+      ]
+    },
+    {
+      "address": 2419250124,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        75.6667,
+        31,
+        0
+      ]
+    },
+    {
+      "address": 2428070160,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        -15
+      ]
+    },
+    {
+      "address": 2428072736,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        -15
+      ]
+    },
+    {
+      "address": 2428075296,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        -15
+      ]
+    },
+    {
+      "address": 2433746672,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        75.6667,
+        31,
+        0
+      ]
+    },
+    {
+      "address": 2441834644,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        21,
+        23,
+        0
+      ]
+    },
+    {
+      "address": 2441835332,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        107,
+        29,
+        0
+      ]
+    },
+    {
+      "address": 2441836432,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        21,
+        23,
+        0
+      ]
+    },
+    {
+      "address": 2442321996,
+      "heading_degrees": 0,
+      "scale": 0.30196,
+      "translation": [
+        0,
+        0,
+        -25
+      ]
+    },
+    {
+      "address": 2442415652,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        3
+      ]
+    },
+    {
+      "address": 2442415844,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        3
+      ]
+    },
+    {
+      "address": 2442416036,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        3
+      ]
+    },
+    {
+      "address": 2442440448,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        -14
+      ]
+    },
+    {
+      "address": 2442441540,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        -14
+      ]
+    },
+    {
+      "address": 2442442632,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        -15
+      ]
+    },
+    {
+      "address": 2442443724,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        -13
+      ]
+    },
+    {
+      "address": 2442444816,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        -15
+      ]
+    },
+    {
+      "address": 2442445908,
+      "heading_degrees": 0,
+      "scale": 1,
+      "translation": [
+        0,
+        0,
+        -14
+      ]
+    },
+    {
+      "address": 2446442072,
+      "heading_degrees": 0,
+      "scale": 4.97664,
+      "translation": [
+        4.9766,
+        4.9766,
+        5.4766
+      ]
+    },
+    {
+      "address": 2461066868,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461066916,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461067040,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461067088,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461067212,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461067260,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461067384,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461067432,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461067556,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461067604,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461067720,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461067860,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461068000,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461068140,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461069576,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461069624,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461069748,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461069796,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461069920,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461069968,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461070092,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461070140,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461070264,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461070312,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461077680,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461077728,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461077852,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461077900,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461078024,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461078072,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461078196,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078244,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078368,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461078416,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461078540,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078588,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078712,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078760,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078884,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461078932,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461079048,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461079188,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461079328,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461079468,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461079608,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461079748,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461079888,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461080028,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461081900,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461081948,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082072,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461082120,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461082244,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461082292,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461082416,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082464,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082588,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461082636,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461082760,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082808,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082932,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082980,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461083104,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461083152,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461083268,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461083408,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461083548,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461083688,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461083828,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461083968,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461084108,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461084248,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461089400,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461089448,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461089760,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461089808,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461090120,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461090168,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461090480,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461090528,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461090840,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0.2285,
+        -18.4
+      ]
+    },
+    {
+      "address": 2461090888,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0.2285,
+        -18.4
+      ]
+    },
+    {
+      "address": 2461091200,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        3.8
+      ]
+    },
+    {
+      "address": 2461091248,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        3.8
+      ]
+    },
+    {
+      "address": 2461091560,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461091608,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461091920,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461091968,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461092280,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461092328,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461092640,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        2.5,
+        0,
+        -0.12
+      ]
+    },
+    {
+      "address": 2461092688,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        2.5,
+        0,
+        -0.12
+      ]
+    },
+    {
+      "address": 2461093304,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461093424,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461094040,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461094284,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461094404,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461095020,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461095244,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461095364,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461095980,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461096204,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461096324,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461096940,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461097164,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0.2285,
+        -18.4
+      ]
+    },
+    {
+      "address": 2461097284,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0.2285,
+        -18.4
+      ]
+    },
+    {
+      "address": 2461098044,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        3.8
+      ]
+    },
+    {
+      "address": 2461098164,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        3.8
+      ]
+    },
+    {
+      "address": 2461098924,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461099044,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461099660,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461099884,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461100004,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461100620,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461100844,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461100964,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461101544,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461101768,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        2.5,
+        0,
+        -0.12
+      ]
+    },
+    {
+      "address": 2461101888,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        2.5,
+        0,
+        -0.12
+      ]
+    },
+    {
+      "address": 2461117412,
+      "heading_degrees": -180,
+      "scale": 1,
+      "translation": [
+        0,
+        1,
+        8
+      ]
+    },
+    {
+      "address": 2461117460,
+      "heading_degrees": -180,
+      "scale": 1,
+      "translation": [
+        0,
+        1,
+        8
+      ]
+    },
+    {
+      "address": 2461117572,
+      "heading_degrees": -180,
+      "scale": 1,
+      "translation": [
+        0,
+        1,
+        8
+      ]
+    }
+  ],
+  "arrow_cluster": [
+    {
+      "address": 2461066868,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461066916,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461067040,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461067088,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461067212,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461067260,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461067384,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461067432,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461067556,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461067604,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461067720,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461067860,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461068000,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461068140,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461069576,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461069624,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461069748,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461069796,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461069920,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461069968,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        0,
+        -0.4,
+        11
+      ]
+    },
+    {
+      "address": 2461070092,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461070140,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -30,
+        -0.4,
+        -75
+      ]
+    },
+    {
+      "address": 2461070264,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461070312,
+      "heading_degrees": 0,
+      "scale": 0.7,
+      "translation": [
+        -50,
+        -0.4,
+        -40
+      ]
+    },
+    {
+      "address": 2461077680,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461077728,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461077852,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461077900,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461078024,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461078072,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461078196,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078244,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078368,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461078416,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461078540,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078588,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078712,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078760,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461078884,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461078932,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461079048,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461079188,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461079328,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461079468,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461079608,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461079748,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461079888,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461080028,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461081900,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461081948,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082072,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461082120,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461082244,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461082292,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461082416,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082464,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082588,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461082636,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461082760,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082808,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082932,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461082980,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461083104,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461083152,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461083268,
+      "heading_degrees": 135,
+      "scale": 1,
+      "translation": [
+        -45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461083408,
+      "heading_degrees": 102,
+      "scale": 1,
+      "translation": [
+        -16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461083548,
+      "heading_degrees": 78,
+      "scale": 1,
+      "translation": [
+        16,
+        0,
+        -82
+      ]
+    },
+    {
+      "address": 2461083688,
+      "heading_degrees": 45,
+      "scale": 1,
+      "translation": [
+        45,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461083828,
+      "heading_degrees": -45,
+      "scale": 1,
+      "translation": [
+        -32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461083968,
+      "heading_degrees": -78,
+      "scale": 1,
+      "translation": [
+        -13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461084108,
+      "heading_degrees": -102,
+      "scale": 1,
+      "translation": [
+        13,
+        0,
+        -66
+      ]
+    },
+    {
+      "address": 2461084248,
+      "heading_degrees": -135,
+      "scale": 1,
+      "translation": [
+        32,
+        0,
+        -56
+      ]
+    },
+    {
+      "address": 2461089400,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461089448,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461089760,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461089808,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461090120,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461090168,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461090480,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461090528,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461090840,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0.2285,
+        -18.4
+      ]
+    },
+    {
+      "address": 2461090888,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0.2285,
+        -18.4
+      ]
+    },
+    {
+      "address": 2461091200,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        3.8
+      ]
+    },
+    {
+      "address": 2461091248,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        3.8
+      ]
+    },
+    {
+      "address": 2461091560,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461091608,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461091920,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461091968,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461092280,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461092328,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461092640,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        2.5,
+        0,
+        -0.12
+      ]
+    },
+    {
+      "address": 2461092688,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        2.5,
+        0,
+        -0.12
+      ]
+    },
+    {
+      "address": 2461093304,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461093424,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461094040,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        -76
+      ]
+    },
+    {
+      "address": 2461094284,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461094404,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461095020,
+      "heading_degrees": 16.9884,
+      "scale": 1.2,
+      "translation": [
+        -11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461095244,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461095364,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461095980,
+      "heading_degrees": -16.9884,
+      "scale": 1.18,
+      "translation": [
+        11,
+        0,
+        -36
+      ]
+    },
+    {
+      "address": 2461096204,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461096324,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461096940,
+      "heading_degrees": -29.5367,
+      "scale": 1.3,
+      "translation": [
+        34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461097164,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0.2285,
+        -18.4
+      ]
+    },
+    {
+      "address": 2461097284,
+      "heading_degrees": 0,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0.2285,
+        -18.4
+      ]
+    },
+    {
+      "address": 2461098044,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        3.8
+      ]
+    },
+    {
+      "address": 2461098164,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        0,
+        0,
+        3.8
+      ]
+    },
+    {
+      "address": 2461098924,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461099044,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461099660,
+      "heading_degrees": 29.5367,
+      "scale": 1,
+      "translation": [
+        -34,
+        0,
+        -60
+      ]
+    },
+    {
+      "address": 2461099884,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461100004,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461100620,
+      "heading_degrees": 40.0594,
+      "scale": 1.2,
+      "translation": [
+        -18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461100844,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461100964,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461101544,
+      "heading_degrees": -40.0594,
+      "scale": 1.18,
+      "translation": [
+        18.5,
+        0,
+        -22
+      ]
+    },
+    {
+      "address": 2461101768,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        2.5,
+        0,
+        -0.12
+      ]
+    },
+    {
+      "address": 2461101888,
+      "heading_degrees": 180,
+      "scale": 1.2,
+      "translation": [
+        2.5,
+        0,
+        -0.12
+      ]
+    },
+    {
+      "address": 2461117412,
+      "heading_degrees": -180,
+      "scale": 1,
+      "translation": [
+        0,
+        1,
+        8
+      ]
+    },
+    {
+      "address": 2461117460,
+      "heading_degrees": -180,
+      "scale": 1,
+      "translation": [
+        0,
+        1,
+        8
+      ]
+    },
+    {
+      "address": 2461117572,
+      "heading_degrees": -180,
+      "scale": 1,
+      "translation": [
+        0,
+        1,
+        8
+      ]
+    }
+  ],
+  "arrow_region": [
+    2461034080,
+    116320
+  ],
+  "arrow_region_reason": null,
+  "arrow_transform_floats": 12,
+  "arrow_translation": [
+    12,
+    28,
+    44
+  ],
+  "barrel_position": 2460963984,
+  "barrel_cannons": [
+    [
+      -39,
+      4,
+      -93.5
+    ],
+    [
+      39,
+      4,
+      -93.5
+    ]
+  ],
+  "game_timer_address": 2416835836,
+  "ball_offset": 1204,
+  "actor_fields": {
+    "vtable": 0,
+    "position_a": 4,
+    "scale": 16,
+    "position_b": 56,
+    "batting_index": 41,
+    "character_id": 43,
+    "buddy_jump_flag": 547,
+    "airborne_flag": 558,
+    "catch_type": 684,
+    "bobble_flag": 690,
+    "fielding_contact_counter": 708,
+    "close_play_flag": 582,
+    "frozen_flag": 576,
+    "frozen_timer": 525,
+    "flower_gas_flag": 578,
+    "knockdown_flag": 575,
+    "buddy_attack_flag": 613,
+    "buddy_attack_frames": 523,
+    "buddy_attack_hit_flag": 615,
+    "bases_ran": 381,
+    "is_stealing": 408
+  },
+  "state_fields": [
+    [
+      "inning",
+      2416795031,
+      "B"
+    ],
+    [
+      "inning_half",
+      2416795173,
+      "B"
+    ],
+    [
+      "outs",
+      2416794281,
+      "B"
+    ],
+    [
+      "balls",
+      2416794280,
+      "B"
+    ],
+    [
+      "strikes",
+      2416794279,
+      "B"
+    ],
+    [
+      "game_state",
+      2416794664,
+      "B"
+    ],
+    [
+      "last_state",
+      2416794665,
+      "B"
+    ],
+    [
+      "ball_was_hit",
+      2416798356,
+      "B"
+    ],
+    [
+      "ball_status",
+      2416809274,
+      "B"
+    ],
+    [
+      "home_run_flag",
+      2416809276,
+      "B"
+    ],
+    [
+      "ball_holder",
+      2416797385,
+      "b"
+    ],
+    [
+      "last_ball_holder",
+      2416791638,
+      "B"
+    ],
+    [
+      "batter_id",
+      2416798191,
+      "B"
+    ],
+    [
+      "batter_index",
+      2416817657,
+      "B"
+    ],
+    [
+      "batter_bases_ran",
+      2416817997,
+      "B"
+    ],
+    [
+      "pitches",
+      2416797996,
+      "B"
+    ],
+    [
+      "batters_this_inning",
+      2416795189,
+      "B"
+    ],
+    [
+      "num_bases_ran",
+      2416797394,
+      "b"
+    ],
+    [
+      "fair_or_foul",
+      2416809238,
+      ">h"
+    ],
+    [
+      "runs_this_pitch",
+      2416795184,
+      "B"
+    ],
+    [
+      "outs_this_pitch",
+      2416795185,
+      "B"
+    ],
+    [
+      "throw_target",
+      2416809242,
+      ">h"
+    ],
+    [
+      "contact_fielder",
+      2416809250,
+      ">h"
+    ],
+    [
+      "last_contact_fielder",
+      2416809252,
+      ">h"
+    ],
+    [
+      "buddy_thrower",
+      2416797392,
+      ">h"
+    ],
+    [
+      "buddy_partner",
+      2416797390,
+      ">h"
+    ],
+    [
+      "swing_frames",
+      2416798281,
+      "B"
+    ],
+    [
+      "bunt_frames",
+      2416798287,
+      "B"
+    ],
+    [
+      "laser_throw_flag",
+      2416810741,
+      "B"
+    ]
+  ],
+  "actors": {
+    "fielders": [
+      {
+        "name": "P",
+        "address": 2416810780,
+        "stride": 748
+      },
+      {
+        "name": "C",
+        "address": 2416811528,
+        "stride": 748
+      },
+      {
+        "name": "1B",
+        "address": 2416812276,
+        "stride": 748
+      },
+      {
+        "name": "2B",
+        "address": 2416813024,
+        "stride": 748
+      },
+      {
+        "name": "3B",
+        "address": 2416813772,
+        "stride": 748
+      },
+      {
+        "name": "SS",
+        "address": 2416814520,
+        "stride": 748
+      },
+      {
+        "name": "LF",
+        "address": 2416815268,
+        "stride": 748
+      },
+      {
+        "name": "CF",
+        "address": 2416816016,
+        "stride": 748
+      },
+      {
+        "name": "RF",
+        "address": 2416816764,
+        "stride": 748
+      }
+    ],
+    "offense": [
+      {
+        "name": "BAT",
+        "address": 2416817616,
+        "stride": 468
+      },
+      {
+        "name": "R1",
+        "address": 2416818084,
+        "stride": 468
+      },
+      {
+        "name": "R2",
+        "address": 2416818552,
+        "stride": 468
+      },
+      {
+        "name": "R3",
+        "address": 2416819020,
+        "stride": 468
+      }
+    ]
+  },
+  "stadium_byte": 2,
+  "day_night_bytes": [
+    1,
+    1
+  ],
+  "is_night": true,
+  "calibration_excluded": true,
+  "calibration_excluded_reason": "retroactive 2026-09-18: third capture of the 2026-09-09 Wario City night research session (after 20260909T230809Z and 20260910T002617Z, both flagged), which Jason said was deliberately missing balls for the arrows and manholes; 24 of 40 outfield chances missed",
+  "live_plays_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\wario_city-20260910T011153Z.live.jsonl",
+  "live_pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\wario_city-20260910T011153Z.pitches.jsonl",
+  "live_position_offset": 4,
+  "frames": 131357,
+  "missed_frames": 268,
+  "duration_seconds": 2360.375,
+  "checksum_sha256": "94814221ba919825b475ad3d6aadf6c505ce3b21089ef8abbb668027e23a2309",
+  "finalized_by": "reconstructed from the stream after the collector exited with Dolphin and wrote no manifest; frames/missed_frames/duration_seconds/checksum measured from the .bin, not reported by the collector"
+}

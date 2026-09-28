@@ -11,8 +11,19 @@ import crypto from 'node:crypto'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { fetchAllRows } from '../src/utils/fetchAllRows.js'
-import { METRES_TO_FEET, MPS_TO_MPH, normalizeRunnerAssignments } from '../src/utils/advancedDefense.js'
+import {
+  METRES_TO_FEET,
+  MPS_TO_MPH,
+  RUNNER_SLOT_BY_ORIGIN,
+  extraBaseContext,
+  normalizeRunnerAssignments,
+} from '../src/utils/advancedDefense.js'
 import { HOME_PLATE, WALL_HEIGHT_UNITS, fenceRadiusAt } from '../src/utils/parkGeometry.js'
+import { buildGimmickEvents, buildStadiumRunsInput } from '../src/utils/gimmickLuck.js'
+import { buildStadiumIncidents, stadiumDecidedFielding } from '../src/utils/stadiumIncidents.js'
+import { buildPlayMechanics } from '../src/utils/playerMechanics.js'
+import { fielderCoversPa } from '../src/utils/fielderStints.js'
+import { trackerPitchStatFields, trackerPlayIsNicePlay } from './tracker_play_events.mjs'
 import { createAdvancedMetricsClient, recomputeAdvancedMetrics } from './recompute_advanced_metrics.mjs'
 import {
   indexCharactersByName,
@@ -29,6 +40,60 @@ import {
 
 const POSITION_NUMBER = { P: 1, C: 2, '1B': 3, '2B': 4, '3B': 5, SS: 6, LF: 7, CF: 8, RF: 9 }
 const BATTED_RESULTS = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'ROE', 'FC', 'GO', 'FO', 'LO', 'SF', 'SH', 'DP', 'TP'])
+// Bumped for the stadium-incident contract. The checksum identifies the
+// persisted INTERPRETATION, not only the bytes on disk, so raising this makes a
+// deliberate re-ingest build a versioned replacement session even when the
+// derived play file is byte-for-byte identical -- which is exactly the case for
+// every session already on disk.
+const INGEST_NORMALIZATION_VERSION = 'tracking-v4-close-play-runner-v1'
+
+// The inverse of RUNNER_SLOT_BY_ORIGIN, named once: the measured runner rows
+// and the close-play contest both have a capture slot in hand and need the
+// origin base the scorebook's runner assignments are keyed by.
+const RUNNER_ORIGIN_BY_SLOT = Object.freeze(Object.fromEntries(
+  Object.entries(RUNNER_SLOT_BY_ORIGIN)
+    .filter(([origin]) => origin !== 'plate')
+    .map(([origin, slot]) => [slot, origin]),
+))
+// A session version written play by play during the game by
+// scripts/tracker_live_tracking_persistence.mjs. Readers treat it like any
+// active version; the postgame ingest always replaces it.
+export const LIVE_SESSION_STATUS = 'live'
+
+// Capture-derived pitch fields that may be restated after the game. Scoring
+// fields are deliberately absent: the tracker log remains authoritative for a
+// pitch's result, while the 60 Hz capture is authoritative for the batter input
+// and plate location that the log cannot see.
+const DERIVED_PITCH_EVIDENCE_FIELDS = Object.freeze([
+  'is_star_pitch',
+  'swing_offer',
+  'swing_mode',
+  'swing_mode_source',
+  'swing_charge_frames',
+  'swing_charge_release_timing_frames',
+  'plate_x_units',
+  'plate_y_units',
+  'plate_z_units',
+  'pitch_zone',
+  'pitch_zone_source',
+  'is_chase',
+])
+
+/**
+ * Day, night, or genuinely unknown -- never guessed from the park.
+ *
+ * Sessions recorded before 2026-09-02 carry no day/night bytes at all, and
+ * "unknown" is a real third answer: two Luigi's Mansion captures sit in exactly
+ * that state, and calling them day would invent an exposure denominator. Kept
+ * in step with timeOfDayFor() in scripts/review_stadium_events.mjs.
+ */
+function captureTimeOfDay(header = {}) {
+  if (header.is_night === true) return 'night'
+  if (header.is_night === false) return 'day'
+  const bytes = header.day_night_bytes
+  if (Array.isArray(bytes) && bytes.length) return bytes.some((value) => value) ? 'night' : 'day'
+  return 'unknown'
+}
 
 function parseArgs(argv) {
   const args = {}
@@ -40,7 +105,7 @@ function parseArgs(argv) {
   return args
 }
 
-function sessionStem(value) {
+export function sessionStem(value) {
   const resolved = path.resolve(String(value || ''))
   return resolved.replace(/\.(?:plays\.jsonl|calibration\.json|json|bin)$/i, '')
 }
@@ -53,7 +118,7 @@ function readJsonLines(filePath) {
   })
 }
 
-function recordedTimestamp(value) {
+export function recordedTimestamp(value) {
   const match = String(value || '').match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/)
   return match ? `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z` : null
 }
@@ -62,6 +127,147 @@ function finite(value, fallback = null) {
   if (value == null || value === '') return fallback
   const number = Number(value)
   return Number.isFinite(number) ? number : fallback
+}
+
+function sameDerivedPitchPa(left, right) {
+  return Number(left?.inning) === Number(right?.inning)
+    && Number(left?.inning_half) === Number(right?.inning_half)
+    && Number(left?.batter_index) === Number(right?.batter_index)
+    && Number(left?.batter_id) === Number(right?.batter_id)
+}
+
+/**
+ * Split the capture's chronological pitch stream into plate appearances.
+ *
+ * A batter can bat around in the same inning, so the identity tuple alone is
+ * not a key. The game's pitch counter resetting to one is the boundary in that
+ * case; otherwise a change of inning/half/batter is the boundary.
+ */
+export function groupDerivedPitches(pitches = []) {
+  const groups = []
+  for (const pitch of pitches || []) {
+    const current = groups.at(-1)
+    const previous = current?.at(-1)
+    const pitchNumber = finite(pitch?.pitch_in_pa)
+    const previousNumber = finite(previous?.pitch_in_pa)
+    if (!current || !sameDerivedPitchPa(previous, pitch)
+        || (pitchNumber != null && previousNumber != null && pitchNumber <= previousNumber)) {
+      groups.push([pitch])
+    } else {
+      current.push(pitch)
+    }
+  }
+  return groups
+}
+
+function sortedPlateAppearances(rows = []) {
+  return [...rows].sort((left, right) => {
+    const leftNumber = finite(left?.pa_number)
+    const rightNumber = finite(right?.pa_number)
+    if (leftNumber != null && rightNumber != null && leftNumber !== rightNumber) {
+      return leftNumber - rightNumber
+    }
+    return String(left?.created_at || '').localeCompare(String(right?.created_at || ''))
+  })
+}
+
+function derivedPitchEvidenceFields(pitch) {
+  const all = trackerPitchStatFields(pitch)
+  return Object.fromEntries(DERIVED_PITCH_EVIDENCE_FIELDS
+    // A positive meter spend is exact evidence. Zero/absent meter data is not
+    // permission to erase a star flag supplied by the live tracker or scorer.
+    .filter((field) => Object.hasOwn(all, field) && (field !== 'is_star_pitch' || all[field] === true))
+    .map((field) => [field, all[field]]))
+}
+
+/**
+ * Plan the postgame restatement of capture-only evidence onto canonical pitch
+ * rows. This never writes scoring results and never guesses a PA when the
+ * capture named a batter that does not match the scorebook.
+ */
+export function planDerivedPitchEvidenceUpdates({
+  derivedPitches = [], plateAppearances = [], pitchRows = [], charactersByName,
+} = {}) {
+  const groups = groupDerivedPitches(derivedPitches)
+  const pas = sortedPlateAppearances(plateAppearances)
+  const unused = new Set(pas.map((_, index) => index))
+  const pitchRowByPaAndNumber = new Map((pitchRows || []).map((row) => [
+    `${String(row.pa_id)}:${String(row.pitch_number_pa)}`, row,
+  ]))
+  const updates = []
+  const unmatchedGroups = []
+  const unmatchedPitches = []
+  let floor = 0
+
+  for (const group of groups) {
+    const first = group[0]
+    const batterId = resolveTrackerCharacterId(first?.batter_id, charactersByName)
+    const candidates = [...unused].filter((index) => index >= floor)
+    const exact = batterId == null ? null : candidates.find((index) => (
+      Number(pas[index]?.inning) === Number(first?.inning)
+      && Number(pas[index]?.character_id) === Number(batterId)
+    ))
+    // Only an unresolvable game character may fall back to order. A resolved
+    // batter that disagrees with the scorebook is evidence against the join.
+    const selected = exact ?? (batterId == null
+      ? candidates.find((index) => Number(pas[index]?.inning) === Number(first?.inning))
+      : null)
+    if (selected == null) {
+      unmatchedGroups.push({
+        inning: first?.inning ?? null,
+        inning_half: first?.inning_half ?? null,
+        batter: first?.batter ?? null,
+        batter_id: first?.batter_id ?? null,
+        pitches: group.length,
+      })
+      continue
+    }
+    const pa = pas[selected]
+    unused.delete(selected)
+    floor = selected + 1
+    for (const pitch of group) {
+      const pitchNumber = finite(pitch?.pitch_in_pa)
+      const row = pitchNumber == null ? null
+        : pitchRowByPaAndNumber.get(`${String(pa.id)}:${String(pitchNumber)}`)
+      if (!row) {
+        unmatchedPitches.push({
+          pa_id: pa.id,
+          pa_number: pa.pa_number ?? null,
+          pitch_number_pa: pitchNumber,
+          pitch_timer: pitch?.pitch_timer ?? null,
+        })
+        continue
+      }
+      updates.push({
+        id: row.id,
+        pa_id: pa.id,
+        pa_number: pa.pa_number ?? null,
+        pitch_number_pa: pitchNumber,
+        fields: derivedPitchEvidenceFields(pitch),
+      })
+    }
+  }
+  return { updates, matchedGroups: groups.length - unmatchedGroups.length, unmatchedGroups, unmatchedPitches }
+}
+
+async function persistDerivedPitchEvidence(supabase, {
+  table, derivedPitches, plateAppearances, pitchRows, charactersByName, warn,
+}) {
+  const plan = planDerivedPitchEvidenceUpdates({
+    derivedPitches, plateAppearances, pitchRows, charactersByName,
+  })
+  for (const update of plan.updates) {
+    await updateRowsVerified(supabase, table, { id: update.id }, update.fields)
+  }
+  if (plan.unmatchedGroups.length) {
+    warn(`capture pitch evidence left ${plan.unmatchedGroups.length} plate-appearance group(s) `
+      + 'unmatched; no batter-input fields were guessed for them')
+  }
+  if (plan.unmatchedPitches.length) {
+    warn(`capture pitch evidence found ${plan.unmatchedPitches.length} pitch(es) absent from the `
+      + `${table} scoring rows; they remain in the capture artifact only`)
+  }
+  return plan
 }
 
 function positionDirection(start, end) {
@@ -132,7 +338,7 @@ function eligiblePa(pa) {
 // whole session fair.
 const FAIR_CLASSES = new Set(['fair_in_play', 'fair_caught', 'home_run', 'home_run_robbed'])
 
-function playLooksFair(play) {
+export function playLooksFair(play) {
   if (!play.batted_ball_class) {
     throw new Error(
       'This session was derived before batted-ball classification existed, so '
@@ -188,54 +394,221 @@ function matchPlaysToPas(plays, plateAppearances, charactersByName) {
   })
 }
 
-function activeFielder(fielders, position, inning) {
+// `at` is the plate appearance ({ inning, pa_number }) the play belongs to.
+function activeFielder(fielders, position, at) {
   return fielders.find((row) => (
-    Number(row.position) === Number(position)
-    && Number(row.inning_from || 1) <= Number(inning || 1)
-    && (row.inning_to == null || Number(row.inning_to) >= Number(inning || 1))
+    Number(row.position) === Number(position) && fielderCoversPa(row, at)
   )) || null
 }
 
-function fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, position, inning, trackedCharacterId) {
-  const row = activeFielder(fielders, POSITION_NUMBER[position], inning)
-  // The scorebook's own name first, then the tracked character translated
-  // through the game's name table. Never the raw tracked id -- see
-  // tracker_character_ids.mjs for why that writes the wrong player.
-  const characterId = charactersByName.get(normalizeCharacterName(row?.character))?.id
-    ?? resolveTrackerCharacterId(trackedCharacterId, charactersByName)
+function fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, position, at, trackedCharacterId) {
+  const positional = activeFielder(fielders, POSITION_NUMBER[position], at)
+  const characterIdOf = (row) => charactersByName.get(normalizeCharacterName(row?.character))?.id
+  // The capture's character first: it saw who stood at this position on this
+  // play. The scorebook only knows who held it for the INNING, and a position
+  // change mid-inning rewrites that row -- which handed Toadette's first-inning
+  // catch in RF to Red Pianta when he moved in behind her. The scorebook name
+  // is the fallback for characters the game's table cannot name (every Mii).
+  // Never the raw tracked id -- see tracker_character_ids.mjs for why that
+  // writes the wrong player.
+  const trackedId = resolveTrackerCharacterId(trackedCharacterId, charactersByName)
+  const tracked = trackedId == null ? null : fielders.find((row) => (
+    characterIdOf(row) === trackedId
+    && (!positional || String(row.team_id) === String(positional.team_id))
+  ))
+  const row = tracked || positional
+  const characterId = trackedId ?? characterIdOf(positional)
   const playerId = row
     ? seasonTeamPlayerById.get(String(row.team_id)) || row.team_id || null
     : null
   return { row, characterId, playerId }
 }
 
-function expectedFactCounts(plays) {
-  return plays.reduce((counts, play) => {
-    counts.plays += 1
-    counts.fielding += Object.keys(play.fielders || {}).length
-    counts.movement += Object.keys(play.fielders || {}).length + Object.keys(play.runners || {}).length
-    counts.throws += (play.throws || []).length
-    return counts
-  }, { plays: 0, fielding: 0, movement: 0, throws: 0 })
+// Warned once per process, not once per play: a missing table is one fact
+// about the database, and 400 copies of it hides the rest of the report.
+let warnedMissingCatchApproaches = false
+
+// WHAT "ALREADY COMPLETE" MEANS, and why it is keys rather than totals.
+//
+// The check this replaced compared four numbers: one total per table across
+// the whole session. Two separate faults came out of that.
+//
+// It could not see tracking_catch_approaches at all, so a session ingested
+// against a database that did not yet have the table read as complete forever
+// afterwards and the reach measurements were never saved -- the ordinary retry
+// that should have repaired them returned without writing anything.
+//
+// And a total is not an identity. A child set holding two fielding rows for
+// one play and none for the next sums to exactly the expected total, so a
+// skewed tree reads as finished. These are the same natural keys
+// insertRowsReconciled reconciles each row on, so "complete" now means what
+// the writer means by it.
+const KEY_FIELD_SEPARATOR = '\u0000'
+// Each child table and the key columns that identify a row within its play.
+// The play itself is carried by its ORDINAL rather than its id, so the
+// comparison is about the capture rather than about which ids a previous
+// attempt happened to allocate.
+const FACT_TABLES = {
+  fielding: { table: 'fielding_opportunities', keyColumns: ['position'] },
+  movement: { table: 'movement_metrics', keyColumns: ['actor_type', 'actor_slot'] },
+  throws: { table: 'tracking_throws', keyColumns: ['throw_sequence'] },
+  catchApproaches: { table: 'tracking_catch_approaches', keyColumns: ['position', 'start_frame'] },
+}
+// Bounded on purpose. The read this replaced put every play id of the session
+// into one in(...), which is a URL that grows with the game; a real Postgres
+// is untroubled by it, the gateway in front of it is not.
+const PLAY_ID_CHUNK = 200
+
+function factKey(...parts) {
+  return parts.map((part) => (part == null ? '' : String(part))).join(KEY_FIELD_SEPARATOR)
 }
 
-async function existingFactCounts(supabase, trackingSessionId) {
-  const plays = await selectByKey(supabase, 'tracking_plays', { tracking_session_id: trackingSessionId })
-  const playIds = plays.map((row) => row.id)
-  if (!playIds.length) return { plays: 0, fielding: 0, movement: 0, throws: 0 }
-  const read = async (table) => {
-    const { data, error } = await supabase.from(table).select('id').in('tracking_play_id', playIds)
-    if (error) throw error
-    return (data || []).length
+function emptyFactKeys() {
+  return {
+    plays: new Set(),
+    ...Object.fromEntries(Object.keys(FACT_TABLES).map((name) => [name, new Set()])),
   }
-  const [fielding, movement, throws] = await Promise.all([
-    read('fielding_opportunities'), read('movement_metrics'), read('tracking_throws'),
-  ])
-  return { plays: plays.length, fielding, movement, throws }
 }
 
-function sameCounts(left, right) {
-  return Object.keys(left).every((key) => Number(left[key]) === Number(right[key]))
+// Every row this capture is going to write, named the way the database will
+// hold it. Built from the same expressions writeTrackingPlayFacts builds the
+// rows from -- a key derived some other way would be a second definition of a
+// fielding opportunity, which is the mistake that writer's own comment warns
+// about.
+function expectedFactKeys(plays) {
+  const keys = emptyFactKeys()
+  plays.forEach((play, index) => {
+    const ordinal = index + 1
+    keys.plays.add(factKey(ordinal))
+    for (const position of Object.keys(play.fielders || {})) {
+      keys.fielding.add(factKey(ordinal, position))
+      keys.movement.add(factKey(ordinal, 'fielder', position))
+    }
+    for (const slot of Object.keys(play.runners || {})) {
+      keys.movement.add(factKey(ordinal, slot === 'BAT' ? 'batter' : 'runner', slot))
+    }
+    const throwRows = (play.throws || []).filter((row) => row.is_throw !== false)
+    throwRows.forEach((row, throwIndex) => {
+      keys.throws.add(factKey(ordinal, row.sequence ?? throwIndex + 1))
+    })
+    for (const row of play.catch_approaches || []) {
+      if (!row.position && !row.by) continue
+      keys.catchApproaches.add(factKey(ordinal, row.by, finite(row.start_frame)))
+    }
+  })
+  return keys
+}
+
+// A missing TABLE, and nothing else -- the same narrow reading
+// beginSessionReplacement takes of a missing function, for the same reason. A
+// missing column (42703, PGRST204), a permission failure (42501) and a
+// statement timeout all carry their own code, and reading one of those as
+// "this database does not have the feature" would hide a real fault behind a
+// zero.
+function isMissingTableError(error) {
+  const code = String(error?.code || '')
+  if (code === 'PGRST205' || code === '42P01') return true
+  if (code) return false
+  return /relation [^ ]* does not exist|could not find the table/i
+    .test(String(error?.message || ''))
+}
+
+// Every page, never the first thousand rows. The un-ranged reads this replaced
+// counted whatever PostgREST chose to return, and src/utils/fetchAllRows.js
+// documents that as 1,000 -- so a session with more fielding or movement rows
+// than that (21 of the 59 derived sessions on disk) read as incomplete and was
+// reconciled row by row on every retry.
+async function readAllRows(supabase, table, columns, filter) {
+  const { data, error } = await fetchAllRows(() => filter(supabase.from(table).select(columns)))
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * The keys of the fact rows a session already holds.
+ *
+ * `supported.catchApproaches` is false only when the table itself is absent:
+ * the deliberate degradation the writer makes, stated here as well so the
+ * completeness decision can leave that fact out openly rather than count zero
+ * of them and call the session finished.
+ */
+async function existingFactKeys(supabase, trackingSessionId) {
+  const keys = emptyFactKeys()
+  const supported = { catchApproaches: true }
+  // Rows read, beside keys held. A duplicate collapses into the set, so a
+  // tree with one play written twice would read as complete on keys alone.
+  // Every one of these natural keys is backed by a unique index that
+  // 20260908120000 creates -- but that migration SKIPS a table that was not
+  // present when it ran, quietly, so whether a given deployment actually holds
+  // the index is not something this can assume. Counting the rows as well
+  // costs nothing and does not depend on the answer.
+  const rowCounts = { plays: 0, ...Object.fromEntries(Object.keys(FACT_TABLES).map((name) => [name, 0])) }
+  const playRows = await readAllRows(supabase, 'tracking_plays', 'id,play_ordinal',
+    (query) => query.eq('tracking_session_id', trackingSessionId))
+  const ordinalByPlayId = new Map()
+  rowCounts.plays = playRows.length
+  for (const row of playRows) {
+    ordinalByPlayId.set(String(row.id), row.play_ordinal)
+    keys.plays.add(factKey(row.play_ordinal))
+  }
+  if (!playRows.length) return { keys, supported, rowCounts }
+  const playIds = playRows.map((row) => row.id)
+  for (const [name, { table, keyColumns }] of Object.entries(FACT_TABLES)) {
+    const columns = ['tracking_play_id', ...keyColumns].join(',')
+    for (let from = 0; from < playIds.length; from += PLAY_ID_CHUNK) {
+      const chunk = playIds.slice(from, from + PLAY_ID_CHUNK)
+      let rows
+      try {
+        rows = await readAllRows(supabase, table, columns, (query) => query.in('tracking_play_id', chunk))
+      } catch (error) {
+        if (name !== 'catchApproaches' || !isMissingTableError(error)) throw error
+        supported.catchApproaches = false
+        if (!warnedMissingCatchApproaches) {
+          warnedMissingCatchApproaches = true
+          console.warn('  tracking_catch_approaches is missing; catch reach not persisted.')
+          console.warn('  Apply supabase/migrations/20260920130000_tracking_catch_approaches.sql')
+        }
+        break
+      }
+      rowCounts[name] += rows.length
+      for (const row of rows) {
+        keys[name].add(factKey(
+          ordinalByPlayId.get(String(row.tracking_play_id)),
+          ...keyColumns.map((column) => row[column]),
+        ))
+      }
+    }
+  }
+  return { keys, supported, rowCounts }
+}
+
+/**
+ * What a stored session still owes this capture, per fact table, or [] when it
+ * owes nothing.
+ *
+ * Rows that are there and are not expected count too. A child set that is not
+ * the expected one is not a finished ingest even when nothing is missing from
+ * it, and naming them is the difference between a rebuild that says why and
+ * one that looks like a loop.
+ */
+function outstandingFacts(expected, existing) {
+  const report = []
+  for (const name of ['plays', ...Object.keys(FACT_TABLES)]) {
+    if (existing.supported[name] === false) continue
+    const want = expected[name]
+    const have = existing.keys[name]
+    const missing = [...want].filter((key) => !have.has(key)).length
+    const unexpected = [...have].filter((key) => !want.has(key)).length
+      + Math.max(0, (existing.rowCounts?.[name] ?? have.size) - have.size)
+    if (missing || unexpected) report.push({ fact: name, missing, unexpected })
+  }
+  return report
+}
+
+function describeOutstanding(report) {
+  return report.map(({ fact, missing, unexpected }) => (
+    `${fact} ${missing} missing${unexpected ? `, ${unexpected} unexpected` : ''}`
+  )).join('; ')
 }
 
 // Open a new version of a completed session, beside it.
@@ -339,6 +712,28 @@ async function applyOfficialLinksDirectly(supabase, {
   }
 }
 
+/**
+ * Set is_nice_play from the joined capture, where the live bridge could not.
+ *
+ * Separate from the official links because those move with the fenced
+ * activation transaction and this does not: it is an ordinary column on a row
+ * that already exists, derived from a play the activation has just confirmed
+ * belongs to it. Only rows whose stored value actually differs are written, so
+ * a re-run of a finished session writes nothing.
+ */
+async function applyCaptureDerivedPaFields(supabase, { paTable, playLinks }) {
+  const changed = playLinks.filter((link) => (
+    !link.corrected && typeof link.isNicePlay === 'boolean' && link.isNicePlay !== link.storedNicePlay
+  ))
+  for (const link of changed) {
+    await updateRowsVerified(supabase, paTable, { id: link.paId }, { is_nice_play: link.isNicePlay })
+  }
+  // Reported in the summary rather than as a warning: correcting a column the
+  // live pass could not derive is this pass's job, not a surprise. A re-run of
+  // a finished session writes nothing and reports zero.
+  return changed.length
+}
+
 // WHAT IS LEFT TO DO AFTER THE RAW FACTS ARE SAVED, written down where it
 // survives the process.
 //
@@ -402,7 +797,7 @@ async function reconstructOfficialLinks(supabase, session, { competitionType, ga
       selectByKey(supabase, 'tracking_throws', { tracking_play_id: play.id }),
     ])
     for (const opportunity of opportunities) {
-      const slot = { first: 'R1', second: 'R2', third: 'R3' }[opportunity.origin_base]
+      const slot = RUNNER_SLOT_BY_ORIGIN[opportunity.origin_base]
       const track = movement.find((row) => row.actor_slot === slot) || null
       // The same pairing the staging pass makes: the throw to the base this
       // opportunity is about, by the fielder it holds responsible when it names
@@ -450,6 +845,14 @@ async function resumeDerivedWork(supabase, session, {
   delete quality.derived_stage
   let modelSummary = null
   if (stage === 'activate') {
+    // The raw facts and activation marker may have committed while the final
+    // status update did not. Activation requires an ingested candidate, so a
+    // retry must finish that transition before replaying the fenced step.
+    if (session.status !== 'ingested') {
+      await updateRowsVerified(supabase, 'tracking_sessions', { id: session.id }, {
+        status: 'ingested', updated_at: new Date().toISOString(),
+      })
+    }
     warn(`tracking session ${session.id} was left with its activation unconfirmed; `
       + 'reapplying it rather than re-ingesting the capture')
     const { playLinks, runnerFacts } = await reconstructOfficialLinks(supabase, session, {
@@ -496,6 +899,546 @@ function leaseArgs(lease) {
   }
 }
 
+/**
+ * One play's tracking facts: its tracking_plays row and the fielding, movement
+ * and throw rows under it.
+ *
+ * THE ONLY WRITER OF THOSE ROWS. The postgame ingest calls it once per play of
+ * a finished session; the bridge calls it as each play arrives during the game
+ * (scripts/tracker_live_tracking_persistence.mjs). Two row builders would be two
+ * definitions of a fielding opportunity, and the live rows would quietly stop
+ * meaning what the postgame rows mean.
+ *
+ * `decorateOpportunity` lets the live writer add the modelled catch-probability
+ * columns before the row is written. `stageRunnerFacts` is off for the live
+ * writer: the measured runner links are official rows that only the fenced
+ * activation of a finished session may write.
+ */
+export async function writeTrackingPlayFacts(supabase, {
+  play,
+  playOrdinal,
+  match,
+  trackingSession,
+  header = {},
+  competitionType,
+  gameId,
+  fielders = [],
+  seasonTeamPlayerById = new Map(),
+  charactersByName,
+  quarantined = false,
+  decorateOpportunity = (row) => row,
+  stageRunnerFacts = true,
+}) {
+  const runnerFacts = []
+  const pa = match.pa
+  // The game's fielder rows hold BOTH teams, and a position and inning alone
+  // match one row from each; only the fielding side's can be on the field.
+  if (pa?.defensive_team_id != null) {
+    fielders = fielders.filter((row) => String(row.team_id) === String(pa.defensive_team_id))
+  }
+  const playAt = { inning: play.inning, pa_number: pa?.pa_number }
+  const firstTouch = play.first_touch || null
+  const primaryFielder = play.primary_fielder || firstTouch?.by || null
+  const contact = play.contact_at || []
+  const deflections = play.deflections || []
+  const forcedMisplays = play.forced_misplays || []
+  const buddyHandoffs = play.buddy_handoffs || []
+  // ONE RESOLVER, used by both contracts, so luck and the descriptive
+  // incidents can never disagree about who was on the field. Ownership is
+  // resolved AT GAME TIME from that game's own fielder rows, which is what
+  // stops a later roster move from rewriting historical credit.
+  const resolveFielderIdentity = ({ position, characterId }) => {
+    if (!position) return {}
+    const identity = fielderIdentity(
+      fielders, seasonTeamPlayerById, charactersByName,
+      position, playAt, characterId,
+    )
+    return {
+      position,
+      playerId: identity.playerId,
+      characterId: identity.characterId,
+    }
+  }
+  // WHO WAS ON THE BASES, from the scorebook rather than from the capture. The
+  // capture knows a slot and a tracker character id; the plate appearance knows
+  // which runner is standing there, and that is the identity every official
+  // baserunning row already uses.
+  const runnerAssignments = new Map(normalizeRunnerAssignments(pa?.runner_assignments)
+    .filter((row) => !row.isBatter).map((row) => [row.origin, row]))
+  const resolveRunnerIdentity = ({ slot, characterId }) => {
+    if (!slot) return {}
+    if (slot === 'BAT') {
+      return {
+        slot,
+        playerId: pa?.player_id || null,
+        characterId: finite(pa?.character_id ?? resolveTrackerCharacterId(characterId, charactersByName)),
+      }
+    }
+    const origin = RUNNER_ORIGIN_BY_SLOT[slot] || null
+    const assignment = origin ? runnerAssignments.get(origin) : null
+    return {
+      slot,
+      playerId: assignment?.runner?.playerId ?? assignment?.runner?.player_id ?? null,
+      characterId: finite(assignment?.runner?.characterId ?? assignment?.runner?.character_id
+        ?? resolveTrackerCharacterId(characterId, charactersByName)),
+    }
+  }
+  const gimmickEvents = buildGimmickEvents(play, {
+    plateAppearance: pa,
+    resolveFielder: resolveFielderIdentity,
+  })
+  // THE DESCRIPTIVE SIDE, independent of luck. A luck event names a
+  // beneficiary and an unlucky side; neither is necessarily the character the
+  // stadium actually touched, so "times frozen" cannot be recovered from it.
+  // See src/utils/stadiumIncidents.js.
+  const stadiumIncidents = buildStadiumIncidents(play, {
+    park: header.park || null,
+    timeOfDay: captureTimeOfDay(header),
+    competitionType,
+    gameId,
+    // The version is part of the identity: a replacement session's incidents
+    // must not collide with the superseded version's while both are on disk.
+    sessionVersion: finite(trackingSession.version, 1),
+    playOrdinal,
+    // Only used to reconstruct an absolute frame for an event the producer
+    // recorded with a relative time alone -- a freeze derived before the
+    // onset timer was carried. A session that never recorded the rate keeps
+    // the Wii's NTSC clock, which is what every capture on disk actually ran.
+    fps: finite(header.frame_rate, 59.94),
+    resolveFielder: resolveFielderIdentity,
+  })
+  // What the park's interference was worth in runs. Only the facts are stored
+  // here; recompute_advanced_metrics.mjs scores the catch and prices it, so a
+  // better catch model or run table reprices every stored play.
+  const stadiumRuns = buildStadiumRunsInput(play, {
+    incidents: stadiumIncidents,
+    plateAppearance: pa,
+    park: header.park || null,
+    resolveFielder: resolveFielderIdentity,
+  })
+  // The deliberate player mechanics the capture measures and nothing has ever
+  // persisted: 538 Buddy attacks, 54 Buddy Jump windows, 14 close plays and
+  // the causing side of every captain star swing. Kept apart from stadium
+  // luck on purpose -- a fielder clearing a Freezie made a play.
+  const playMechanics = buildPlayMechanics(play, {
+    competitionType,
+    gameId,
+    sessionVersion: finite(trackingSession.version, 1),
+    playOrdinal,
+    plateAppearance: pa,
+    resolveFielder: resolveFielderIdentity,
+    resolveRunner: resolveRunnerIdentity,
+    park: header.park || null,
+    timeOfDay: captureTimeOfDay(header),
+  })
+  const excludeFromOaa = Boolean(
+    play.after_deflection || forcedMisplays.length || buddyHandoffs.length,
+  )
+  const playPayload = {
+    tracking_session_id: trackingSession.id,
+    competition_type: competitionType,
+    game_id: gameId,
+    pa_id: pa?.id || null,
+    play_ordinal: playOrdinal,
+    inning: finite(play.inning),
+    inning_half: finite(play.inning_half) === 0 ? 'top' : finite(play.inning_half) === 1 ? 'bottom' : null,
+    batter_character_id: resolveTrackerCharacterId(play.batter_id, charactersByName),
+    tracker_contact_seq: finite(pa?.tracker_contact_seq),
+    contact_frame: finite(play.contact_timer),
+    pitch_release_frame: finite(play.pitch_release_timer),
+    first_touch_frame: finite(firstTouch?.frame),
+    dead_ball_frame: finite(play.dead_ball_timer),
+    landing_frame: finite(play.landing?.frame),
+    landing_x: finite(play.landing?.at?.[0]),
+    landing_y: finite(play.landing?.at?.[1]),
+    landing_z: finite(play.landing?.at?.[2]),
+    // Where the ball was GOING, as the game worked it out on the contact
+    // frame, as against where it was actually first touched down above. The
+    // two agree to a median 0.14u when both exist; this one also exists for
+    // the caught balls and the home runs, where the measured landing either
+    // never happens or stops at the fence. Ground plane only -- there is no y.
+    projected_landing_frame: finite(play.projected_landing?.frame),
+    projected_landing_x: finite(play.projected_landing?.at?.[0]),
+    projected_landing_z: finite(play.projected_landing?.at?.[1]),
+    projected_landing_distance_m: finite(play.projected_landing?.distance_units),
+    hang_time_seconds: finite(play.hang_time_s),
+    caught_in_flight: Boolean(play.caught_in_flight),
+    duration_seconds: finite(play.duration_s),
+    live_seconds: finite(play.live_s),
+    fair_ball: playLooksFair(play),
+    batted_ball_class: play.batted_ball_class || null,
+    home_run: Boolean(play.home_run),
+    truncated: Boolean(play.truncated),
+    first_touch_position: firstTouch?.by || null,
+    first_touch_character_id: resolveTrackerCharacterId(firstTouch?.character_id, charactersByName),
+    contact_x: finite(contact[0]),
+    contact_y: finite(contact[1]),
+    contact_z: finite(contact[2]),
+    join_method: match.method,
+    join_confidence: match.confidence,
+    quality: {
+      quarantined_session: quarantined,
+      fair_or_foul: play.fair_or_foul,
+      batted_ball_class: play.batted_ball_class,
+      deflections,
+      forced_misplays: forcedMisplays,
+      buddy_handoffs: buddyHandoffs,
+      after_deflection: Boolean(play.after_deflection),
+      rebound_catch: play.rebound_catch || null,
+      // The raw detector arrays remain in the capture on disk. This compact,
+      // versioned contract is the part the website can aggregate without
+      // having to understand each park's memory layout.
+      gimmick_events: gimmickEvents,
+      // Physical incidents, ball interactions and object changes, each with
+      // the actor it actually affected and the evidence that named its cause.
+      // Deliberately NOT derived from gimmick_events: the two answer
+      // different questions and one cannot be recovered from the other.
+      stadium_incidents: stadiumIncidents,
+      stadium_runs: stadiumRuns,
+      // Bases, where the ball was first secured and where each runner stood
+      // then: what the recompute prices a send or hold against.
+      runner_context: extraBaseContext(play),
+      play_mechanics: playMechanics,
+    },
+  }
+  const { row: trackingPlay } = await insertOneReconciled(supabase, 'tracking_plays', playPayload, {
+    key: { tracking_session_id: trackingSession.id, play_ordinal: playOrdinal },
+  })
+
+  const opportunityRows = Object.entries(play.fielders || {}).map(([position, row]) => {
+    const identity = fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, position, playAt, row.character_id)
+    const primary = primaryFielder === position
+    const deflection = deflections.find((event) => event.by === position) || null
+    const forcedMisplay = forcedMisplays.find((event) => event.by === position) || null
+    const buddyHandoff = buddyHandoffs.find((event) => event.by === position) || null
+    const positioning = positioningFromRelease(row.pitch_release_start)
+    const wall = primary
+      ? wallContext(header.park, firstTouch?.at, firstTouch?.ball_height_units)
+      : { beyondFenceM: null, robbedHomeRun: null }
+    return {
+      tracking_play_id: trackingPlay.id,
+      competition_type: competitionType,
+      game_id: gameId,
+      pa_id: pa?.id || null,
+      fielder_player_id: identity.playerId,
+      fielder_character_id: identity.characterId,
+      position,
+      is_primary: primary,
+      // Catch Probability asks whether THIS batted-ball opportunity became a
+      // catch. A baserunner thrown out later on the same play is not a catch,
+      // and after a boot the teammate who picks it up is not the original
+      // opportunity owner.
+      actual_out: primary ? Boolean(
+        play.caught_in_flight
+        && firstTouch?.by === position
+        && !deflection
+        && !forcedMisplay
+      ) : null,
+      fielded: Boolean(row.fielded),
+      pitch_release_x: finite(row.pitch_release_start?.[0]),
+      pitch_release_y: finite(row.pitch_release_start?.[1]),
+      pitch_release_z: finite(row.pitch_release_start?.[2]),
+      position_depth_ft: positioning.depthFeet,
+      position_angle_deg: positioning.angleDeg,
+      start_x: finite(row.start?.[0]), start_y: finite(row.start?.[1]), start_z: finite(row.start?.[2]),
+      end_x: finite(row.end?.[0]), end_y: finite(row.end?.[1]), end_z: finite(row.end?.[2]),
+      // The catch-probability pair is measured to where the ball had to be
+      // REACHED -- the glove on a catch, the landing spot on a ball that fell
+      // in -- not to where somebody picked it up after the bounce. Measured
+      // the old way the two were indistinguishable: every difficulty band
+      // converted at 52%. Measured this way the curve is monotone, from 90%
+      // inside 6 u/s of required closing speed to 0% beyond 8.
+      distance_needed_m: finite(row.distance_to_landing_units) ?? finite(row.distance_to_touch_units),
+      distance_to_touch_m: finite(row.distance_to_touch_units),
+      distance_covered_m: finite(row.path_units),
+      opportunity_seconds: finite(play.hang_time_s) ?? finite(row.opportunity_s),
+      touch_seconds: finite(row.opportunity_s),
+      reaction_seconds: finite(row.reaction_s),
+      route_efficiency: finite(row.route_efficiency),
+      // PER-PLAY CONTEXT FOR A RANGE MODEL, NOT A SPEED RATING. How fast a
+      // fielder moved on one ball is mostly how far they had to go: a
+      // two-unit shuffle reads 0.5 u/s and a full outfield run reads 7.8, on
+      // the same character. Averaging this column by fielder measures their
+      // position, not their legs. The speed rating comes off the runner and
+      // batter rows, where the whole run is a maximum-effort sprint --
+      // summarizeMovementMetrics in src/utils/advancedDefense.js reads only
+      // those two actor types, and it should stay that way.
+      sprint_speed_mps: finite(row.sprint_speed_ups),
+      sprint_speed_fps: finite(row.sprint_speed_ups) == null ? null : finite(row.sprint_speed_ups) * METRES_TO_FEET,
+      direction: positionDirection(row.start, row.end),
+      catch_height_m: primary ? finite(firstTouch?.ball_height_units) : null,
+      beyond_fence_m: wall.beyondFenceM,
+      robbed_home_run: wall.robbedHomeRun,
+      quality: {
+        teleports: finite(row.teleports, 0),
+        airborne_frames: finite(row.airborne_frames, 0),
+        bobble_frames: finite(row.bobble_frames, 0),
+        forced_misplay_frames: finite(row.forced_misplay_frames, 0),
+        buddy_handoff_frames: finite(row.buddy_handoff_frames, 0),
+        fielding_action_frames: row.fielding_action_frames || {},
+        primary_fielder_reason: play.primary_fielder_reason || null,
+        deflection,
+        forced_misplay: forcedMisplay,
+        buddy_handoff: buddyHandoff,
+        after_deflection: Boolean(play.after_deflection),
+        rebound_catch: play.rebound_catch || null,
+        // A rebound catch was manufactured by the boot, while a Buddy
+        // handoff can hide the original possession from `ball_holder`.
+        // Preserve both plays, but do not teach the ordinary OAA curve from
+        // geometry that no longer describes the batted ball.
+        exclude_from_oaa: excludeFromOaa,
+        // A table, arrow or stun decided this one, not the fielder's range.
+        stadium_affected: stadiumDecidedFielding(stadiumIncidents, position, {
+          firstTouchFrame: finite(firstTouch?.frame),
+        }),
+        quarantined_session: quarantined,
+      },
+    }
+  }).map(decorateOpportunity)
+  if (opportunityRows.length) {
+    await insertRowsReconciled(supabase, 'fielding_opportunities', opportunityRows, {
+      keyFields: ['tracking_play_id', 'position'],
+    })
+  }
+
+  const fielderMovementRows = Object.entries(play.fielders || {}).map(([position, row]) => {
+    const identity = fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, position, playAt, row.character_id)
+    return {
+      tracking_play_id: trackingPlay.id,
+      competition_type: competitionType,
+      game_id: gameId,
+      pa_id: pa?.id || null,
+      actor_type: 'fielder', actor_slot: position,
+      player_id: identity.playerId, character_id: identity.characterId, position,
+      start_x: finite(row.start?.[0]), start_y: finite(row.start?.[1]), start_z: finite(row.start?.[2]),
+      end_x: finite(row.end?.[0]), end_y: finite(row.end?.[1]), end_z: finite(row.end?.[2]),
+      path_distance_m: finite(row.path_units),
+      run_path_distance_m: finite(row.run_path_units),
+      assist_distance_m: finite(row.assist_units),
+      assist_frames: finite(row.assist_frames),
+      displacement_m: finite(row.displacement_units),
+      sprint_speed_mps: finite(row.sprint_speed_ups), sprint_speed_fps: finite(row.sprint_speed_fps),
+      // The character's ceiling, not this play's effort. The sprint columns
+      // above are a fielder's DISTANCE as much as their speed, which is the
+      // reason the note further up tells summarizeMovementMetrics to ignore
+      // them on fielder rows; this one is identical on every play the
+      // character appears in, so it is the column to average.
+      max_speed_mps: finite(row.max_speed_ups), max_speed_fps: finite(row.max_speed_fps),
+      is_bolt: Boolean(row.bolt), reaction_seconds: finite(row.reaction_s),
+      route_efficiency: finite(row.route_efficiency),
+      jump_distance_feet: finite(row.jump_distance_feet),
+      reaction_distance_feet: finite(row.reaction_distance_feet),
+      burst_distance_feet: finite(row.burst_distance_feet),
+      jump_route_efficiency: finite(row.jump_route_efficiency),
+      quality: { teleports: finite(row.teleports, 0), quarantined_session: quarantined },
+    }
+  })
+  const runnerMovementRows = Object.entries(play.runners || {}).map(([slot, row]) => {
+    const origin = RUNNER_ORIGIN_BY_SLOT[slot] || null
+    const assignment = origin ? runnerAssignments.get(origin) : null
+    const actorType = slot === 'BAT' ? 'batter' : 'runner'
+    return {
+      tracking_play_id: trackingPlay.id,
+      competition_type: competitionType,
+      game_id: gameId,
+      pa_id: pa?.id || null,
+      actor_type: actorType, actor_slot: slot,
+      player_id: slot === 'BAT' ? pa?.player_id || null : assignment?.runner?.playerId ?? assignment?.runner?.player_id ?? null,
+      character_id: finite(slot === 'BAT'
+        ? pa?.character_id ?? resolveTrackerCharacterId(row.character_id, charactersByName)
+        : assignment?.runner?.characterId ?? assignment?.runner?.character_id
+          ?? resolveTrackerCharacterId(row.character_id, charactersByName)),
+      position: origin,
+      start_x: finite(row.start?.[0]), start_y: finite(row.start?.[1]), start_z: finite(row.start?.[2]),
+      end_x: finite(row.end?.[0]), end_y: finite(row.end?.[1]), end_z: finite(row.end?.[2]),
+      path_distance_m: finite(row.path_units),
+      run_path_distance_m: finite(row.run_path_units),
+      assist_distance_m: finite(row.assist_units),
+      assist_frames: finite(row.assist_frames),
+      displacement_m: finite(row.displacement_units),
+      sprint_speed_mps: finite(row.sprint_speed_ups), sprint_speed_fps: finite(row.sprint_speed_fps),
+      // Explicitly null, and not simply left out: the offense actor class does
+      // not carry the max-speed field at all, and every row in this batch has
+      // to agree on its columns.
+      max_speed_mps: null, max_speed_fps: null,
+      is_bolt: Boolean(row.bolt),
+      home_to_first_seconds: slot === 'BAT' ? finite(play.home_to_first_s) : null,
+      ninety_foot_split_seconds: slot === 'BAT' ? finite(play.ninety_foot_split_s) : null,
+      five_foot_splits: row.five_foot_splits_s || {},
+      reaction_seconds: finite(row.reaction_s), route_efficiency: finite(row.route_efficiency),
+      quality: { teleports: finite(row.teleports, 0), quarantined_session: quarantined },
+    }
+  })
+  const movementRows = [...fielderMovementRows, ...runnerMovementRows]
+  if (movementRows.length) {
+    await insertRowsReconciled(supabase, 'movement_metrics', movementRows, {
+      keyFields: ['tracking_play_id', 'actor_type', 'actor_slot'],
+    })
+  }
+
+  // EVERY approach, including the ones that never reached the ball. A dive that
+  // comes up empty produces no fielding event and so has no opportunity row,
+  // and it is the observation that bounds a reach from above -- see the table
+  // comment in 20260920130000_tracking_catch_approaches.sql.
+  const catchApproachRows = (play.catch_approaches || [])
+    .filter((row) => row.position || row.by)
+    .map((row) => {
+      const position = row.by
+      const identity = fielderIdentity(
+        fielders, seasonTeamPlayerById, charactersByName, position, playAt, row.character_id)
+      return {
+        tracking_play_id: trackingPlay.id,
+        game_id: gameId,
+        pa_id: pa?.id || null,
+        competition_type: competitionType,
+        position,
+        fielder_character_id: identity.characterId ?? null,
+        fielder_player_id: identity.playerId ?? null,
+        catch_type: finite(row.catch_type),
+        approach: row.approach || 'unresolved',
+        start_frame: finite(row.start_frame),
+        end_frame: finite(row.end_frame),
+        frames: finite(row.frames),
+        closest_frame: finite(row.closest_frame),
+        closest_seconds: finite(row.closest_t),
+        separation_units: finite(row.separation_units),
+        separation_3d_units: finite(row.separation_3d_units),
+        relative_height_units: finite(row.relative_height_units),
+        ball_height_units: finite(row.ball_height_units),
+        outcome: row.outcome || 'no_contact',
+        secured: Boolean(row.secured),
+        touched: Boolean(row.touched),
+        outcome_source: row.outcome_source || null,
+        assisted: Boolean(row.assisted),
+        assisted_at_closest: Boolean(row.assisted_at_closest),
+        assist_frames: finite(row.assist_frames, 0),
+        buddy_jump_frames: finite(row.buddy_jump_frames, 0),
+        airborne_frames: finite(row.airborne_frames, 0),
+        mechanics: row.mechanics || null,
+        max_speed_mps: finite(row.max_speed_ups),
+        quality: {
+          quarantined_session: quarantined,
+          // A table, arrow or stun decided this reach, not the fielder.
+          stadium_affected: stadiumDecidedFielding(stadiumIncidents, position, {
+            firstTouchFrame: finite(row.closest_frame),
+          }),
+          star_swing: Boolean(play.star_swing),
+        },
+      }
+    })
+  let catchApproachCount = 0
+  if (catchApproachRows.length) {
+    try {
+      await insertRowsReconciled(supabase, 'tracking_catch_approaches', catchApproachRows, {
+        keyFields: ['tracking_play_id', 'position', 'start_frame'],
+      })
+      catchApproachCount = catchApproachRows.length
+    } catch (error) {
+      // A database that has not had 20260920130000 applied yet keeps working
+      // and loses only this one fact, the same bargain the session-replacement
+      // function makes above. Only a MISSING TABLE degrades; anything else is
+      // a real fault and must not be swallowed.
+      const code = String(error?.code || '')
+      const missing = code === 'PGRST205' || code === '42P01'
+      if (!missing) throw error
+      if (!warnedMissingCatchApproaches) {
+        warnedMissingCatchApproaches = true
+        console.warn('  tracking_catch_approaches is missing; catch reach not persisted.')
+        console.warn('  Apply supabase/migrations/20260920130000_tracking_catch_approaches.sql')
+      }
+    }
+  }
+
+  // A possession release caused by the holder's own knockdown remains in the
+  // raw play for narrative custody, but it is not an arm measurement and
+  // must never become a tracking_throws fact.
+  const throwRows = (play.throws || []).filter((row) => row.is_throw !== false).map((row, throwIndex) => {
+    const thrower = fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, row.thrower_position, playAt, row.thrower_character_id)
+    const receiver = fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, row.receiver_position, playAt, row.receiver_character_id)
+    return {
+      tracking_play_id: trackingPlay.id,
+      competition_type: competitionType,
+      game_id: gameId,
+      pa_id: pa?.id || null,
+      throw_sequence: row.sequence ?? throwIndex + 1,
+      thrower_player_id: thrower.playerId,
+      thrower_character_id: thrower.characterId,
+      thrower_position: row.thrower_position || null,
+      receiver_player_id: receiver.playerId,
+      receiver_character_id: receiver.characterId,
+      receiver_position: row.receiver_position || null,
+      possession_frame: finite(row.possession_frame),
+      release_frame: finite(row.release_frame),
+      launch_frame: finite(row.launch_frame),
+      is_buddy_throw: Boolean(row.buddy_throw),
+      buddy_freeze_seconds: finite(row.buddy_freeze_s),
+      flight_frames: finite(row.flight_frames),
+      arrival_frame: finite(row.arrival_frame),
+      start_x: finite(row.start?.[0]), start_y: finite(row.start?.[1]), start_z: finite(row.start?.[2]),
+      end_x: finite(row.end?.[0]), end_y: finite(row.end?.[1]), end_z: finite(row.end?.[2]),
+      target_base: row.target_base || null,
+      intended_target_position: row.intended_target_position || null,
+      buddy_partner_position: row.buddy_partner_position || null,
+      peak_speed_mps: finite(row.peak_speed_mps),
+      peak_speed_mph: finite(row.peak_speed_mph) ?? (finite(row.peak_speed_mps) == null ? null : finite(row.peak_speed_mps) * MPS_TO_MPH),
+      median_speed_mps: finite(row.median_speed_mps),
+      sample_count: finite(row.sample_count),
+      outs_recorded: finite(row.outs_recorded, 0),
+      result: row.result || null,
+      is_relay: Boolean(row.is_relay),
+      quality: { ...(row.quality || {}), quarantined_session: quarantined },
+    }
+  })
+  const insertedThrows = throwRows.length ? await insertRowsReconciled(supabase, 'tracking_throws', throwRows, {
+    keyFields: ['tracking_play_id', 'throw_sequence'],
+  }) : []
+
+  if (pa && stageRunnerFacts) {
+    const runnerRowsResult = await supabase.from('runner_opportunities').select('*')
+      .eq('competition_type', competitionType).eq('game_id', gameId).eq('pa_id', pa.id)
+    if (runnerRowsResult.error) throw runnerRowsResult.error
+    // The fielder who first secured the ball, for the rows no out chain names.
+    // A batter-runner deciding whether to stretch a single is answering the
+    // outfielder who got to it, but nothing was scored 8 or 9 on that play, so
+    // `parseFieldingPositions` has nothing to give and the opportunity was
+    // built with no responsible fielder -- which is exactly the case where the
+    // defensive half of the decision is the interesting one. Only ever filled
+    // in, never overwritten: an out chain names the fielder deliberately.
+    const securedBy = firstTouch?.by
+      ? fielderIdentity(fielders, seasonTeamPlayerById, charactersByName,
+        firstTouch.by, playAt, firstTouch.character_id)
+      : null
+    for (const runnerOpportunity of runnerRowsResult.data || []) {
+      const slot = RUNNER_SLOT_BY_ORIGIN[runnerOpportunity.origin_base]
+      const track = play.runners?.[slot]
+      const linkedThrow = insertedThrows.find((row) => (
+        row.target_base === runnerOpportunity.target_base
+        && (!runnerOpportunity.responsible_fielder_position || row.thrower_position === runnerOpportunity.responsible_fielder_position)
+      ))
+      const measured = {
+        runner_x: finite(track?.start?.[0]),
+        runner_z: finite(track?.start?.[2]),
+        runner_speed_mps: finite(track?.sprint_speed_ups),
+        tracking_throw_id: linkedThrow?.id || null,
+        ...(runnerOpportunity.responsible_fielder_character_id == null && securedBy?.characterId != null ? {
+          responsible_fielder_player_id: securedBy.playerId,
+          responsible_fielder_character_id: securedBy.characterId,
+          responsible_fielder_position: String(POSITION_NUMBER[firstTouch.by] ?? firstTouch.by),
+        } : {}),
+      }
+      runnerFacts.push({ id: runnerOpportunity.id, ...measured })
+    }
+  }
+  return {
+    trackingPlay,
+    fieldingCount: opportunityRows.length,
+    movementCount: movementRows.length,
+    throwCount: insertedThrows.length,
+    catchApproachCount,
+    runnerFacts,
+  }
+}
+
 export async function ingestPlayerTrackingSession(supabase, {
   session,
   gameId = null,
@@ -508,15 +1451,31 @@ export async function ingestPlayerTrackingSession(supabase, {
   // without one. Never absent by default: a null owner with no reason is
   // refused by the database.
   lease = null,
+  // Rebuild beside the active version even though nothing on disk changed.
+  // The join reads the plate appearances, so correcting or renumbering them
+  // after an ingest is otherwise invisible to it: every count still matches.
+  replace = false,
 } = {}) {
   const stem = sessionStem(session)
   const headerPath = `${stem}.json`
   const playsPath = `${stem}.plays.jsonl`
+  const pitchesPath = `${stem}.pitches.jsonl`
   if (!fs.existsSync(headerPath)) throw new Error(`Missing tracking header: ${headerPath}`)
   if (!fs.existsSync(playsPath)) throw new Error(`Missing derived plays: ${playsPath}`)
   const header = JSON.parse(fs.readFileSync(headerPath, 'utf8'))
   const plays = readJsonLines(playsPath)
-  const derivedChecksum = crypto.createHash('sha256').update(fs.readFileSync(playsPath)).digest('hex')
+  // Optional for old captures, authoritative when present. The live bridge
+  // usually wrote these fields already; replaying them here closes races where
+  // the scoring PA completed before its live capture pitch arrived.
+  const derivedPitches = fs.existsSync(pitchesPath) ? readJsonLines(pitchesPath) : []
+  // The checksum identifies the persisted interpretation, not only the bytes
+  // on disk. Bumping this version makes an explicit re-ingest build a safe
+  // replacement session when the normalization contract changes, even when
+  // the raw derived play file is byte-for-byte identical.
+  const derivedChecksum = crypto.createHash('sha256')
+    .update(fs.readFileSync(playsPath))
+    .update(`\0${INGEST_NORMALIZATION_VERSION}`)
+    .digest('hex')
   const resolvedGameId = finite(gameId ?? header.game_id)
   const resolvedType = competitionType || header.competition_type
   const resolvedSourceId = finite(sourceId ?? header.source_id)
@@ -524,16 +1483,21 @@ export async function ingestPlayerTrackingSession(supabase, {
   if (!['tournament', 'season'].includes(resolvedType)) throw new Error('competition type must be tournament or season')
 
   const paTable = resolvedType === 'season' ? 'season_plate_appearances' : 'plate_appearances'
+  const pitchTable = resolvedType === 'season' ? 'season_pitches' : 'pitches'
   const fielderTable = resolvedType === 'season' ? 'season_game_fielders' : 'game_fielders'
-  const [paResult, fielderResult, characterResult, seasonTeamResult] = await Promise.all([
+  const [paResult, pitchResult, fielderResult, characterResult, seasonTeamResult] = await Promise.all([
     fetchAllRows(() => supabase.from(paTable).select('*').eq('game_id', resolvedGameId)),
+    derivedPitches.length
+      ? fetchAllRows(() => supabase.from(pitchTable).select('*').eq('game_id', resolvedGameId))
+      : Promise.resolve({ data: [], error: null }),
     fetchAllRows(() => supabase.from(fielderTable).select('*').eq('game_id', resolvedGameId)),
     fetchAllRows(() => supabase.from('characters').select('id,name')),
     resolvedType === 'season'
       ? fetchAllRows(() => supabase.from('season_teams').select('id,player_id'))
       : Promise.resolve({ data: [], error: null }),
   ])
-  const firstError = paResult.error || fielderResult.error || characterResult.error || seasonTeamResult.error
+  const firstError = paResult.error || pitchResult.error || fielderResult.error
+    || characterResult.error || seasonTeamResult.error
   if (firstError) throw firstError
 
   const missedRate = finite(header.frames, 0) + finite(header.missed_frames, 0) > 0
@@ -563,6 +1527,7 @@ export async function ingestPlayerTrackingSession(supabase, {
       missed_frame_rate: missedRate,
       fielder_pointers_left_region: Boolean(header.fielder_pointers_left_region),
       derived_sha256: derivedChecksum,
+      normalization_version: INGEST_NORMALIZATION_VERSION,
     },
     updated_at: new Date().toISOString(),
   }
@@ -571,9 +1536,19 @@ export async function ingestPlayerTrackingSession(supabase, {
   const charactersByName = indexCharactersByName(characterResult.data || [])
   const matches = matchPlaysToPas(plays, paResult.data || [], charactersByName)
   // matchPlaysToPas validates every fair/foul classification. It runs before
-  // the session mutation so malformed replacement input cannot damage a good
-  // completed ingest.
-  const expectedCounts = expectedFactCounts(plays)
+  // any session or canonical-pitch mutation so malformed replacement input
+  // cannot damage a good completed ingest.
+  const pitchEvidence = derivedPitches.length
+    ? await persistDerivedPitchEvidence(supabase, {
+        table: pitchTable,
+        derivedPitches,
+        plateAppearances: paResult.data || [],
+        pitchRows: pitchResult.data || [],
+        charactersByName,
+        warn,
+      })
+    : { updates: [], matchedGroups: 0, unmatchedGroups: [], unmatchedPitches: [] }
+  const expectedKeys = expectedFactKeys(plays)
 
   let trackingSession = null
   const existingSessions = await selectByKey(supabase, 'tracking_sessions', {
@@ -595,6 +1570,13 @@ export async function ingestPlayerTrackingSession(supabase, {
   const resumableReplacement = existingSessions.find((row) => (
     row.is_active === false
     && row.id !== existingSession?.id
+    // AND NOTHING HAS TAKEN OVER FROM IT. A version that was superseded by a
+    // LATER one is also inactive and also `ingested`, so without this a second
+    // deliberate --replace reached back past the active version and tried to
+    // rewrite the retired one, which refused on its own play data: "durable
+    // key ... already belongs to different data". Superseded is finished
+    // history; an unfinished replacement is one nothing has replaced.
+    && !row.superseded_by
     && ['ingesting', 'raw_ingested', 'ingested'].includes(row.status)
     && (!row.checksum_sha256 || !sessionPayload.checksum_sha256
         || row.checksum_sha256 === sessionPayload.checksum_sha256)
@@ -602,13 +1584,19 @@ export async function ingestPlayerTrackingSession(supabase, {
   )) || null
 
   let replacementOf = null
-  if (existingSession && ['ingested', 'quarantined'].includes(existingSession.status)) {
+  if (existingSession && ['ingested', 'quarantined', LIVE_SESSION_STATUS].includes(existingSession.status)) {
     const sameChecksum = !existingSession.checksum_sha256 || !sessionPayload.checksum_sha256
       || existingSession.checksum_sha256 === sessionPayload.checksum_sha256
     const sameDerived = !existingSession.quality?.derived_sha256
       || existingSession.quality.derived_sha256 === derivedChecksum
     const priorPlays = finite(existingSession.quality?.plays)
-    if (!sameChecksum || !sameDerived || (priorPlays != null && priorPlays !== plays.length)) {
+    // THE LIVE VERSION IS ALWAYS REPLACED. It was written play by play while
+    // the game went on, from the live derivation and the live join, with no
+    // checksum to compare -- so "same checksum" says nothing about it. The
+    // postgame pass is authoritative and becomes the active version beside it.
+    const liveVersion = existingSession.status === LIVE_SESSION_STATUS
+    if (liveVersion || replace || !sameChecksum || !sameDerived
+        || (priorPlays != null && priorPlays !== plays.length)) {
       // A genuinely different recording of the same stem: a re-derivation, a
       // recovered capture, a fixed derivation. The old behaviour was to refuse
       // outright, because deleting a good tree of tracking facts and then
@@ -642,15 +1630,18 @@ export async function ingestPlayerTrackingSession(supabase, {
     if (!trackingSession) {
       if (existingSession.status === 'quarantined') {
         return { trackingSessionId: existingSession.id, status: 'quarantined', plays: 0, linkedPlays: 0,
-          fieldingOpportunities: 0, movementMetrics: 0, throws: 0, modelSummary: null, alreadyComplete: true }
+          fieldingOpportunities: 0, movementMetrics: 0, throws: 0,
+          pitchEvidenceRows: pitchEvidence.updates.length,
+          modelSummary: null, alreadyComplete: true }
       }
-      const actualCounts = await existingFactCounts(supabase, existingSession.id)
-      if (sameCounts(actualCounts, expectedCounts)) {
-        // MATCHING FACT COUNTS ARE NOT A FINISHED INGEST. They say the raw
-        // half landed; the derived half writes nothing these counts can see.
+      const existingKeys = await existingFactKeys(supabase, existingSession.id)
+      const outstanding = outstandingFacts(expectedKeys, existingKeys)
+      if (!outstanding.length) {
+        // A MATCHING FACT SET IS NOT A FINISHED INGEST. It says the raw half
+        // landed; the derived half writes nothing these rows can see.
         // Returning here on a session that still owed its activation or its
         // recomputation is what made a failed replacement permanent -- the
-        // retry saw the same numbers and did nothing at all.
+        // retry saw the same facts and did nothing at all.
         const pendingStage = pendingDerivedStage(existingSession)
         const modelSummary = pendingStage
           ? await resumeDerivedWork(supabase, existingSession, {
@@ -661,11 +1652,24 @@ export async function ingestPlayerTrackingSession(supabase, {
         return {
           trackingSessionId: existingSession.id, status: 'ingested', plays: plays.length,
           linkedPlays: finite(existingSession.quality?.linked_plays, 0),
-          fieldingOpportunities: actualCounts.fielding, movementMetrics: actualCounts.movement,
-          throws: actualCounts.throws, modelSummary, alreadyComplete: true,
+          fieldingOpportunities: existingKeys.keys.fielding.size,
+          movementMetrics: existingKeys.keys.movement.size,
+          throws: existingKeys.keys.throws.size,
+          // null, not 0: this database cannot hold them, so there is no count
+          // of them to report and none is claimed.
+          catchApproaches: existingKeys.supported.catchApproaches
+            ? existingKeys.keys.catchApproaches.size
+            : null,
+          pitchEvidenceRows: pitchEvidence.updates.length,
+          modelSummary, alreadyComplete: true,
           ...(pendingStage ? { resumedStage: pendingStage } : {}),
         }
       }
+      // Said out loud. A session that has been ingested and is about to be
+      // ingested again is worth one line explaining which facts are not there,
+      // because the commonest cause is a table that was missing the first time.
+      warn(`tracking session ${existingSession.id} is stored but incomplete `
+        + `(${describeOutstanding(outstanding)}); re-importing the capture to finish it`)
     }
   }
 
@@ -687,10 +1691,16 @@ export async function ingestPlayerTrackingSession(supabase, {
     trackingSession = saved.row
   }
 
-  if (quarantined) {
+  // A quarantined capture writes no facts. Replacing a live version it still
+  // has to finish and activate -- empty -- or the facts the live writer took
+  // from this same failed capture would stay the active ones.
+  const replacingLive = replacementOf?.status === LIVE_SESSION_STATUS
+  if (quarantined && !replacingLive) {
     return { trackingSessionId: trackingSession.id, status: 'quarantined', plays: 0, linkedPlays: 0,
-      fieldingOpportunities: 0, movementMetrics: 0, throws: 0, modelSummary: null }
+      fieldingOpportunities: 0, movementMetrics: 0, throws: 0,
+      pitchEvidenceRows: pitchEvidence.updates.length, modelSummary: null }
   }
+  const factPlays = quarantined ? [] : plays
 
   const unnamed = unresolvableTrackerCharacters(charactersByName)
   if (unnamed.length) {
@@ -723,299 +1733,55 @@ export async function ingestPlayerTrackingSession(supabase, {
   let fieldingCount = 0
   let movementCount = 0
   let throwCount = 0
+  let catchApproachCount = 0
 
-  for (let index = 0; index < plays.length; index++) {
-    const play = plays[index]
+  for (let index = 0; index < factPlays.length; index++) {
+    const play = factPlays[index]
     const match = matches[index]
-    const pa = match.pa
-    const firstTouch = play.first_touch || null
-    const primaryFielder = play.primary_fielder || firstTouch?.by || null
-    const contact = play.contact_at || []
-    const deflections = play.deflections || []
-    const forcedMisplays = play.forced_misplays || []
-    const buddyHandoffs = play.buddy_handoffs || []
-    const excludeFromOaa = Boolean(
-      play.after_deflection || forcedMisplays.length || buddyHandoffs.length,
-    )
-    const playPayload = {
-      tracking_session_id: trackingSession.id,
-      competition_type: resolvedType,
-      game_id: resolvedGameId,
-      pa_id: pa?.id || null,
-      play_ordinal: index + 1,
-      inning: finite(play.inning),
-      inning_half: finite(play.inning_half) === 0 ? 'top' : finite(play.inning_half) === 1 ? 'bottom' : null,
-      batter_character_id: resolveTrackerCharacterId(play.batter_id, charactersByName),
-      tracker_contact_seq: finite(pa?.tracker_contact_seq),
-      contact_frame: finite(play.contact_timer),
-      pitch_release_frame: finite(play.pitch_release_timer),
-      first_touch_frame: finite(firstTouch?.frame),
-      dead_ball_frame: finite(play.dead_ball_timer),
-      landing_frame: finite(play.landing?.frame),
-      landing_x: finite(play.landing?.at?.[0]),
-      landing_y: finite(play.landing?.at?.[1]),
-      landing_z: finite(play.landing?.at?.[2]),
-      hang_time_seconds: finite(play.hang_time_s),
-      caught_in_flight: Boolean(play.caught_in_flight),
-      duration_seconds: finite(play.duration_s),
-      live_seconds: finite(play.live_s),
-      fair_ball: playLooksFair(play),
-      batted_ball_class: play.batted_ball_class || null,
-      home_run: Boolean(play.home_run),
-      truncated: Boolean(play.truncated),
-      first_touch_position: firstTouch?.by || null,
-      first_touch_character_id: resolveTrackerCharacterId(firstTouch?.character_id, charactersByName),
-      contact_x: finite(contact[0]),
-      contact_y: finite(contact[1]),
-      contact_z: finite(contact[2]),
-      join_method: match.method,
-      join_confidence: match.confidence,
-      quality: {
-        quarantined_session: quarantined,
-        fair_or_foul: play.fair_or_foul,
-        batted_ball_class: play.batted_ball_class,
-        deflections,
-        forced_misplays: forcedMisplays,
-        buddy_handoffs: buddyHandoffs,
-        after_deflection: Boolean(play.after_deflection),
-        rebound_catch: play.rebound_catch || null,
-      },
-    }
-    const { row: trackingPlay } = await insertOneReconciled(supabase, 'tracking_plays', playPayload, {
-      key: { tracking_session_id: trackingSession.id, play_ordinal: index + 1 },
+    const written = await writeTrackingPlayFacts(supabase, {
+      play,
+      playOrdinal: index + 1,
+      match,
+      trackingSession,
+      header,
+      competitionType: resolvedType,
+      gameId: resolvedGameId,
+      fielders,
+      seasonTeamPlayerById,
+      charactersByName,
+      quarantined,
     })
-    if (pa) {
+    if (match.pa) {
       linked += 1
       stagedPlayLinks.push({
-        paId: pa.id,
-        trackingPlayId: trackingPlay.id,
+        paId: match.pa.id,
+        trackingPlayId: written.trackingPlay.id,
         contactFrame: finite(play.contact_timer),
+        // The live bridge usually gets this and sometimes does not: it
+        // writes the plate appearance when the tracker log says the at-bat
+        // resolved, which can be before the capture has closed the play, and
+        // `trackerPreviewOutcomePlay` then hands it null. Game 2947 recorded
+        // both of its Nice Plays live; game 2946 missed its only one, Red
+        // Pianta's diving 4-3 double play. Here the play and the plate
+        // appearance are joined by the postgame join, so the answer does not
+        // depend on which feed arrived first.
+        isNicePlay: trackerPlayIsNicePlay({
+          play,
+          hitNotation: match.pa.hit_notation,
+          outsOnPlay: match.pa.outs_on_play,
+          isBuddyJump: match.pa.is_buddy_jump,
+        }),
+        storedNicePlay: match.pa.is_nice_play === true,
+        // Never overwrite a human. The At-Bat editor can set this by hand and
+        // that decision outranks the capture's.
+        corrected: Boolean(match.pa.correction_source),
       })
     }
-
-    const opportunityRows = Object.entries(play.fielders || {}).map(([position, row]) => {
-      const identity = fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, position, play.inning, row.character_id)
-      const primary = primaryFielder === position
-      const deflection = deflections.find((event) => event.by === position) || null
-      const forcedMisplay = forcedMisplays.find((event) => event.by === position) || null
-      const buddyHandoff = buddyHandoffs.find((event) => event.by === position) || null
-      const positioning = positioningFromRelease(row.pitch_release_start)
-      const wall = primary
-        ? wallContext(header.park, firstTouch?.at, firstTouch?.ball_height_units)
-        : { beyondFenceM: null, robbedHomeRun: null }
-      return {
-        tracking_play_id: trackingPlay.id,
-        competition_type: resolvedType,
-        game_id: resolvedGameId,
-        pa_id: pa?.id || null,
-        fielder_player_id: identity.playerId,
-        fielder_character_id: identity.characterId,
-        position,
-        is_primary: primary,
-        // Catch Probability asks whether THIS batted-ball opportunity became a
-        // catch. A baserunner thrown out later on the same play is not a catch,
-        // and after a boot the teammate who picks it up is not the original
-        // opportunity owner.
-        actual_out: primary ? Boolean(
-          play.caught_in_flight
-          && firstTouch?.by === position
-          && !deflection
-          && !forcedMisplay
-        ) : null,
-        fielded: Boolean(row.fielded),
-        pitch_release_x: finite(row.pitch_release_start?.[0]),
-        pitch_release_y: finite(row.pitch_release_start?.[1]),
-        pitch_release_z: finite(row.pitch_release_start?.[2]),
-        position_depth_ft: positioning.depthFeet,
-        position_angle_deg: positioning.angleDeg,
-        start_x: finite(row.start?.[0]), start_y: finite(row.start?.[1]), start_z: finite(row.start?.[2]),
-        end_x: finite(row.end?.[0]), end_y: finite(row.end?.[1]), end_z: finite(row.end?.[2]),
-        // The catch-probability pair is measured to where the ball had to be
-        // REACHED -- the glove on a catch, the landing spot on a ball that fell
-        // in -- not to where somebody picked it up after the bounce. Measured
-        // the old way the two were indistinguishable: every difficulty band
-        // converted at 52%. Measured this way the curve is monotone, from 90%
-        // inside 6 u/s of required closing speed to 0% beyond 8.
-        distance_needed_m: finite(row.distance_to_landing_units) ?? finite(row.distance_to_touch_units),
-        distance_to_touch_m: finite(row.distance_to_touch_units),
-        distance_covered_m: finite(row.path_units),
-        opportunity_seconds: finite(play.hang_time_s) ?? finite(row.opportunity_s),
-        touch_seconds: finite(row.opportunity_s),
-        reaction_seconds: finite(row.reaction_s),
-        route_efficiency: finite(row.route_efficiency),
-        // PER-PLAY CONTEXT FOR A RANGE MODEL, NOT A SPEED RATING. How fast a
-        // fielder moved on one ball is mostly how far they had to go: a
-        // two-unit shuffle reads 0.5 u/s and a full outfield run reads 7.8, on
-        // the same character. Averaging this column by fielder measures their
-        // position, not their legs. The speed rating comes off the runner and
-        // batter rows, where the whole run is a maximum-effort sprint --
-        // summarizeMovementMetrics in src/utils/advancedDefense.js reads only
-        // those two actor types, and it should stay that way.
-        sprint_speed_mps: finite(row.sprint_speed_ups),
-        sprint_speed_fps: finite(row.sprint_speed_ups) == null ? null : finite(row.sprint_speed_ups) * METRES_TO_FEET,
-        direction: positionDirection(row.start, row.end),
-        catch_height_m: primary ? finite(firstTouch?.ball_height_units) : null,
-        beyond_fence_m: wall.beyondFenceM,
-        robbed_home_run: wall.robbedHomeRun,
-        quality: {
-          teleports: finite(row.teleports, 0),
-          airborne_frames: finite(row.airborne_frames, 0),
-          bobble_frames: finite(row.bobble_frames, 0),
-          forced_misplay_frames: finite(row.forced_misplay_frames, 0),
-          buddy_handoff_frames: finite(row.buddy_handoff_frames, 0),
-          fielding_action_frames: row.fielding_action_frames || {},
-          primary_fielder_reason: play.primary_fielder_reason || null,
-          deflection,
-          forced_misplay: forcedMisplay,
-          buddy_handoff: buddyHandoff,
-          after_deflection: Boolean(play.after_deflection),
-          rebound_catch: play.rebound_catch || null,
-          // A rebound catch was manufactured by the boot, while a Buddy
-          // handoff can hide the original possession from `ball_holder`.
-          // Preserve both plays, but do not teach the ordinary OAA curve from
-          // geometry that no longer describes the batted ball.
-          exclude_from_oaa: excludeFromOaa,
-          quarantined_session: quarantined,
-        },
-      }
-    })
-    if (opportunityRows.length) {
-      await insertRowsReconciled(supabase, 'fielding_opportunities', opportunityRows, {
-        keyFields: ['tracking_play_id', 'position'],
-      })
-      fieldingCount += opportunityRows.length
-    }
-
-    const fielderMovementRows = Object.entries(play.fielders || {}).map(([position, row]) => {
-      const identity = fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, position, play.inning, row.character_id)
-      return {
-        tracking_play_id: trackingPlay.id,
-        competition_type: resolvedType,
-        game_id: resolvedGameId,
-        pa_id: pa?.id || null,
-        actor_type: 'fielder', actor_slot: position,
-        player_id: identity.playerId, character_id: identity.characterId, position,
-        start_x: finite(row.start?.[0]), start_y: finite(row.start?.[1]), start_z: finite(row.start?.[2]),
-        end_x: finite(row.end?.[0]), end_y: finite(row.end?.[1]), end_z: finite(row.end?.[2]),
-        path_distance_m: finite(row.path_units),
-        run_path_distance_m: finite(row.run_path_units),
-        assist_distance_m: finite(row.assist_units),
-        assist_frames: finite(row.assist_frames),
-        displacement_m: finite(row.displacement_units),
-        sprint_speed_mps: finite(row.sprint_speed_ups), sprint_speed_fps: finite(row.sprint_speed_fps),
-        is_bolt: Boolean(row.bolt), reaction_seconds: finite(row.reaction_s),
-        route_efficiency: finite(row.route_efficiency),
-        jump_distance_feet: finite(row.jump_distance_feet),
-        reaction_distance_feet: finite(row.reaction_distance_feet),
-        burst_distance_feet: finite(row.burst_distance_feet),
-        jump_route_efficiency: finite(row.jump_route_efficiency),
-        quality: { teleports: finite(row.teleports, 0), quarantined_session: quarantined },
-      }
-    })
-    const runnerAssignments = new Map(normalizeRunnerAssignments(pa?.runner_assignments)
-      .filter((row) => !row.isBatter).map((row) => [row.origin, row]))
-    const runnerMovementRows = Object.entries(play.runners || {}).map(([slot, row]) => {
-      const origin = { R1: 'first', R2: 'second', R3: 'third' }[slot] || null
-      const assignment = origin ? runnerAssignments.get(origin) : null
-      const actorType = slot === 'BAT' ? 'batter' : 'runner'
-      return {
-        tracking_play_id: trackingPlay.id,
-        competition_type: resolvedType,
-        game_id: resolvedGameId,
-        pa_id: pa?.id || null,
-        actor_type: actorType, actor_slot: slot,
-        player_id: slot === 'BAT' ? pa?.player_id || null : assignment?.runner?.playerId ?? assignment?.runner?.player_id ?? null,
-        character_id: finite(slot === 'BAT'
-          ? pa?.character_id ?? resolveTrackerCharacterId(row.character_id, charactersByName)
-          : assignment?.runner?.characterId ?? assignment?.runner?.character_id
-            ?? resolveTrackerCharacterId(row.character_id, charactersByName)),
-        position: origin,
-        start_x: finite(row.start?.[0]), start_y: finite(row.start?.[1]), start_z: finite(row.start?.[2]),
-        end_x: finite(row.end?.[0]), end_y: finite(row.end?.[1]), end_z: finite(row.end?.[2]),
-        path_distance_m: finite(row.path_units),
-        run_path_distance_m: finite(row.run_path_units),
-        assist_distance_m: finite(row.assist_units),
-        assist_frames: finite(row.assist_frames),
-        displacement_m: finite(row.displacement_units),
-        sprint_speed_mps: finite(row.sprint_speed_ups), sprint_speed_fps: finite(row.sprint_speed_fps),
-        is_bolt: Boolean(row.bolt),
-        home_to_first_seconds: slot === 'BAT' ? finite(play.home_to_first_s) : null,
-        ninety_foot_split_seconds: slot === 'BAT' ? finite(play.ninety_foot_split_s) : null,
-        five_foot_splits: row.five_foot_splits_s || {},
-        reaction_seconds: finite(row.reaction_s), route_efficiency: finite(row.route_efficiency),
-        quality: { teleports: finite(row.teleports, 0), quarantined_session: quarantined },
-      }
-    })
-    const movementRows = [...fielderMovementRows, ...runnerMovementRows]
-    if (movementRows.length) {
-      await insertRowsReconciled(supabase, 'movement_metrics', movementRows, {
-        keyFields: ['tracking_play_id', 'actor_type', 'actor_slot'],
-      })
-      movementCount += movementRows.length
-    }
-
-    const throwRows = (play.throws || []).map((row, throwIndex) => {
-      const thrower = fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, row.thrower_position, play.inning, row.thrower_character_id)
-      const receiver = fielderIdentity(fielders, seasonTeamPlayerById, charactersByName, row.receiver_position, play.inning, row.receiver_character_id)
-      return {
-        tracking_play_id: trackingPlay.id,
-        competition_type: resolvedType,
-        game_id: resolvedGameId,
-        pa_id: pa?.id || null,
-        throw_sequence: row.sequence ?? throwIndex + 1,
-        thrower_player_id: thrower.playerId,
-        thrower_character_id: thrower.characterId,
-        thrower_position: row.thrower_position || null,
-        receiver_player_id: receiver.playerId,
-        receiver_character_id: receiver.characterId,
-        receiver_position: row.receiver_position || null,
-        possession_frame: finite(row.possession_frame),
-        release_frame: finite(row.release_frame),
-        launch_frame: finite(row.launch_frame),
-        is_buddy_throw: Boolean(row.buddy_throw),
-        buddy_freeze_seconds: finite(row.buddy_freeze_s),
-        flight_frames: finite(row.flight_frames),
-        arrival_frame: finite(row.arrival_frame),
-        start_x: finite(row.start?.[0]), start_y: finite(row.start?.[1]), start_z: finite(row.start?.[2]),
-        end_x: finite(row.end?.[0]), end_y: finite(row.end?.[1]), end_z: finite(row.end?.[2]),
-        target_base: row.target_base || null,
-        intended_target_position: row.intended_target_position || null,
-        buddy_partner_position: row.buddy_partner_position || null,
-        peak_speed_mps: finite(row.peak_speed_mps),
-        peak_speed_mph: finite(row.peak_speed_mph) ?? (finite(row.peak_speed_mps) == null ? null : finite(row.peak_speed_mps) * MPS_TO_MPH),
-        median_speed_mps: finite(row.median_speed_mps),
-        sample_count: finite(row.sample_count),
-        outs_recorded: finite(row.outs_recorded, 0),
-        result: row.result || null,
-        is_relay: Boolean(row.is_relay),
-        quality: { ...(row.quality || {}), quarantined_session: quarantined },
-      }
-    })
-    const insertedThrows = throwRows.length ? await insertRowsReconciled(supabase, 'tracking_throws', throwRows, {
-      keyFields: ['tracking_play_id', 'throw_sequence'],
-    }) : []
-    throwCount += insertedThrows.length
-
-    if (pa) {
-      const runnerRowsResult = await supabase.from('runner_opportunities').select('*')
-        .eq('competition_type', resolvedType).eq('game_id', resolvedGameId).eq('pa_id', pa.id)
-      if (runnerRowsResult.error) throw runnerRowsResult.error
-      for (const runnerOpportunity of runnerRowsResult.data || []) {
-        const slot = { first: 'R1', second: 'R2', third: 'R3' }[runnerOpportunity.origin_base]
-        const track = play.runners?.[slot]
-        const linkedThrow = insertedThrows.find((row) => (
-          row.target_base === runnerOpportunity.target_base
-          && (!runnerOpportunity.responsible_fielder_position || row.thrower_position === runnerOpportunity.responsible_fielder_position)
-        ))
-        const measured = {
-          runner_x: finite(track?.start?.[0]),
-          runner_z: finite(track?.start?.[2]),
-          runner_speed_mps: finite(track?.sprint_speed_ups),
-          tracking_throw_id: linkedThrow?.id || null,
-        }
-        stagedRunnerFacts.push({ id: runnerOpportunity.id, ...measured })
-      }
-    }
+    fieldingCount += written.fieldingCount
+    movementCount += written.movementCount
+    throwCount += written.throwCount
+    catchApproachCount += written.catchApproachCount || 0
+    stagedRunnerFacts.push(...written.runnerFacts)
   }
 
   // The stage the derived half is about to enter, written BEFORE it is
@@ -1023,9 +1789,9 @@ export async function ingestPlayerTrackingSession(supabase, {
   // activation call -- so both start at `activate`.
   const finishedQuality = {
     ...sessionPayload.quality,
-    plays: plays.length,
+    plays: factPlays.length,
     linked_plays: linked,
-    link_rate: plays.length ? linked / plays.length : null,
+    link_rate: factPlays.length ? linked / factPlays.length : null,
   }
   await updateRowsVerified(supabase, 'tracking_sessions', { id: trackingSession.id }, {
     status: 'raw_ingested',
@@ -1077,21 +1843,31 @@ export async function ingestPlayerTrackingSession(supabase, {
       runnerFacts: stagedRunnerFacts,
     })
   }
+  const nicePlaysSet = await applyCaptureDerivedPaFields(supabase, { paTable, playLinks: stagedPlayLinks })
   await recordDerivedStage(supabase, trackingSession, finishedQuality, 'recompute')
   await runRecompute()
   // Cleared only now: a recomputation that threw above leaves the stage on the
   // row, and the next run finishes it instead of reading the matching fact
   // counts as a finished ingest.
   await recordDerivedStage(supabase, trackingSession, finishedQuality, null)
+  if (quarantined) {
+    await updateRowsVerified(supabase, 'tracking_sessions', { id: trackingSession.id }, {
+      status: 'quarantined',
+      updated_at: new Date().toISOString(),
+    })
+  }
   return {
     trackingSessionId: trackingSession.id,
-    status: 'ingested',
+    status: quarantined ? 'quarantined' : 'ingested',
     ...(replacementOf ? { replacedSessionId: replacementOf.id } : {}),
-    plays: plays.length,
+    plays: factPlays.length,
     linkedPlays: linked,
     fieldingOpportunities: fieldingCount,
     movementMetrics: movementCount,
     throws: throwCount,
+    catchApproaches: catchApproachCount,
+    pitchEvidenceRows: pitchEvidence.updates.length,
+    nicePlaysSet,
     modelSummary,
   }
 }
@@ -1118,6 +1894,7 @@ async function main() {
     competitionType: args['competition-type'],
     sourceId: args['source-id'],
     recompute: args.recompute !== '0',
+    replace: Boolean(args.replace),
     lease,
   })
   console.log(JSON.stringify(summary, null, 2))

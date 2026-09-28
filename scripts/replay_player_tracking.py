@@ -39,7 +39,7 @@ from pathlib import Path
 import collect_player_tracking as collector
 from derive_player_metrics import GAME_FRAME_RATE
 from player_live_derivation import LiveDerivation
-from player_tracking_io import Session
+from player_tracking_io import PROP_TRANSLATION, Session
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "player_tracking"
 
@@ -71,7 +71,23 @@ def replay(stem: Path, fps: float = GAME_FRAME_RATE,
             "barrel_position", collector.BARREL_POSITION),
         barrel_cannons=[tuple(c) for c in session.header.get(
             "barrel_cannons", collector.BARREL_CANNONS)],
+        train_address=session.header.get("yoshi_train_position"),
+        freezie_address=session.header.get("freezie_array"),
+        freezie_count=session.header.get("freezie_count", 0),
+        freezie_stride=session.header.get("freezie_stride", 0),
+        freezie_translation=session.header.get("freezie_translation", ()),
+        freezie_active_offset=session.header.get("freezie_active_offset"),
+        # The same placed-prop cluster the live run read, from the same header.
+        # Leaving it out would make the replay's live derivation blind to
+        # something the real one saw, which is the exact drift this harness
+        # exists to catch.
+        prop_transforms=(session.header.get("prop_cluster")
+                         or session.header.get("arrow_cluster") or ()),
+        prop_translation=tuple(session.header.get(
+            "prop_translation",
+            session.header.get("arrow_translation", PROP_TRANSLATION))),
         park=session.header.get("park"),
+        is_night=session.header.get("is_night"),
     )
     plays = []
     for frame in session.frames():

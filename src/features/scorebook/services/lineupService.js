@@ -10,8 +10,9 @@ export async function updateGameLineupRows({ tables, updates }) {
   )))
 }
 
-export async function closeGameFielderRows({ tables, rowIds, inningTo }) {
-  return supabase.from(tables.gameFielders).update({ inning_to: inningTo }).in('id', rowIds).select()
+// `closeWith` is { inning_to } at an inning boundary, plus pa_to mid-inning.
+export async function closeGameFielderRows({ tables, rowIds, closeWith }) {
+  return supabase.from(tables.gameFielders).update(closeWith).in('id', rowIds).select()
 }
 
 export async function deleteGameFielderRows({ tables, rowIds }) {

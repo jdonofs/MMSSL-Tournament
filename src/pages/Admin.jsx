@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -19,6 +19,7 @@ import {
 import { calculateOutsForPa, inningsPitchedFromOuts, isCreditedHit } from '../utils/statsCalculator'
 import { fetchAllRows } from '../utils/fetchAllRows'
 import { savePlayerTeamIdentity } from '../utils/playerTeamIdentity'
+import { buildSeasonFreeAgentTransactions, reverseSeasonFreeAgentPickup } from '../utils/seasonTransactionAdmin'
 
 function playerEmailFromName(name) {
   return `${name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@sluggers.local`
@@ -133,6 +134,145 @@ function ConfirmDeleteButton({ label, confirmLabel, itemName, onConfirm, disable
   )
 }
 
+function SeasonTransactionTools({ season, seasonTeams, players, pushToast }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [roster, setRoster] = useState([])
+  const [waivers, setWaivers] = useState([])
+  const [reversingId, setReversingId] = useState(null)
+
+  const loadTransactions = useCallback(async () => {
+    if (!season?.id) return
+    setLoading(true)
+    setLoadError('')
+    const [rosterResponse, waiverResponse] = await Promise.all([
+      supabase.from('season_roster').select('*').eq('season_id', season.id).order('created_at', { ascending: false }),
+      supabase.from('season_waivers').select('*').eq('season_id', season.id).order('created_at', { ascending: false }),
+    ])
+    setLoading(false)
+    const error = rosterResponse.error || waiverResponse.error
+    if (error) {
+      setLoadError(error.message || 'Transaction history could not be loaded.')
+      return
+    }
+    setRoster(rosterResponse.data || [])
+    setWaivers(waiverResponse.data || [])
+  }, [season?.id])
+
+  useEffect(() => {
+    setOpen(false)
+    setRoster([])
+    setWaivers([])
+    setLoadError('')
+  }, [season?.id])
+
+  useEffect(() => {
+    if (!open || !season?.id) return
+    loadTransactions().catch((error) => setLoadError(error.message || 'Transaction history could not be loaded.'))
+  }, [loadTransactions, open, season?.id])
+
+  const transactions = useMemo(
+    () => buildSeasonFreeAgentTransactions(roster, waivers),
+    [roster, waivers],
+  )
+  const playerById = useMemo(
+    () => Object.fromEntries((players || []).map((entry) => [String(entry.id), entry])),
+    [players],
+  )
+  const teamById = useMemo(
+    () => Object.fromEntries((seasonTeams || []).map((entry) => [String(entry.id), entry])),
+    [seasonTeams],
+  )
+
+  const teamLabel = (teamId) => {
+    const team = teamById[String(teamId)]
+    return team?.team_name || playerById[String(team?.player_id)]?.name || `Team ${teamId}`
+  }
+
+  const handleReverse = async (transaction) => {
+    if (!season?.id || !transaction?.waiver?.id || reversingId != null) return
+    setReversingId(transaction.id)
+    const outcome = await reverseSeasonFreeAgentPickup(supabase, {
+      seasonId: season.id,
+      addedRosterId: transaction.added.id,
+      waiverId: transaction.waiver.id,
+    })
+    setReversingId(null)
+
+    if (!outcome.ok) {
+      pushToast({ title: 'Transaction not reversed', message: outcome.message, type: 'error' })
+      await loadTransactions()
+      return
+    }
+
+    pushToast({
+      title: 'Transaction reversed',
+      message: `${outcome.result.restored_character} was restored, ${outcome.result.removed_character} was released, and the transaction history was removed.`,
+      type: 'success',
+    })
+    window.dispatchEvent(new Event('season-transactions-updated'))
+    await loadTransactions()
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <Row
+        label="Transaction History"
+        description="Reverse an accidental free-agent pickup and remove its roster, waiver, and claim history."
+        action={
+          <button
+            className="ghost-button"
+            onClick={() => setOpen((current) => !current)}
+            type="button"
+            disabled={!season}
+          >
+            {open ? 'Close' : 'Manage'}
+          </button>
+        }
+      />
+      {open ? (
+        <div style={{ display: 'grid', gap: 10, padding: 12, borderRadius: 12, border: '1px solid #334155', background: 'rgba(15,23,42,0.45)' }}>
+          <div className="muted" style={{ fontSize: 12 }}>
+            Only untouched pickups can be reversed automatically. A completed waiver or later trade is left alone.
+          </div>
+          {loading ? <span className="muted" style={{ fontSize: 13 }}>Loading transactions…</span> : null}
+          {loadError ? <span role="alert" style={{ color: '#FCA5A5', fontSize: 13 }}>{loadError}</span> : null}
+          {!loading && !loadError && transactions.map((transaction) => {
+            const createdAt = new Date(transaction.added.created_at)
+            const dateLabel = Number.isNaN(createdAt.getTime()) ? '' : createdAt.toLocaleString()
+            return (
+              <div key={transaction.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 10, border: '1px solid #1E293B', background: 'rgba(15,23,42,0.7)' }}>
+                <div style={{ display: 'grid', gap: 3 }}>
+                  <strong style={{ fontSize: 14 }}>
+                    {transaction.dropped?.character_name || transaction.waiver?.claiming_character || 'Unknown drop'} → {transaction.added.character_name}
+                  </strong>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {teamLabel(transaction.added.team_id)}{dateLabel ? ` • ${dateLabel}` : ''}
+                  </span>
+                  {!transaction.canReverse ? <span style={{ color: '#FCA5A5', fontSize: 12 }}>{transaction.unavailableReason}</span> : null}
+                </div>
+                {transaction.canReverse ? (
+                  <ConfirmButton
+                    label={reversingId === transaction.id ? 'Reversing…' : 'Reverse & remove'}
+                    confirmLabel="Yes, reverse & remove"
+                    onConfirm={() => handleReverse(transaction)}
+                    danger
+                    disabled={reversingId != null}
+                  />
+                ) : null}
+              </div>
+            )
+          })}
+          {!loading && !loadError && transactions.length === 0 ? (
+            <span className="muted" style={{ fontSize: 13 }}>No free-agent pickup history for this season.</span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function buildSeasonEditForm(season) {
   return {
     name: season?.name || '',
@@ -222,6 +362,7 @@ function EditSeasonModal({
           mercy_rule: payload.mercy_rule,
           mercy_rule_differential: payload.mercy_rule_differential,
           status: 'scheduled',
+          stats_source: 'tracker',
         }))
 
         const existingRegularSeasonIds = regularSeasonGames.map((game) => game.id)
@@ -254,6 +395,7 @@ function EditSeasonModal({
           mercy_rule: payload.mercy_rule,
           mercy_rule_differential: payload.mercy_rule_differential,
           status: 'scheduled',
+          stats_source: 'tracker',
         }))
 
         if (additionalSchedule.length) {
@@ -1246,6 +1388,12 @@ export default function Admin() {
             label="Manage Waivers"
             description="Waiver claims now resolve through the season roster transaction flow."
             action={<button className="ghost-button" onClick={() => navigate('/season/roster')} disabled={!activeSeason} type="button">Open</button>}
+          />
+          <SeasonTransactionTools
+            season={activeSeason}
+            seasonTeams={seasonTeams}
+            players={players}
+            pushToast={pushToast}
           />
           <Row
             label="Delete Season"

@@ -40,7 +40,7 @@ function tradeRows(trades = [], characterName) {
 }
 
 // `season_waivers` rows represent an *available* claim, created whenever a character is
-// dropped (see SeasonRoster.jsx's createDroppedPlayerWaiver) — status starts 'active' and only
+// dropped (see the season_free_agent_pickup function) — status starts 'active' and only
 // resolves to 'claimed' (won by a new team, team stored in awarded_to_team_id) or 'free_agent'
 // (nobody claimed it). Only 'claimed' represents an actual team-to-team move worth showing here;
 // 'free_agent'/'active' rows aren't a "won off waivers" event and are intentionally excluded.

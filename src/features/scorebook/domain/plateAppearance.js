@@ -26,6 +26,13 @@ export function normalizePa(pa) {
   return { ...pa, trajectory: 'F' }
 }
 
+// The number a new plate appearance takes. Highest + 1, not count + 1: after a
+// deletion the count reuses a number an existing row already holds, and
+// (game_id, pa_number) is unique.
+export function nextPaNumber(pas = []) {
+  return pas.reduce((max, pa) => Math.max(max, Number(pa?.pa_number) || 0), 0) + 1
+}
+
 export function stripDbManagedFields(row = {}) {
   const next = { ...row }
   delete next.id

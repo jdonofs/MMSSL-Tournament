@@ -42,6 +42,19 @@ function telemetryForEntry(play, entry) {
     && sameRunner(entry, runner)) || null
 }
 
+// The base a retired runner was going for: the throw that recorded his out
+// names it. The deriver stamps every throw with the bag its receiver stood on
+// and the runner nearest that bag on arrival. Without this a runner thrown out
+// taking the extra base could not be told from one retired short of the base
+// the hit guaranteed him, so tracker-scored games recorded no thrown-out
+// extra-base attempt at all -- only the manual Scorebook set it.
+function attemptedBaseFromThrows(play, entry) {
+  const retiring = (play?.throws || []).find((row) => Number(row?.outs_recorded) > 0
+    && row.target_base && row.runner_at_arrival
+    && sameRunner(entry, row.runner_at_arrival))
+  return retiring?.target_base || null
+}
+
 function identityKey({ characterId = null, characterName = null } = {}) {
   if (characterName) return `name:${normalizedName(characterName)}`
   return characterId != null ? `id:${Number(characterId)}` : null
@@ -96,7 +109,12 @@ export function runnerDestinationsFromPlay({
     // only this one runner's destination.
     if (!destination && entry.isBatter && result === 'FC') destination = 'first'
     if (!destination) return null
-    destinations.push({ id: entry.id, origin: entry.origin, isBatter: entry.isBatter, destination })
+    const attemptedBase = destination === 'out' && !entry.isBatter
+      ? attemptedBaseFromThrows(play, entry) : null
+    destinations.push({
+      id: entry.id, origin: entry.origin, isBatter: entry.isBatter, destination,
+      ...(attemptedBase ? { attemptedBase } : {}),
+    })
   }
   const occupied = destinations.map((row) => row.destination).filter((base) => BASE_NUMBER_BY_ORIGIN[base])
   if (new Set(occupied).size !== occupied.length) return null

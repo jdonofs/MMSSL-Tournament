@@ -50,7 +50,9 @@ unvalidated assumption when comparing these values with MLB seasons.
 - Extra-base, double-play, and fielding opportunities are modeled within each
   competition using the existing Sluggers models. Extra-base runs proxy UBR;
   negative DP opportunity value proxies batting double-play avoidance; OAA is
-  converted at 0.8 runs per out. These are not MLB's proprietary measurements.
+  converted using current Baseball Savant Fielding Run Value rates: 0.90 runs
+  per out for outfield range and 0.75 for infield range. These are not MLB's
+  proprietary measurements.
   Only individually attributed DP defense is credited to a character.
 - Under current no-steal rules, stolen-base value is structurally zero.
   Other missing components stay null in the breakdown and contribute neutral

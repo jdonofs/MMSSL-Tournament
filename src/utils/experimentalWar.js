@@ -1,7 +1,9 @@
 import { isCreditedHit } from './creditedHit.js'
 import { calculateOutsForPa } from './defensiveEfficiency.js'
 import { characterNameKey } from './characterNames.js'
-import { modelRunnerOpportunities, modelDoublePlayOpportunities, modelFieldingOpportunities } from './advancedDefense.js'
+import { buildRunExpectancy, isExcludedFromOaa, modelRunnerOpportunities, modelDoublePlayOpportunities, modelFieldingOpportunities } from './advancedDefense.js'
+import { fielderCoversPa } from './fielderStints.js'
+import { fieldingRunValue } from './userValue.js'
 
 // Published FanGraphs equations; see docs/experimental-war.md for sources and
 // the explicit Sluggers input substitutions. No early rounding or /3 FIP reuse.
@@ -105,7 +107,13 @@ function buildCohort({ games, pas, stints, fielders, runners, doublePlays, field
   const usable = (entries) => scoped(entries).filter((row) => pasByKey.has(paKey(row)) && row.quality?.quarantined_session !== true)
   // Use the same opportunity models as the advanced stats view. These are
   // Sluggers proxies for MLB UBR/fielding inputs, not MLB proprietary tracking.
-  for (const opportunity of modelRunnerOpportunities(usable(runners))) {
+  // Priced with this cohort's own run expectancy, as the stored run values are
+  // priced with the league's; without it every base/out state fell back to a
+  // hard-coded table and WAR valued the same play differently from the site.
+  const expectancy = buildRunExpectancy(pas)
+  // The attempt probability the recompute stored from the fitted decision model,
+  // where it did; the browser cannot load that model itself.
+  for (const opportunity of modelRunnerOpportunities(usable(runners), expectancy, { useStoredDecision: true })) {
     if (opportunity.is_discretionary === false || !['hold', 'advance_safe', 'advance_out'].includes(opportunity.outcome)) continue
     const row = ensure(opportunity.runner_player_id, opportunity.runner_character_id)
     if (row && number(opportunity.runner_run_value) != null) {
@@ -118,7 +126,7 @@ function buildCohort({ games, pas, stints, fielders, runners, doublePlays, field
       defender.fieldingOpportunities += 1
     }
   }
-  for (const opportunity of modelDoublePlayOpportunities(usable(doublePlays))) {
+  for (const opportunity of modelDoublePlayOpportunities(usable(doublePlays), expectancy)) {
     if (opportunity.structural_eligible === false) continue
     const pa = pasByKey.get(paKey(opportunity))
     const batter = ensure(pa.player_id, pa.character_id)
@@ -132,10 +140,10 @@ function buildCohort({ games, pas, stints, fielders, runners, doublePlays, field
     }
   }
   for (const opportunity of modelFieldingOpportunities(usable(fielding))) {
-    if (!opportunity.is_primary || opportunity.quality?.exclude_from_oaa || number(opportunity.outs_above_average) == null) continue
+    if (!opportunity.is_primary || isExcludedFromOaa(opportunity) || number(opportunity.outs_above_average) == null) continue
     const row = ensure(opportunity.fielder_player_id, opportunity.fielder_character_id)
     if (!row) continue
-    row.fieldingRuns = (row.fieldingRuns ?? 0) + Number(opportunity.outs_above_average) * 0.8
+    row.fieldingRuns = (row.fieldingRuns ?? 0) + fieldingRunValue(opportunity.outs_above_average, opportunity.position)
     row.fieldingOpportunities += 1
   }
 
@@ -146,8 +154,7 @@ function buildCohort({ games, pas, stints, fielders, runners, doublePlays, field
     if (!outs || pa.pitcher_player_id == null) continue
     const candidates = (fieldersByGame.get(gameKey(pa)) || []).filter((fielder) => (
       String(fielder.player_id ?? fielder.team_id) === String(pa.pitcher_player_id)
-      && Number(fielder.inning_from ?? 1) <= Number(pa.inning)
-      && (fielder.inning_to == null || Number(fielder.inning_to) >= Number(pa.inning))
+      && fielderCoversPa(fielder, pa)
     ))
     for (let position = 1; position <= 9; position += 1) {
       const occupants = candidates.filter((fielder) => Number(fielder.position) === position)

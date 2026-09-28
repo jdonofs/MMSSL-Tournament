@@ -78,13 +78,58 @@ export function describePlayGeometry(geometry, stadiumKey) {
   const fielders = geometry.fielders || []
   const movers = fielders.filter((fielder) => fielder.path_units != null && fielder.path_units > 1)
   parts.push(`Measured play at ${park} with ${fielders.length} fielders at pitch release`)
+  // What the stadium did to the ball, in the same words the diagram's marks
+  // use. A reader who cannot see the drawing otherwise gets a description of a
+  // straight flight for a ball an arrow turned ninety degrees.
+  const waypoints = geometry.ball_waypoints || []
+  const redirects = waypoints.filter((entry) => entry.kind === 'arrow_redirect')
+  const strikes = waypoints.filter((entry) => entry.kind === 'manhole_strike')
+  const tableContacts = waypoints.filter((entry) => entry.kind === 'table_contact')
   if (geometry.first_touch) {
     parts.push(`first touch by ${geometry.first_touch.character || geometry.first_touch.by}`
       + `${geometry.landing ? ' after the ball landed' : ' before the ball landed'}`)
   } else if (geometry.landing) {
     parts.push('the ball landed with no fielder touching it')
+  } else if (strikes.length) {
+    parts.push('the ball came down on an erupting manhole and never reached the ground')
   } else {
     parts.push('no endpoint was measured')
+  }
+  if (redirects.length) {
+    parts.push(redirects.length === 1
+      ? `a directional arrow turned the ball ${redirects[0].turn_degrees != null
+        ? `${redirects[0].turn_degrees.toFixed(0)} degrees ` : ''}mid-roll`
+      : `${redirects.length} directional arrows turned the ball mid-roll`)
+  }
+  if (strikes.length && (geometry.first_touch || geometry.landing)) {
+    parts.push('the ball struck an erupting manhole above the ground')
+  }
+  if (tableContacts.length) {
+    parts.push(tableContacts.length === 1
+      ? `the ball ${tableContacts[0].contact_kind === 'table_edge_rebound'
+        ? 'rebounded from the edge of a table' : 'bounced on a table'}`
+      : `the ball contacted tables ${tableContacts.length} times`)
+  }
+  const pipeEntry = waypoints.find((entry) => entry.kind === 'pipe_entry')
+  if (pipeEntry) {
+    const pipeExit = waypoints.find((entry) => entry.kind === 'pipe_exit')
+    const pipeName = (entry) => (entry.pipe ? `the ${String(entry.pipe).replace(/_/g, ' ')} pipe` : 'a pipe')
+    parts.push(`the ball went into ${pipeName(pipeEntry)}`
+      + (pipeExit ? ` and came out of ${pipeName(pipeExit)}` : ''))
+  }
+  const trainHits = waypoints.filter((entry) => entry.kind === 'train_hit')
+  if (trainHits.length) {
+    const body = trainHits[0].mechanism === 'wiggler' ? 'the Wiggler' : 'the train'
+    parts.push(trainHits.length === 1 ? `${body} hit the ball`
+      : `${body} hit the ball ${trainHits.length} times`)
+  }
+  // The ball went INTO it, which the park scores as a home run. Said here as
+  // well as in the narrative because this summary is what explains a path that
+  // ends nowhere near a fielder.
+  const trainCapture = waypoints.find((entry) => entry.kind === 'train_capture')
+  if (trainCapture) {
+    const body = trainCapture.mechanism === 'wiggler' ? 'the Wiggler' : 'the train'
+    parts.push(`the ball landed inside ${body}, which Yoshi Park scores as a home run`)
   }
   if (movers.length) {
     const furthest = movers.reduce(

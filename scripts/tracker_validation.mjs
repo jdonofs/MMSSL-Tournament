@@ -205,8 +205,9 @@ function checkContact(warnings, atBat, play) {
       id: 'endpoint-coordinate-reset',
       severity: 'warning',
       title: 'Endpoint is the dead-ball coordinate reset',
-      detail: `The ${record.endpoint} endpoint was recorded at (0, 0, 0), which is the game's `
-        + 'dead-ball reset and not a place the ball was. The position comes from the 60 Hz capture.',
+      detail: `The ${record.endpoint} endpoint was recorded at (${[record.x, record.y, record.z]
+        .map((value) => Math.round(Number(value) * 100) / 100).join(', ')}), where the game parks `
+        + 'a dead ball, not a place the ball was. The position comes from the 60 Hz capture.',
       fields: {
         endpoint: record.endpoint,
         endpoint_seq: record.endpointSeq ?? null,
@@ -310,6 +311,55 @@ function checkContact(warnings, atBat, play) {
         },
       })
     }
+  }
+
+  // EXTRA BASES THAT FOLLOWED A BOOT. The operator, 2026-09-10 PA99: "this one
+  // should be a single e9... yellow pianta booting it resulted in an extra two
+  // bases, which should not be credited for a triple, rather single and
+  // advanced 2 bases on the error."
+  //
+  // The scorer's rule is already settled -- an error erases the hit only when it
+  // is why the batter REACHED, and otherwise it is charged for the advance -- so
+  // what was missing is the tracker noticing that this is one of those plays.
+  // This does NOT re-score anything: deciding the batter would have been held is
+  // a judgement, and the capture only supplies the two facts it turns on. The
+  // boot happening BEFORE the batter reached first is what makes the extra bases
+  // arguable; a boot after he was already standing on second explains nothing.
+  // AFTER THE LANDING, which is what makes it a boot rather than a ball going
+  // past somebody. Without that clause this fired on two more plays in the same
+  // game and both were the other thing: a ball still in flight brushing the 1B
+  // at y=1.55 on its way to the outfield, and a ball whose "deflection" was its
+  // own landing frame at the 3B's feet. Neither fielder ever had it to lose. The
+  // real boot's ball was 0.59u from the glove and already on the ground.
+  const EXTRA_BASE_HITS = new Set(['2B', '3B'])
+  const boot = (play.deflections || []).find(
+    (event) => event.ball_contact === 'confirmed' && event.secured === false
+      && play.landing && Number(event.t) > Number(play.landing.t))
+  const batterBases = Number(play.runners?.BAT?.bases_ran ?? 0)
+  if (boot && EXTRA_BASE_HITS.has(atBat.result) && batterBases > 1
+      && Number.isFinite(Number(play.home_to_first_s))
+      && Number.isFinite(Number(boot.t))
+      && Number(boot.t) <= Number(play.home_to_first_s)) {
+    warn(warnings, {
+      id: `extra-bases-after-boot-${boot.frame}`,
+      severity: 'warning',
+      title: 'Extra bases were taken after a measured boot',
+      detail: `The plate appearance is credited as a ${atBat.result}, but `
+        + `${boot.character || boot.by} contacted the ball at t=${boot.t}s and did not secure it, `
+        + `which is before the batter reached first at t=${play.home_to_first_s}s. The batter took `
+        + `${batterBases} bases. If the boot is why he got past first, the scoring is a single plus `
+        + `${batterBases - 1} base${batterBases - 1 === 1 ? '' : 's'} on the error, not a `
+        + `${atBat.result}.`,
+      fields: {
+        result: atBat.result,
+        by: boot.by,
+        character: boot.character ?? null,
+        boot_t: boot.t,
+        home_to_first_s: play.home_to_first_s,
+        batter_bases_ran: batterBases,
+        recovered_t: (play.possession_carries || [])[0]?.start_t ?? null,
+      },
+    })
   }
 
   if (play.caught_in_flight && play.landing) {

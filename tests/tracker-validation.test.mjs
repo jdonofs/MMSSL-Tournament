@@ -489,3 +489,41 @@ test('an unknown contact classification downgrades the fielding verdict', () => 
   })
   assert.equal(checks.fielding, 'warn')
 })
+
+// The operator's 2026-09-10 PA99: a triple whose last two bases only happened
+// because the right fielder booted the ball after it had already landed.
+test('extra bases taken after a boot are flagged against the hit credit', () => {
+  const booted = trackingPlay({
+    landing: { t: 1.0677, frame: 112099, at: [16.683, 0.284, -41.953] },
+    home_to_first_s: 3.4701,
+    runners: { BAT: { bases_ran: 3 } },
+    deflections: [{
+      by: 'RF', character: 'Yellow Pianta', t: 1.8185, frame: 112144,
+      ball_contact: 'confirmed', secured: false,
+    }],
+  })
+  const warnings = validateTrackerAtBat({ atBat: plateAppearance({ result: '3B' }), play: booted })
+  const flagged = warnings.filter((entry) => entry.id.startsWith('extra-bases-after-boot'))
+  assert.equal(flagged.length, 1)
+  assert.match(flagged[0].detail, /single plus 2 bases on the error/)
+
+  // A single is what the rule already says the batter keeps, so there is
+  // nothing to argue about and nothing to warn about.
+  assert.equal(validateTrackerAtBat({ atBat: plateAppearance({ result: '1B' }), play: booted })
+    .filter((entry) => entry.id.startsWith('extra-bases-after-boot')).length, 0)
+
+  // BEFORE THE LANDING is a ball going past somebody, not a ball they lost.
+  // Both false positives in that game were this: a ball still in flight
+  // brushing an infielder on its way to the outfield.
+  const brushed = trackingPlay({
+    landing: { t: 1.5349, frame: 82241, at: [22.274, 0.255, -39.202] },
+    home_to_first_s: 3.7871,
+    runners: { BAT: { bases_ran: 2 } },
+    deflections: [{
+      by: '1B', character: 'Yellow Yoshi', t: 0.5839, frame: 82184,
+      ball_contact: 'confirmed', secured: false,
+    }],
+  })
+  assert.equal(validateTrackerAtBat({ atBat: plateAppearance({ result: '2B' }), play: brushed })
+    .filter((entry) => entry.id.startsWith('extra-bases-after-boot')).length, 0)
+})

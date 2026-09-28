@@ -10,6 +10,8 @@ import {
   buildExtraBaseOpportunitiesFromPa,
   parseFieldingPositions,
 } from '../src/utils/advancedDefense.js'
+import { fielderCoversPa } from '../src/utils/fielderStints.js'
+import { calculateOutsForPa } from '../src/utils/defensiveEfficiency.js'
 import { createAdvancedMetricsClient, recomputeAdvancedMetrics } from './recompute_advanced_metrics.mjs'
 
 function finite(value, fallback = null) {
@@ -27,8 +29,7 @@ function activeFielder(rows, pa, position) {
     String(row.game_id) === String(pa.game_id)
     && String(row.team_id) === String(pa.defensive_team_id)
     && Number(row.position) === Number(position)
-    && Number(row.inning_from || 1) <= Number(pa.inning || 1)
-    && (row.inning_to == null || Number(row.inning_to) >= Number(pa.inning || 1))
+    && fielderCoversPa(row, pa)
   )) || null
 }
 
@@ -97,7 +98,14 @@ export async function backfillAdvancedOpportunities(supabase) {
         outsBefore,
         responsibleFielder: first,
       }))
-      outsByHalf.set(halfKey, Math.min(3, outsBefore + Math.max(0, finite(pa.outs_on_play, 0))))
+      // Inferred from the result where the row predates outs_on_play, exactly
+      // as buildRunExpectancy does. Reading a null as zero left every
+      // hand-scored plate appearance at nought out, which made a two-out
+      // inning look like a fresh one: double-play opportunities were created
+      // where a force play was already impossible, and every one of them was
+      // priced from the wrong base/out state.
+      outsByHalf.set(halfKey, Math.min(3, outsBefore
+        + Math.max(0, calculateOutsForPa(pa.result, pa.outs_on_play))))
     }
   }
 
@@ -105,8 +113,56 @@ export async function backfillAdvancedOpportunities(supabase) {
     upsertMany(supabase, 'double_play_opportunities', doublePlays, 'competition_type,game_id,pa_id'),
     upsertMany(supabase, 'runner_opportunities', runnerOpportunities, 'competition_type,game_id,pa_id,runner_id,target_base'),
   ])
+  // An upsert alone cannot un-build an opportunity. When the eligibility rule
+  // or the base/out accounting changes, rows this run no longer builds are
+  // left behind priced from the state that no longer applies -- 20 of the 44
+  // double plays in the table were built when a null outs_on_play read as
+  // nought out, so they claimed a force at first in innings that already had
+  // two away.
+  //
+  // ONLY where the plate appearance is still here to judge. Games whose plate
+  // appearances have been deleted (2766-2768, 2811-2814) keep every fact they
+  // have: "not constructible" there means the evidence is gone, not that the
+  // opportunity never existed.
+  const knownPas = new Set(sources.flatMap((source) => source.pas.map((pa) => `${source.type}:${pa.id}`)))
+  // Each table is pruned on its OWN natural key, and asked only for the
+  // columns it has: a double play is one row per plate appearance, a runner
+  // opportunity one row per runner and destination.
+  const prunable = [
+    {
+      table: 'double_play_opportunities',
+      columns: 'id,competition_type,pa_id',
+      key: (row) => `${row.competition_type}:${row.pa_id}`,
+      built: doublePlays,
+    },
+    {
+      table: 'runner_opportunities',
+      columns: 'id,competition_type,pa_id,runner_id,target_base',
+      key: (row) => `${row.competition_type}:${row.pa_id}:${row.runner_id}:${row.target_base}`,
+      built: runnerOpportunities,
+    },
+  ]
+  const removed = await Promise.all(prunable.map(async ({ table, columns, key, built }) => {
+    const wanted = new Set(built.map(key))
+    const { data, error } = await fetchAllRows(() => supabase.from(table).select(columns))
+    if (error) throw error
+    const stale = (data || [])
+      .filter((row) => knownPas.has(`${row.competition_type}:${row.pa_id}`) && !wanted.has(key(row)))
+      .map((row) => row.id)
+    for (let index = 0; index < stale.length; index += 200) {
+      const { error: deleteError } = await supabase.from(table).delete().in('id', stale.slice(index, index + 200))
+      if (deleteError) throw deleteError
+    }
+    return stale.length
+  }))
   const modelSummary = await recomputeAdvancedMetrics(supabase)
-  return { doublePlayOpportunities: doublePlayCount, runnerOpportunities: runnerCount, modelSummary }
+  return {
+    doublePlayOpportunities: doublePlayCount,
+    runnerOpportunities: runnerCount,
+    staleDoublePlaysRemoved: removed[0],
+    staleRunnerOpportunitiesRemoved: removed[1],
+    modelSummary,
+  }
 }
 
 async function main() {

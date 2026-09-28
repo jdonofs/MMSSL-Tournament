@@ -7,6 +7,7 @@ import {
   summarizePitching,
 } from './statsCalculator'
 import { analyzeCharacterTalent } from './characterAnalysis'
+import { fielderCoversPa } from './fielderStints.js'
 
 const POSITION_LABELS = {
   1: 'P',
@@ -82,8 +83,7 @@ function buildFieldingSummaryByGroup({
   const findFielderForPa = (pa = {}) => gameFielders.find((fielder) => (
     String(fielder.game_id) === String(pa.game_id) &&
     Number(fielder.position) === Number(pa.hit_location || pa.error_position) &&
-    Number(fielder.inning_from || 1) <= Number(pa.inning || 1) &&
-    (fielder.inning_to == null || Number(fielder.inning_to) >= Number(pa.inning || 1)) &&
+    fielderCoversPa(fielder, pa) &&
     String(fielder.team_id) === String(pa.defensive_team_id)
   ))
 

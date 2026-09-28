@@ -8,10 +8,58 @@ function normalize(value) {
   return String(value)
 }
 
-function sameValue(left, right) {
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]))
+  }
+  return value
+}
+
+const TRACKING_NUMERIC_TABLES = new Set([
+  'tracking_sessions', 'tracking_plays', 'tracking_throws', 'fielding_opportunities',
+  'movement_metrics', 'runner_opportunities', 'double_play_opportunities',
+])
+
+function trackingNumericScale(table, field) {
+  if (!TRACKING_NUMERIC_TABLES.has(table)) return null
+  if (table === 'tracking_sessions' && ['duration_seconds', 'frame_rate'].includes(field)) return 3
+  if (['route_efficiency', 'jump_route_efficiency', 'join_confidence'].includes(field)) return 5
+  if (/^(expected_.*probability|outs_above_average|(?:arm|runner|run)_run_value|double_plays_added|run_value)$/.test(field)) return 6
+  return 4
+}
+
+// recompute_advanced_metrics.mjs prices stadium_runs in place on EVERY stored
+// play, a half-written replacement's included. So an ingest resuming that
+// replacement rebuilds the unpriced facts and finds them priced: season game
+// 2811's resume was refused over play 5 after 2813's ingest repriced it.
+function withoutRecomputedPrice(quality) {
+  if (!quality?.stadium_runs || typeof quality.stadium_runs !== 'object') return quality
+  const { price, ...facts } = quality.stadium_runs
+  return { ...quality, stadium_runs: facts }
+}
+
+function sameValue(left, right, field = '', table = '') {
   if (left == null && right == null) return true
+  if (table === 'tracking_plays' && field === 'quality') {
+    left = withoutRecomputedPrice(left)
+    right = withoutRecomputedPrice(right)
+  }
+  const scale = trackingNumericScale(table, field)
+  if (scale != null && typeof left === 'number' && typeof right === 'number'
+      && Number.isFinite(left) && Number.isFinite(right)) {
+    if (left === right) return true
+    const factor = 10 ** scale
+    const rounded = Math.sign(right) * Math.round((Math.abs(right) + Number.EPSILON) * factor) / factor
+    return left === rounded
+  }
+  if (/(?:_at|_utc)$/.test(field) && left != null && right != null) {
+    const leftTime = Date.parse(left)
+    const rightTime = Date.parse(right)
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime === rightTime
+  }
   if (typeof left === 'object' || typeof right === 'object') {
-    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+    return JSON.stringify(canonicalJson(left ?? null)) === JSON.stringify(canonicalJson(right ?? null))
   }
   return normalize(left) === normalize(right)
 }
@@ -21,8 +69,8 @@ export function isDuplicateKeyError(error) {
     || /duplicate key|unique constraint/i.test(String(error?.message || ''))
 }
 
-export function rowsMatchPayload(row, payload, fields = Object.keys(payload || {})) {
-  return Boolean(row) && fields.every((field) => sameValue(row[field], payload[field]))
+export function rowsMatchPayload(row, payload, fields = Object.keys(payload || {}), table = '') {
+  return Boolean(row) && fields.every((field) => sameValue(row[field], payload[field], field, table))
 }
 
 export async function selectByKey(supabase, table, key) {
@@ -43,10 +91,12 @@ export async function insertOneReconciled(supabase, table, payload, {
   if (!key || !Object.keys(key).length) throw new Error(`${table}: a reconciliation key is required`)
   for (let attempt = 0; attempt < attempts; attempt++) {
     const existing = await selectByKey(supabase, table, key)
-    const exact = existing.find((row) => rowsMatchPayload(row, payload, compareFields))
+    const exact = existing.find((row) => rowsMatchPayload(row, payload, compareFields, table))
     if (exact) return { row: exact, inserted: false }
     if (existing.length) {
-      throw new Error(`${table}: durable key ${JSON.stringify(key)} already belongs to different data`)
+      const mismatched = compareFields.filter((field) =>
+        existing.every((row) => !sameValue(row[field], payload[field], field, table)))
+      throw new Error(`${table}: durable key ${JSON.stringify(key)} already belongs to different data (${mismatched.join(', ')})`)
     }
 
     const { data, error } = await supabase.from(table).insert(payload).select('*').single()
@@ -55,7 +105,7 @@ export async function insertOneReconciled(supabase, table, payload, {
     // A timeout or duplicate response is ambiguous: the server may have
     // committed the row. Read the authoritative table before retrying.
     const committed = await selectByKey(supabase, table, key)
-    const committedExact = committed.find((row) => rowsMatchPayload(row, payload, compareFields))
+    const committedExact = committed.find((row) => rowsMatchPayload(row, payload, compareFields, table))
     if (committedExact) return { row: committedExact, inserted: true, reconciled: true }
     if (error && !isDuplicateKeyError(error)) {
       if (attempt === attempts - 1) throw error
@@ -98,8 +148,10 @@ export async function updateRowsVerified(supabase, table, key, patch, {
   const rows = await selectByKey(supabase, table, key)
   if (!rows.length && allowMissing) return []
   if (!rows.length) throw error || new Error(`${table}: update target ${JSON.stringify(key)} does not exist`)
-  if (rows.every((row) => rowsMatchPayload(row, patch, Object.keys(patch)))) return rows
-  throw error || new Error(`${table}: update response succeeded but read-back did not match`)
+  if (rows.every((row) => rowsMatchPayload(row, patch, Object.keys(patch), table))) return rows
+  const mismatched = Object.keys(patch).filter((field) =>
+    rows.some((row) => !sameValue(row[field], patch[field], field, table)))
+  throw error || new Error(`${table}: update response succeeded but read-back did not match (${mismatched.join(', ')})`)
 }
 
 export function processExists(pid) {

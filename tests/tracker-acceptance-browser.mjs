@@ -146,6 +146,8 @@ try {
   }
   await scopeSelect.selectOption('tournament-909')
   await showCharacters()
+  // Stats opens on Leaders; the batting line lives under Batting > Standard.
+  await page.getByRole('button', { name: 'Batting', exact: true }).click()
   const wantTournament = expected.tournament.batting['Blue Pianta']
   expectRow(await battingRow(/B(?:lue)? Pianta/), wantTournament, 'Stats / tournament 909 / Blue Pianta')
   expectRow(await battingRow(/Bowser/), expected.tournament.batting.Bowser, 'Stats / tournament 909 / Bowser')
@@ -159,6 +161,32 @@ try {
   // The tournament game must not leak into the season scope: Purple Toad only
   // ever batted in the tournament recording.
   assert.equal(await page.locator('tbody tr:visible').filter({ hasText: /P(?:urple)? Toad/ }).count(), 0)
+
+  // The persisted Peach capture contains 17 freeze onsets. The site must show
+  // physical incidents separately from Gimmick Luck and let a count reveal a play.
+  const capturedFreezes = tables.tracking_plays.reduce((sum, play) => sum
+    + (play.quality?.stadium_incidents || []).filter((event) => event.type === 'player_freeze').length, 0)
+  assert.equal(capturedFreezes, 17)
+  await page.getByRole('button', { name: 'Game Events', exact: true }).click()
+  await page.getByRole('button', { name: 'Stadium Interactions', exact: true }).click()
+  await page.getByRole('heading', { name: 'Stadium Interactions' }).waitFor()
+  const freezeButton = page.getByRole('button', { name: /Show \d+ Frozen records/ }).first()
+  await freezeButton.waitFor()
+  await freezeButton.click()
+  assert.match(await page.locator('.stats-main').innerText(), /season game .*play .*peach_ice_garden/i)
+  await page.getByRole('button', { name: 'Mechanics', exact: true }).click()
+  await page.getByRole('heading', { name: 'Player Mechanics' }).waitFor()
+  assert.ok(await page.locator('.stats-main tbody tr').count() > 0)
+  await page.getByRole('button', { name: 'Players', exact: true }).click()
+  await page.getByRole('heading', { name: 'Player Mechanics' }).waitFor()
+  await showCharacters()
+  await page.getByRole('button', { name: 'Batting', exact: true }).click()
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.locator('.stats-rail-mobile-controls select').first().selectOption('baserunning')
+  await page.getByRole('columnheader', { name: 'XBT Opp' }).waitFor()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.getByRole('button', { name: 'Batting', exact: true }).click()
 
   // ── Career: one character, two competitions, two owners ──────────────────
   await scopeSelect.selectOption('all')
@@ -174,6 +202,7 @@ try {
   await page.getByRole('heading', { name: /B(?:lue)? Pianta/i }).first().waitFor({ timeout: 15_000 })
   const profile = await page.locator('body').innerText()
   assert.match(profile, /Standard Stats/)
+  assert.match(profile, /Baserunning/)
 
   // ── The play the tracker could not score, in the editor ─────────────────
   //

@@ -121,6 +121,7 @@ const STADIUM_TEST_OBJECTIVES = Object.freeze({
   'Yoshi Park': {
     day: [
       ['pipe_entry_exit', 'Send a ball through a pipe and label both source and destination.'],
+      ['pipe_player_stun', 'Run or dive a fielder into a pipe and label the stun.'],
       ['train_collision', 'Trigger and label a train collision.'],
     ],
     night: [
@@ -195,12 +196,40 @@ function stadiumTestCard(stadiumName, isNight) {
 }
 
 function parseArgs(argv) {
-  const args = { statusOnly: false, out: OUT_FILE }
+  const args = { statusOnly: false, out: OUT_FILE, stadium: null, night: null, include: [] }
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index]
     if (token === '--status') args.statusOnly = true
     else if (token === '--out') args.out = path.resolve(argv[index += 1])
+    // A STAR-SWING TEST NEEDS NAMED BATTERS. Bowser Jr.'s paint or Peach's heart
+    // only happens with that captain in the lineup, and a cast picked for
+    // coverage will not put them there. Comma-separated names.
+    else if (token === '--include') {
+      args.include = String(argv[index += 1] || '').split(',')
+        .map((name) => name.trim()).filter(Boolean)
+    }
+    // A NAMED PARK IS A DIFFERENT QUESTION FROM CALIBRATION COVERAGE. The five
+    // per-character requirements are all met, so "the park with the fewest
+    // sessions" is no longer the game worth playing -- but the stadium-event
+    // gate is still shut, and closing it means playing a NAMED park in a NAMED
+    // variant until its hazard has a signal. That is what these two are for,
+    // and it is why they also lift the "calibration complete, stop" exit: the
+    // cast, the position assignment, the chemistry split and the lineup schema
+    // are still exactly what this planner builds, and rebuilding them by hand
+    // somewhere else is how the two would drift apart.
+    else if (token === '--stadium') args.stadium = argv[index += 1]
+    else if (token === '--night') args.night = true
+    else if (token === '--day') args.night = false
     else throw new Error(`Unknown option ${token}`)
+  }
+  if (args.stadium) {
+    const matched = STADIUMS.find(
+      (name) => name.toLowerCase() === args.stadium.toLowerCase())
+    if (!matched) {
+      throw new Error(`Unknown stadium "${args.stadium}". `
+        + `One of: ${STADIUMS.join(', ')}`)
+    }
+    args.stadium = matched
   }
   return args
 }
@@ -311,7 +340,44 @@ function readArchive(siteName = (name) => name) {
     return { counts, positionsPlayed, sessionsPlayed, parks, chemistry, sessions: 0 }
   }
 
-  const playFiles = fs.readdirSync(TRACKING_DIR).filter((n) => n.endsWith('.plays.jsonl'))
+  const allPlayFiles = fs.readdirSync(TRACKING_DIR).filter((n) => n.endsWith('.plays.jsonl'))
+  const excludedStems = new Set(allPlayFiles
+    .map((file) => file.replace(/\.plays\.jsonl$/, ''))
+    .filter((stem) => sessionIsExcluded(stem)))
+  const playFiles = allPlayFiles.filter(
+    (file) => !excludedStems.has(file.replace(/\.plays\.jsonl$/, '')))
+
+  // BEING ON THE FIELD STILL COUNTS AS BEING ON THE FIELD. `sessionsPlayed` is
+  // not a measurement -- it is the tie-break that decides who plays next when
+  // `need` cannot separate two characters, and it exists to stop the same faces
+  // being picked every game. Excluding research sessions from it made exactly
+  // that bug: two Wario City nights in a row returned the identical eighteen,
+  // because nobody who played them was recorded as having played.
+  //
+  // So the METRICS skip an excluded session and this does not. A character who
+  // spent nine innings watching balls go past has had their turn, whatever the
+  // session taught us about fielding.
+  for (const file of allPlayFiles) {
+    const sides = new Map()
+    for (const line of fs.readFileSync(path.join(TRACKING_DIR, file), 'utf8').split('\n')) {
+      if (!line.trim()) continue
+      const play = JSON.parse(line)
+      const side = play.inning_half
+      const seen = sides.get(side) || new Map()
+      for (const [position, entry] of Object.entries(play.fielders || {})) {
+        if (entry?.character) seen.set(position, entry.character)
+      }
+      sides.set(side, seen)
+    }
+    const onField = new Set()
+    for (const seen of sides.values()) {
+      for (const who of seen.values()) onField.add(siteName(who))
+    }
+    for (const who of onField) {
+      if (who) sessionsPlayed.set(who, (sessionsPlayed.get(who) || 0) + 1)
+    }
+  }
+
   for (const file of playFiles) {
     const stem = file.replace(/\.plays\.jsonl$/, '')
     const park = sessionParkKey(stem)
@@ -343,7 +409,7 @@ function readArchive(siteName = (name) => name) {
       }
 
       for (const record of play.throws || []) {
-        if (record.peak_speed_mph && !record.buddy_throw) {
+        if (record.is_throw !== false && record.peak_speed_mph && !record.buddy_throw) {
           bump(siteName(record.thrower_character), 'arm')
         }
       }
@@ -368,7 +434,8 @@ function readArchive(siteName = (name) => name) {
         positionsPlayed.get(who).add(position)
       }
     }
-    for (const who of onField) sessionsPlayed.set(who, (sessionsPlayed.get(who) || 0) + 1)
+    // sessionsPlayed is accumulated above, over EVERY session including the
+    // excluded ones; counting it again here would double every unexcluded one.
     for (const roster of sides.values()) {
       const names = [...roster.values()]
       if (names.length < 9) continue
@@ -380,6 +447,9 @@ function readArchive(siteName = (name) => name) {
   }
 
   for (const file of fs.readdirSync(TRACKING_DIR).filter((n) => n.endsWith('.pitches.jsonl'))) {
+    // Excluded the same way and for the same reason: the pitches in a research
+    // game were thrown to a batter aiming at a hazard.
+    if (excludedStems.has(file.replace(/\.pitches\.jsonl$/, ''))) continue
     for (const line of fs.readFileSync(path.join(TRACKING_DIR, file), 'utf8').split('\n')) {
       if (!line.trim()) continue
       bump(siteName(JSON.parse(line).pitcher), 'pitching')
@@ -387,6 +457,7 @@ function readArchive(siteName = (name) => name) {
   }
   return {
     counts, positionsPlayed, sessionsPlayed, parks, chemistry, sessions: playFiles.length,
+    excluded: [...excludedStems].sort(),
   }
 }
 
@@ -473,6 +544,33 @@ function parkKey(stadiumName) {
   const key = STADIUM_NAME_TO_KEY[stadiumName]
   if (!key) throw new Error(`No park key for stadium "${stadiumName}".`)
   return key
+}
+
+/**
+ * Whether a session's measurements may be counted toward calibration.
+ *
+ * A STADIUM-RESEARCH GAME IS NOT A SAMPLE OF NORMAL PLAY. The operator, on the
+ * 2026-09-09 Wario City night session: "we should not be using any of this data
+ * for calibration, as i am intentionally missing some balls so they can hit the
+ * arrows and manholes." Balls are deliberately not fielded, so every fielding
+ * chance, route and reaction in it is drawn from a defence that was told to let
+ * the ball go. Counting those toward "primary fielding chances at 20+" does not
+ * merely add noise -- it adds a bias in one direction, and it is invisible
+ * afterwards because a missed ball looks exactly like a ball nobody could reach.
+ *
+ * The flag lives in the session header so it travels with the capture and
+ * cannot be lost by re-deriving. Absent means countable, so every session
+ * already on disk is unaffected.
+ */
+function sessionIsExcluded(stem) {
+  const header = path.join(TRACKING_DIR, `${stem}.json`)
+  if (!fs.existsSync(header)) return false
+  try {
+    const parsed = JSON.parse(fs.readFileSync(header, 'utf8'))
+    return parsed.calibration_excluded === true
+  } catch {
+    return false
+  }
 }
 
 /** The park a recorded session was played in, from its header. */
@@ -799,12 +897,24 @@ async function main() {
 
   const done = progress(state, playable)
   reportStatus(state, playable, done)
+  if (state.excluded?.length) {
+    console.log(`\n  ${state.excluded.length} session(s) excluded from these counts `
+      + '(stadium research: balls deliberately not fielded):')
+    for (const stem of state.excluded) console.log(`    ${stem}`)
+  }
 
-  if (done.complete) {
+  if (done.complete && !args.stadium) {
     console.log('\nCALIBRATION COMPLETE. Every requirement is met; no further games are needed.')
+    console.log('  The stadium-event gate is still shut. For a research game there, name')
+    console.log('  the park and its variant:  --stadium "Wario City" --night')
     return
   }
   if (args.statusOnly) return
+  if (done.complete) {
+    console.log('\nCALIBRATION COMPLETE -- this game is for the stadium-event gate, not for coverage.')
+    console.log('  Every `need` is zero, so the cast below is the eighteen who have played')
+    console.log('  FEWEST, not the eighteen who are least measured.')
+  }
 
   // WHY THE TIE-BREAK IS NOT THE ALPHABET. `need` is a sum of five fractions
   // over coarse targets, so it lands on the same handful of values constantly:
@@ -822,10 +932,23 @@ async function main() {
   const ranked = playable
     .map((c) => ({ name: c.name, need: need(state, c.name), played: played(c.name) }))
     .sort((a, b) => b.need - a.need || a.played - b.played || a.name.localeCompare(b.name))
-  const cast = selectCast(ranked)
+  // Forced names take their seats first and the family limit never drops them;
+  // the ranked pick fills whatever seats remain.
+  const included = [...new Set(args.include.map((name) => {
+    const site = resolveSiteName(name)
+    if (!characterByName.has(site)) {
+      throw new Error(`--include: "${name}" is not a playable character.`)
+    }
+    return site
+  }))]
+  const cast = [...included, ...selectCast(
+    ranked.filter((row) => !included.includes(row.name)), 18 - included.length)]
   if (cast.length < 18) throw new Error(`Only ${cast.length} playable characters available.`)
+  if (included.length) console.log(`\n  forced into the cast: ${included.join(', ')}`)
 
-  const stadium = chooseStadium(state)
+  const stadium = args.stadium
+    ? { name: args.stadium, sessions: state.parks.get(parkKey(args.stadium)) || 0 }
+    : chooseStadium(state)
   const mode = chooseMode(state)
   const split = splitTeams(cast, mode, state.sessions * 7919 + 13)
   const awayEntries = assignPositions(split.away, state)
@@ -839,7 +962,14 @@ async function main() {
   // Day unless the park only exists at night. Bowser Castle and Luigi's
   // Mansion are night-only, and a night-only park written as day loads
   // without its hazards -- see STADIUM_FIXED_TIME_OF_DAY in mss_roster.mjs.
-  const isNight = stadiumTimeOfDay(stadium.name, false)
+  const isNight = stadiumTimeOfDay(stadium.name, args.night ?? false)
+  if (args.night !== null && isNight !== args.night) {
+    // A park that exists at only one time of day ignores the request, and a
+    // session recorded in the variant a park does not have loads with none of
+    // the hazards it was played for -- see STADIUM_FIXED_TIME_OF_DAY.
+    console.log(`\n  NOTE: ${stadium.name} only exists at ${isNight ? 'night' : 'day'}; `
+      + `the --${args.night ? 'night' : 'day'} request does not apply to it.`)
+  }
   const stadiumTest = stadiumTestCard(stadium.name, isNight)
 
   console.log(`\nNEXT GAME   ${stadium.name}`
@@ -895,7 +1025,7 @@ async function main() {
 
   const relative = path.relative(process.cwd(), args.out).split(path.sep).join('/')
   console.log(`\n  written to ${relative}`)
-  console.log('\n  run:  npm run tracker:preview')
+  console.log('\n  run:  npm run tracker:preview -- --calibration-excluded')
   console.log(`        python scripts/mss_autoteam.py --lineup ${relative} --stage all --wait-for-live`)
   console.log('\n  then run this again for the next one.')
 }

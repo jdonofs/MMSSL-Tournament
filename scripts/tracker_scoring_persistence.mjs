@@ -31,11 +31,15 @@ async function allGamePas(supabase, table, gameId) {
   return data || []
 }
 
+// A blank payload field says nothing, so it is not compared: a PA whose batted
+// ball arrived after it was written has its tracker_contact_seq backfilled on
+// the row while the journal keeps the payload as first sent, and treating that
+// blank as a disagreement stopped game completion from re-verifying it.
 function paIdentityFields(payload) {
   return [
     'game_id', 'player_id', 'character_id', 'pitcher_id', 'pitcher_player_id',
     'inning', 'result', 'tracker_contact_seq',
-  ].filter((field) => payload[field] !== undefined)
+  ].filter((field) => payload[field] != null)
 }
 
 // A row an operator supplied the result for is not the tracker's to restate.
@@ -464,7 +468,29 @@ export function createTrackerScoringPersistence({
     return { pa: savedPa, pitches: pitches.length, runs: event.runs.length, duplicate: duplicateDelivery }
   }
 
+  // An event whose plate appearance is no longer in the game was removed on
+  // purpose -- the game was reset and started over -- but the journal is per
+  // game and outlives the reset. verifyAll() re-delivers every event at game
+  // completion, so the reset game's plays came back as new PAs: season game
+  // 2766 got two first-inning plays from an aborted attempt written as PAs 37
+  // and 38, after its walk-off.
+  async function pruneRemovedEvents() {
+    const written = journal.events.filter((event) => event.paId != null)
+    if (!written.length) return []
+    const { data, error } = await supabase.from(tables.plateAppearances)
+      .select('id').eq('game_id', gameId)
+    if (error) throw error
+    const present = new Set((data || []).map((row) => String(row.id)))
+    const removed = written.filter((event) => !present.has(String(event.paId)))
+    if (!removed.length) return []
+    journal.events = journal.events.filter((event) => !removed.includes(event))
+    persistJournal()
+    log(`dropped ${removed.length} journal event(s) whose plate appearance is no longer in game ${gameId}`)
+    return removed
+  }
+
   async function recoverPending() {
+    await pruneRemovedEvents()
     const recovered = []
     for (const event of journal.events.filter((entry) => entry.stage !== 'complete')) {
       recovered.push(await persistEvent(event, { recovering: true }))

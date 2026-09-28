@@ -6,6 +6,7 @@ import {
   TOURNAMENT_TEAM_LINEUPS,
 } from '../../../utils/teamLineups'
 import { reconcileTeamLineupDraft } from '../../../utils/teamLineupDraft'
+import { fielderIsCurrent, planFielderStintChange } from '../../../utils/fielderStints.js'
 import {
   FIELD_ID_TO_SCOREBOOK_POSITION,
   FIELD_POSITIONS,
@@ -105,8 +106,7 @@ export default function useLineupEditor({
         const activeRow = gameFielderRows.find((r) => (
           String(r.team_id) === String(teamId)
           && r.character === charName
-          && Number(r.inning_from || 1) <= Number(currentInning)
-          && (r.inning_to == null || Number(r.inning_to) >= Number(currentInning))
+          && fielderIsCurrent(r, currentInning)
         ))
         const fieldId = activeRow ? SCOREBOOK_POSITION_TO_FIELD_ID[Number(activeRow.position)] : null
         if (fieldId) fielding[fieldId] = row.character_id
@@ -126,12 +126,11 @@ export default function useLineupEditor({
     return { order, fielding }
   }, [teamALineup, teamBLineup, teamAId, teamBId, selectedGame?.team_a_player_id, selectedGame?.team_b_player_id, teamRosters, savedTeamLineupsByPlayerId, charactersById, gameFielderRows, currentInning])
   
-  // The Live Tracker tab only exists for tracker games. Switching to a manually
-  // scored game (or turning the tracker off in Admin) would otherwise leave the
-  // tab strip with nothing selected and this tab still rendering.
+  // Keep the scoring tab in sync when the selected game or its source changes.
   useEffect(() => {
-    if (viewMode !== 'liveTracker') return
-    if (selectedGame && selectedGame.stats_source !== 'tracker') setViewMode('scorebook')
+    if (!selectedGame) return
+    if (viewMode === 'liveTracker' && selectedGame.stats_source !== 'tracker') setViewMode('scorebook')
+    if (viewMode === 'scorebook' && selectedGame.stats_source === 'tracker') setViewMode('liveTracker')
   }, [viewMode, selectedGame?.id, selectedGame?.stats_source])
   
   // Rebuild before paint whenever the user opens Lineups or its source data
@@ -261,14 +260,18 @@ export default function useLineupEditor({
       Object.entries(fielding).filter(([, characterId]) => characterId).map(([fieldId]) => FIELD_ID_TO_SCOREBOOK_POSITION[fieldId]),
     )
     const openRows = gameFielderRows.filter((r) => String(r.team_id) === String(teamId) && r.inning_to == null && mentionedPositions.has(r.position))
-    const toClose = openRows.filter((r) => Number(r.inning_from || 1) < Number(currentInning))
-    const toDelete = openRows.filter((r) => Number(r.inning_from || 1) >= Number(currentInning))
+    // A change after a play in this inning closes the old rows at that play
+    // rather than deleting them, so the plays before it keep their fielders.
+    const lastPa = gamePAs.reduce((latest, pa) => (
+      !latest || Number(pa.pa_number) > Number(latest.pa_number) ? pa : latest
+    ), null)
+    const { toClose, toDelete, closeWith, newRowBounds } = planFielderStintChange(openRows, { currentInning, lastPa })
   
     if (toClose.length) {
       const { error } = await closeGameFielderRows({
         tables: scorebookTables,
         rowIds: toClose.map((row) => row.id),
-        inningTo: Number(currentInning) - 1,
+        closeWith,
       })
       if (error) {
         pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
@@ -294,7 +297,7 @@ export default function useLineupEditor({
         player_name: playersById[playerId]?.name || '',
         character: charactersById[characterId]?.name || '',
         position: FIELD_ID_TO_SCOREBOOK_POSITION[fieldId],
-        inning_from: currentInning,
+        ...newRowBounds,
         inning_to: null,
       }))
   
@@ -330,7 +333,7 @@ export default function useLineupEditor({
     setGameFielders((current) => [
       ...current
         .filter((row) => !deletedIds.has(String(row.id)))
-        .map((row) => (closedIds.has(String(row.id)) ? { ...row, inning_to: Number(currentInning) - 1 } : row)),
+        .map((row) => (closedIds.has(String(row.id)) ? { ...row, ...closeWith } : row)),
       ...insertedFielderRows,
     ])
   
@@ -341,7 +344,7 @@ export default function useLineupEditor({
     if (newPitcherCharId && offense?.pitchingPlayerId === playerId && newPitcherCharId !== Number(currentPitcherStint?.character_id)) {
       await changePitcherRef.current?.(playerId, newPitcherCharId)
     }
-  }, [selectedGame, teamAId, teamBId, teamALineup, teamBLineup, scorebookTables.lineups, scorebookTables.gameFielders, gameFielderRows, currentInning, playersById, charactersById, addSourceFields, pushToast, offense, currentPitcherStint])
+  }, [selectedGame, teamAId, teamBId, teamALineup, teamBLineup, scorebookTables.lineups, scorebookTables.gameFielders, gameFielderRows, gamePAs, currentInning, playersById, charactersById, addSourceFields, pushToast, offense, currentPitcherStint])
   
   const saveTeamLineup = useCallback((team) => {
     const { order, fielding } = lineupDrafts[team]

@@ -267,8 +267,113 @@ export default function TrackerPlayDiagram({
   }
 
   const contactPoint = point(geometry.contact_at) || projection.project(HOME_PLATE.x, HOME_PLATE.z)
-  const endpoint = point(geometry.first_touch?.at) || point(geometry.landing?.at)
-  const caught = Boolean(geometry.first_touch) && !geometry.landing
+
+  // THE BALL'S JOURNEY, in the order it happened.
+  //
+  // This used to be one straight line from contact to whoever ended up with the
+  // ball, and that is only the truth when nothing happened in between. Two
+  // things routinely do. A ball that lands and rolls reaches the glove BY WAY
+  // OF the ground, so the line claimed a flight that never happened; and at
+  // Wario City an arrow rewrites the ball's heading mid-roll, so the line ran
+  // through field the ball was never on. The operator reported the second one
+  // three times.
+  //
+  // Every node below is a measured position -- the landing, whatever the
+  // stadium did to the ball, and the first touch -- ordered by the frame it
+  // was measured on. A node with no frame sorts last, which is where an
+  // archived first touch that predates the frame field belongs.
+  const orderKey = (entry) => (Number.isFinite(entry.frame) ? entry.frame : Number.POSITIVE_INFINITY)
+  const waypoints = (geometry.ball_waypoints || [])
+    .map((entry) => ({ ...entry, screen: point(entry.at) }))
+    .filter((entry) => entry.screen)
+  const journey = [
+    ...(geometry.landing
+      ? [{
+        kind: 'landing',
+        frame: geometry.landing.frame ?? null,
+        at: geometry.landing.at,
+        screen: point(geometry.landing.at),
+      }]
+      : []),
+    ...waypoints,
+    ...(geometry.first_touch
+      ? [{
+        kind: 'first_touch',
+        frame: geometry.first_touch.frame ?? null,
+        at: geometry.first_touch.at,
+        screen: point(geometry.first_touch.at),
+      }]
+      : []),
+  ]
+    .filter((entry) => entry.screen)
+    .sort((a, b) => orderKey(a) - orderKey(b))
+
+  // THE MEASURED PATH, when the session recorded one. Every point is a frame the
+  // ball was actually at, so this replaces the straight lines entirely; the
+  // journey nodes stay, but only as the MARKERS that say what each bend was. A
+  // play with no path -- a session derived before measure_ball_path existed --
+  // falls back to joining the nodes as before.
+  const measuredPath = (geometry.ball_path || [])
+    .map((sample) => ({ frame: sample.frame, screen: point(sample.at) }))
+    .filter((entry) => entry.screen)
+
+  // The last measured position, whatever produced it. A ball that came down on
+  // an erupting manhole never reached the ground and nobody picked it up; a
+  // home run and a ball that left play have no landing and no first touch at
+  // all. The diagram used to answer all three with "no measured endpoint" while
+  // holding the ball's whole flight.
+  // THE MEASURED PATH WINS. The journey nodes are what HAPPENED to the ball;
+  // the path is where it finished. On the ground-rule double the last node was
+  // the arrow at frame 99642 and the ball went on being measured to 99852, so
+  // taking the node put the endpoint marker two thirds of the way along its own
+  // dashed line.
+  const endpointNode = journey.length ? journey[journey.length - 1] : null
+  const endpoint = (measuredPath.length ? measuredPath[measuredPath.length - 1].screen : null)
+    ?? endpointNode?.screen ?? null
+  const endpointKind = geometry.first_touch ? 'first_touch'
+    : (waypoints.some((entry) => entry.kind === 'manhole_strike') && !geometry.landing)
+      ? 'manhole_strike'
+      : endpoint ? 'left_play' : null
+  // A waypoint that IS the endpoint is already marked, and the endpoint circle
+  // is drawn last over the top of it -- so its own ring only sat there
+  // invisible while the legend promised the reader a mark to look for. The
+  // endpoint's tooltip names the manhole either way.
+  const atEndpoint = (spot) => Boolean(endpoint && spot
+    && Math.hypot(spot.x - endpoint.x, spot.y - endpoint.y) < 4 * symbol)
+  const markedWaypoints = waypoints.filter((entry) => !atEndpoint(entry.screen))
+  // The landing when it is NOT the end of the story. It used to be the endpoint
+  // marker or nothing at all, so on a ball that landed and was fielded
+  // somewhere else the path now bends at a corner with no mark on it -- and on
+  // the Wario City play where the ball rolled 48 units before the arrow reached
+  // it, that unmarked corner is the whole difference between a flight and a
+  // roll. The legend has always had a "Landed" ring; this is it.
+  const landingNode = journey.find((entry) => entry.kind === 'landing')
+  const markedLanding = landingNode && !atEndpoint(landingNode.screen) ? landingNode : null
+  const caught = Boolean(geometry.first_touch) && !geometry.landing && !waypoints.length
+
+  // FLIGHT AND GROUND ARE DRAWN APART, because a solid line all the way to the
+  // glove says the ball flew there. The landing frame is the split: samples up
+  // to it are flight, samples after it are the ball travelling along the
+  // ground. With no landing the whole path is flight, which is what a home run,
+  // a ball caught on the fly and a ball that left the park all are.
+  const landingFrame = geometry.landing?.frame ?? null
+  let flightRun = []
+  let groundRun = []
+  if (measuredPath.length > 1) {
+    const split = landingFrame == null
+      ? measuredPath.length
+      : Math.max(1, measuredPath.findIndex((entry) => entry.frame != null
+        && entry.frame >= landingFrame) + 1 || measuredPath.length)
+    flightRun = measuredPath.slice(0, split).map((entry) => entry.screen)
+    groundRun = measuredPath.slice(split - 1).map((entry) => entry.screen)
+  } else if (journey.length) {
+    // No measured path: join the nodes, as before.
+    flightRun = [contactPoint, journey[0].screen]
+    groundRun = journey.map((entry) => entry.screen)
+  }
+  // The measured path starts at the ball's first sampled frame, which is
+  // contact. Prepending the contact point again would draw a zero-length spur.
+  if (flightRun.length && measuredPath.length > 1) flightRun = [contactPoint, ...flightRun.slice(1)]
 
   const infield = ['home', 'first', 'second', 'third'].map((name) => {
     const corner = corners[name]
@@ -349,15 +454,68 @@ export default function TrackerPlayDiagram({
             parallel, which is most catches: the one route a reader wants was
             the one route covered up. Underneath, the corridor still shows on
             both sides of any route that follows it. */}
-        {endpoint && (
+        {flightRun.length > 1 && (
           <g>
-            <line x1={contactPoint.x} y1={contactPoint.y} x2={endpoint.x} y2={endpoint.y}
-              stroke="#fde047" strokeWidth={9 * symbol} strokeOpacity="0.22" strokeLinecap="round" />
-            <line x1={contactPoint.x} y1={contactPoint.y} x2={endpoint.x} y2={endpoint.y}
-              stroke="#fde047" strokeWidth={2.5 * symbol} strokeOpacity="0.95" />
-            <title>Batted ball</title>
+            <polyline points={flightRun.map((spot) => `${spot.x},${spot.y}`).join(' ')}
+              fill="none" stroke="#fde047" strokeWidth={9 * symbol} strokeOpacity="0.22"
+              strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points={flightRun.map((spot) => `${spot.x},${spot.y}`).join(' ')}
+              fill="none" stroke="#fde047" strokeWidth={2.5 * symbol} strokeOpacity="0.95"
+              strokeLinejoin="round" />
+            <title>Batted ball — flight</title>
           </g>
         )}
+
+        {/* AFTER IT CAME DOWN. Dashed, because the ball was on the ground for
+            this part and a solid line reads as flight. Every corner is a
+            measured position, so a bend here is something that happened to the
+            ball rather than a smoothing of the drawing. */}
+        {groundRun.length > 1 && (
+          <g>
+            <polyline
+              points={groundRun.map((spot) => `${spot.x},${spot.y}`).join(' ')}
+              fill="none" stroke="#fde047" strokeWidth={2 * symbol} strokeOpacity="0.9"
+              strokeDasharray={`${5 * symbol} ${4 * symbol}`} strokeLinejoin="round" />
+            <title>Batted ball — after it came down</title>
+          </g>
+        )}
+
+        {markedLanding && (
+          <g>
+            <circle cx={markedLanding.screen.x} cy={markedLanding.screen.y} r={7 * symbol}
+              fill="rgba(2, 6, 23, 0.75)" stroke="#fde047" strokeWidth={2.5 * symbol} />
+            <title>Landed here — everything after this is along the ground</title>
+          </g>
+        )}
+
+        {/* WHAT THE STADIUM DID, marked where it did it. Without this the bend
+            in the path above has no explanation on the diagram at all. */}
+        {markedWaypoints.map((entry, index) => (
+          <g key={`waypoint-${entry.kind}-${entry.frame ?? index}`}>
+            <circle cx={entry.screen.x} cy={entry.screen.y} r={6 * symbol}
+              fill="rgba(2, 6, 23, 0.8)" stroke="#fb923c" strokeWidth={2.5 * symbol} />
+            <title>
+              {entry.kind === 'arrow_redirect'
+                ? `A directional arrow turned the ball here${entry.turn_degrees != null
+                  ? ` — ${entry.turn_degrees.toFixed(0)}°` : ''}${entry.heading_degrees != null
+                  ? `, onto ${entry.heading_degrees.toFixed(0)}°` : ''}`
+                : entry.kind === 'pipe_entry' || entry.kind === 'pipe_exit'
+                  ? `The ball ${entry.kind === 'pipe_entry' ? 'went into' : 'came out of'} ${entry.pipe
+                    ? `the ${String(entry.pipe).replace(/_/g, ' ')} pipe` : 'a pipe'} here`
+                : entry.kind === 'train_hit'
+                  ? `${entry.mechanism === 'wiggler' ? 'The Wiggler' : 'The train'} hit the ball here`
+                : entry.kind === 'train_capture'
+                  ? `The ball landed inside ${entry.mechanism === 'wiggler' ? 'the Wiggler' : 'the train'}`
+                    + ' here, which Yoshi Park scores as a home run'
+                : entry.kind === 'table_contact'
+                  ? `The ball ${entry.contact_kind === 'table_edge_rebound'
+                    ? 'rebounded from a table edge' : 'bounced on a table'} here${entry.height_units != null
+                    ? `, ${entry.height_units.toFixed(1)}u above the ground` : ''}`
+                  : `The ball struck an erupting manhole here${entry.height_units != null
+                    ? `, ${entry.height_units.toFixed(1)}u above the ground` : ''}`}
+            </title>
+          </g>
+        ))}
 
         {/* fielder routes: where each one started at pitch release, and where
             the play took them. Only fielders who actually moved get a line. */}
@@ -471,7 +629,20 @@ export default function TrackerPlayDiagram({
             <title>
               {caught
                 ? `Caught in flight by ${geometry.first_touch?.character || geometry.first_touch?.by || 'a fielder'}`
-                : 'Landed'}
+                : endpointKind === 'first_touch'
+                  ? `Fielded by ${geometry.first_touch?.character || geometry.first_touch?.by || 'a fielder'}`
+                  : endpointKind === 'manhole_strike'
+                    // Not a landing: this ball's last measured position is above
+                    // the ground, on the manhole it came down on.
+                    ? 'Came down on an erupting manhole — it never reached the ground'
+                    : endpointKind === 'arrow_redirect'
+                      ? 'Last measured here, on the heading an arrow gave it'
+                      : endpointKind === 'left_play'
+                        // No landing and nobody touched it: a home run, or a
+                        // ball that left the park. This is the last frame the
+                        // game moved it, not a place it came to rest.
+                        ? 'Last measured here — nobody fielded this ball'
+                        : 'Landed'}
             </title>
           </g>
         )}
@@ -498,6 +669,14 @@ export default function TrackerPlayDiagram({
           <LegendItem swatch={<circle cx="10" cy="6" r="5" fill="none" stroke="#fde047" strokeWidth="2" />}>
             Landed
           </LegendItem>
+          <LegendItem swatch={<line x1="1" y1="6" x2="19" y2="6" stroke="#fde047" strokeWidth="2" strokeDasharray="4 3" />}>
+            After it came down
+          </LegendItem>
+          {markedWaypoints.length > 0 && (
+            <LegendItem swatch={<circle cx="10" cy="6" r="4" fill="none" stroke="#fb923c" strokeWidth="2" />}>
+              The stadium moved the ball
+            </LegendItem>
+          )}
           <LegendItem swatch={(
             <g stroke="#fbbf24" strokeWidth="2">
               <line x1="4" y1="1" x2="16" y2="11" /><line x1="4" y1="11" x2="16" y2="1" />
@@ -518,14 +697,17 @@ export default function TrackerPlayDiagram({
           nothing left the reader hunting for a ball that was never measured. */}
       {!endpoint && (
         <p style={{ margin: '6px 0 0', fontSize: 11, color: '#fbbf24' }}>
-          No measured endpoint for this ball, so no flight and no landing are drawn. The fielders,
-          routes and throws below are still measured.
+          No ball position was measured on this play, so no flight and no landing are drawn. The
+          fielders, routes and throws below are still measured.
         </p>
       )}
       <p className="muted" style={{ margin: '6px 0 0', fontSize: 10 }}>
         Measured fence · fielders at pitch release · 1 unit = 1 m ({FEET_PER_UNIT.toFixed(3)} ft).
         Markers sit exactly where the capture put them; only a crowded LABEL is displaced, on a
-        dashed leader. No dive is drawn: the capture has no signal that distinguishes one.
+        dashed leader. The ball&apos;s line is its own sampled positions, not a line between
+        endpoints; it stops where a glove took it or where the play went dead, and a first touch
+        is the FIELDER&apos;s position, not the ball&apos;s. No dive is drawn: the capture has no
+        signal that distinguishes one.
       </p>
     </div>
   )

@@ -536,9 +536,11 @@
 .tc-selected-result > strong { color: #fde047; font-size: 15px; }
 .tc-selected-actions { display: flex; justify-content: end; gap: 7px; }
 
+/* Interpretation first and widest: it is the column being read. The measured
+   field view corroborates it from the side. */
 .tc-primary-review {
   display: grid;
-  grid-template-columns: minmax(560px, 1.7fr) minmax(350px, 0.78fr);
+  grid-template-columns: minmax(480px, 1.6fr) minmax(320px, 0.85fr);
   gap: 10px;
   align-items: start;
   min-width: 0;
@@ -553,6 +555,7 @@
   margin-bottom: 4px !important;
 }
 
+.tc-review-main,
 .tc-review-sidebar {
   display: grid;
   gap: 10px;
@@ -789,6 +792,10 @@
 
 @media (max-width: 900px) {
   .tc-two-up { grid-template-columns: minmax(0, 1fr); }
+
+  /* Below two usable columns the diagram stacks under the interpretation
+     rather than squeezing it. */
+  .tc-primary-review { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 640px) {

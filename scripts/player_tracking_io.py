@@ -43,7 +43,35 @@ LATE_STATE_FIELDS = [
     # they were identified and what they settle.
     ("swing_frames", 0x900D6A49, "B"),
     ("bunt_frames", 0x900D6A4F, "B"),
+    # The charge behind a swing, which the two counters above cannot distinguish:
+    # a slap and a charge run the same swing animation. The frame counter ticks
+    # up while the charge is held and freezes on release; the meter is that count
+    # over 60, clamped at 1.0, and resets on contact -- so the meter is what ties
+    # a charge to the pitch it was released at. Retroactive like the rest of this
+    # list: the whole state block was always captured, so every session on disk
+    # can be re-derived for slap versus charge without replaying a game. See
+    # STATE_FIELDS in collect_player_tracking.py for how they were identified.
+    ("swing_charge_frames", 0x900D6A59, "B"),
+    ("swing_charge_meter", 0x900D6A3C, ">f"),
     ("laser_throw_flag", 0x900D9AF5, "B"),
+    # Captain star swing; the value names the captain. See STATE_FIELDS in
+    # collect_player_tracking.py.
+    ("star_swing", 0x900D954A, "B"),
+    # Score and hits per team. Retroactive like the rest of this list: these four
+    # were always inside the captured block, they just had no name. "away" is the
+    # team batting in half 0, confirmed by every counter rising only during its
+    # own half-inning.
+    ("away_score", 0x900D5D98, ">H"),
+    ("home_score", 0x900D5DB2, ">H"),
+    ("away_hits", 0x900D5DCD, "B"),
+    ("home_hits", 0x900D5DE7, "B"),
+    # The team star meters, which are NOT retroactive: they sit below where this
+    # project started capturing until 2026-09-25. Listing them here is still
+    # right -- the bounds check in Session.state and SnapshotBuilder.state drops
+    # an address a session never recorded, so an old capture stays silent about
+    # its meters instead of reading a neighbouring byte as one.
+    ("away_star_meter", 0x900D4E24, ">H"),
+    ("home_star_meter", 0x900D4E26, ">H"),
 ]
 
 # Actor fields named after the existing sessions were captured. The raw fielder
@@ -58,6 +86,9 @@ LATE_ACTOR_FIELDS = {
     # re-capture, and the sessions an operator annotated by hand become the
     # test set for it rather than merely the evidence that found it.
     "flower_gas_flag": 0x242,
+    # Night DK Jungle flowers write a separate byte. The full fielder struct
+    # makes this readable retroactively in every MSSTRK02 capture.
+    "flower_gas_night_flag": 0x2CA,
     # Retroactive for the same reason: every session on disk already holds the
     # fielder structs, so naming this makes six parks' knockdowns readable in
     # captures recorded weeks before it was found.
@@ -66,7 +97,73 @@ LATE_ACTOR_FIELDS = {
     # fielder in it, and retroactive for the same reason again. See
     # collect_player_tracking.py for how it was found and what the value means.
     "close_play_flag": 0x246,
+    # The buddy attack, retroactive like the rest of this list: the fielder
+    # structs were always captured whole, so naming it makes every session on
+    # disk report its attacks -- which is what turned the operator's ten
+    # annotated ones into the test set. See collect_player_tracking.py.
+    "buddy_attack_flag": 0x265,
+    "buddy_attack_frames": 0x20B,
+    # Unlike +0x265, which says only that the animation ran, this latches on a
+    # successful contact. It stays zero for an attack that swings at empty air.
+    "buddy_attack_hit_flag": 0x267,
+    # Generic impact-stun state. Daisy Cruiser table causation is assigned by
+    # the deriver only after captain star swings have been excluded.
+    "impact_stun_flag": 0x243,
+    # Burned by a fire star swing -- Mario's fireball or Bowser's breath. See
+    # collect_player_tracking.py; retroactive like everything above.
+    "burned_flag": 0x23E,
+    # THE FIELDER'S OWN SPEED, and the end of measuring it by hand. FIELDER
+    # CLASS ONLY -- see collect_player_tracking.py for why the offense actors
+    # cannot use these and what happens if they try.
+    #
+    # Both are stored per FRAME, not per second, which is the one correction to
+    # the report these came from. Scaled to u/s at the point of use below so
+    # nothing downstream has to remember the factor.
+    "speed": 0x0E4,
+    "max_speed_constant": 0x0F0,
+    # The game's own ground-plane distances: to the live ball, and to where the
+    # ball will first touch down.
+    #
+    # THESE ARE CARRIED, NOT TRUSTED, and nothing derives from them yet. They
+    # are approximately the distances computed from the captured coordinates and
+    # not exactly: over 4.17M frames +0x13C reproduces to 0.05u on 79% of
+    # samples and +0x148 on 52%, and the residual is not explained by which
+    # fielder is nearest the ball or by position. Some of it is a frame of skew
+    # -- matching +0x13C against the PREVIOUS frame's fielder position scores
+    # 79.2% where the current frame scores 72.5%, so the game computes it before
+    # it moves the body -- but that does not account for all of it.
+    #
+    # Until it does, prefer the distance computed from coordinates. These are
+    # here because the bytes are free and a later pass may name what they
+    # actually measure.
+    "ball_distance": 0x13C,
+    "landing_distance": 0x148,
 }
+
+# Where the fielder is steering, as opposed to where it is. This is the field
+# the header has always called `position_b`; the name here says what it does.
+TARGET_POSITION_OFFSET = 0x038
+
+# THE BALL, AT A FIXED ADDRESS. The pointer-resolved feed reads the same ball
+# through BALL_POINTER_SLOT plus a per-stadium coordinate offset that has to be
+# relearned at every stadium load; this address needs neither, and it is inside
+# the captured state region, so every session already on disk carries it.
+#
+# It agrees with the pointer-resolved feed exactly, WITH Z NEGATED, which is why
+# it is passed through the same ball-frame transform as everything else instead
+# of being trusted raw.
+BALL_POSITION_FLAT = 0x900D6B6C
+
+# THE GAME'S OWN FIRST-BOUNCE PREDICTION, as (x, z), written on the contact
+# frame and cleared to (0, 0) while no ball is in flight.
+#
+# Across 61 batted balls in mario_stadium-20260904T213725Z it sits a median
+# 0.14u from the landing the deriver measures from the flight itself. It is NOT
+# redundant with that measurement: it is where the ball WOULD first touch down,
+# so it keeps its value when a fielder catches the ball, when the ball strikes a
+# wall, and on a home run -- the three cases where a measured landing is short
+# by construction. The disagreements are the signal.
+BALL_LANDING_PREDICTION = 0x900D6AC8 + 0x418
 
 
 @dataclass
@@ -148,6 +245,20 @@ class Session:
                 if not chunk:
                     return
 
+    def extra_region(self, frame: Frame, name: str) -> memoryview | None:
+        """The named appended region for one frame, or None for old captures.
+
+        Controller gesture calibration uses this rather than duplicating the
+        packed-buffer arithmetic.  It also makes absence explicit: sessions
+        recorded before Wii Remote structs were added have no such evidence.
+        """
+        cursor = self.state_size
+        for region_name, _, size in self.extra_regions:
+            if region_name == name:
+                return memoryview(frame.block)[cursor:cursor + size]
+            cursor += size
+        return None
+
     # -- accessors ---------------------------------------------------------
 
     def triple(self, frame: Frame, actor: dict, offset: int) -> tuple:
@@ -226,11 +337,48 @@ BARREL_POSITION_LIMIT_UNITS = 1000.0
 # operator watched get floored were described by a fabricated number instead.
 BARREL_ZERO_EPSILON_UNITS = 1e-6
 
+# Peach Ice Garden object layout. New captures carry these values in their own
+# header; the defaults make the first dynamically located session readable
+# after its header address was corrected from slot 1 to the true slot 0.
+FREEZIE_COUNT = 5
+FREEZIE_STRIDE = 0xAC
+FREEZIE_TRANSLATION = (0x0C, 0x1C, 0x2C)
+FREEZIE_ACTIVE_OFFSET = 0x8A
+
+# Wario City placed-prop layout, matching find_arrow_transform_candidates in
+# collect_player_tracking.py: a row-major 3x4 matrix whose translation is the
+# last column, so the three coordinates sit 16 bytes apart exactly as the
+# Freezie's do.
+PROP_TRANSLATION = (0x0C, 0x1C, 0x2C)
+PROP_ACTIVE_OFFSET = 0x8A
+# How much of the struct past the transform to keep beside it. An arrow that
+# has an active or collision byte has it somewhere here; 64 bytes is enough to
+# see one change without turning every snapshot into a hex dump.
+PROP_TAIL_BYTES = 64
+
 # Kept here rather than imported from the collector so the reader does not
 # depend on it -- these are properties of the GAME, and a session that recorded
 # different ones carries them in its own header.
 BARREL_POSITION = 0x92AF5490
 BARREL_CANNONS = ((-39.0, 4.0, -93.5), (39.0, 4.0, -93.5))
+YOSHI_TRAIN_POSITION = 0x811F84DC
+
+# WHERE THE GAME AIMED A THROW, as a position in the actor frame. One frame after
+# release it holds where the ball is going: across 315 throws in five games
+# (2026-09-11) it sat within 0.4u of the arrival on 253, usually on the receiver's
+# own feet and, for a receiver still running, on the spot they will meet it. A
+# throw that lands well away from it is an inaccurate throw -- see
+# THROW_OFF_TARGET_UNITS in derive_player_metrics.py. Inside the state block, so
+# every capture on disk already holds it.
+THROW_AIM_ADDRESS = 0x900D6E60
+# WHERE THE GAME ACTUALLY SENT IT: x at +0 and z at +4, actor frame, 0x50 past
+# the aim point, written on the release frame and held until arrival. The aim
+# point is the receiver; this is the aim point plus whatever error the throw
+# was given, which is the bad-chemistry miss itself. Across the archive all 18
+# off-target throws landed 0.08-0.89u from it, against 1.97-7.69u from the aim
+# point, and 577 of 604 on-target throws landed within 0.35u. Found 2026-09-11
+# by searching the state block around the aim point for each landing spot.
+THROW_DESTINATION_ADDRESS = 0x900D6EB0
 
 
 def dumps_play(record) -> str:
@@ -311,7 +459,12 @@ class SnapshotBuilder:
                  state_fields: list, position_offset: int,
                  ball_frame: dict | None = None, fps: float = 59.94,
                  state_size: int | None = None, extra_regions=(),
-                 barrel_address: int | None = None, barrel_cannons=()):
+                 barrel_address: int | None = None, barrel_cannons=(),
+                 train_address: int | None = None,
+                 freezie_address: int | None = None, freezie_count: int = 0,
+                 freezie_stride: int = 0, freezie_translation=(),
+                 freezie_active_offset: int | None = None,
+                 prop_transforms=(), prop_translation=PROP_TRANSLATION):
         self.state_size = state_size
         self.extra_regions = list(extra_regions)
         self.barrel_cannons = list(barrel_cannons)
@@ -322,6 +475,33 @@ class SnapshotBuilder:
             capture_offset(barrel_address, state_base, state_size,
                            self.extra_regions)
             if barrel_address is not None and state_size is not None else None)
+        self.train_offset = (
+            capture_offset(train_address, state_base, state_size,
+                           self.extra_regions)
+            if train_address is not None and state_size is not None else None)
+        self.freezie_offset = (
+            capture_offset(freezie_address, state_base, state_size,
+                           self.extra_regions)
+            if freezie_address is not None and state_size is not None else None)
+        self.freezie_count = freezie_count
+        self.freezie_stride = freezie_stride
+        self.freezie_translation = tuple(freezie_translation)
+        self.freezie_active_offset = freezie_active_offset
+        # WARIO CITY'S PLACED PROPS. The collector shortlists them by their
+        # 3x4 Y-rotation shape and records the enclosing allocation; this
+        # resolves each one's address into the frame buffer once, so the live
+        # path and the postgame pass read the identical bytes through the
+        # identical code. A prop whose address the session did not capture --
+        # a candidate outside the chosen cluster -- resolves to None and is
+        # dropped, which is the honest answer rather than a zero.
+        self.prop_offsets = []
+        for prop in prop_transforms or ():
+            offset = (capture_offset(prop["address"], state_base, state_size,
+                                     self.extra_regions)
+                      if state_size is not None else None)
+            if offset is not None:
+                self.prop_offsets.append((prop, offset))
+        self.prop_translation = tuple(prop_translation)
         self.state_base = state_base
         self.fps = fps
         self.position_offset = position_offset
@@ -336,8 +516,17 @@ class SnapshotBuilder:
         self.contact_counter_offset = fields["fielding_contact_counter"]
         self.frozen_offset = fields["frozen_flag"]
         self.sprayed_offset = fields.get("flower_gas_flag")
+        self.sprayed_night_offset = fields.get("flower_gas_night_flag")
         self.knockdown_offset = fields.get("knockdown_flag")
         self.close_play_offset = fields.get("close_play_flag")
+        self.buddy_attack_offset = fields.get("buddy_attack_flag")
+        self.buddy_attack_hit_offset = fields.get("buddy_attack_hit_flag")
+        self.impact_stun_offset = fields.get("impact_stun_flag")
+        self.burned_offset = fields.get("burned_flag")
+        self.speed_offset = fields.get("speed")
+        self.max_speed_offset = fields.get("max_speed_constant")
+        self.ball_distance_offset = fields.get("ball_distance")
+        self.landing_distance_offset = fields.get("landing_distance")
         self.frozen_timer_offset = fields["frozen_timer"]
         self.bases_ran_offset = fields["bases_ran"]
         self.stealing_offset = fields["is_stealing"]
@@ -353,8 +542,13 @@ class SnapshotBuilder:
 
     def state(self, block) -> dict:
         out = {}
+        # Bounded by the STATE BLOCK, not by the frame: past state_size the
+        # frame holds the appended extra regions, so an address above the block
+        # would otherwise read some other region's bytes as itself.
+        limit = self.state_size if self.state_size is not None else len(block)
         for name, address, fmt in self.state_fields:
-            if not (self.state_base <= address < self.state_base + len(block)):
+            if not (self.state_base <= address
+                    and address - self.state_base + struct.calcsize(fmt) <= limit):
                 continue
             out[name] = read_state_scalar(block, self.state_base, address, fmt)
         return out
@@ -368,6 +562,45 @@ class SnapshotBuilder:
             "ball": ball,
             "actors": {},
         }
+        # WHERE THE GAME AIMED THE THROW, in the actor frame like every fielder
+        # position. See THROW_AIM_ADDRESS.
+        aim_at = THROW_AIM_ADDRESS - base
+        if self.state_size is not None and 0 <= aim_at <= self.state_size - 12:
+            aim = struct.unpack(">fff", block[aim_at:aim_at + 12])
+            snapshot["throw_aim"] = (self.to_ball_frame(aim)
+                                     if all(math.isfinite(value) for value in aim) else None)
+        # WHERE THE GAME ACTUALLY SENT IT, same frame. See
+        # THROW_DESTINATION_ADDRESS: only x and z are stored, so y reads 0.
+        destination_at = THROW_DESTINATION_ADDRESS - base
+        if self.state_size is not None and 0 <= destination_at <= self.state_size - 8:
+            x, z = struct.unpack(">ff", block[destination_at:destination_at + 8])
+            snapshot["throw_destination"] = (self.to_ball_frame((x, 0.0, z))
+                                             if math.isfinite(x) and math.isfinite(z) else None)
+        # WHERE THE GAME EXPECTS THE BALL TO FIRST TOUCH DOWN, same (x, z)
+        # shape and same frame convention as the throw destination above. See
+        # BALL_LANDING_PREDICTION. (0, 0) means no ball in flight, and is
+        # reported as None rather than as a point behind the plate.
+        landing_at = BALL_LANDING_PREDICTION - base
+        if self.state_size is not None and 0 <= landing_at <= self.state_size - 8:
+            x, z = struct.unpack(">ff", block[landing_at:landing_at + 8])
+            live = (math.isfinite(x) and math.isfinite(z)
+                    and (abs(x) > 1e-6 or abs(z) > 1e-6))
+            snapshot["landing_prediction"] = (
+                self.to_ball_frame((x, 0.0, z)) if live else None)
+        # THE BALL AGAIN, from the fixed address rather than through the
+        # per-stadium pointer offset. Carried beside `ball` rather than
+        # replacing it: the two are checked against each other by
+        # verify_player_metrics.py, and a disagreement means the stadium offset
+        # went stale -- which is the failure this address exists to catch.
+        flat_at = BALL_POSITION_FLAT - base
+        if self.state_size is not None and 0 <= flat_at <= self.state_size - 12:
+            raw = struct.unpack(">fff", block[flat_at:flat_at + 12])
+            # It is stored in the ACTOR frame, like the fielder coordinates and
+            # the throw points above, so it goes through the same transform
+            # rather than through a hand-written sign flip.
+            snapshot["ball_flat"] = (
+                self.to_ball_frame(raw)
+                if all(math.isfinite(value) for value in raw) else None)
         # DK JUNGLE'S BARREL. Present in the snapshot at every park, because
         # the capture is uniform; whether it MEANS anything is the derivation's
         # business. `live` is not a heuristic: the slot holds one of exactly two
@@ -396,6 +629,81 @@ class SnapshotBuilder:
                 "cannon": parked,
             }
 
+        # YOSHI PARK'S TRAIN. This stable MEM1 slot is already in the ball
+        # coordinate frame. Keeping the raw position in the shared snapshot
+        # lets live and postgame causation use the same direct object evidence.
+        if self.train_offset is not None:
+            raw = struct.unpack(
+                ">fff", block[self.train_offset : self.train_offset + 12])
+            plausible = all(math.isfinite(value) and abs(value) <= 1000.0
+                            for value in raw)
+            snapshot["train"] = {
+                "pos": raw if plausible else None,
+                "raw": raw,
+            }
+
+        # PEACH ICE GARDEN'S FIVE FREEZIES. Their transform translations are
+        # already in the ball coordinate frame. +0x8A drops from 1 to 0 on the
+        # frame one breaks; retaining the raw value lets derivation detect the
+        # event before separately attributing it to ball, throw, or buddy attack.
+        if (self.freezie_offset is not None and self.freezie_count
+                and self.freezie_stride and len(self.freezie_translation) == 3
+                and self.freezie_active_offset is not None):
+            snapshot["freezies"] = []
+            for slot in range(self.freezie_count):
+                start = self.freezie_offset + slot * self.freezie_stride
+                raw = tuple(struct.unpack(">f", block[
+                    start + offset:start + offset + 4])[0]
+                    for offset in self.freezie_translation)
+                plausible = all(math.isfinite(value) and abs(value) <= 1000.0
+                                for value in raw)
+                active_raw = block[start + self.freezie_active_offset]
+                snapshot["freezies"].append({
+                    "slot": slot,
+                    "pos": raw if plausible else None,
+                    "active": active_raw == 1,
+                    "active_raw": active_raw,
+                })
+
+        # The props, read raw. NOTHING HERE SAYS THESE ARE ARROWS: the shape
+        # that found them says only "a placed object with a heading", and which
+        # of them Wario City's directional arrows are is settled by matching a
+        # heading against the redirects measured off the ball. The derivation
+        # is what decides that; this only makes the bytes readable identically
+        # from a live frame and from a recorded one.
+        if self.prop_offsets:
+            snapshot["props"] = []
+            for prop, offset in self.prop_offsets:
+                matrix = struct.unpack(">12f", block[offset:offset + 48])
+                raw = tuple(matrix[item // 4] for item in self.prop_translation)
+                plausible = all(math.isfinite(value) and abs(value) <= 1000.0
+                                for value in raw)
+                cosine, sine = matrix[0], matrix[2]
+                snapshot["props"].append({
+                    "address": prop["address"],
+                    "pos": raw if plausible else None,
+                    # The uniform scale separates the classes in one allocation:
+                    # Wario City's arrows are drawn at 1.0 and its manholes at
+                    # 0.7. Carried through rather than re-derived so the live and
+                    # postgame passes cannot classify them differently.
+                    "scale": (round(matrix[5], 5)
+                              if math.isfinite(matrix[5]) else None),
+                    "heading_degrees": (round(math.degrees(math.atan2(sine, cosine)), 4)
+                                        if math.isfinite(sine) and math.isfinite(cosine)
+                                        else None),
+                    # Generic raw byte only. Daisy Cruiser's paired table
+                    # transforms establish that +0x8A is their active flag;
+                    # other parks and unpaired props attach no meaning to it.
+                    "active_raw": (block[offset + PROP_ACTIVE_OFFSET]
+                                   if offset + PROP_ACTIVE_OFFSET < len(block)
+                                   else None),
+                    # Everything between the end of one transform and the start
+                    # of the next is where an active flag or a collision state
+                    # would live. Kept as bytes so a change is visible before
+                    # anybody has named the field it happened in.
+                    "tail": block[offset + 48:offset + 48 + PROP_TAIL_BYTES].hex(),
+                })
+
         for actor in self.actors:
             start = actor["address"] - base
             index = block[start + self.index_offset]
@@ -411,7 +719,17 @@ class SnapshotBuilder:
                 "airborne": 0, "fielding_action": 0, "contact_counter": 0,
                 "catch_type": 0, "buddy_jump": 0, "bases_ran": 0, "stealing": 0,
                 "frozen": 0, "frozen_remaining": 0, "sprayed": 0,
-                "knocked_down": 0, "close_play": 0,
+                "sprayed_night": 0,
+                "knocked_down": 0, "close_play": 0, "buddy_attack": 0,
+                "buddy_attack_hit": 0,
+                "impact_stun": 0,
+                "burned": 0,
+                # Fielder class only; see below. None rather than 0 so that "the
+                # game did not tell us" never reads as "standing still".
+                "speed": None,
+                "max_speed": None,
+                "ball_distance": None,
+                "landing_distance": None,
             }
             # The two actor classes are different sizes and share only their
             # header fields. Reading a fielder-class flag out of a 468-byte
@@ -426,10 +744,40 @@ class SnapshotBuilder:
                 entry["frozen_remaining"] = block[start + self.frozen_timer_offset]
                 if self.sprayed_offset is not None:
                     entry["sprayed"] = block[start + self.sprayed_offset]
+                if self.sprayed_night_offset is not None:
+                    entry["sprayed_night"] = block[start + self.sprayed_night_offset]
                 if self.knockdown_offset is not None:
                     entry["knocked_down"] = block[start + self.knockdown_offset]
                 if self.close_play_offset is not None:
                     entry["close_play"] = block[start + self.close_play_offset]
+                if self.buddy_attack_offset is not None:
+                    entry["buddy_attack"] = block[start + self.buddy_attack_offset]
+                if self.buddy_attack_hit_offset is not None:
+                    entry["buddy_attack_hit"] = block[
+                        start + self.buddy_attack_hit_offset]
+                if self.impact_stun_offset is not None:
+                    entry["impact_stun"] = block[start + self.impact_stun_offset]
+                if self.burned_offset is not None:
+                    entry["burned"] = block[start + self.burned_offset]
+                # Stored per frame; published per second, because every other
+                # speed in this pipeline is u/s and a mixed unit in one dict is
+                # a bug waiting to be written.
+                if self.speed_offset is not None:
+                    at = start + self.speed_offset
+                    entry["speed"] = struct.unpack(
+                        ">f", block[at : at + 4])[0] * self.fps
+                if self.max_speed_offset is not None:
+                    at = start + self.max_speed_offset
+                    entry["max_speed"] = struct.unpack(
+                        ">f", block[at : at + 4])[0] * 15 * self.fps
+                if self.ball_distance_offset is not None:
+                    at = start + self.ball_distance_offset
+                    entry["ball_distance"] = struct.unpack(
+                        ">f", block[at : at + 4])[0]
+                if self.landing_distance_offset is not None:
+                    at = start + self.landing_distance_offset
+                    entry["landing_distance"] = struct.unpack(
+                        ">f", block[at : at + 4])[0]
             else:
                 entry["bases_ran"] = block[start + self.bases_ran_offset]
                 entry["stealing"] = block[start + self.stealing_offset]
@@ -459,4 +807,22 @@ def session_snapshot_builder(session: "Session", position_offset: int,
         barrel_address=session.header.get("barrel_position", BARREL_POSITION),
         barrel_cannons=[tuple(c) for c in
                         session.header.get("barrel_cannons", BARREL_CANNONS)],
+        # Absent on old captures, whose frame buffers never held this address.
+        train_address=session.header.get("yoshi_train_position"),
+        freezie_address=session.header.get("freezie_array"),
+        freezie_count=session.header.get("freezie_count", FREEZIE_COUNT),
+        freezie_stride=session.header.get("freezie_stride", FREEZIE_STRIDE),
+        freezie_translation=session.header.get(
+            "freezie_translation", FREEZIE_TRANSLATION),
+        freezie_active_offset=session.header.get(
+            "freezie_active_offset", FREEZIE_ACTIVE_OFFSET),
+        # Only the cluster the session actually recorded. The wider candidate
+        # list is in the header too, but its addresses were never captured, so
+        # reading them back would be reading whatever else landed at that
+        # offset -- see BARREL_ZERO_EPSILON_UNITS for how that goes.
+        prop_transforms=(session.header.get("prop_cluster")
+                         or session.header.get("arrow_cluster") or ()),
+        prop_translation=tuple(session.header.get(
+            "prop_translation",
+            session.header.get("arrow_translation", PROP_TRANSLATION))),
     )

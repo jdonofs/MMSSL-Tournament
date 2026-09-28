@@ -29,6 +29,7 @@ from pathlib import Path
 import collect_player_tracking as collector
 import player_tracking_io as io
 import derive_player_metrics as derive
+import replay_player_tracking as replay_session
 from derive_player_metrics import (
     FAIR_CAUGHT_FLAG,
     FIELDING_ACTION_FORCED,
@@ -407,6 +408,59 @@ def close(actual, expected, tolerance, label, failures):
         print(f"  OK  {label:<34} {actual:8.4f}  (expected {expected:.4f})")
 
 
+def verify_flat_ball_address(failures: list) -> None:
+    """The fixed ball address must agree with the pointer-resolved feed.
+
+    WHY THIS CHECK EXISTS RATHER THAN A SWITCH. The live feed reads the ball
+    through BALL_POINTER_SLOT plus a coordinate offset chosen per stadium load,
+    and when that offset goes stale it does not error -- it writes zeroes, for a
+    whole session, silently. io.BALL_POSITION_FLAT needs no offset and no
+    pointer, so it can retire that whole failure mode, but it may only do so
+    once it has been shown to agree at every park rather than at the one it was
+    found on.
+
+    It does: over 4.17M frames across 66 sessions and 10 parks it matches the
+    pointer feed with z negated on 99.991% of frames, never matches without the
+    negation, and fails to match on 0.009%. This walks a couple of sessions so
+    that a regression in either feed is caught here instead of in a game.
+    """
+    data = SCRIPTS.parent / "data" / "player_tracking"
+    stems = ["mario_stadium-20260826T171346Z", "daisy_cruiser-20260826T185635Z"]
+    agree = disagree = 0
+    for stem in stems:
+        if not (data / f"{stem}.bin").exists():
+            continue
+        session = io.Session(data / stem)
+        base = session.state_base
+        flat_at = io.BALL_POSITION_FLAT - base
+        for index, frame in enumerate(session.frames()):
+            if index >= 4000:
+                break
+            raw = struct.unpack(
+                ">fff", frame.block[flat_at:flat_at + 12])
+            pointer = frame.ball
+            if not any(abs(v) > 1e-6 for v in pointer):
+                continue
+            if (abs(raw[0] - pointer[0]) < 0.01
+                    and abs(raw[1] - pointer[1]) < 0.01
+                    and abs(raw[2] + pointer[2]) < 0.01):
+                agree += 1
+            else:
+                disagree += 1
+    total = agree + disagree
+    if not total:
+        print(f"  --  {'flat ball address':<34} no sessions on disk")
+        return
+    rate = agree / total
+    if rate < 0.99:
+        failures.append(
+            f"the fixed ball address 0x{io.BALL_POSITION_FLAT:08X} agreed with "
+            f"the pointer-resolved feed on only {rate:.3%} of {total} frames")
+    else:
+        print(f"  OK  {'flat ball address vs pointer feed':<34} "
+              f"{rate:.3%} of {total} frames, z negated")
+
+
 def verify_real_archive(failures: list) -> None:
     """Pin the labelled real-session contact classifications and play counts."""
     data = SCRIPTS.parent / "data" / "player_tracking"
@@ -562,11 +616,25 @@ def verify_capture_round_trip(failures: list) -> None:
     frame, and the synthetic session elsewhere in this file still writes the old
     single-region shape -- so nothing was actually exercising the new format. A
     bug in it does not fail loudly; it costs a whole recorded game.
+
+    THE REGION ORDER IS PART OF THE FORMAT. Every region is found by counting
+    past the ones before it, so appending one moves nothing and inserting one
+    moves everything after it. This check caught exactly that when the Freezie
+    region was added, and it is why the offsets here are computed rather than
+    written down.
     """
     import tempfile
     import zlib
-    barrel_offset = collector.CAPTURE_SIZE - 0x200 + (
-        collector.BARREL_POSITION - 0x92AF5400)
+    # Via the reader's own helper, not arithmetic that assumes the barrel's
+    # region is the last one. It was, until Peach's Freezies were appended after
+    # it, and the hardcoded version then wrote the barrel into the wrong region
+    # and reported 40 parked barrels out of 40.
+    barrel_offset = io.capture_offset(
+        collector.BARREL_POSITION, collector.STATE_BASE, collector.STATE_SIZE,
+        collector.EXTRA_REGIONS)
+    train_offset = io.capture_offset(
+        collector.YOSHI_TRAIN_POSITION, collector.STATE_BASE, collector.STATE_SIZE,
+        collector.EXTRA_REGIONS)
     with tempfile.TemporaryDirectory() as tmp:
         stem = Path(tmp) / "dk_jungle-ROUNDTRIP"
         actors = {
@@ -586,6 +654,7 @@ def verify_capture_round_trip(failures: list) -> None:
             "capture_size": collector.CAPTURE_SIZE,
             "barrel_position": collector.BARREL_POSITION,
             "barrel_cannons": [list(c) for c in collector.BARREL_CANNONS],
+            "yoshi_train_position": collector.YOSHI_TRAIN_POSITION,
             "actor_fields": collector.ACTOR_FIELDS,
             "state_fields": [[n, a, f] for n, a, f in collector.STATE_FIELDS],
             "actors": actors,
@@ -599,6 +668,9 @@ def verify_capture_round_trip(failures: list) -> None:
                 position = (collector.BARREL_CANNONS[0] if i < 10
                             else (-30.0 + i * 1.5, 1.8, -70.0))
                 block[barrel_offset:barrel_offset + 12] = struct.pack(">fff", *position)
+                train_position = (-40.0 + i, 0.0, -90.0)
+                block[train_offset:train_offset + 12] = struct.pack(
+                    ">fff", *train_position)
                 delta = bytes(a ^ b for a, b in zip(block, previous))
                 previous = bytes(block)
                 record = (struct.pack(">IdI", 1000 + i, i / 60, 0x8000)
@@ -617,8 +689,14 @@ def verify_capture_round_trip(failures: list) -> None:
                     f"expected {collector.CAPTURE_SIZE}")
                 return
             barrel = builder.build(frame.timer, frame.ball, frame.block).get("barrel")
+            train = builder.build(frame.timer, frame.ball, frame.block).get("train")
             if barrel is None:
                 failures.append("capture round trip: no barrel in the snapshot")
+                return
+            expected_train = (-40.0 + (frame.timer - 1000), 0.0, -90.0)
+            if train is None or tuple(train.get("pos") or ()) != expected_train:
+                failures.append(
+                    f"capture round trip: train position {train} != {expected_train}")
                 return
             live, parked = (live + 1, parked) if barrel["live"] else (live, parked + 1)
         if (parked, live) != (10, 30):
@@ -626,7 +704,7 @@ def verify_capture_round_trip(failures: list) -> None:
                 f"capture round trip: expected 10 parked / 30 live, got {parked}/{live}")
         else:
             print(f"  OK  {'capture format round trip':<34} "
-                  f"{collector.CAPTURE_SIZE} B/frame, barrel readable")
+                  f"{collector.CAPTURE_SIZE} B/frame, barrel + train readable")
 
 
 def verify_knockdown_flag(failures: list) -> None:
@@ -646,11 +724,20 @@ def verify_knockdown_flag(failures: list) -> None:
     only a park hazard -- Wario's Phony Swing plants a bomb in the ball, and it
     floors whoever fields it.
 
-    So the control is now the sharper claim, over every Mario Stadium session on
-    disk rather than one: at the one park with no gimmicks at all, the flag
-    fires ONLY inside a Wario plate appearance. That still says the flag is not
-    noise -- it fires for a named cause and for nothing else in hundreds of
-    plays -- and unlike the old version it cannot pass by accident.
+    ...AND "ONLY WARIO" WAS THE SAME MISTAKE ONE STEP LATER. Wario was simply
+    the only captain batting in the session the rule was written against. Every
+    captain's star swing floors fielders -- Jason names Birdo, DK and Bowser Jr.
+    among them -- and on 2026-09-22 Luigi's swing floored Kritter at second in
+    game 2947, which the Wario rule read as an unexplained onset at a park that
+    cannot produce one.
+
+    So the control is the claim underneath both versions, over every Mario
+    Stadium session on disk: at the one park with no gimmicks at all, every
+    onset falls inside a plate appearance whose BATTER IS THE CAPTAIN THE GAME'S
+    OWN FLAG NAMES. That is stronger than either predecessor -- it ties the raw
+    byte to the derived attribution rather than to a cast list -- and it says
+    the flag is not noise, because a noise onset lands between plays or under a
+    batter who never swung.
     """
     def onsets(name, offset=0x23F):
         stem = Path("data/player_tracking") / name
@@ -689,8 +776,9 @@ def verify_knockdown_flag(failures: list) -> None:
               f"{len(inside)}/{total} onsets inside both windows")
 
     data = Path("data/player_tracking")
-    fired = charged_to_wario = plays_seen = sessions_seen = 0
+    fired = charged_to_captain = plays_seen = sessions_seen = 0
     stray = []
+    captains = set()
     for path in sorted(data.glob("mario_stadium-*.plays.jsonl")):
         stem = path.name[: -len(".plays.jsonl")]
         control = onsets(stem)
@@ -702,32 +790,1102 @@ def verify_knockdown_flag(failures: list) -> None:
         # The plate appearance an onset falls in. `dead_ball_timer` closes the
         # play, so a flag raised between plays belongs to neither and shows up
         # as a stray, which is what a noise flag would look like.
-        windows = [(play["contact_timer"], play.get("dead_ball_timer"), play.get("batter"))
+        windows = [(play["contact_timer"], play.get("dead_ball_timer"), play.get("batter"), play)
                    for play in plays if play.get("contact_timer") is not None]
-        for timers in control.values():
+        for who, timers in control.items():
             for timer in timers:
                 fired += 1
-                batter = next((who for start, end, who in windows
-                               if end is not None and start <= timer <= end), None)
-                if batter == "Wario":
-                    charged_to_wario += 1
+                window = next((w for w in windows
+                               if w[1] is not None and w[0] <= timer <= w[1]), None)
+                batter = window[2] if window else None
+                # The derived record for THIS onset -- same fielder, same frame
+                # -- and the captain its star-swing flag names. An onset the
+                # derivation left unnamed is a stray too: the park has nothing
+                # else that floors a fielder, so a nameless one is a cause
+                # nobody has found yet.
+                record = next((entry for entry in (window[3].get("knockdowns") or [])
+                               if entry.get("by") == who and entry.get("frame") == timer),
+                              None) if window else None
+                captain = record.get("star_swing_captain") if record else None
+                if captain is not None and batter == captain:
+                    charged_to_captain += 1
+                    captains.add(captain)
                 else:
-                    stray.append((stem, timer, batter))
+                    stray.append((stem, timer, batter, captain))
     if not sessions_seen:
         return
     if not fired:
         failures.append(
-            "knockdown control: no Mario Stadium session on disk fires the flag at "
-            "all, so the control proves nothing -- it needs a session with Wario in it")
+            "knockdown control: no Mario Stadium session on disk fires the flag at all, "
+            "so the control proves nothing -- it needs a session with a captain star swing")
     elif stray:
-        detail = ", ".join(f"{stem}@{timer} ({who or 'between plays'})"
-                           for stem, timer, who in stray[:4])
+        detail = ", ".join(
+            f"{stem}@{timer} (batter {who or 'between plays'}, flag names {captain or 'nobody'})"
+            for stem, timer, who, captain in stray[:4])
         failures.append(
-            f"knockdown flag fired {len(stray)} times at Mario Stadium outside a Wario "
-            f"plate appearance, and the park has no gimmicks: {detail}")
+            f"knockdown flag fired {len(stray)} times at Mario Stadium where the batter is "
+            f"not the captain the flag names, and the park has no gimmicks: {detail}")
     else:
-        print(f"  OK  {'knockdown control: Wario bomb only':<34} "
-              f"{charged_to_wario}/{fired} onsets in Wario PAs, {plays_seen} plays")
+        print(f"  OK  {'knockdown control: batter is captain':<34} "
+              f"{charged_to_captain}/{fired} onsets, {len(captains)} captains "
+              f"({', '.join(sorted(captains))}), {plays_seen} plays")
+
+    # AND NOW THE CAUSE IS NAMED, not merely implied by who was batting. Wario's
+    # bomb is his captain star swing, and the game's own flag (0x900D954A) says
+    # so on the play. A park with no gimmicks has nothing else that floors a
+    # fielder, so every knockdown recorded there has to come out named
+    # star_swing -- one that does not is either a missed flag or a second cause
+    # nobody has found, and both are worth failing on.
+    knocks = named_star = 0
+    unnamed = []
+    for path in sorted(data.glob("mario_stadium-*.plays.jsonl")):
+        for line in path.read_text().splitlines():
+            if not line.strip():
+                continue
+            play = json.loads(line)
+            for knock in play.get("knockdowns") or []:
+                knocks += 1
+                if knock.get("hazard") == "star_swing":
+                    named_star += 1
+                else:
+                    unnamed.append((path.name[: -len(".plays.jsonl")],
+                                    play.get("contact_timer"), play.get("batter")))
+    if unnamed:
+        detail = ", ".join(f"{stem}@{timer} ({who})" for stem, timer, who in unnamed[:4])
+        failures.append(
+            f"{len(unnamed)} of {knocks} Mario Stadium knockdowns are not named as a "
+            f"star swing, at a park with no other cause: {detail}")
+    elif knocks:
+        print(f"  OK  {'knockdown cause: star swing':<34} "
+              f"{named_star}/{knocks} Mario Stadium knockdowns named from the flag")
+
+
+def verify_arrow_redirects(failures: list) -> None:
+    """Wario City arrow redirects against the operator's own annotations.
+
+    THE GROUND TRUTH IS THE PROSE, not a threshold. An annotation whose note
+    says the ball hit an arrow is a positive; a detection in a session with no
+    such note anywhere near it is a false positive to be explained, not
+    averaged away. Four sessions, two variants, 23 labelled events.
+    """
+    data = Path("data/player_tracking")
+    found = missed = extra = 0
+    per_session = []
+    for header_path in sorted(data.glob("wario_city-*.json")):
+        stem = header_path.name[: -len(".json")]
+        plays_path = data / f"{stem}.plays.jsonl"
+        notes_path = data / f"{stem}.annotations.jsonl"
+        if not plays_path.exists() or not notes_path.exists():
+            continue
+        # A CONTROL SAYS THE ARROW DID NOTHING, which is the opposite of what
+        # this list is for. Matching on the word "arrow" alone counted the
+        # 2026-09-10 controls as redirects that went undetected and failed the
+        # whole check -- a label asserting "no redirect here" was being read as
+        # "a redirect here". Structured labels are honoured where they exist;
+        # prose still falls back to the word, which is all the older sessions
+        # have.
+        labelled = []
+        controls = []
+        for line in notes_path.read_text(encoding="utf8").splitlines():
+            if not line.strip():
+                continue
+            note = json.loads(line)
+            timer = note.get("play_contact_timer")
+            if timer is None:
+                continue
+            event = note.get("stadium_event") or {}
+            objective = (event.get("objective_id") or "").lower()
+            if objective:
+                if objective not in ("directional_arrow_redirect", "arrow_redirect"):
+                    continue
+                (controls if event.get("is_control") else labelled).append(timer)
+            elif "arrow" in (note.get("note") or "").lower():
+                labelled.append(timer)
+        plays = [json.loads(line) for line in
+                 plays_path.read_text(encoding="utf8").splitlines() if line.strip()]
+        detected = [(play.get("contact_timer"), redirect)
+                    for play in plays
+                    for redirect in (play.get("arrow_redirects") or [])]
+        hit = sum(1 for timer in labelled
+                  if any(0 <= frame - timer <= 900 for frame, _ in
+                         [(r["frame"], r) for _, r in detected]))
+        # AN UNANNOTATED DETECTION IS NOT AUTOMATICALLY A FALSE POSITIVE, and
+        # treating it as one was wrong: once the operator was satisfied the
+        # arrows worked he stopped writing them down, and 2026-09-10 flagged one
+        # of its five. What makes a detection sound is EVIDENCE, and there are
+        # two independent kinds -- the operator's note, and the object itself.
+        # A redirect matched to a captured arrow has had its bearing checked
+        # against that arrow's own heading to within half a degree at 2-5 units,
+        # which is a stronger statement than a human remembering to type.
+        #
+        # So a detection has to carry one or the other. One carrying NEITHER is
+        # the real failure, and this still catches it.
+        unexplained = [r for _, r in detected
+                       if not any(0 <= r["frame"] - timer <= 900 for timer in labelled)
+                       and not r.get("arrow")]
+        corroborated = sum(1 for _, r in detected
+                           if r.get("arrow")
+                           and not any(0 <= r["frame"] - timer <= 900 for timer in labelled))
+        # And a control has to hold: a labelled "the arrow did not fire here"
+        # play with a detected redirect on it means one of the two is wrong.
+        # ON THAT PLAY, not within 900 frames of it. The loose window is there
+        # because an operator annotates a redirect some seconds after seeing it;
+        # a control carries the play's own contact timer, and 900 frames is 15
+        # seconds, which reaches into the NEXT plate appearance -- it flagged
+        # contact 64978 against a redirect belonging to the play after it.
+        for timer in controls:
+            if any(contact == timer for contact, _ in detected):
+                failures.append(
+                    f"{stem}: contact {timer} is labelled as an arrow CONTROL "
+                    "but a redirect was detected on that play")
+        found += hit
+        missed += len(labelled) - hit
+        extra += len(unexplained)
+        per_session.append(f"{stem[11:19]} {hit}/{len(labelled)}"
+                           + (f"+{corroborated}obj" if corroborated else ""))
+        for redirect in unexplained:
+            failures.append(
+                f"{stem}: arrow redirect detected at frame {redirect['frame']} "
+                "with neither an operator annotation nor a matching arrow object")
+    if not per_session:
+        print(f"  OK  {'arrow redirects':<34} no derived Wario City sessions")
+        return
+    # 22 of 23. The 23rd is 20260902 PA55, whose own note says a buddy attack
+    # took the ball before it got away: zero frames of outgoing travel, so
+    # there is no outgoing direction to measure. See ARROW_HOLD_FRAMES.
+    if missed > 1:
+        failures.append(
+            f"{missed} annotated Wario City arrow redirects were not detected "
+            f"(expected at most 1, the zero-travel one) -- {' '.join(per_session)}")
+    elif extra:
+        failures.append(f"{extra} arrow redirects with no evidence of any kind")
+    else:
+        print(f"  OK  {'arrow redirects vs annotations':<34} "
+              f"{found}/{found + missed} labelled, 0 unexplained  "
+              + " ".join(per_session))
+
+
+def verify_arrow_night_multiplier(failures: list) -> None:
+    """The night arrow is exactly 2.25x the day one, and both are measured."""
+    day = derive.arrow_imposed_step_units(False)
+    night = derive.arrow_imposed_step_units(True)
+    if abs(night / day - 2.25) > 1e-9:
+        failures.append(f"night/day imposed step is {night / day}, expected 2.25")
+        return
+    data = Path("data/player_tracking")
+    seen = {"day": [], "night": []}
+    for header_path in sorted(data.glob("wario_city-*.json")):
+        stem = header_path.name[: -len(".json")]
+        plays_path = data / f"{stem}.plays.jsonl"
+        if not plays_path.exists():
+            continue
+        header = json.loads(header_path.read_text())
+        variant = "night" if header.get("is_night") else "day"
+        for line in plays_path.read_text(encoding="utf8").splitlines():
+            if not line.strip():
+                continue
+            for redirect in (json.loads(line).get("arrow_redirects") or []):
+                seen[variant].append(redirect["imposed_step_units"])
+    for variant, target in (("day", day), ("night", night)):
+        for value in seen[variant]:
+            if abs(value - target) > derive.ARROW_STEP_TOLERANCE_UNITS:
+                failures.append(
+                    f"a {variant} redirect imposed {value} u/frame, "
+                    f"outside {target} +- {derive.ARROW_STEP_TOLERANCE_UNITS}")
+                return
+    if not seen["day"] or not seen["night"]:
+        print(f"  OK  {'arrow night multiplier':<34} "
+              f"2.25x (only one variant derived)")
+        return
+    print(f"  OK  {'arrow night multiplier':<34} "
+          f"2.25x exactly; {len(seen['day'])} day + {len(seen['night'])} night "
+          f"redirects all on their variant's constant")
+
+
+def verify_arrow_park_gate(failures: list) -> None:
+    """No other park produces a redirect, whatever its ball does."""
+    data = Path("data/player_tracking")
+    strays = []
+    checked = 0
+    for plays_path in sorted(data.glob("*.plays.jsonl")):
+        if plays_path.name.startswith("wario_city-"):
+            continue
+        checked += 1
+        for line in plays_path.read_text(encoding="utf8").splitlines():
+            if not line.strip():
+                continue
+            play = json.loads(line)
+            if play.get("arrow_redirects"):
+                strays.append(f"{plays_path.name} contact {play.get('contact_timer')}")
+    if strays:
+        failures.append("arrow redirects reported outside Wario City: "
+                        + ", ".join(strays[:5]))
+    else:
+        print(f"  OK  {'arrow gate: Wario City only':<34} "
+              f"0 redirects across {checked} other sessions")
+
+
+def verify_manhole_attribution(failures: list) -> None:
+    """Every Wario City knockdown is on a manhole; no other park names one.
+
+    THE CONTROL IS THE POINT. A fielder standing on a manhole is not knocked
+    down -- the operator's account is that it only erupts on some plays -- so
+    this measures whether the FLOORED ones are on a manhole, never whether being
+    near one predicts anything.
+    """
+    data = Path("data/player_tracking")
+    wario_total = wario_named = 0
+    distances = []
+    unnamed_distances = []
+    star_named = 0
+    strays = []
+    for plays_path in sorted(data.glob("*.plays.jsonl")):
+        wario = plays_path.name.startswith("wario_city-")
+        for line in plays_path.read_text(encoding="utf8").splitlines():
+            if not line.strip():
+                continue
+            for knock in (json.loads(line).get("knockdowns") or []):
+                named = knock.get("hazard") == "manhole_water"
+                if wario:
+                    wario_total += 1
+                    wario_named += named
+                    if named:
+                        distances.append(knock["manhole_distance_units"])
+                    elif knock.get("hazard") == "star_swing":
+                        # Named by its own evidence -- the captain star-swing
+                        # flag -- so how far it sat from a manhole says nothing
+                        # about the manhole radius.
+                        star_named += 1
+                    elif knock.get("manhole_distance_units") is not None:
+                        unnamed_distances.append(knock["manhole_distance_units"])
+                elif named:
+                    strays.append(plays_path.name)
+    if strays:
+        failures.append("manhole named outside Wario City: "
+                        + ", ".join(sorted(set(strays))[:4]))
+        return
+    if not wario_total:
+        print(f"  OK  {'manhole attribution':<34} no derived Wario City sessions")
+        return
+    # NOT EVERY WARIO CITY KNOCKDOWN IS A MANHOLE, and asserting so was wrong.
+    # The 2026-09-10 game floored three fielders with the ball 3.4-3.9u UP and
+    # never touched -- all three on Luigi plate appearances, while 29 closer
+    # passes by other batters floored nobody. They sit 29-35u from any manhole.
+    #
+    # So the claim this check can actually make is about the GAP: a knockdown
+    # the radius declined must be nowhere near a manhole. One landing just
+    # outside the radius would mean the radius is wrong, and that is the thing
+    # worth failing on -- not the existence of a second cause.
+    margin = 2 * derive.MANHOLE_KNOCKDOWN_RADIUS_UNITS
+    borderline = [d for d in unnamed_distances if d <= margin]
+    if borderline:
+        failures.append(
+            f"{len(borderline)} Wario City knockdown(s) went unattributed while sitting "
+            f"within {margin:.0f}u of a manhole ({min(borderline):.2f}u closest) -- "
+            "the attribution radius may be wrong")
+        return
+    print(f"  OK  {'manhole attribution':<34} {wario_named}/{wario_total} Wario "
+          f"knockdowns on a manhole ({min(distances):.2f}-{max(distances):.2f}u), "
+          f"0 named elsewhere"
+          + (f"; {star_named} captain star swing" if star_named else "")
+          + (f"; {len(unnamed_distances)} unnamed at {min(unnamed_distances):.0f}-"
+             f"{max(unnamed_distances):.0f}u" if unnamed_distances else ""))
+
+
+def verify_yoshi_pipes(failures: list) -> None:
+    """Yoshi Park's reviewed pipe transits and stuns, with nothing elsewhere.
+
+    The transits are the operator's own, 08-31T03 PA1 ("the pirhanna plant in the
+    pipe ate the ball and brought it to a new pipe") and PA28. The stuns are the
+    09-11 left fielder's dive and Petey Piranha walking into the right-centre
+    pipe with the ball. The 09-11T19 transit was not annotated, but the operator
+    reviewed that test and confirmed unannotated train/pipe detections were real.
+    """
+    data = Path("data/player_tracking")
+    expected_transits = {
+        ("yoshi_park-20260831T031212Z", 1652): ("right_centre", "left_centre"),
+        ("yoshi_park-20260831T031212Z", 28773): ("right_field_line", "third_base_foul"),
+        ("yoshi_park-20260911T193733Z", 120753): ("right_centre", "first_base_foul"),
+        # Day pipe: held beside the LF-line pipe, carried in a perfectly
+        # straight 43-frame run, then emitted beside the RF-line pipe.
+        ("yoshi_park-20260911T203017Z", 25233): ("left_field_line", "right_field_line"),
+        # The confirmed night capture: the plant carried the ball from right
+        # centre and spat it beside third, flooring the waiting third baseman.
+        ("yoshi_park-20260912T143842Z", 23645): ("right_centre", "third_base_foul"),
+    }
+    expected_stuns = {
+        ("yoshi_park-20260911T164801Z", 64054): ("LF", "left_field_line", True),
+        ("yoshi_park-20260831T134815Z", 2385): ("RF", "right_centre", False),
+        # Both carry the same 1.5s impact-stun flag at a surveyed pipe: King
+        # Boo ran into right-centre, then later dove into the RF-line pipe.
+        ("yoshi_park-20260911T203017Z", 51857): ("RF", "right_centre", False),
+        ("yoshi_park-20260911T203017Z", 70095): ("RF", "right_field_line", True),
+    }
+    transits, stuns, strays = {}, {}, []
+    for plays_path in sorted(data.glob("*.plays.jsonl")):
+        stem = plays_path.name[: -len(".plays.jsonl")]
+        for line in plays_path.read_text(encoding="utf8").splitlines():
+            if not line.strip():
+                continue
+            play = json.loads(line)
+            for transit in play.get("pipe_transits") or []:
+                transits[(stem, play["contact_timer"])] = (
+                    transit["entry_pipe"], transit["exit_pipe"])
+            for stun in play.get("pipe_stuns") or []:
+                stuns[(stem, stun["frame"])] = (stun["by"], stun["pipe"], stun["dive"])
+            if not stem.startswith("yoshi_park-") and (
+                    play.get("pipe_transits") or play.get("pipe_stuns")):
+                strays.append(stem)
+    if strays:
+        failures.append("pipe event outside Yoshi Park: " + ", ".join(sorted(set(strays))[:4]))
+        return
+    derived = {path.name[: -len(".plays.jsonl")] for path in data.glob("yoshi_park-*.plays.jsonl")}
+    for label, expected, found in (("transit", expected_transits, transits),
+                                   ("stun", expected_stuns, stuns)):
+        wanted = {key: value for key, value in expected.items() if key[0] in derived}
+        if found != wanted:
+            missing = {k: v for k, v in wanted.items() if found.get(k) != v}
+            extra = {k: v for k, v in found.items() if wanted.get(k) != v}
+            failures.append(f"pipe {label}s: missing {missing}, unexpected {extra}")
+            return
+    print(f"  OK  {'yoshi pipes':<34} {len(transits)} transit(s), {len(stuns)} pipe "
+          f"stun(s) across {len(derived)} derived Yoshi Park session(s), 0 elsewhere")
+
+
+def verify_yoshi_piranha_knockdowns(failures: list) -> None:
+    """All three reviewed plant hits are named, with every other play a control."""
+    expected = {
+        ("yoshi_park-20260831T031212Z", 1834): ("RF", "eat", "right_centre"),
+        ("yoshi_park-20260831T031212Z", 1974): ("LF", "spit", "left_centre"),
+        ("yoshi_park-20260912T143842Z", 23967): ("3B", "spit", "third_base_foul"),
+    }
+    found, strays = {}, []
+    for stem, plays in _plays_by_stem().items():
+        for play in plays:
+            for knock in play.get("knockdowns") or []:
+                if knock.get("hazard") != "piranha_plant":
+                    continue
+                if not stem.startswith("yoshi_park-"):
+                    strays.append((stem, knock.get("frame")))
+                found[(stem, knock["frame"])] = (
+                    knock["by"], knock.get("piranha_phase"), knock.get("pipe"))
+    if strays:
+        failures.append(f"Piranha Plant knockdown outside Yoshi Park: {strays[:4]}")
+        return
+    derived = set(_plays_by_stem("yoshi_park-"))
+    wanted = {key: value for key, value in expected.items() if key[0] in derived}
+    if found != wanted:
+        missing = {key: value for key, value in wanted.items() if found.get(key) != value}
+        extra = {key: value for key, value in found.items() if wanted.get(key) != value}
+        failures.append(f"Piranha Plant knockdowns: missing {missing}, unexpected {extra}")
+        return
+    distances = [
+        knock["ball_distance_units"]
+        for plays in _plays_by_stem("yoshi_park-").values()
+        for play in plays for knock in play.get("knockdowns") or []
+        if knock.get("hazard") == "piranha_plant"
+    ]
+    print(f"  OK  {'yoshi Piranha knockdowns':<34} {len(found)}/{len(wanted)} reviewed hits "
+          f"at {min(distances):.2f}-{max(distances):.2f}u from the held ball, 0 extras")
+
+
+def _plays_by_stem(prefix: str = "") -> dict:
+    data = Path("data/player_tracking")
+    out = {}
+    for plays_path in sorted(data.glob(f"{prefix}*.plays.jsonl")):
+        out[plays_path.name[: -len(".plays.jsonl")]] = [
+            json.loads(line) for line in plays_path.read_text(encoding="utf8").splitlines()
+            if line.strip()]
+    return out
+
+
+def verify_throw_aim(failures: list) -> None:
+    """An inaccurate throw lands away from the game's own aim point.
+
+    The five annotated bad-chemistry throws must all be off target. The control
+    is Wario to King K. Rool (bowser_jr_playroom 08-28 contact 332152): K. Rool
+    was 2.2u off home, so `receiver_pulled_off_base` fires, but the ball landed
+    0.06u from where it was aimed -- he was not on the plate, the throw was fine.
+    """
+    annotated = {
+        ("yoshi_park-20260911T164801Z", 19244, 1), ("yoshi_park-20260830T235406Z", 31720, 2),
+        ("yoshi_park-20260831T140742Z", 43701, 2), ("bowser_jr_playroom-20260828T155225Z", 239226, 1),
+        ("bowser_castle-20260828T182145Z", 57618, 2),
+    }
+    control = ("bowser_jr_playroom-20260828T155225Z", 332152, 2)
+    throws, total = {}, 0
+    for stem, plays in _plays_by_stem().items():
+        for play in plays:
+            for throw in play.get("throws") or []:
+                if "off_target" not in throw:
+                    continue
+                throws[(stem, play["contact_timer"], throw["sequence"])] = throw
+                total += bool(throw["off_target"])
+    judged = [key for key in annotated if key in throws]
+    if not judged:
+        print(f"  OK  {'throw aim point':<34} no session derived with aim points yet")
+        return
+    missed = [key for key in judged if not throws[key]["off_target"]]
+    if missed:
+        failures.append(f"annotated inaccurate throws not off target: {missed}")
+        return
+    if control in throws and throws[control]["off_target"]:
+        failures.append("Wario -> King K. Rool called off target; it landed on its aim point")
+        return
+    print(f"  OK  {'throw aim point':<34} {len(judged)}/{len(judged)} annotated throws off target, "
+          f"control on target; {total} off target in {len(throws)} throws")
+
+
+def verify_yoshi_train(failures: list) -> None:
+    """Every annotated train hit is named; nothing else and nowhere else is.
+
+    Ten knockdowns in yoshi_park-20260911T164801Z were annotated as the train.
+    The night game's two Piranha Plant hits (08-31T03 frames 1834 and 1974) sit
+    20-28u inside the fence and must stay unnamed by this rule.
+    """
+    labelled = {("yoshi_park-20260911T164801Z", frame) for frame in
+                (38797, 54112, 54192, 67840, 70628, 74862, 74942, 80275, 80355, 94058)}
+    piranha = {("yoshi_park-20260831T031212Z", 1834), ("yoshi_park-20260831T031212Z", 1974)}
+    named, strays = set(), []
+    for stem, plays in _plays_by_stem().items():
+        for play in plays:
+            for knock in play.get("knockdowns") or []:
+                if knock.get("hazard") != "train":
+                    continue
+                if not stem.startswith("yoshi_park-"):
+                    strays.append(stem)
+                named.add((stem, knock["frame"]))
+    if strays:
+        failures.append("train named outside Yoshi Park: " + ", ".join(sorted(set(strays))[:4]))
+        return
+    derived = set(_plays_by_stem("yoshi_park-"))
+    missing = {key for key in labelled if key[0] in derived} - named
+    if missing:
+        failures.append(f"annotated train knockdowns not named: {sorted(missing)}")
+        return
+    if named & piranha:
+        failures.append(f"Piranha Plant knockdowns named as the train: {sorted(named & piranha)}")
+        return
+    print(f"  OK  {'yoshi train':<34} {len(labelled)}/{len(labelled)} annotated hits named, "
+          f"{len(named)} train knockdowns in all, 0 elsewhere, piranha hits untouched")
+
+
+def verify_yoshi_train_ball_hits(failures: list) -> None:
+    """The reviewed collisions remain distinct from wall, catch and dead-ball motion."""
+    # THE FRAME IS THE LAST ONE ON THE INCOMING PATH -- the frame whose position
+    # the record carries. f74886 reads (-23.014, 1.209, -91.130), byte-identical
+    # to PA77's recorded `at`, and the step INTO f74887 is the changed one (jolt
+    # 0.128 against 0.0001 on every neighbouring frame). This expectation said
+    # 74887 while pairing it with 74886's coordinates, and it only ever matched
+    # because the loose-ball gate was discarding the true candidate: a ball
+    # knocked out of a glove files no throw, so nothing marked it loose until a
+    # knockdown of the holder counted as a release (2026-09-11). Naming 74887
+    # also mixed pre- and post-impact frames into the incoming speed, ~3.8 u/s
+    # against the measured 1.275.
+    expected = {
+        ("yoshi_park-20260911T164801Z", 74573, 74886),
+        ("yoshi_park-20260911T193733Z", 148599, 148773),
+    }
+    derived_stems = set(_plays_by_stem("yoshi_park-"))
+    found, outside = set(), []
+    for stem, plays in _plays_by_stem().items():
+        for play in plays:
+            for hit in play.get("train_ball_hits") or []:
+                if not stem.startswith("yoshi_park-"):
+                    outside.append((stem, hit.get("frame")))
+                found.add((stem, play.get("contact_timer"), hit.get("frame")))
+                inside = hit.get("fence_inside_units")
+                height = hit.get("height_units")
+                if inside is None or inside < derive.TRAIN_BALL_MIN_INSIDE_UNITS:
+                    failures.append(f"{stem}: train-ball hit is on/past the wall: {hit}")
+                    return
+                if height is None or height > derive.TRAIN_BALL_MAX_HEIGHT_UNITS:
+                    failures.append(f"{stem}: train-ball hit is above the train: {hit}")
+                    return
+    if outside:
+        failures.append(f"train-ball hit reported outside Yoshi Park: {outside[:4]}")
+        return
+    available_expected = {entry for entry in expected if entry[0] in derived_stems}
+    missing = available_expected - found
+    if missing:
+        failures.append(f"reviewed train-ball hits not detected: {sorted(missing)}")
+        return
+    false_controls = {
+        # Train crossed a ball that Tiny Kong had already secured; it did not
+        # move the ball. The dead-ball transition used to look like a reversal.
+        ("yoshi_park-20260911T203017Z", 28389, 28859),
+        # The left-field wall/foul pole, which protrudes inside the surveyed
+        # fence line, turned this ball without the train touching it.
+        ("yoshi_park-20260911T203017Z", 87032, 87185),
+    }
+    false_found = false_controls & found
+    if false_found:
+        failures.append(f"train-ball false controls detected: {sorted(false_found)}")
+        return
+
+    labelled = _plays_by_stem("yoshi_park-20260911T164801Z").get(
+        "yoshi_park-20260911T164801Z", [])
+    pa77 = next((play for play in labelled if play.get("contact_timer") == 74573), None)
+    loose = next((throw for throw in (pa77 or {}).get("throws", [])
+                  if throw.get("release_frame") == 74862), None)
+    if (loose is None or loose.get("is_throw") is not False
+            or loose.get("event_type") != "knocked_loose"
+            or loose.get("knocked_loose_by") != "train"):
+        failures.append(f"PA77 train knock-loose still classified as a throw: {loose}")
+        return
+    print(f"  OK  {'yoshi train hits ball':<34} {len(available_expected)}/{len(available_expected)} "
+          f"reviewed impacts; PA77 knock-loose is not a throw")
+
+
+def verify_bowser_castle_fires(failures: list) -> None:
+    """The centre-field statue's fire and the falling lava, told apart by position.
+
+    Both write +0x23E and both run 89-91 frames, so duration cannot separate
+    them: the statue had to be surveyed. Six burns land within 0.60u of a flat
+    front at z=-88.3 spanning x -10..10, 11u in front of the centre-field fence,
+    and every other burn is 19.28u or further from it. Jason labelled one of
+    each live on 2026-09-05 -- "the fire of the bowser statue in cf" and "the
+    falling lava".
+    """
+    labelled = {
+        ("bowser_castle-20260905T005948Z", 62354): "statue_fire",
+        ("bowser_castle-20260905T005948Z", 77527): "falling_lava",
+    }
+    # `burned` is not cleared when the sides change. This run began with three
+    # outs already recorded and stayed up through the intermission, by which
+    # point the slot held the other team's player (character 42 -> 56 at
+    # f44501). It must be dropped and say why, not called lava.
+    latched = ("bowser_castle-20260826T153516Z", 44418)
+    named, discarded, strays = {}, {}, []
+    for stem, plays in _plays_by_stem().items():
+        for play in plays:
+            for fire in play.get("fire_hazards") or []:
+                key = (stem, fire.get("frame"))
+                if not stem.startswith("bowser_castle-"):
+                    strays.append(stem)
+                if fire.get("hazard"):
+                    named[key] = fire["hazard"]
+                else:
+                    discarded[key] = fire.get("discarded")
+    if strays:
+        failures.append("fire hazards named outside Bowser Castle: "
+                        + ", ".join(sorted(set(strays))[:4]))
+        return
+    derived = set(_plays_by_stem("bowser_castle-"))
+    for key, hazard in labelled.items():
+        if key[0] not in derived:
+            continue
+        if named.get(key) != hazard:
+            failures.append(
+                f"annotated {hazard} at {key} came back {named.get(key)!r} "
+                "(regenerate the Bowser Castle plays files if this is a stale archive)")
+            return
+    if latched[0] in derived:
+        if named.get(latched) is not None:
+            failures.append(f"the latched burn at {latched} was named {named[latched]!r}")
+            return
+        if discarded.get(latched) != "flag_outlived_the_side_change":
+            failures.append(f"the latched burn at {latched} was not recorded as "
+                            f"discarded: {discarded.get(latched)!r}")
+            return
+    statue = sum(1 for hazard in named.values() if hazard == "statue_fire")
+    lava = sum(1 for hazard in named.values() if hazard == "falling_lava")
+    print(f"  OK  {'bowser castle fires':<34} {statue} statue / {lava} lava, "
+          f"both labelled cases named, latched burn dropped")
+
+
+def verify_bob_omb_bombs(failures: list) -> None:
+    """King Bob-omb's bomb, named from the knockdown flag's own phases.
+
+    Value 1 for exactly 40 frames and then value 2 -- the shape at all three
+    labelled bombs. The controls are the Bowser Castle onsets that never reach
+    value 2 (single runs of 34-127 frames, which no annotation covers and which
+    floor fielders who are not in the play), and Donkey Kong's star swing, whose
+    shape matches the bomb's exactly but whose cause the star-swing flag already
+    named.
+    """
+    labelled = {("bowser_castle-20260905T005948Z", frame)
+                for frame in (33839, 36879, 68063)}
+    single_phase = {("bowser_castle-20260826T153516Z", 5270),
+                    ("bowser_castle-20260826T153516Z", 56266),
+                    ("bowser_castle-20260905T005948Z", 58775),
+                    ("bowser_castle-20260905T005948Z", 61851)}
+    star_swing = ("bowser_castle-20260826T153516Z", 53460)
+    named, hazards, strays = set(), {}, []
+    for stem, plays in _plays_by_stem().items():
+        for play in plays:
+            for knock in play.get("knockdowns") or []:
+                key = (stem, knock.get("frame"))
+                hazards[key] = knock.get("hazard")
+                if knock.get("hazard") != "bob_omb_bomb":
+                    continue
+                named.add(key)
+                if not stem.startswith("bowser_castle-"):
+                    strays.append(stem)
+    if strays:
+        failures.append("Bob-omb bombs named outside Bowser Castle: "
+                        + ", ".join(sorted(set(strays))[:4]))
+        return
+    derived = set(_plays_by_stem("bowser_castle-"))
+    missing = {key for key in labelled if key[0] in derived} - named
+    if missing:
+        failures.append(
+            f"annotated Bob-omb bombs not named: {sorted(missing)} "
+            "(regenerate the Bowser Castle plays files if this is a stale archive)")
+        return
+    swept = {key for key in single_phase if key[0] in derived} & named
+    if swept:
+        failures.append(f"single-phase knockdowns swept in as bombs: {sorted(swept)}")
+        return
+    if star_swing[0] in derived and hazards.get(star_swing) != "star_swing":
+        failures.append(f"Donkey Kong's star swing at {star_swing} came back "
+                        f"{hazards.get(star_swing)!r}, not star_swing")
+        return
+    print(f"  OK  {'bob-omb bombs':<34} {len(named)} named, "
+          f"{len({k for k in single_phase if k[0] in derived})} single-phase left unnamed, "
+          "star swing untouched")
+
+
+def verify_birdo_egg_reach(failures: list) -> None:
+    """Birdo's egg flies ahead of the ball; her 6.48u knockdown is hers."""
+    plays = _plays_by_stem("yoshi_park-20260911T164801Z").get("yoshi_park-20260911T164801Z")
+    if not plays:
+        print(f"  OK  {'birdo egg reach':<34} session not derived")
+        return
+    knock = next((k for play in plays for k in play.get("knockdowns") or []
+                  if k.get("frame") == 45123), None)
+    if not knock or knock.get("hazard") != "star_swing" or knock.get("star_swing_captain") != "Birdo":
+        failures.append(f"Birdo's egg knockdown at frame 45123 not named: {knock}")
+        return
+    print(f"  OK  {'birdo egg reach':<34} frame 45123 named Birdo at "
+          f"{knock.get('star_swing_ball_units')}u from the ball")
+
+
+def verify_manhole_ball_strike(failures: list) -> None:
+    """The ball bouncing off an erupting manhole, above the ground.
+
+    One measured example: 2026-09-10 PA36, which the operator annotated as "the
+    ball hit the explodnng manhole, which is why it went out of the park for a
+    ground rule double". n=1, so this pins the example rather than a rate.
+    """
+    data = Path("data/player_tracking")
+    strikes = []
+    for plays_path in sorted(data.glob("*.plays.jsonl")):
+        for line in plays_path.read_text(encoding="utf8").splitlines():
+            if not line.strip():
+                continue
+            play = json.loads(line)
+            for strike in (play.get("manhole_ball_strikes") or []):
+                strikes.append((plays_path.name, play.get("landing"), strike))
+    outside = [name for name, _, _ in strikes if not name.startswith("wario_city-")]
+    if outside:
+        failures.append("manhole ball strike reported outside Wario City: "
+                        + ", ".join(sorted(set(outside))[:4]))
+        return
+    if not strikes:
+        print(f"  OK  {'manhole ball strike':<34} none derived")
+        return
+    for name, landing, strike in strikes:
+        if strike["height_units"] < derive.MANHOLE_BALL_STRIKE_MIN_HEIGHT_UNITS:
+            failures.append(f"{name}: manhole ball strike at "
+                            f"{strike['height_units']}u is not above the ground")
+            return
+        if strike["turn_degrees"] > derive.MANHOLE_BALL_STRIKE_MAX_TURN_DEGREES:
+            failures.append(f"{name}: manhole ball strike turned "
+                            f"{strike['turn_degrees']} degrees -- that is a redirect, "
+                            "not a bounce off a flat surface")
+            return
+    # The one that matters: a strike explains a play with no measured landing.
+    unlanded = [s for _, landing, s in strikes if landing is None]
+    print(f"  OK  {'manhole ball strike':<34} {len(strikes)} strike(s), "
+          f"{len(unlanded)} on a play with no ground landing "
+          f"(height {strikes[0][2]['height_units']}u, "
+          f"turn {strikes[0][2]['turn_degrees']}deg)")
+
+
+def verify_daisy_tables(failures: list) -> None:
+    """Pin Daisy's table detectors to labelled contacts, breaks, and controls."""
+    data = Path("data/player_tracking")
+    expected_contacts = {
+        "daisy_cruiser-20260904T202047Z": {18237, 41236, 70634},
+        "daisy_cruiser-20260911T125243Z": {13008, 21159},
+    }
+    known_stuns = {
+        ("daisy_cruiser-20260904T202047Z", 64285): ("SS", "Red Kritter"),
+        ("daisy_cruiser-20260904T202047Z", 80222): ("CF", "Yoshi"),
+    }
+    break_stem = "daisy_cruiser-20260911T132750Z"
+    known_breaks = {
+        17888: ("fielder_buddy_attack", "Blue Yoshi"),
+        45403: ("fielder_buddy_attack", "Blue Yoshi"),
+        57318: ("fielder_buddy_attack", "Green Dry Bones"),
+        85381: ("thrown_ball", "Luigi"),
+        87762: ("thrown_ball", "Blue Shy Guy"),
+        89024: ("thrown_ball", "Blue Shy Guy"),
+        92025: ("fielder_buddy_attack", "Luigi"),
+    }
+    # Bowser's fire breath, not the ball: 15.7u away, no attack or throw near it
+    # (Jason, PA 55).
+    fire_stem, fire_timer = "daisy_cruiser-20260911T152720Z", 58236
+    plays_by_stem = {}
+    for stem in sorted(set(expected_contacts) | {key[0] for key in known_stuns}
+                       | {break_stem, fire_stem}):
+        path = data / f"{stem}.plays.jsonl"
+        if not path.exists():
+            failures.append(f"missing Daisy table fixture {path}")
+            continue
+        plays_by_stem[stem] = {
+            play.get("contact_timer"): play
+            for play in (json.loads(line) for line in path.read_text(
+                encoding="utf8").splitlines() if line.strip())
+        }
+
+    labelled_found = 0
+    for stem, timers in expected_contacts.items():
+        for timer in timers:
+            contacts = plays_by_stem.get(stem, {}).get(timer, {}).get(
+                "table_ball_contacts") or []
+            if not contacts:
+                failures.append(f"{stem}: labelled table contact {timer} was not detected")
+            else:
+                labelled_found += 1
+
+    near_miss = plays_by_stem.get("daisy_cruiser-20260911T125243Z", {}).get(33669)
+    if near_miss is None:
+        failures.append("Daisy table near-miss control 33669 is missing")
+    elif near_miss.get("table_ball_contacts"):
+        failures.append("Daisy table near-miss control 33669 was called a contact")
+
+    stun_found = 0
+    for (stem, timer), expected in known_stuns.items():
+        stuns = plays_by_stem.get(stem, {}).get(timer, {}).get("table_stuns") or []
+        if not any((stun.get("by"), stun.get("character")) == expected for stun in stuns):
+            failures.append(f"{stem}: table stun {timer} did not name {expected}")
+        else:
+            stun_found += 1
+
+    paint = plays_by_stem.get("daisy_cruiser-20260904T202047Z", {}).get(75650, {})
+    if not paint.get("impact_stuns"):
+        failures.append("Daisy Bowser Jr paint control 75650 lost the generic impact stun")
+    if paint.get("table_stuns"):
+        failures.append("Daisy Bowser Jr paint control 75650 was attributed to a table")
+
+    break_found = 0
+    for timer, (cause_type, character) in known_breaks.items():
+        events = plays_by_stem.get(break_stem, {}).get(timer, {}).get("table_breaks") or []
+        if not any(event.get("cause", {}).get("type") == cause_type
+                   and event.get("cause", {}).get("character") == character
+                   for event in events):
+            failures.append(
+                f"{break_stem}: table break {timer} did not name {cause_type} by {character}")
+        else:
+            break_found += 1
+    fire = plays_by_stem.get(fire_stem, {}).get(fire_timer, {}).get("table_breaks") or []
+    if any(event.get("cause", {}).get("type") == "star_swing"
+           and event.get("cause", {}).get("captain") == "Bowser" for event in fire):
+        break_found += 1
+    else:
+        failures.append(f"{fire_stem}: table break {fire_timer} did not name Bowser's star swing")
+
+    destroyed_before_contact = plays_by_stem.get(break_stem, {}).get(57318, {})
+    if destroyed_before_contact.get("table_ball_contacts"):
+        failures.append(
+            f"{break_stem}: 57318 called a batted-ball table contact after the table broke")
+
+    outside = []
+    unreviewed = 0
+    for path in sorted(data.glob("*.plays.jsonl")):
+        is_daisy = path.name.startswith("daisy_cruiser-")
+        stem = path.name[: -len(".plays.jsonl")]
+        labelled = expected_contacts.get(stem, set())
+        for line in path.read_text(encoding="utf8").splitlines():
+            if not line.strip():
+                continue
+            play = json.loads(line)
+            if not is_daisy and (play.get("table_ball_contacts") or play.get("table_stuns")
+                                 or play.get("table_breaks")):
+                outside.append(f"{path.name}@{play.get('contact_timer')}")
+            if (is_daisy and play.get("table_ball_contacts")
+                    and play.get("contact_timer") not in labelled):
+                unreviewed += len(play["table_ball_contacts"])
+    if outside:
+        failures.append("table events reported outside Daisy Cruiser: "
+                        + ", ".join(outside[:5]))
+    elif (labelled_found == 5 and stun_found == 2 and break_found == 8
+          and near_miss is not None):
+        print(f"  OK  {'Daisy table interactions':<34} 5/5 ball contacts, "
+              f"2/2 player stuns, 8/8 table breaks, near-miss + paint controls clean; "
+              f"{unreviewed} unreviewed candidate(s)")
+
+
+def verify_star_swing_effects(failures: list) -> None:
+    """Star swings that disable without flooring, against Jason's labels.
+
+    Each effect writes a fielder byte something else also writes -- the paint
+    and a Daisy table share +0x243, the heart and DK Jungle's flower gas share
+    +0x242 -- so the controls matter as much as the labels: a Yoshi egg must not
+    raise the fire byte, and no effect may be named on another captain's swing.
+    """
+    data = Path("data/player_tracking")
+    labelled = {
+        # PA 48, 49, 64 and 67 of the 09-11 game.
+        ("daisy_cruiser-20260911T132750Z", 49458): {("CF", "Blue Shy Guy", "paint"),
+                                                    ("RF", "Green Dry Bones", "paint")},
+        ("daisy_cruiser-20260911T132750Z", 52895): {("2B", "Magikoopa", "heart")},
+        ("daisy_cruiser-20260911T132750Z", 70193): {("2B", "Kritter", "fire_breath")},
+        ("daisy_cruiser-20260911T132750Z", 73965): {("CF", "Blue Shy Guy", "fireball")},
+        # 09-04, annotated as stuns before these bytes were told apart.
+        ("daisy_cruiser-20260904T202047Z", 75650): {("CF", "Yoshi", "paint"),
+                                                    ("RF", "Bowser", "paint")},
+        ("daisy_cruiser-20260904T202047Z", 90050): {("SS", "Red Kritter", "fire_breath")},
+    }
+    egg_stem, egg_timers = "daisy_cruiser-20260904T202047Z", {8313, 23336, 61681}
+    problems = []
+    found = named = 0
+    for path in sorted(data.glob("*.plays.jsonl")):
+        stem = path.name[: -len(".plays.jsonl")]
+        for line in path.read_text(encoding="utf8").splitlines():
+            if not line.strip():
+                continue
+            play = json.loads(line)
+            timer = play.get("contact_timer")
+            effects = play.get("star_swing_effects") or []
+            expected = labelled.get((stem, timer))
+            if expected is not None:
+                missing = expected - {(e.get("by"), e.get("character"), e.get("effect"))
+                                      for e in effects}
+                if missing:
+                    problems.append(f"{stem}@{timer}: star-swing effect not named: "
+                                    + ", ".join(map(str, sorted(missing))))
+                else:
+                    found += 1
+            if stem == egg_stem and timer in egg_timers and any(
+                    fielder.get("burned_at_s")
+                    for fielder in (play.get("fielders") or {}).values()):
+                problems.append(f"{stem}@{timer}: a Yoshi egg raised the fire byte")
+            value = (play.get("star_swing") or {}).get("value")
+            flag = derive.STAR_SWING_EFFECTS.get(value, (None,))[0]
+            for effect in effects:
+                named += 1
+                if effect.get("flag") != flag:
+                    problems.append(f"{stem}@{timer}: {effect.get('effect')} named on "
+                                    f"star swing {value}")
+            if ({(s.get("by"), s.get("frame")) for s in play.get("table_stuns") or []}
+                    & {(e.get("by"), e.get("frame")) for e in effects}):
+                problems.append(f"{stem}@{timer}: a star-swing effect was also a table stun")
+    if not problems and found != len(labelled):
+        problems.append(f"only {found}/{len(labelled)} labelled star-swing plays were found")
+    failures.extend(problems)
+    if not problems:
+        print(f"  OK  {'star-swing effects':<34} {found}/{len(labelled)} labelled plays, "
+              f"{named} named archive-wide, each on its own captain's byte; "
+              "Yoshi egg controls clean")
+
+
+def verify_slap_charge_swings(failures: list) -> None:
+    """Slap versus charge against the game the operator scripted for it.
+
+    `mario_stadium-20260923T012536Z` was played slap in every top half and
+    charge in every bottom half. That script makes swing mode, half-inning and
+    batting remote co-vary perfectly -- 484 bytes of the state block "separate"
+    the two groups -- so the labels alone cannot say a byte follows the gesture.
+    The one pitch that can is the accidental charge the operator annotated in a
+    slap half-inning: a byte that tracks the gesture flags it while every other
+    swing in that half, by the same remote, reads slap.
+
+    The second half of this is the staleness controls, and they are the reason
+    the charge is read as a RISE rather than as a level. Neither field can be
+    read as a level: abandoning a charge drops the frame counter to 0 and leaves
+    the meter at its last value, and making contact resets the meter and leaves
+    the counter frozen. Gating on a non-zero meter called 95% of the swings in
+    three real games a charge, pitches nobody charged included.
+    """
+    stem = "mario_stadium-20260923T012536Z"
+    path = Path("data/player_tracking") / f"{stem}.pitches.jsonl"
+    if not path.exists():
+        failures.append(f"{stem}.pitches.jsonl is missing; the slap/charge labels "
+                        "have no capture to check against")
+        return
+    pitches = [json.loads(line) for line in
+               path.read_text(encoding="utf8").splitlines() if line.strip()]
+    if pitches and "swing_charge_frames" not in pitches[0]:
+        failures.append(f"{stem}.pitches.jsonl predates the charge fields; "
+                        f"re-derive it with scripts/derive_player_metrics.py")
+        return
+
+    # The operator's script, and the single pitch they annotated as off-script.
+    exception = (3, 0, "Donkey Kong", 1)
+    problems = []
+    counts = {"slap": 0, "charge": 0}
+    for pitch in pitches:
+        if pitch.get("offer") != "swing":
+            # A pitch nobody offered at has no swing mode, and must not acquire
+            # one from a charge that was held through it and abandoned.
+            if pitch.get("swing_mode") != "none" or pitch.get("swing_charge_frames") is not None:
+                problems.append(f"{stem}: a taken pitch was given swing mode "
+                                f"{pitch.get('swing_mode')!r} and "
+                                f"{pitch.get('swing_charge_frames')!r} charge frames")
+            continue
+        key = (pitch.get("inning"), pitch.get("inning_half"),
+               pitch.get("batter"), pitch.get("pitch_in_pa"))
+        expected = "charge" if key == exception or pitch.get("inning_half") == 1 else "slap"
+        actual = pitch.get("swing_mode")
+        if actual != expected:
+            problems.append(f"{stem} inn{key[0]} "
+                            f"{'top' if key[1] == 0 else 'bot'} {key[2]} pitch {key[3]}: "
+                            f"scripted {expected}, derived {actual}")
+            continue
+        counts[expected] += 1
+        frames = pitch.get("swing_charge_frames")
+        if expected == "charge" and not (isinstance(frames, int) and frames > 0):
+            problems.append(f"{stem}: a charge was derived with {frames!r} charge frames")
+        if expected == "slap" and frames != 0:
+            problems.append(f"{stem}: a slap was derived with {frames!r} charge frames")
+        if expected == "slap" and pitch.get("swing_charge_release_timing_frames") is not None:
+            problems.append(f"{stem}: a slap was given a charge release time")
+        if expected == "charge" and pitch.get("swing_charge_release_timing_frames") != 1:
+            problems.append(
+                f"{stem}: charge release should be one frame before swing onset, got "
+                f"{pitch.get('swing_charge_release_timing_frames')!r}"
+            )
+    if counts["slap"] != 13 or counts["charge"] != 26:
+        problems.append(f"{stem}: expected the scripted 13 slaps and 26 charges, "
+                        f"derived {counts['slap']} and {counts['charge']}")
+
+    # THE STALENESS CONTROLS, driven straight through the latch. Both patterns
+    # are taken from real captures: the abandoned charge is how a take ends in
+    # bowser_castle-20260919T003634Z, and the frozen counter is what a contact
+    # leaves behind in the scripted game.
+    def latch(frames_by_frame):
+        deriver = derive.PitchDeriver()
+        for index, value in enumerate(frames_by_frame):
+            deriver._track_charge({"timer": index}, {"swing_charge_frames": value})
+        return deriver._take_charge()
+
+    abandoned = latch([0, 1, 2, 3, 4, 5, 0, 0, 0, 0])
+    if abandoned != (0, None):
+        problems.append("an abandoned charge (counter back to 0, meter left high) "
+                        f"was still credited: {abandoned}")
+    frozen = latch([10, 20, 30, 30, 30, 30])
+    if frozen[0] != 30:
+        problems.append(f"a charge held to the pitch was not credited: {frozen}")
+    spent = derive.PitchDeriver()
+    for index, value in enumerate([0, 5, 10, 15]):
+        spent._track_charge({"timer": index}, {"swing_charge_frames": value})
+    spent._take_charge()
+    for index, value in enumerate([15, 15, 15]):
+        spent._track_charge({"timer": 100 + index}, {"swing_charge_frames": value})
+    leaked = spent._take_charge()
+    if leaked != (0, None):
+        problems.append("a charge frozen on contact leaked into the next pitch: "
+                        f"{leaked}")
+    absent = latch([None, None, None])
+    if absent != (0, None):
+        problems.append(f"a capture with no charge field produced a charge: {absent}")
+
+    failures.extend(problems)
+    if not problems:
+        print(f"  OK  {'slap versus charge':<34} "
+              f"{counts['slap']}/13 scripted slaps, {counts['charge']}/26 charges, "
+              "the annotated off-script charge among them; abandoned, frozen and "
+              "absent charges all credited to nobody")
+
+
+def verify_star_meter_spend(failures: list) -> None:
+    """The team star meters, and what a pitch spent off them.
+
+    THE DEDUCTION LANDS ON THE RELEASE FRAME. mario_stadium-20260925T165659Z is
+    the first capture with the meters in it, and it settled where a star pitch
+    is charged: on the very frame the pitch counter rises, which is also the
+    frame the pitch's `before` snapshot is taken. Differencing `before` against
+    the resolution therefore read two post-deduction values and called all nine
+    of that session's annotated star pitches 0 spent. The spend is now summed
+    from frame-to-frame drops starting one frame BEFORE the release.
+
+    The half-inning decides which side is batting, and the fielding side's spend
+    is a STAR PITCH. The absent case matters as much as the spend: every session
+    recorded before 2026-09-25 must read None, because 0 would claim the meter
+    was full and untouched.
+    """
+    problems = []
+    # (label, frames, expected running drop)
+    drop_cases = [
+        ("a 50-unit star pitch charged on the release frame",
+         [{"away_star_meter": 250, "home_star_meter": 250},
+          {"away_star_meter": 250, "home_star_meter": 200},
+          {"away_star_meter": 250, "home_star_meter": 200}],
+         {"away": 0, "home": 50}),
+        ("an award landing mid-pitch does not cancel the spend",
+         [{"away_star_meter": 100, "home_star_meter": 100},
+          {"away_star_meter": 100, "home_star_meter": 50},
+          {"away_star_meter": 100, "home_star_meter": 90}],
+         {"away": 0, "home": 50}),
+        ("a meter that only rises spends nothing",
+         [{"away_star_meter": 10, "home_star_meter": 10},
+          {"away_star_meter": 31, "home_star_meter": 10}],
+         {"away": 0, "home": 0}),
+        ("a capture with no meters accumulates nothing at all",
+         [{}, {}], {}),
+    ]
+    for label, frames, expected in drop_cases:
+        running: dict = {}
+        for was, now in zip(frames, frames[1:]):
+            derive._star_meter_drop(was, now, running)
+        if running != expected:
+            problems.append(
+                f"star meter drop, {label}: expected {expected}, got {running}")
+
+    cases = [
+        ("away batting spends a captain's 100",
+         0, {"away": 100, "home": 0},
+         {"batting_star_meter_spent": 100, "fielding_star_meter_spent": 0}),
+        ("home batting, away pitcher spends 50 -- a star pitch",
+         1, {"away": 50, "home": 0},
+         {"batting_star_meter_spent": 0, "fielding_star_meter_spent": 50}),
+        ("a capture with no meters spends nothing and says so",
+         0, {},
+         {"batting_star_meter_spent": None, "fielding_star_meter_spent": None}),
+        ("an unknown half cannot name a batting side",
+         None, {"away": 50, "home": 0},
+         {"batting_star_meter_spent": None, "fielding_star_meter_spent": None}),
+    ]
+    for label, half, drops, expected in cases:
+        got = derive._star_meter_spend(half, drops)
+        if got != expected:
+            problems.append(f"star meter, {label}: expected {expected}, got {got}")
+
+    # The retroactive half of the same change, against real sessions: score must
+    # be readable from captures recorded years of commits before it was named,
+    # and the meters must not be.
+    checked = 0
+    for stem in ("daisy_cruiser-20260831T212804Z", "peach_ice_garden-20260826T201820Z"):
+        path = Path("data/player_tracking") / f"{stem}.json"
+        if not path.exists():
+            continue
+        session = io.Session(path.with_suffix(""))
+        last = None
+        for frame in session.frames():
+            last = frame
+        state = session.state(last)
+        checked += 1
+        for name in ("away_score", "home_score", "away_hits", "home_hits"):
+            if state.get(name) is None:
+                problems.append(f"{stem}: {name} should be retroactive, read None")
+        for name in ("away_star_meter", "home_star_meter"):
+            if name in state:
+                problems.append(
+                    f"{stem}: {name} was read from a capture that never recorded "
+                    f"it -- the bounds check let a neighbouring byte through")
+        if state.get("away_score", 0) + state.get("home_score", 0) <= 0:
+            problems.append(f"{stem}: both scores read 0 at the final frame")
+
+    failures.extend(problems)
+    if not problems:
+        print(f"  OK  {'team star meter spend':<34} "
+              f"{len(drop_cases)}+{len(cases)} cases including the release-frame "
+              f"star-pitch deduction, a mid-pitch award and absent meters; score "
+              f"retroactive on {checked} archived session(s), meters correctly "
+              "absent")
 
 
 def verify_close_play_flag(failures: list) -> None:
@@ -797,6 +1955,292 @@ def verify_close_play_flag(failures: list) -> None:
               f"0 onsets, no annotated close play")
 
 
+def verify_freezie_locator(failures: list) -> None:
+    """The startup scan finds the array by structure, not its old address."""
+    region_start = 0x91800000
+    array_offset = 0x740
+    block = bytearray(0x1200)
+    xs = (11.0, -29.0, 26.0, -44.0, -9.0)
+    zs = (-50.0, -50.0, -75.0, -75.0, -95.0)
+    matrix = (1.0, 0.0, 0.0, 0.0,
+              0.0, 1.0, 0.0, 0.0,
+              0.0, 0.0, 1.0, 0.0)
+    for slot, (x, z) in enumerate(zip(xs, zs)):
+        values = list(matrix)
+        values[3], values[7], values[11] = x, 0.0, z
+        start = array_offset + slot * collector.FREEZIE_STRIDE
+        for copy in (collector.FREEZIE_TRANSFORM,
+                     collector.FREEZIE_TRANSFORM_COPY):
+            struct.pack_into(">12f", block, start + copy, *values)
+
+    expected = region_start + array_offset
+    got = collector.find_freezie_array_candidates(bytes(block), region_start)
+    if got != [expected]:
+        failures.append(
+            f"Freezie locator: expected [0x{expected:08X}], got "
+            f"{[f'0x{x:08X}' for x in got]}")
+        return
+
+    # An identity-transform array with the wrong rigid gap is ordinary scene
+    # data, not a second Freezie allocation.
+    struct.pack_into(">f", block,
+                     array_offset + collector.FREEZIE_STRIDE + 0x0C, 27.0)
+    got = collector.find_freezie_array_candidates(bytes(block), region_start)
+    if got:
+        failures.append(
+            f"Freezie locator accepted a wrong x-gap: {[f'0x{x:08X}' for x in got]}")
+    elif not failures:
+        print(f"  OK  {'Freezie runtime locator':<34} moved address + false control")
+
+
+def verify_barrel_locator(failures: list) -> None:
+    """The barrel is found by its cannon sentinel, and a near miss is not it.
+
+    This is the control the barrel never had. The address found live in 2026-09
+    is dead in both captures that record it -- the allocation moves between
+    matches exactly as Peach's Freezies do -- so the collector now locates it by
+    the one thing that identifies it: a parked barrel sits on one of two cannon
+    positions, which is three exact floats in a row.
+    """
+    region_start = 0x92000000
+    block = bytearray(0x400)
+    # The authoritative slot and the mirror that holds the same position, at the
+    # 0xE0 gap the original allocation showed.
+    for offset in (0x40, 0x40 + 0xE0):
+        struct.pack_into(">fff", block, offset, *collector.BARREL_CANNONS[0])
+    # A barrel that is ROLLING is not at a sentinel and must not be found by
+    # this search; it is found by reading the slot the sentinel identified.
+    struct.pack_into(">fff", block, 0x200, -30.0, 1.8, -70.0)
+    # ...and a near miss on one axis is not a cannon. Half a unit out is far
+    # beyond the exact write the game makes.
+    struct.pack_into(">fff", block, 0x280, -39.5, 4.0, -93.5)
+
+    found = collector.find_barrel_candidates(bytes(block), region_start)
+    addresses = [candidate["address"] for candidate in found]
+    if addresses != [region_start + 0x40, region_start + 0x40 + 0xE0]:
+        failures.append(
+            "barrel locator: expected the sentinel slot and its mirror, got "
+            + str([f"0x{value:08X}" for value in addresses]))
+        return
+    if any(candidate["cannon"] != "left" for candidate in found):
+        failures.append("barrel locator named the wrong cannon")
+        return
+
+    # An empty region is the honest answer, not a guess at the old address.
+    if collector.find_barrel_candidates(bytes(bytearray(0x400)), region_start):
+        failures.append("barrel locator found a sentinel in a block of zeros")
+        return
+    print(f"  OK  {'barrel located by cannon sentinel':<34} "
+          f"slot + mirror, rolling barrel and near miss both rejected")
+
+
+def verify_freezie_lanes(failures: list) -> None:
+    """Every measured freeze happened where a Freezie actually is.
+
+    This is the control for the object located at FREEZIE_ARRAY, and it is worth
+    more than the search that found it. Watched live, the five slots patrol three
+    fixed depths and slide back and forth along them. If they are the Freezies,
+    then a fielder can only be frozen ON one of those depths -- and the freeze
+    flag was measured independently, months before the object was found.
+
+    75 onsets across four annotated sessions, three clean bands, nothing in
+    between. A future capture where the array has moved fails here rather than
+    silently reporting Freezies in the wrong place.
+    """
+    depths = collector.FREEZIE_LANE_DEPTHS
+    tags = ["20260902T151327Z", "20260904T152214Z",
+            "20260907T234715Z", "20260909T142827Z"]
+    onsets = []
+    for tag in tags:
+        stem = Path("data/player_tracking") / f"peach_ice_garden-{tag}"
+        if not stem.with_suffix(".bin").exists():
+            print(f"  --  {'freeze lands on a Freezie lane':<34} {tag} not on disk")
+            return
+        session = io.Session(stem)
+        offset = session.fields["frozen_flag"]
+        up = {f["name"]: False for f in session.fielders}
+        for frame in session.frames():
+            for fielder in session.fielders:
+                start = fielder["address"] - session.state_base
+                value = bool(frame.block[start + offset])
+                if value and not up[fielder["name"]]:
+                    _, _, z = struct.unpack(">fff", frame.block[start + 4:start + 16])
+                    # position_a is raw; Peach's fit is sign_z = -1, and the
+                    # Freezie matrix is already on that side. See FREEZIE_ARRAY.
+                    onsets.append(-z)
+                up[fielder["name"]] = value
+    off_lane = [z for z in onsets if min(abs(z - d) for d in depths) >= 6.0]
+    if off_lane:
+        failures.append(
+            f"{len(off_lane)} of {len(onsets)} freezes happened off every Freezie "
+            f"lane {depths}: {[round(z, 1) for z in off_lane[:5]]}")
+    elif not failures:
+        print(f"  OK  {'freeze lands on a Freezie lane':<34} "
+              f"{len(onsets)}/{len(onsets)} within 6u of {depths}")
+
+
+def verify_freezie_breaks(failures: list) -> None:
+    """Object disappearance, cause, controls, and a frozen-fielder rebound."""
+    stems = {
+        "first": Path("data/player_tracking/peach_ice_garden-20260909T184001Z"),
+        "latest": Path("data/player_tracking/peach_ice_garden-20260909T192448Z"),
+        "newest": Path("data/player_tracking/peach_ice_garden-20260909T195355Z"),
+    }
+    if any(not stem.with_suffix(".bin").exists() for stem in stems.values()):
+        print(f"  --  {'Freezie breaks vs annotations':<34} session not on disk")
+        return
+    plays = {}
+    for label, stem in stems.items():
+        session = io.Session(stem)
+        if session.header.get("freezie_count") != 5:
+            failures.append(
+                f"{label} Freezie capture has {session.header.get('freezie_count')} "
+                "objects, expected 5")
+            return
+        plays[label] = {
+            play["contact_timer"]: play
+            for play in replay_session.replay(stem)["plays"]
+        }
+
+    expected = {
+        ("first", 20840): (20926, "fielder_buddy_attack"),
+        ("first", 31209): (31359, "fielder_buddy_attack"),
+        ("first", 34051): (34204, "batted_ball"),
+        ("first", 53731): (53835, "batted_ball"),
+        ("first", 55511): (55812, "thrown_ball"),
+        ("latest", 79780): (79983, "thrown_ball"),
+        ("latest", 84739): (84886, "batted_ball"),
+        ("latest", 85666): (85777, "fielder_buddy_attack"),
+        ("newest", 93431): (93642, "thrown_ball"),
+        ("newest", 101714): (102337, "thrown_ball"),
+        ("newest", 104913): (105057, "fielder_buddy_attack"),
+    }
+    for (label, contact), (frame, cause) in expected.items():
+        got = plays[label].get(contact, {}).get("freezie_breaks") or []
+        if len(got) != 1 or got[0]["frame"] != frame:
+            failures.append(
+                f"Freezie break at {label} contact {contact}: expected frame "
+                f"{frame}, got {got}")
+        elif got[0].get("cause", {}).get("type") != cause:
+            failures.append(
+                f"Freezie break at {label} contact {contact}: expected cause "
+                f"{cause}, got {got[0].get('cause')}")
+    for contact in (23285, 29716, 39649):
+        got = plays["first"].get(contact, {}).get("freezie_breaks") or []
+        if got:
+            failures.append(
+                f"Freezie near-miss control at contact {contact} reported breaks: {got}")
+
+    intact_play = plays["newest"].get(97893, {})
+    intact_breaks = intact_play.get("freezie_breaks") or []
+    intact_rebounds = intact_play.get("freezie_ball_rebounds") or []
+    if intact_breaks:
+        failures.append(
+            f"non-breaking Freezie rebound at contact 97893 reported a break: "
+            f"{intact_breaks}")
+    if not any(event["frame"] == 98153
+               and event["slot"] == 4
+               and event["outcome"] == "remained_active"
+               and event["phase"] == "batted_ball"
+               for event in intact_rebounds):
+        failures.append(
+            "intact Freezie rebound at contact 97893/frame 98153 was not "
+            f"retained: {intact_rebounds}")
+
+    close_then_throw = plays["newest"].get(93431, {})
+    if close_then_throw.get("freezie_ball_rebounds"):
+        failures.append(
+            "near-miss batted ball at contact 93431 was incorrectly reported "
+            f"as contact: {close_then_throw['freezie_ball_rebounds']}")
+
+    rebound = (plays["latest"].get(82123, {})
+               .get("frozen_fielder_ball_contacts") or [])
+    if not any(event["frame"] == 82838
+               and event["character"] == "Blue Kritter"
+               and event["outcome"] == "rebound"
+               and event.get("source_thrower_character") == "Baby Luigi"
+               for event in rebound):
+        failures.append(
+            "frozen Blue Kritter rebound at contact 82123/frame 82838 was not "
+            f"attributed to Baby Luigi's throw: {rebound}")
+    if not failures:
+        print(f"  OK  {'Freezie breaks vs annotations':<34} "
+              "11 breaks with causes, 0/4 controls, both rebound types")
+
+
+def verify_buddy_attack(failures: list) -> None:
+    """Buddy-attack animation and hit confirmation against operator labels.
+
+    Five Peach Ice Garden sessions carry eleven confirmed buddy attacks. All
+    eleven must name the right attacker and set the +0x267 hit bit.
+    The newest session also carries the missing negative control: Pink Yoshi
+    buddy-attacked without connecting, so +0x265 must report the attack while
+    +0x267 stays false.
+
+    These older captures did not include the Freezie objects, so none may set
+    `clears_freezie` from the attack latch alone.
+    """
+    labelled = {
+        "peach_ice_garden-20260902T151327Z": {
+            8648: "Boomerang Bro.", 10323: "Koopa Troopa", 23042: "Blue Shy Guy"},
+        "peach_ice_garden-20260904T152214Z": {
+            11640: "Green Toad", 41509: "Red Kritter", 64314: "Green Toad"},
+        "peach_ice_garden-20260907T234715Z": {
+            8695: "Pink Yoshi", 32277: "Pink Yoshi", 72611: "Baby Luigi"},
+        "peach_ice_garden-20260909T142827Z": {4707: "Dry Bones"},
+        "peach_ice_garden-20260909T155408Z": {2113: "Dark Bones"},
+    }
+    found = 0
+    for name, want in labelled.items():
+        stem = Path("data/player_tracking") / name
+        if not stem.with_suffix(".bin").exists():
+            print(f"  --  {'buddy attack vs annotations':<34} {name} not on disk")
+            return
+        plays = replay_session.replay(stem)["plays"]
+        attacks = {play["contact_timer"]: play.get("buddy_attacks") or []
+                   for play in plays}
+        for contact, character in want.items():
+            got = attacks.get(contact) or []
+            if not got:
+                failures.append(
+                    f"buddy attack missed the annotated swing at {name} "
+                    f"contact {contact} ({character})")
+                continue
+            if not any(a["character"] == character for a in got):
+                failures.append(
+                    f"buddy attack at {name} contact {contact} names "
+                    f"{[a['character'] for a in got]}, operator said {character}")
+                continue
+            if not all(a.get("hit") for a in got):
+                failures.append(
+                    f"buddy attack at {name} contact {contact} did not set its "
+                    f"successful-contact latch")
+                continue
+            if any(a["clears_freezie"] for a in got):
+                failures.append(
+                    f"buddy attack at {name} contact {contact} was incorrectly "
+                    f"marked as breaking a Freezie")
+                continue
+            found += 1
+    negative_stem = Path(
+        "data/player_tracking/peach_ice_garden-20260909T155408Z")
+    if negative_stem.with_suffix(".bin").exists():
+        negative_plays = replay_session.replay(negative_stem)["plays"]
+        missed = next((play.get("buddy_attacks") or [] for play in negative_plays
+                       if play["contact_timer"] == 4852), [])
+        if len(missed) != 1 or missed[0]["character"] != "Pink Yoshi":
+            failures.append(
+                "missed buddy attack at peach_ice_garden-20260909T155408Z "
+                f"contact 4852 was not attributed to Pink Yoshi: {missed}")
+        elif missed[0].get("hit") or missed[0]["clears_freezie"]:
+            failures.append(
+                "Pink Yoshi's missed buddy attack at contact 4852 was marked "
+                f"as a Freezie break: {missed[0]}")
+    if not failures:
+        print(f"  OK  {'buddy attack vs annotations':<34} "
+              f"{found}/11 contacts plus 1 confirmed miss; no latch-only breaks")
+
+
 def verify_flower_gas(failures: list) -> None:
     """The flower flag against annotations written before it was found.
 
@@ -842,6 +2286,62 @@ def verify_flower_gas(failures: list) -> None:
     if not failures:
         print(f"  OK  {'flower gas vs annotations':<34} "
               f"4/4 sprays, 0/2 barrels, 2 at once")
+
+
+def verify_dk_night_hazards(failures: list) -> None:
+    """Lock the night flower byte, statue POW value, and false Buddy control."""
+    stem = Path("data/player_tracking/dk_jungle-20260912T150755Z")
+    if not stem.with_suffix(".bin").exists():
+        print(f"  --  {'DK night hazards':<34} session not on disk")
+        return
+    before = len(failures)
+    plays = replay_session.replay(stem)["plays"]
+    by_contact = {play["contact_timer"]: play for play in plays}
+
+    flower_expected = {8950: "LF", 55573: "LF", 69773: "CF", 74823: "LF"}
+    all_flowers = [
+        (play["contact_timer"], spray)
+        for play in plays for spray in play.get("flower_sprays", [])
+    ]
+    if len(all_flowers) != len(flower_expected):
+        failures.append(
+            f"DK night flower count changed: {len(all_flowers)}, expected 4")
+    for contact, position in flower_expected.items():
+        sprays = by_contact.get(contact, {}).get("flower_sprays", [])
+        if (len(sprays) != 1 or sprays[0].get("by") != position
+                or sprays[0].get("source_byte") != "+0x2CA"):
+            failures.append(
+                f"DK night flower at {contact} was {sprays}, expected {position} +0x2CA")
+    if by_contact.get(7330, {}).get("flower_sprays"):
+        failures.append("DK night annotated flower near miss at 7330 became a hit")
+
+    pow_expected = {76817: "CF", 81230: "CF", 89729: "CF"}
+    all_pow = [
+        (play["contact_timer"], stun)
+        for play in plays for stun in play.get("dk_pow_stuns", [])
+    ]
+    if len(all_pow) != len(pow_expected):
+        failures.append(f"DK night POW count changed: {len(all_pow)}, expected 3")
+    for contact, position in pow_expected.items():
+        stuns = by_contact.get(contact, {}).get("dk_pow_stuns", [])
+        if (len(stuns) != 1 or stuns[0].get("by") != position
+                or stuns[0].get("flag_value") != 1
+                or stuns[0].get("frames") != 91):
+            failures.append(
+                f"DK night POW at {contact} was {stuns}, expected {position}, value 1 x91")
+    for contact in (40442, 58079, 68391):
+        if by_contact.get(contact, {}).get("dk_pow_stuns"):
+            failures.append(f"DK night no-hit POW activation at {contact} named a victim")
+
+    false_buddy = [throw for throw in by_contact.get(32061, {}).get("throws", [])
+                   if throw.get("buddy_throw")]
+    if false_buddy:
+        failures.append(
+            f"DK close-play freeze at 32061 was called a Buddy Throw: {false_buddy}")
+    if len(failures) == before:
+        print(f"  OK  {'DK night hazards':<34} "
+              "4 flowers, 3 POW stuns, near-miss/no-hit controls clean")
+        print(f"  OK  {'close play is not Buddy Throw':<34} explicit scalar absent")
 
 
 def verify_barrel_events(failures: list) -> None:
@@ -919,6 +2419,21 @@ def verify_barrel_events(failures: list) -> None:
     else:
         print(f"  OK  {'barrel gated to DK Jungle':<34} "
               f"same frames, 0 events elsewhere")
+
+    # A SLOT THAT HOLDS A CONSTANT IS NOT A BARREL. This is the state the real
+    # address is actually in: dk_jungle-20260904T161731Z holds
+    # (0.2523, -0.1100, 0.0) for 137 consecutive frames -- finite, in range,
+    # non-zero and away from both cannon sentinels, so every guard that existed
+    # called it a live barrel parked 0.28u from home plate. It emitted nothing
+    # only because those frames fell outside every play window, which is luck
+    # rather than a guard. A real barrel crosses the outfield at 19-25 u/s.
+    stuck = [frame(i / 60, 200 + i, (0.2523, -0.1100, 0.0), True, None,
+                   (0.0, 0.0, 70.0), (30.0, 0.0, 60.0)) for i in range(137)]
+    if derive.detect_barrel_events(stuck, 0.0, 99.0, park="dk_jungle"):
+        failures.append("a barrel slot stuck on one constant produced a barrel event")
+    else:
+        print(f"  OK  {'stuck barrel slot rejected':<34} "
+              f"137 frames of one constant, 0 events")
 
     # The knockdown flag outranks the provisional radius WHENEVER IT WAS
     # CAPTURED. `knockdowns={}` means captured and did not fire, which is a
@@ -1272,9 +2787,33 @@ def main() -> int:
 
     verify_capture_round_trip(failures)
     verify_barrel_events(failures)
+    verify_arrow_redirects(failures)
+    verify_arrow_night_multiplier(failures)
+    verify_arrow_park_gate(failures)
+    verify_manhole_attribution(failures)
+    verify_manhole_ball_strike(failures)
+    verify_yoshi_pipes(failures)
+    verify_yoshi_piranha_knockdowns(failures)
+    verify_yoshi_train(failures)
+    verify_yoshi_train_ball_hits(failures)
+    verify_bowser_castle_fires(failures)
+    verify_bob_omb_bombs(failures)
+    verify_birdo_egg_reach(failures)
+    verify_throw_aim(failures)
+    verify_daisy_tables(failures)
+    verify_star_swing_effects(failures)
     verify_flower_gas(failures)
+    verify_dk_night_hazards(failures)
+    verify_freezie_locator(failures)
+    verify_barrel_locator(failures)
+    verify_freezie_lanes(failures)
+    verify_freezie_breaks(failures)
+    verify_buddy_attack(failures)
     verify_knockdown_flag(failures)
+    verify_slap_charge_swings(failures)
+    verify_star_meter_spend(failures)
     verify_close_play_flag(failures)
+    verify_flat_ball_address(failures)
     verify_real_archive(failures)
 
     if failures:

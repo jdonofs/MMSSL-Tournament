@@ -124,8 +124,9 @@ export function ResetGameConfirmModal({ teamAName, teamBName, busy, onConfirm, o
         <div style={{ color: C.muted, marginBottom: 14, fontSize: 13, lineHeight: 1.6 }}>
           This permanently deletes every plate appearance, pitch, run, pitching stint,
           lineup, fielding assignment, inning score and odds row for this game, and sets
-          it back to unplayed. If the game has any bets, nothing will be deleted; void or
-          settle those bets first.
+          it back to unplayed, including its stadium and video selection. If the game has
+          any bets, nothing will be deleted; void or settle those bets first. A running
+          local tracker will stop and save its pending work before reset.
           <div style={{ marginTop: 10, color: '#FCA5A5', fontWeight: 700 }}>
             There is no undo. To fix a mistake in a finished game, use Reopen Game instead.
           </div>

@@ -88,6 +88,23 @@ export function createTrackerPreviewServer({
         response.end(JSON.stringify({ error: 'This tracker service cannot be stopped from the preview' }))
         return
       }
+      if (state.writesEnabled) {
+        const allowedOrigins = new Set(['https://msl-tournament.vercel.app',
+          'http://localhost:5173', 'http://127.0.0.1:5173'])
+        if (request.headers.origin && !allowedOrigins.has(request.headers.origin)) {
+          response.writeHead(403, JSON_HEADERS)
+          response.end(JSON.stringify({ error: 'This site cannot stop the live tracker' }))
+          return
+        }
+        const parsed = await readJsonBody(request, response)
+        if (!parsed) return
+        if (String(parsed.gameId) !== String(state.gameContext?.game_id)
+          || parsed.table !== state.gameContext?.games_table) {
+          response.writeHead(409, JSON_HEADERS)
+          response.end(JSON.stringify({ error: 'The tracker is recording a different game' }))
+          return
+        }
+      }
       response.writeHead(202, JSON_HEADERS)
       response.end(JSON.stringify({ accepted: true, message: 'Saving and ending this tracker session' }))
       setImmediate(() => {

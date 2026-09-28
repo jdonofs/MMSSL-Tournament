@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { acquireTrackerGameLock, drainTrackerWork, insertRowsReconciled } from '../scripts/tracker_persistence.mjs'
+import { acquireTrackerGameLock, drainTrackerWork, insertRowsReconciled, rowsMatchPayload } from '../scripts/tracker_persistence.mjs'
 import { createTrackerScoringPersistence } from '../scripts/tracker_scoring_persistence.mjs'
 import { recomputeTrackerPitchingStats } from '../scripts/tracker_pitching_persistence.mjs'
 import { resolveTrackerGameTarget } from '../scripts/tracker_game_target.mjs'
@@ -12,6 +12,35 @@ import { createTrackerFakeSupabase } from './helpers/trackerFakeSupabase.mjs'
 const TABLES = {
   plateAppearances: 'plate_appearances', pitches: 'pitches', runsScored: 'runs_scored',
 }
+
+test('read-back accepts Postgres timestamp and JSONB normalization', () => {
+  assert.equal(rowsMatchPayload({
+    recorded_utc: '2026-09-18T15:14:12+00:00',
+    updated_at: '2026-09-18T18:14:03.960+00:00',
+    quality: { b: 2, a: { y: true, x: 1 } },
+  }, {
+    recorded_utc: '2026-09-18T15:14:12.000Z',
+    updated_at: '2026-09-18T18:14:03.960Z',
+    quality: { a: { x: 1, y: true }, b: 2 },
+  }), true)
+  assert.equal(rowsMatchPayload({ quality: { b: 3 } }, { quality: { b: 2 } }), false)
+  assert.equal(rowsMatchPayload({ position_depth_ft: 14.1235 },
+    { position_depth_ft: 14.123456 }, ['position_depth_ft'], 'fielding_opportunities'), true)
+  assert.equal(rowsMatchPayload({ end_x: -1.2345 },
+    { end_x: -1.23445 }, ['end_x'], 'fielding_opportunities'), true)
+  assert.equal(rowsMatchPayload({ expected_out_probability: 0.123456 },
+    { expected_out_probability: 0.123476 }, ['expected_out_probability'], 'fielding_opportunities'), false)
+})
+
+test('a resumed ingest accepts a play the recompute priced after it was written', () => {
+  const facts = { park: 'peach_ice_garden', observed: 'not_caught', primary_fielder: 'RF' }
+  const priced = { quality: { stadium_runs: { ...facts, price: { runs: 2.2 } } } }
+  assert.equal(rowsMatchPayload(priced, { quality: { stadium_runs: facts } },
+    ['quality'], 'tracking_plays'), true)
+  // The facts themselves still have to agree.
+  assert.equal(rowsMatchPayload(priced, { quality: { stadium_runs: { ...facts, observed: 'caught' } } },
+    ['quality'], 'tracking_plays'), false)
+})
 
 test('target selection validates explicit games and refuses ambiguous automatic targets', async () => {
   const client = createTrackerFakeSupabase({
@@ -116,6 +145,27 @@ test('PA and pitches survive a run failure and resume at the missing stage', asy
   assert.equal(first.db.plate_appearances.length, 1)
   assert.equal(first.db.pitches.length, 2)
   assert.equal(first.db.runs_scored.length, 1)
+})
+
+test('a game reset between runs does not bring its plays back at completion', async (t) => {
+  // Season game 2766: an aborted attempt's two plays stayed in the per-game
+  // journal, the operator reset the game, and the next run's completion
+  // verifyAll() re-delivered them as PAs 37 and 38 after the walk-off.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-reset-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const journal = path.join(dir, 'game.json')
+  const client = createTrackerFakeSupabase({})
+  await store(client, journal).persistEvent(event())
+  client.db.plate_appearances.length = 0
+  client.db.pitches.length = 0
+  client.db.runs_scored.length = 0
+
+  const rerun = store(client.restart(), journal)
+  await rerun.recoverPending()
+  await rerun.persistEvent(event({ eventKey: 'contact:77', pa: { ...event().pa, tracker_contact_seq: 77 } }))
+  await rerun.verifyAll()
+  assert.deepEqual(client.db.plate_appearances.map((row) => row.tracker_contact_seq), [77])
+  assert.deepEqual(rerun.journal.events.map((entry) => entry.eventKey), ['contact:77'])
 })
 
 test('timeouts after commit are reconciled by authoritative reads', async (t) => {

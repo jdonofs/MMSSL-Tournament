@@ -6,7 +6,7 @@ import EntityPageSidebar from '../components/EntityPageSidebar'
 import StatTable from '../components/StatTable'
 import SortableTable from '../components/SortableTable'
 import StatFallbackLegend from '../components/StatFallbackLegend'
-import SprayChart from '../components/SprayChart'
+import VectorSprayChart from '../components/VectorSprayChart'
 import PercentileBar from '../components/PercentileBar'
 import TeamLogo from '../components/TeamLogo'
 import CharacterPortrait from '../components/CharacterPortrait'
@@ -15,6 +15,7 @@ import { getTeamShortName } from '../utils/teamIdentity'
 import { shortenCharacterName } from '../utils/mii'
 import { buildScorebookPath } from '../utils/scorebookRouting'
 import { MIN_RANGE_CHANCES } from '../utils/fieldingRange'
+import { FEET_PER_SECOND_TO_MPH } from '../utils/advancedDefense'
 import '../styles/stats-pages.css'
 
 const GRADE_COLORS = { S: '#EAB308', A: '#22C55E', B: '#3B82F6', C: '#94A3B8', D: '#F97316', F: '#EF4444' }
@@ -126,6 +127,10 @@ function PlayerCell({ row }) {
 }
 
 const noData = <p style={{ color: '#475569', fontSize: 12, fontStyle: 'italic', margin: 0 }}>No data recorded yet</p>
+// Distinct from noData on purpose: a team with no tracked rows has not
+// necessarily played no games, it has played none the tracker covered, and
+// saying "no data" for that reads as a missing stat rather than a missing game.
+const noTrackingData = <p style={{ color: '#475569', fontSize: 12, fontStyle: 'italic', margin: 0 }}>No tracked games in this scope yet</p>
 
 const BATTING_COLUMNS = [
   { key: 'label', label: 'Player', render: (row) => <PlayerCell row={row} /> },
@@ -161,6 +166,69 @@ const PITCHING_COLUMNS = [
   { key: 'homeRunsAllowed', label: 'HR' },
   { key: 'era', label: 'ERA/3', render: (row) => (row.innings > 0 ? formatDecimal(row.era, 2) : '-') },
   { key: 'whip', label: 'WHIP', render: (row) => (row.innings > 0 ? formatDecimal(row.whip, 2) : '-') },
+]
+
+// The measured defence, from the tracker's own fact tables. Separate from
+// FIELDING_COLUMNS above, which is the official scorebook line: one counts what
+// was scored, this one counts what was measured, and they answer to different
+// sources. A metric with no samples prints '--' rather than a zero.
+const signedOrDash = (value, digits = 2) => (value == null ? '--'
+  : `${value > 0 ? '+' : ''}${formatDecimal(value, digits)}`)
+const unitOrDash = (value, unit, digits = 1) => (value == null ? '--'
+  : `${formatDecimal(value, digits)}${unit}`)
+
+const TRACKED_FIELDING_COLUMNS = [
+  { key: 'label', label: 'Player', render: (row) => <PlayerCell row={row} /> },
+  { key: 'fieldingOpportunities', label: 'OAA Opp', render: (row) => row.fieldingOpportunities || '--' },
+  { key: 'actualOuts', label: 'Outs', render: (row) => (row.fieldingOpportunities ? row.actualOuts : '--') },
+  { key: 'expectedOuts', label: 'xOuts', render: (row) => (row.fieldingOpportunities ? formatDecimal(row.expectedOuts, 2) : '--') },
+  { key: 'outsAboveAverage', label: 'OAA', render: (row) => (row.fieldingOpportunities ? signedOrDash(row.outsAboveAverage) : '--') },
+  {
+    key: 'fieldingRunValue',
+    label: 'FRV',
+    render: (row) => (row.fieldingOpportunities || row.armOpportunities || row.doublePlayOpportunities
+      ? signedOrDash(row.fieldingRunValue) : '--'),
+  },
+  { key: 'throws', label: 'Throws', render: (row) => row.throws || '--' },
+  { key: 'armStrengthMph', label: 'Arm', render: (row) => unitOrDash(row.armStrengthMph, ' mph') },
+  { key: 'hardestThrowMph', label: 'Max Throw', render: (row) => unitOrDash(row.hardestThrowMph, ' mph') },
+  { key: 'armOpportunities', label: 'Arm Opp', render: (row) => row.armOpportunities || '--' },
+  { key: 'armKills', label: 'Runner Outs', render: (row) => (row.armOpportunities ? row.armKills || 0 : '--') },
+  { key: 'armAdvances', label: 'Adv Allowed', render: (row) => (row.armOpportunities ? row.armAdvances || 0 : '--') },
+  { key: 'doublePlayOpportunities', label: 'DP Opp', render: (row) => row.doublePlayOpportunities || '--' },
+  { key: 'doublePlays', label: 'DP', render: (row) => (row.doublePlayOpportunities ? row.doublePlays || 0 : '--') },
+  { key: 'jumpDistanceFeet', label: 'Jump', render: (row) => unitOrDash(row.jumpDistanceFeet, ' ft') },
+  { key: 'averagePositionDepthFeet', label: 'Depth', render: (row) => unitOrDash(row.averagePositionDepthFeet, ' ft') },
+]
+
+const TRACKED_BASERUNNING_COLUMNS = [
+  { key: 'label', label: 'Player', render: (row) => <PlayerCell row={row} /> },
+  { key: 'opportunities', label: 'XBT Opp', render: (row) => row.opportunities || '--' },
+  { key: 'holds', label: 'Holds', render: (row) => (row.opportunities ? row.holds || 0 : '--') },
+  { key: 'attempts', label: 'Att', render: (row) => (row.opportunities ? row.attempts || 0 : '--') },
+  { key: 'advances', label: 'Safe', render: (row) => (row.opportunities ? row.advances || 0 : '--') },
+  { key: 'outs', label: 'Outs', render: (row) => (row.opportunities ? row.outs || 0 : '--') },
+  { key: 'successRate', label: 'Safe/Att', render: (row) => (row.attempts ? formatPercent(row.successRate, 1) : '--') },
+  { key: 'baserunningRunValue', label: 'Rbaser', render: (row) => (row.modeledOpportunities ? signedOrDash(row.baserunningRunValue) : '--') },
+  { key: 'speedSamples', label: 'Speed Runs', render: (row) => row.speedSamples || '--' },
+  {
+    key: 'sprintSpeedFps',
+    label: 'Sprint Speed',
+    render: (row) => (row.sprintSpeedFps == null ? '--'
+      : `${formatDecimal(row.sprintSpeedFps * FEET_PER_SECOND_TO_MPH, 1)} mph`),
+  },
+  {
+    key: 'maxSprintSpeedFps',
+    label: 'Max Speed',
+    render: (row) => (row.maxSprintSpeedFps == null ? '--'
+      : `${formatDecimal(row.maxSprintSpeedFps * FEET_PER_SECOND_TO_MPH, 1)} mph`),
+  },
+  { key: 'bolts', label: 'Bolts', render: (row) => (row.speedSamples ? row.bolts || 0 : '--') },
+  {
+    key: 'homeToFirstSeconds',
+    label: 'Home-to-First',
+    render: (row) => (row.homeToFirstSeconds == null ? '--' : `${formatDecimal(row.homeToFirstSeconds, 2)} s`),
+  },
 ]
 
 const FIELDING_COLUMNS = [
@@ -862,6 +930,12 @@ export default function TeamPage() {
                     ? (
                       <>
                         <StatTable columns={FIELDING_COLUMNS} rows={tables.standardFieldingRows} careerRow={tables.standardFieldingCareerRow} onRowClick={characterRowClick} />
+                        {tables.playMechanics?.closePlays || tables.playMechanics?.closePlaysRun ? (
+                          <p className="muted">
+                            Close plays: {tables.playMechanics.closePlays || 0} defended ({tables.playMechanics.closePlaysWon || 0} held on, {tables.playMechanics.closePlaysLost || 0} knocked loose)
+                            {' · '}{tables.playMechanics.closePlaysRun || 0} run into ({tables.playMechanics.closePlaysRunWon || 0} knocked the ball loose, {tables.playMechanics.closePlaysRunLost || 0} the fielder held on).
+                          </p>
+                        ) : null}
                         <StatFallbackLegend note={`RngR / Range+ / Rng Conf need at least ${MIN_RANGE_CHANCES} rangeable chances.`} />
                       </>
                     )
@@ -872,14 +946,41 @@ export default function TeamPage() {
           {/* Advanced Stats */}
           <Section id="advanced-stats" title="Advanced Stats">
             <div style={{ display: 'grid', gap: 12 }}>
-              <StatTypeToggle value={advancedStatsView} onChange={setAdvancedStatsView} />
+              <StatTypeToggle
+                value={advancedStatsView}
+                onChange={setAdvancedStatsView}
+                options={[
+                  { key: 'batting', label: 'Batting' },
+                  { key: 'pitching', label: 'Pitching' },
+                  { key: 'fielding', label: 'Fielding (tracked)' },
+                  { key: 'running', label: 'Running (tracked)' },
+                ]}
+              />
               {advancedStatsView === 'batting'
                 ? (tables.hasBatting
                   ? <StatTable columns={ADVANCED_BATTING_COLUMNS} rows={tables.advancedBattingRows} careerRow={tables.advancedBattingCareerRow} onRowClick={characterRowClick} />
                   : noData)
-                : (tables.hasPitching
-                  ? <StatTable columns={ADVANCED_PITCHING_COLUMNS} rows={tables.advancedPitchingRows} careerRow={tables.advancedPitchingCareerRow} onRowClick={characterRowClick} />
-                  : noData)}
+                : advancedStatsView === 'pitching'
+                  ? (tables.hasPitching
+                    ? <StatTable columns={ADVANCED_PITCHING_COLUMNS} rows={tables.advancedPitchingRows} careerRow={tables.advancedPitchingCareerRow} onRowClick={characterRowClick} />
+                    : noData)
+                  : advancedStatsView === 'fielding'
+                    ? (tables.hasTrackedFielding
+                      ? (
+                        <>
+                          <StatTable columns={TRACKED_FIELDING_COLUMNS} rows={tables.trackedFieldingRows} careerRow={tables.trackedFieldingCareerRow} onRowClick={characterRowClick} />
+                          <StatFallbackLegend note="Measured by the tracker, not scored in the book: a game played before tracking coverage contributes nothing here." />
+                        </>
+                      )
+                      : noTrackingData)
+                    : (tables.hasTrackedBaserunning
+                      ? (
+                        <>
+                          <StatTable columns={TRACKED_BASERUNNING_COLUMNS} rows={tables.trackedBaserunningRows} careerRow={tables.trackedBaserunningCareerRow} onRowClick={characterRowClick} />
+                          <StatFallbackLegend note="Measured by the tracker, not scored in the book: a game played before tracking coverage contributes nothing here." />
+                        </>
+                      )
+                      : noTrackingData)}
             </div>
           </Section>
 
@@ -948,7 +1049,7 @@ export default function TeamPage() {
           {/* Spray Chart */}
           <Section id="spray-chart" title="Spray Chart">
             {tables.hasBatting
-              ? <SprayChart plateAppearances={battingRawPas} height={320} showCharacterName />
+              ? <VectorSprayChart plateAppearances={battingRawPas} height={320} showCharacterName />
               : noData}
           </Section>
 

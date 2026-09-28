@@ -1,0 +1,38 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260919T003634Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260919T003634Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260919T003634Z.bin",
+  "game_id": "2814",
+  "competition_type": "season",
+  "source_id": "75",
+  "recorded_utc": "20260919T003634Z",
+  "park": "bowser_castle",
+  "stadium_byte": 1,
+  "day_night_bytes": [
+    1,
+    1
+  ],
+  "is_night": true,
+  "frames": 42332,
+  "missed_frames": 1,
+  "duration_seconds": 725.111,
+  "checksum_sha256": "0241ee995549819d45ac8d1fe55743500703cfe885ccb055c0ea410b9e4487ed",
+  "fielder_pointers_left_region": true,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 30,
+    "plays_seen": 36,
+    "plays_emitted": 36,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260919T003634Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\bowser_castle-20260919T003634Z.pitches.jsonl",
+    "mean_feed_ms": 0.1027,
+    "max_feed_ms": 7.153,
+    "max_play_build_ms": 86.6,
+    "replay_duplicates": 8,
+    "pitches_emitted": 84,
+    "pitch_replay_increments": 10
+  }
+}

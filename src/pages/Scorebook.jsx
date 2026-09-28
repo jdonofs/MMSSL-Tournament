@@ -1,7 +1,10 @@
 ﻿import { lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeftRight } from 'lucide-react'
+import { supabase } from '../supabaseClient'
+import { createRefreshCoordinator } from '../utils/refreshCoordinator'
 import { isPregameGameStatus } from '../utils/teamLineupDraft'
+import { fielderIsCurrent } from '../utils/fielderStints.js'
 import { useGameSession } from '../context/GameSessionContext'
 import { runnerAssignmentsForSave } from '../features/scorebook/domain/plateAppearance'
 import { syncPlateAppearanceRunnerOpportunities } from '../features/scorebook/services/plateAppearanceService'
@@ -27,6 +30,7 @@ import { buildBettingEntityLabel, estimateLiveWinProbability, generateGameOdds, 
 import { buildOddsGenerationContext as buildSharedOddsGenerationContext } from '../utils/oddsContext'
 import { resolveFirstInningNoRun, resolveOnPA } from '../utils/betResolution'
 import { buildScorebookPath } from '../utils/scorebookRouting'
+import { shouldStartFreshTrackerSession } from '../utils/trackerLiveFeed'
 const AtBatEditor = lazy(() => import('./AtBatEditor'))
 // Only tracker games can open this tab, and it pulls in the field/spray charts,
 // so it stays out of the scorebook bundle every other game pays for.
@@ -91,6 +95,7 @@ import {
 } from '../features/scorebook/domain/scoreboard'
 import {
   buildScoringPlayDescription,
+  formatPlayResultText,
   normalizeBatterHandedness,
   resolveBattedBallDirection,
 } from '../features/scorebook/domain/battedBall'
@@ -98,6 +103,7 @@ import {
   buildPitchRowsForSave,
   buildRunRowsForSave,
   comparePitchOrder,
+  nextPaNumber,
   normalizePa,
   normalizeSavedPaRunScored,
   stripDbManagedFields,
@@ -346,7 +352,7 @@ export default function Scorebook() {
   // A `?view=` query param (e.g. from a Team page game-log link wanting the read-only recap,
   // not the live scoring UI) overrides the scorekeeper/spectator role-based default below.
   const [viewMode, setViewMode] = useState(() => (
-    searchParams.get('view') || (player && (player.is_commissioner || player.scorebook_access) ? 'scorebook' : 'game')
+    searchParams.get('view') || (player && (player.is_commissioner || player.scorebook_access) ? 'liveTracker' : 'game')
   ))
   const [viewedInning, setViewedInning] = useState(null)
   const [overrideBatterIdx, setOverrideBatterIdx] = useState(null)
@@ -622,13 +628,48 @@ export default function Scorebook() {
     }
     let cancelled = false
     const loadTrackerStats = async () => {
-      const { data } = await fetchTrackerLiveStats({ tables: scorebookTables, gameId: selectedGame.id })
-      if (!cancelled) setTrackerStats(data || null)
+      const { data, error } = await fetchTrackerLiveStats({ tables: scorebookTables, gameId: selectedGame.id })
+      if (!cancelled && !error) setTrackerStats(shouldStartFreshTrackerSession(selectedGame, 0) ? null : data || null)
     }
+    if (shouldStartFreshTrackerSession(selectedGame, 0)) setTrackerStats(null)
     loadTrackerStats()
-    const interval = setInterval(loadTrackerStats, 5000)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [selectedGame?.id, selectedGame?.stats_source, scorebookTables.trackerLiveStats])
+    if (['complete', 'completed'].includes(selectedGame.status)) {
+      return () => { cancelled = true }
+    }
+    const refreshCoordinator = createRefreshCoordinator({
+      run: loadTrackerStats,
+      delayMs: 100,
+      maxWaitMs: 500,
+      isPaused: () => document.visibilityState === 'hidden',
+    })
+    let hasSubscribed = false
+    const channel = supabase
+      .channel(`scorebook-tracker-${selectedGame.id}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: scorebookTables.trackerLiveStats,
+        filter: `game_id=eq.${selectedGame.id}`,
+      }, () => refreshCoordinator.request())
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (hasSubscribed) refreshCoordinator.request({ immediate: true })
+        hasSubscribed = true
+      })
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshCoordinator.request({ immediate: true })
+    }
+    const handleOnline = () => refreshCoordinator.request({ immediate: true })
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('online', handleOnline)
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('online', handleOnline)
+      refreshCoordinator.dispose()
+      supabase.removeChannel(channel)
+    }
+  }, [selectedGame?.id, selectedGame?.stats_source, selectedGame?.status,
+    selectedGame?.away_score, selectedGame?.home_score,
+    selectedGame?.team_a_runs, selectedGame?.team_b_runs, scorebookTables.trackerLiveStats])
 
   const setStatsSource = useCallback(async (nextSource) => {
     if (!selectedGame) return
@@ -905,7 +946,17 @@ export default function Scorebook() {
     setTrackerModeSaving(true)
     try {
       const patch = { status: 'complete', team_a_runs: teamARuns, team_b_runs: teamBRuns, winner_player_id: winnerPlayerId }
-      const { error } = await updateGameRecord({ tables: scorebookTables, gameId: selectedGame.id, patch })
+      // season_schedule names all four differently, and the tournament names
+      // are not columns there -- so this fallback failed on every season game.
+      const rowPatch = isSeasonGame
+        ? {
+            status: 'completed',
+            away_score: teamARuns,
+            home_score: teamBRuns,
+            winner_team_id: winnerPlayerId ? gameSession.teamIdByPlayerId?.[winnerPlayerId] ?? null : null,
+          }
+        : patch
+      const { error } = await updateGameRecord({ tables: scorebookTables, gameId: selectedGame.id, patch: rowPatch })
       if (error) throw error
       setGames((current) => current.map((game) => (
         String(game.id) === String(selectedGame.id) ? { ...game, ...patch } : game
@@ -920,7 +971,7 @@ export default function Scorebook() {
     } finally {
       setTrackerModeSaving(false)
     }
-  }, [selectedGame, trackerStats, teamAName, teamBName, scorebookTables.games, pushToast])
+  }, [selectedGame, trackerStats, teamAName, teamBName, scorebookTables, isSeasonGame, gameSession.teamIdByPlayerId, pushToast])
 
   const currentInning  = offense?.inning || 1
   const currentHalfIdx = Math.floor(outsRecorded / 3)
@@ -1027,7 +1078,7 @@ export default function Scorebook() {
       setAdminRunnerCharacterId('')
     }
   }, [adminRunnerCharacterId, currentLineup])
-  const activePaNumber = editingPa?.pa_number ?? (gamePAs.length + 1)
+  const activePaNumber = editingPa?.pa_number ?? nextPaNumber(gamePAs)
   const currentPitcherStorageKey = `${scorebookDataScope}:${currentPitcherStint?.id || currentPitcherStint?.character_id || 'none'}`
   const currentActivePaScope = selectedGameId && currentBatter?.id
     ? `${selectedGameId}:${activePaNumber}:${currentBatter.id}`
@@ -1130,8 +1181,7 @@ export default function Scorebook() {
     return gameFielderRows.reduce((acc, row) => {
       if (
         String(row.team_id) === String(defensiveTeamId) &&
-        Number(row.inning_from || 1) <= Number(currentInning) &&
-        (row.inning_to == null || Number(row.inning_to) >= Number(currentInning))
+        fielderIsCurrent(row, currentInning)
       ) {
         acc[String(row.position)] = row
       }
@@ -1875,6 +1925,8 @@ export default function Scorebook() {
   useEffect(() => {
     if (!isScorekeeper) {
       setViewMode('game')
+    } else if (!searchParams.get('view')) {
+      setViewMode(selectedGame?.stats_source === 'tracker' ? 'liveTracker' : 'scorebook')
     }
   }, [isScorekeeper])
 
@@ -3122,7 +3174,7 @@ export default function Scorebook() {
       runner_on_second_before: editingPa?.runner_on_second_before ?? Boolean(runners.second),
       runner_on_third_before: editingPa?.runner_on_third_before ?? Boolean(runners.third),
       inning: editingPa?.inning ?? offense.inning,
-      pa_number: editingPa?.pa_number ?? (gamePAs.length + 1),
+      pa_number: editingPa?.pa_number ?? nextPaNumber(gamePAs),
       result,
       outs_on_play: calculateOutsForPa(result, outsOnPlay),
       runner_assignments: runnerAssignmentsForSave({
@@ -4381,8 +4433,7 @@ export default function Scorebook() {
     const fielderPitcherRow = gameFielderRows.find((row) => (
       String(row.team_id) === String(teamId)
       && Number(row.position) === 1
-      && Number(row.inning_from || 1) <= Number(currentInning)
-      && (row.inning_to == null || Number(row.inning_to) >= Number(currentInning))
+      && fielderIsCurrent(row, currentInning)
     ))
     const desiredPitcherCharId = fielderPitcherRow
       ? defensiveLineup.find((entry) => charactersById[entry.character_id]?.name === fielderPitcherRow.character)?.character_id
@@ -4410,7 +4461,7 @@ export default function Scorebook() {
       team_b_player_id: addGameForm.teamB || null,
       stadium_id: selectedAddGameStadium.id,
       is_night: normalizeIsNightForStadium(selectedAddGameStadium, addGameForm.isNight),
-      team_a_runs: 0, team_b_runs: 0, status: 'pending',
+      team_a_runs: 0, team_b_runs: 0, status: 'pending', stats_source: 'tracker',
     } })
     if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
     setGames(cur => [...cur, data])
@@ -4485,9 +4536,11 @@ export default function Scorebook() {
       <div style={{ display: 'inline-flex', gap: 6, padding: 4, borderRadius: 999, border: `1px solid ${C.border}`, background: `${C.card}DD` }}>
         {[
           { key: 'game', label: 'Game View' },
+          ...(selectedGame && (selectedGame.stats_source === 'tracker'
+            || !['complete', 'completed'].includes(selectedGame.status))
+            ? [{ key: 'liveTracker', label: 'Live Tracker' }] : []),
           ...(selectedGame?.stats_source === 'tracker'
-            ? [{ key: 'liveTracker', label: 'Live Tracker' }]
-            : [{ key: 'scorebook', label: 'Scorebook' }]),
+            ? [] : [{ key: 'scorebook', label: 'Manual Scorebook' }]),
           { key: 'atBatEditor', label: 'At-Bat Editor' },
           { key: 'lineups', label: 'Lineups' },
           { key: 'admin', label: 'Admin' },
@@ -4638,6 +4691,7 @@ export default function Scorebook() {
       tabs={viewTabs}
       state={{
         selectedGame,
+        isSeasonGame,
         videoUrlDraft,
         videoUrlSaving,
         trackerModeSaving,
@@ -4706,8 +4760,12 @@ export default function Scorebook() {
   // grid to work from — route everything except Admin (where the mode gets
   // toggled), Lineups (pregame setup, unaffected), and the At-Bat Editor
   // (works for any game) to the read-only tracker box score instead.
-  if (viewMode === 'liveTracker' && isScorekeeper && selectedGame?.stats_source === 'tracker') {
-    return <><TrackerScorebookView toolbar={scorebookToolbar} tabs={viewTabs} selectedGame={selectedGame} TrackerComponent={TrackerLivePreview} /><UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
+  if (viewMode === 'liveTracker' && isScorekeeper) {
+    return <><TrackerScorebookView toolbar={scorebookToolbar} tabs={viewTabs} selectedGame={selectedGame} isSeasonGame={isSeasonGame} TrackerComponent={TrackerLivePreview} /><UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
+  }
+
+  if (viewMode === 'scorebook' && isScorekeeper && selectedGame?.stats_source === 'tracker') {
+    return <><TrackerScorebookView toolbar={scorebookToolbar} tabs={viewTabs} selectedGame={selectedGame} isSeasonGame={isSeasonGame} TrackerComponent={TrackerLivePreview} /><UnsavedChangesPrompt blocker={lineupBlocker} onSave={handleSaveAllDirtyAndAtBat} onDiscard={handleDiscardAllDirtyAndAtBat} message={unsavedChangesMessage} /></>
   }
 
   if (selectedGame?.stats_source === 'tracker' && viewMode !== 'admin' && viewMode !== 'lineups' && viewMode !== 'atBatEditor') {

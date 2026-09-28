@@ -20,13 +20,13 @@ import { buildSeasonTeamIdentity, getTeamShortName } from '../utils/teamIdentity
 import { buildCharacterGameHistory, buildCharacterPitchingGameHistory, buildCharacterFieldingGameHistory, computeLeagueConstants } from '../utils/statsCalculator'
 import { fetchTeamLineup, swapLineupSlot, upsertTeamLineup, SEASON_TEAM_LINEUPS } from '../utils/teamLineups'
 import { recommendFielding, recommendLineup } from '../utils/autoTeamSetup'
+import { submitSeasonFreeAgentPickup } from '../utils/seasonFreeAgentPickup'
 import { useUnsavedChangesGuard, useConfirmedAction } from '../hooks/useUnsavedChangesGuard'
 import { useRegisterUnsavedChanges } from '../context/UnsavedChangesContext'
 import SaveLineupBar from '../components/SaveLineupBar'
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt'
 
 const TABS = ['Rosters', 'Trade Center', 'Free Agents', 'Transactions']
-const WAIVER_DURATION_MS = 7 * 24 * 60 * 60 * 1000
 
 function sortNewestFirst(rows = []) {
   return [...rows].sort((a, b) => new Date(b.created_at || b.proposed_at || 0) - new Date(a.created_at || a.proposed_at || 0))
@@ -56,10 +56,6 @@ function formatShortDate(value) {
     hour: 'numeric',
     minute: '2-digit',
   })
-}
-
-function buildWaiverExpiryDate() {
-  return new Date(Date.now() + WAIVER_DURATION_MS).toISOString()
 }
 
 function sortWaiverClaims(claims = []) {
@@ -637,6 +633,10 @@ export default function SeasonRoster() {
   const [freeAgentSort, setFreeAgentSort] = useState({ key: 'name', direction: 'asc' })
   const [pickupModal, setPickupModal] = useState(null)
   const [pickupDropCharacter, setPickupDropCharacter] = useState('')
+  const [pickupPending, setPickupPending] = useState(false)
+  const [pickupError, setPickupError] = useState(null)
+  // State alone cannot stop a second click that lands before the re-render.
+  const pickupPendingRef = useRef(false)
   const [fieldingPositions, setFieldingPositions] = useState({})
   const [lineupOrder, setLineupOrder] = useState([])
   const [selectedPlayer, setSelectedPlayer] = useState(null)
@@ -1204,10 +1204,8 @@ export default function SeasonRoster() {
       })
       .subscribe()
 
-    // Realtime postgres_changes can silently fail to deliver in some
-    // environments (and browsers throttle/suspend websockets on backgrounded
-    // tabs), so poll for the saved lineup as a fallback to guarantee it stays
-    // in sync even if the live channel above never fires.
+    // Reconcile when the tab returns or the connection comes back; healthy
+    // visible tabs rely on the row-level Realtime update above and do not poll.
     const syncFromDb = () => {
       // Skip the fallback poll's actual work while backgrounded — see Roster.jsx's identical
       // pattern for why (keeps the tab from looking "always active" to the browser's memory
@@ -1228,13 +1226,14 @@ export default function SeasonRoster() {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') syncFromDb()
     }
+    const handleOnline = () => syncFromDb()
     document.addEventListener('visibilitychange', handleVisibility)
-    const pollInterval = setInterval(syncFromDb, 5000)
+    window.addEventListener('online', handleOnline)
 
     return () => {
       supabase.removeChannel(channel)
       document.removeEventListener('visibilitychange', handleVisibility)
-      clearInterval(pollInterval)
+      window.removeEventListener('online', handleOnline)
     }
   }, [currentSeason?.id, viewedPlayerId, reconcileSavedLineup])
 
@@ -1325,19 +1324,8 @@ export default function SeasonRoster() {
   const closePickupModal = useCallback(() => {
     setPickupModal(null)
     setPickupDropCharacter('')
+    setPickupError(null)
   }, [])
-
-  const createDroppedPlayerWaiver = useCallback(async (characterName, sourceTeamId) => {
-    const { error } = await supabase.from('season_waivers').insert({
-      season_id: currentSeason.id,
-      claiming_character: characterName,
-      source_team_id: sourceTeamId,
-      status: 'active',
-      denied_team_ids: [],
-      expires_at: buildWaiverExpiryDate(),
-    })
-    if (error) throw error
-  }, [currentSeason?.id])
 
   // Resolution itself now runs atomically server-side (resolve_season_waiver RPC): it
   // locks each waiver with an active->processing status flip before touching any roster
@@ -1568,6 +1556,7 @@ export default function SeasonRoster() {
   const resolveTrade = (trade, status) => resolveModernTrade(trade, status)
 
   const submitPickup = async () => {
+    if (pickupPendingRef.current) return
     if (!pickupModal || !myTeam?.id || !pickupDropCharacter) {
       pushToast({ title: 'Pickup incomplete', message: 'Choose a player to drop first.', type: 'error' })
       return
@@ -1592,32 +1581,34 @@ export default function SeasonRoster() {
     }
 
     if (pickupModal.type === 'free_agent') {
-      const { error: addError } = await supabase.from('season_roster').insert({
-        season_id: currentSeason.id,
-        team_id: myTeam.id,
-        character_name: pickupModal.characterName,
-        acquired_via: 'free_agent',
-        is_active: true,
-      })
-      if (addError) {
-        pushToast({ title: 'Pickup failed', message: addError.message, type: 'error' })
-        return
-      }
-
-      const { error: deactivateError } = await supabase.from('season_roster').update({ is_active: false }).eq('id', dropRow.id)
-      if (deactivateError) {
-        pushToast({ title: 'Drop failed', message: deactivateError.message, type: 'error' })
-        return
-      }
-
+      // One transaction server-side: the add, the drop and the waiver commit
+      // together or not at all, and every check above is repeated there against
+      // the live rows. There is no fallback to separate writes.
+      pickupPendingRef.current = true
+      setPickupPending(true)
+      setPickupError(null)
+      let outcome
       try {
-        await createDroppedPlayerWaiver(dropRow.character_name, myTeam.id)
-      } catch (error) {
-        pushToast({ title: 'Waiver creation failed', message: error.message, type: 'error' })
+        outcome = await submitSeasonFreeAgentPickup(supabase, {
+          seasonId: currentSeason.id,
+          teamId: myTeam.id,
+          addCharacter: pickupModal.characterName,
+          dropRosterId: dropRow.id,
+        })
+      } finally {
+        pickupPendingRef.current = false
+        setPickupPending(false)
+      }
+
+      if (!outcome.ok) {
+        setPickupError({ title: outcome.title, message: outcome.message })
+        if (outcome.reason !== 'migration_missing') loadRosterData().catch(() => {})
         return
       }
 
-      pushToast({ title: 'Free agent added', message: `${pickupModal.characterName} joined your roster and ${dropRow.character_name} is now on waivers.`, type: 'success' })
+      pushToast(outcome.status === 'already_applied'
+        ? { title: 'Pickup already saved', message: `${pickupModal.characterName} was already on your roster from this pickup.`, type: 'success' }
+        : { title: 'Free agent added', message: `${pickupModal.characterName} joined your roster and ${dropRow.character_name} is now on waivers.`, type: 'success' })
       closePickupModal()
       loadRosterData().catch(() => {})
       return
@@ -2224,8 +2215,8 @@ export default function SeasonRoster() {
       ) : null}
 
       {pickupModal ? (
-        <div className="modal-backdrop" onClick={closePickupModal}>
-          <div className="modal-card" style={{ maxWidth: 460 }} onClick={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop" onClick={pickupPending ? undefined : closePickupModal}>
+          <div className="modal-card" style={{ maxWidth: 460 }} onClick={(event) => event.stopPropagation()} aria-busy={pickupPending}>
             <div className="section-head">
               <div>
                 <h2>{pickupModal.type === 'waiver' ? `Claim ${pickupModal.characterName}` : `Add ${pickupModal.characterName}`}</h2>
@@ -2235,7 +2226,7 @@ export default function SeasonRoster() {
                     : 'Choose the player you are dropping. The dropped player will go to waivers for one week.'}
                 </span>
               </div>
-              <button onClick={closePickupModal} type="button" style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer' }}>
+              <button onClick={closePickupModal} disabled={pickupPending} type="button" style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: pickupPending ? 'not-allowed' : 'pointer' }}>
                 <X size={18} />
               </button>
             </div>
@@ -2249,17 +2240,23 @@ export default function SeasonRoster() {
                   ) : null}
                 </div>
               </div>
-              <select value={pickupDropCharacter} onChange={(event) => setPickupDropCharacter(event.target.value)}>
+              <select value={pickupDropCharacter} onChange={(event) => setPickupDropCharacter(event.target.value)} disabled={pickupPending}>
                 <option value="">Drop character</option>
                 {(activeRosterByTeamId[String(myTeam?.id)] || [])
                   .filter((entry) => entry.character_name !== captainNameByTeamId[String(myTeam?.id)])
                   .map((entry) => <option key={entry.id} value={entry.character_name}>{entry.character_name}</option>)}
               </select>
+              {pickupError ? (
+                <div role="alert" style={{ display: 'grid', gap: 4, padding: 12, borderRadius: 12, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#FCA5A5', fontSize: 13 }}>
+                  <strong>{pickupError.title}</strong>
+                  <span>{pickupError.message}</span>
+                </div>
+              ) : null}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                <button className="ghost-button" onClick={closePickupModal} type="button">Cancel</button>
-                <button className="solid-button" onClick={submitPickup} type="button">
+                <button className="ghost-button" onClick={closePickupModal} disabled={pickupPending} type="button">Cancel</button>
+                <button className="solid-button" onClick={submitPickup} disabled={pickupPending} type="button">
                   {pickupModal.type === 'waiver' ? <Clock3 size={16} /> : <Plus size={16} />}
-                  <span>{pickupModal.type === 'waiver' ? 'Submit Claim' : 'Confirm Pickup'}</span>
+                  <span>{pickupModal.type === 'waiver' ? 'Submit Claim' : pickupPending ? 'Saving pickup…' : 'Confirm Pickup'}</span>
                 </button>
               </div>
             </div>

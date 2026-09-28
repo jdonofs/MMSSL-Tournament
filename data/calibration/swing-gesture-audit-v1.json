@@ -1,0 +1,3345 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-28T12:38:37.366571+00:00",
+  "purpose": "offline slap/charge calibration audit; no production model activation",
+  "sessions": [
+    {
+      "game": 1,
+      "stem": "mario_stadium-20260925T122709Z",
+      "recorded_utc": "20260925T122709Z",
+      "header_note": "standalone preview (no database writes)",
+      "calibration_excluded": true,
+      "calibration_excluded_reason": "scripted slap-charge calibration",
+      "controller_input_capture": {
+        "version": 1,
+        "ports": [
+          1,
+          2
+        ],
+        "struct_size": 1336,
+        "source": "mss_input.PORT_STRUCTS",
+        "purpose": "slap_charge_and_shake_gesture_calibration"
+      },
+      "header_frames": 26144,
+      "duration_seconds": 586.422,
+      "missed_frames": 0,
+      "header_checksum_sha256": "ec19a334549d6da04a0cbb3ba92566c780b821f770a72ac62782a7de0b739c87",
+      "verified_binary_checksum_sha256": "ec19a334549d6da04a0cbb3ba92566c780b821f770a72ac62782a7de0b739c87",
+      "manifest": "data/player_tracking/preview-2026-09-25T12-25-57-291Z.manifest.json",
+      "manifest_recorded_utc": "20260925T122709Z",
+      "manifest_frames": 26144,
+      "manifest_duration_seconds": 586.422,
+      "tracker_log": "sluggers-stat-tracker-advanced-stats-dev/preview-sessions/preview-2026-09-25_08-25-57.log",
+      "pitch_stream": "data/player_tracking/mario_stadium-20260925T122709Z.pitches.jsonl",
+      "play_stream": "data/player_tracking/mario_stadium-20260925T122709Z.plays.jsonl",
+      "pitch_count": 29,
+      "play_count": 29,
+      "pa_count": 26,
+      "first_pitch": {
+        "timer": 1265,
+        "inning": 1,
+        "half": "top",
+        "batter": "Daisy"
+      },
+      "last_pitch": {
+        "timer": 23551,
+        "inning": 3,
+        "half": "bottom",
+        "batter": "King Boo"
+      }
+    },
+    {
+      "game": 2,
+      "stem": "mario_stadium-20260925T123759Z",
+      "recorded_utc": "20260925T123759Z",
+      "header_note": "standalone preview (no database writes)",
+      "calibration_excluded": true,
+      "calibration_excluded_reason": "scripted slap-charge calibration",
+      "controller_input_capture": {
+        "version": 1,
+        "ports": [
+          1,
+          2
+        ],
+        "struct_size": 1336,
+        "source": "mss_input.PORT_STRUCTS",
+        "purpose": "slap_charge_and_shake_gesture_calibration"
+      },
+      "header_frames": 25683,
+      "duration_seconds": 444.447,
+      "missed_frames": 3,
+      "header_checksum_sha256": "b5eaebf8973d3ccdbeb306803d3257f16b895d6ff49710d2c5ead733f34ac52b",
+      "verified_binary_checksum_sha256": "b5eaebf8973d3ccdbeb306803d3257f16b895d6ff49710d2c5ead733f34ac52b",
+      "manifest": "data/player_tracking/preview-2026-09-25T12-37-58-847Z.manifest.json",
+      "manifest_recorded_utc": "20260925T123759Z",
+      "manifest_frames": 25683,
+      "manifest_duration_seconds": 444.447,
+      "tracker_log": "sluggers-stat-tracker-advanced-stats-dev/preview-sessions/preview-2026-09-25_08-37-58.log",
+      "pitch_stream": "data/player_tracking/mario_stadium-20260925T123759Z.pitches.jsonl",
+      "play_stream": "data/player_tracking/mario_stadium-20260925T123759Z.plays.jsonl",
+      "pitch_count": 33,
+      "play_count": 27,
+      "pa_count": 26,
+      "first_pitch": {
+        "timer": 29125,
+        "inning": 1,
+        "half": "top",
+        "batter": "Daisy"
+      },
+      "last_pitch": {
+        "timer": 52462,
+        "inning": 3,
+        "half": "bottom",
+        "batter": "Bowser Jr."
+      }
+    }
+  ],
+  "selection": {
+    "selected_in_order": [
+      "mario_stadium-20260925T122709Z",
+      "mario_stadium-20260925T123759Z"
+    ],
+    "excluded_discovery_session": "mario_stadium-20260923T012536Z",
+    "reason": "the selected headers/manifests were consecutive 2026-09-25 captures and both use calibration_excluded_reason='scripted slap-charge calibration'; the 2026-09-23 lineup declares status='gesture_discovery_only'"
+  },
+  "label_policy": {
+    "planned_swing_mode": "operator schedule; never used as a detector feature",
+    "actual_swing_mode": "operator corrections override plan; Game 1 PAs 10-12 become charge only when a live charge-counter rise plus release is present",
+    "detected_swing_mode": "unaltered pitch-stream output",
+    "gold_filter": "ordinary swings with corrected slap/charge labels only",
+    "target_leakage": {
+      "swing_charge_frames": "direct in-game charge-state evidence and the same signal used by the current detector; not an independent classifier feature",
+      "raw_wiimote_motion": "independent candidate input; evaluated without swing_mode or swing_charge_frames"
+    }
+  },
+  "counts": {
+    "all_pitches": 62,
+    "gold_ordinary_swings": 59,
+    "gold_by_game": [
+      {
+        "game": 1,
+        "slap": 14,
+        "charge": 15,
+        "total": 29
+      },
+      {
+        "game": 2,
+        "slap": 11,
+        "charge": 19,
+        "total": 30
+      }
+    ],
+    "by_controller_port": [
+      {
+        "controller_port": 1,
+        "slap": 13,
+        "charge": 18,
+        "total": 31
+      },
+      {
+        "controller_port": 2,
+        "slap": 12,
+        "charge": 16,
+        "total": 28
+      }
+    ],
+    "by_game_and_controller_port": [
+      {
+        "game": 1,
+        "controller_port": 1,
+        "slap": 10,
+        "charge": 5,
+        "total": 15
+      },
+      {
+        "game": 1,
+        "controller_port": 2,
+        "slap": 4,
+        "charge": 10,
+        "total": 14
+      },
+      {
+        "game": 2,
+        "controller_port": 1,
+        "slap": 3,
+        "charge": 13,
+        "total": 16
+      },
+      {
+        "game": 2,
+        "controller_port": 2,
+        "slap": 8,
+        "charge": 6,
+        "total": 14
+      }
+    ],
+    "by_side": [
+      {
+        "half": "bottom",
+        "slap": 12,
+        "charge": 16,
+        "total": 28
+      },
+      {
+        "half": "top",
+        "slap": 13,
+        "charge": 18,
+        "total": 31
+      }
+    ],
+    "by_game_and_inning": [
+      {
+        "game": 1,
+        "inning": 1,
+        "slap": 6,
+        "charge": 5,
+        "total": 11
+      },
+      {
+        "game": 1,
+        "inning": 2,
+        "slap": 5,
+        "charge": 5,
+        "total": 10
+      },
+      {
+        "game": 1,
+        "inning": 3,
+        "slap": 3,
+        "charge": 5,
+        "total": 8
+      },
+      {
+        "game": 2,
+        "inning": 1,
+        "slap": 3,
+        "charge": 4,
+        "total": 7
+      },
+      {
+        "game": 2,
+        "inning": 2,
+        "slap": 3,
+        "charge": 5,
+        "total": 8
+      },
+      {
+        "game": 2,
+        "inning": 3,
+        "slap": 5,
+        "charge": 10,
+        "total": 15
+      }
+    ],
+    "by_batter": [
+      {
+        "game": 1,
+        "batter": "Birdo",
+        "slap": 2,
+        "charge": 0,
+        "total": 2
+      },
+      {
+        "game": 1,
+        "batter": "Blue Toad",
+        "slap": 0,
+        "charge": 1,
+        "total": 1
+      },
+      {
+        "game": 1,
+        "batter": "Boomerang Bro.",
+        "slap": 2,
+        "charge": 0,
+        "total": 2
+      },
+      {
+        "game": 1,
+        "batter": "Bowser Jr.",
+        "slap": 0,
+        "charge": 2,
+        "total": 2
+      },
+      {
+        "game": 1,
+        "batter": "Brown Kritter",
+        "slap": 1,
+        "charge": 0,
+        "total": 1
+      },
+      {
+        "game": 1,
+        "batter": "Daisy",
+        "slap": 1,
+        "charge": 1,
+        "total": 2
+      },
+      {
+        "game": 1,
+        "batter": "Donkey Kong",
+        "slap": 0,
+        "charge": 2,
+        "total": 2
+      },
+      {
+        "game": 1,
+        "batter": "Gray Shy Guy",
+        "slap": 0,
+        "charge": 1,
+        "total": 1
+      },
+      {
+        "game": 1,
+        "batter": "Green Noki",
+        "slap": 1,
+        "charge": 0,
+        "total": 1
+      },
+      {
+        "game": 1,
+        "batter": "King Boo",
+        "slap": 0,
+        "charge": 2,
+        "total": 2
+      },
+      {
+        "game": 1,
+        "batter": "Koopa Troopa",
+        "slap": 1,
+        "charge": 0,
+        "total": 1
+      },
+      {
+        "game": 1,
+        "batter": "Petey Piranha",
+        "slap": 2,
+        "charge": 0,
+        "total": 2
+      },
+      {
+        "game": 1,
+        "batter": "Pink Yoshi",
+        "slap": 1,
+        "charge": 0,
+        "total": 1
+      },
+      {
+        "game": 1,
+        "batter": "Purple Toad",
+        "slap": 1,
+        "charge": 0,
+        "total": 1
+      },
+      {
+        "game": 1,
+        "batter": "Red Koopa Troopa",
+        "slap": 0,
+        "charge": 1,
+        "total": 1
+      },
+      {
+        "game": 1,
+        "batter": "Red Kritter",
+        "slap": 2,
+        "charge": 0,
+        "total": 2
+      },
+      {
+        "game": 1,
+        "batter": "Waluigi",
+        "slap": 0,
+        "charge": 3,
+        "total": 3
+      },
+      {
+        "game": 1,
+        "batter": "Yellow Yoshi",
+        "slap": 0,
+        "charge": 2,
+        "total": 2
+      },
+      {
+        "game": 2,
+        "batter": "Birdo",
+        "slap": 0,
+        "charge": 2,
+        "total": 2
+      },
+      {
+        "game": 2,
+        "batter": "Blue Toad",
+        "slap": 1,
+        "charge": 0,
+        "total": 1
+      },
+      {
+        "game": 2,
+        "batter": "Boomerang Bro.",
+        "slap": 1,
+        "charge": 2,
+        "total": 3
+      },
+      {
+        "game": 2,
+        "batter": "Bowser Jr.",
+        "slap": 3,
+        "charge": 0,
+        "total": 3
+      },
+      {
+        "game": 2,
+        "batter": "Brown Kritter",
+        "slap": 0,
+        "charge": 1,
+        "total": 1
+      },
+      {
+        "game": 2,
+        "batter": "Daisy",
+        "slap": 0,
+        "charge": 2,
+        "total": 2
+      },
+      {
+        "game": 2,
+        "batter": "Donkey Kong",
+        "slap": 2,
+        "charge": 0,
+        "total": 2
+      },
+      {
+        "game": 2,
+        "batter": "Gray Shy Guy",
+        "slap": 1,
+        "charge": 1,
+        "total": 2
+      },
+      {
+        "game": 2,
+        "batter": "Green Noki",
+        "slap": 0,
+        "charge": 1,
+        "total": 1
+      },
+      {
+        "game": 2,
+        "batter": "King Boo",
+        "slap": 0,
+        "charge": 1,
+        "total": 1
+      },
+      {
+        "game": 2,
+        "batter": "Koopa Troopa",
+        "slap": 0,
+        "charge": 1,
+        "total": 1
+      },
+      {
+        "game": 2,
+        "batter": "Petey Piranha",
+        "slap": 0,
+        "charge": 2,
+        "total": 2
+      },
+      {
+        "game": 2,
+        "batter": "Pink Yoshi",
+        "slap": 0,
+        "charge": 1,
+        "total": 1
+      },
+      {
+        "game": 2,
+        "batter": "Purple Toad",
+        "slap": 0,
+        "charge": 1,
+        "total": 1
+      },
+      {
+        "game": 2,
+        "batter": "Red Koopa Troopa",
+        "slap": 1,
+        "charge": 0,
+        "total": 1
+      },
+      {
+        "game": 2,
+        "batter": "Red Kritter",
+        "slap": 0,
+        "charge": 2,
+        "total": 2
+      },
+      {
+        "game": 2,
+        "batter": "Waluigi",
+        "slap": 2,
+        "charge": 0,
+        "total": 2
+      },
+      {
+        "game": 2,
+        "batter": "Yellow Yoshi",
+        "slap": 0,
+        "charge": 2,
+        "total": 2
+      }
+    ],
+    "by_batter_all_games": [
+      {
+        "batter": "Birdo",
+        "slap": 2,
+        "charge": 2,
+        "total": 4
+      },
+      {
+        "batter": "Blue Toad",
+        "slap": 1,
+        "charge": 1,
+        "total": 2
+      },
+      {
+        "batter": "Boomerang Bro.",
+        "slap": 3,
+        "charge": 2,
+        "total": 5
+      },
+      {
+        "batter": "Bowser Jr.",
+        "slap": 3,
+        "charge": 2,
+        "total": 5
+      },
+      {
+        "batter": "Brown Kritter",
+        "slap": 1,
+        "charge": 1,
+        "total": 2
+      },
+      {
+        "batter": "Daisy",
+        "slap": 1,
+        "charge": 3,
+        "total": 4
+      },
+      {
+        "batter": "Donkey Kong",
+        "slap": 2,
+        "charge": 2,
+        "total": 4
+      },
+      {
+        "batter": "Gray Shy Guy",
+        "slap": 1,
+        "charge": 2,
+        "total": 3
+      },
+      {
+        "batter": "Green Noki",
+        "slap": 1,
+        "charge": 1,
+        "total": 2
+      },
+      {
+        "batter": "King Boo",
+        "slap": 0,
+        "charge": 3,
+        "total": 3
+      },
+      {
+        "batter": "Koopa Troopa",
+        "slap": 1,
+        "charge": 1,
+        "total": 2
+      },
+      {
+        "batter": "Petey Piranha",
+        "slap": 2,
+        "charge": 2,
+        "total": 4
+      },
+      {
+        "batter": "Pink Yoshi",
+        "slap": 1,
+        "charge": 1,
+        "total": 2
+      },
+      {
+        "batter": "Purple Toad",
+        "slap": 1,
+        "charge": 1,
+        "total": 2
+      },
+      {
+        "batter": "Red Koopa Troopa",
+        "slap": 1,
+        "charge": 1,
+        "total": 2
+      },
+      {
+        "batter": "Red Kritter",
+        "slap": 2,
+        "charge": 2,
+        "total": 4
+      },
+      {
+        "batter": "Waluigi",
+        "slap": 2,
+        "charge": 3,
+        "total": 5
+      },
+      {
+        "batter": "Yellow Yoshi",
+        "slap": 0,
+        "charge": 4,
+        "total": 4
+      }
+    ],
+    "by_contact_result": [
+      {
+        "contact_result": "fair_caught",
+        "slap": 15,
+        "charge": 12,
+        "total": 27
+      },
+      {
+        "contact_result": "fair_in_play",
+        "slap": 8,
+        "charge": 11,
+        "total": 19
+      },
+      {
+        "contact_result": "foul",
+        "slap": 1,
+        "charge": 3,
+        "total": 4
+      },
+      {
+        "contact_result": "home_run",
+        "slap": 0,
+        "charge": 6,
+        "total": 6
+      },
+      {
+        "contact_result": "swinging_miss",
+        "slap": 1,
+        "charge": 2,
+        "total": 3
+      }
+    ],
+    "excluded": {
+      "take": 3
+    }
+  },
+  "current_detector": {
+    "signal": "swing_charge_frames rise; charge if >0, slap if zero",
+    "against_all_corrected_gold": {
+      "matrix_actual_then_predicted": {
+        "slap": {
+          "slap": 25,
+          "charge": 0
+        },
+        "charge": {
+          "slap": 0,
+          "charge": 34
+        }
+      },
+      "correct": 59,
+      "total": 59,
+      "accuracy": 1.0,
+      "false_charge": 0,
+      "false_slap": 0,
+      "disagreements": []
+    },
+    "against_operator_schedule_or_correction_only": {
+      "matrix_actual_then_predicted": {
+        "slap": {
+          "slap": 25,
+          "charge": 0
+        },
+        "charge": {
+          "slap": 0,
+          "charge": 30
+        }
+      },
+      "correct": 55,
+      "total": 55,
+      "accuracy": 1.0,
+      "false_charge": 0,
+      "false_slap": 0,
+      "disagreements": []
+    },
+    "interpretation": "The all-gold matrix is partly circular because four Game 1 swings use the same direct charge-state evidence to resolve operator uncertainty. The operator-only subset is the independent check."
+  },
+  "planned_vs_actual_disagreements": [
+    {
+      "game": 1,
+      "session": "mario_stadium-20260925T122709Z",
+      "pa_number": 10,
+      "pitch_number": 1,
+      "batter": "Blue Toad",
+      "planned": "slap",
+      "actual": "charge",
+      "detected": "charge",
+      "label_source": "capture_charge_state",
+      "charge_frames": 14,
+      "release_timing_frames": 1
+    },
+    {
+      "game": 1,
+      "session": "mario_stadium-20260925T122709Z",
+      "pa_number": 11,
+      "pitch_number": 1,
+      "batter": "Red Koopa Troopa",
+      "planned": "slap",
+      "actual": "charge",
+      "detected": "charge",
+      "label_source": "capture_charge_state",
+      "charge_frames": 41,
+      "release_timing_frames": 1
+    },
+    {
+      "game": 1,
+      "session": "mario_stadium-20260925T122709Z",
+      "pa_number": 12,
+      "pitch_number": 1,
+      "batter": "Yellow Yoshi",
+      "planned": "slap",
+      "actual": "charge",
+      "detected": "charge",
+      "label_source": "capture_charge_state",
+      "charge_frames": 79,
+      "release_timing_frames": 1
+    },
+    {
+      "game": 1,
+      "session": "mario_stadium-20260925T122709Z",
+      "pa_number": 12,
+      "pitch_number": 2,
+      "batter": "Yellow Yoshi",
+      "planned": "slap",
+      "actual": "charge",
+      "detected": "charge",
+      "label_source": "capture_charge_state",
+      "charge_frames": 39,
+      "release_timing_frames": 1
+    },
+    {
+      "game": 1,
+      "session": "mario_stadium-20260925T122709Z",
+      "pa_number": 13,
+      "pitch_number": 1,
+      "batter": "Pink Yoshi",
+      "planned": "charge",
+      "actual": "slap",
+      "detected": "slap",
+      "label_source": "operator_correction",
+      "charge_frames": 0,
+      "release_timing_frames": null
+    },
+    {
+      "game": 2,
+      "session": "mario_stadium-20260925T123759Z",
+      "pa_number": 23,
+      "pitch_number": 1,
+      "batter": "Gray Shy Guy",
+      "planned": "slap",
+      "actual": "charge",
+      "detected": "charge",
+      "label_source": "operator_correction",
+      "charge_frames": 21,
+      "release_timing_frames": 1
+    }
+  ],
+  "charge_timing": {
+    "slap_charge_frames": {
+      "n": 25,
+      "min": 0.0,
+      "median": 0.0,
+      "mean": 0.0,
+      "max": 0.0
+    },
+    "charge_frames": {
+      "n": 34,
+      "min": 12.0,
+      "median": 45.0,
+      "mean": 50.294118,
+      "max": 137.0
+    },
+    "release_to_pitch_resolution_frames": {
+      "n": 34,
+      "min": 1.0,
+      "median": 1.0,
+      "mean": 1.0,
+      "max": 1.0
+    },
+    "release_to_swing_start_frames": {
+      "n": 34,
+      "min": 1.0,
+      "median": 1.0,
+      "mean": 1.0,
+      "max": 1.0
+    },
+    "by_game": [
+      {
+        "game": 1,
+        "charge_frames": {
+          "n": 15,
+          "min": 12.0,
+          "median": 46.0,
+          "mean": 44.466667,
+          "max": 79.0
+        },
+        "release_to_swing_start_frames": {
+          "n": 15,
+          "min": 1.0,
+          "median": 1.0,
+          "mean": 1.0,
+          "max": 1.0
+        },
+        "release_to_swing_start_reconstructed_frames": {
+          "n": 15,
+          "min": 1.0,
+          "median": 1.0,
+          "mean": 1.0,
+          "max": 1.0
+        }
+      },
+      {
+        "game": 2,
+        "charge_frames": {
+          "n": 19,
+          "min": 21.0,
+          "median": 42.0,
+          "mean": 54.894737,
+          "max": 137.0
+        },
+        "release_to_swing_start_frames": {
+          "n": 19,
+          "min": 1.0,
+          "median": 1.0,
+          "mean": 1.0,
+          "max": 1.0
+        },
+        "release_to_swing_start_reconstructed_frames": {
+          "n": 19,
+          "min": 1.0,
+          "median": 1.0,
+          "mean": 1.0,
+          "max": 1.0
+        }
+      }
+    ],
+    "note": "The existing release-timing field is measured to pitch resolution. It is comparable to swing release on contact, but is inflated on a swing-and-miss because the count resolves later."
+  },
+  "raw_controller_motion": {
+    "candidate_feature_distributions": {
+      "prep.angle_diff_y.path": {
+        "slap": {
+          "n": 25,
+          "min": 0.0,
+          "median": 0.0124,
+          "mean": 0.107861,
+          "max": 0.997225
+        },
+        "charge": {
+          "n": 34,
+          "min": 0.0,
+          "median": 0.152047,
+          "mean": 0.277692,
+          "max": 1.765392
+        },
+        "charge_minus_slap_mean": 0.16983,
+        "standardized_mean_difference": 0.515121
+      },
+      "prep.acc_variation.mean": {
+        "slap": {
+          "n": 25,
+          "min": 0.071971,
+          "median": 0.142489,
+          "mean": 0.175498,
+          "max": 0.449468
+        },
+        "charge": {
+          "n": 34,
+          "min": 0.063814,
+          "median": 0.153944,
+          "mean": 0.15772,
+          "max": 0.308842
+        },
+        "charge_minus_slap_mean": -0.017778,
+        "standardized_mean_difference": -0.246936
+      },
+      "prep.acc_y.path": {
+        "slap": {
+          "n": 25,
+          "min": 19.002062,
+          "median": 35.204124,
+          "mean": 37.953311,
+          "max": 94.985568
+        },
+        "charge": {
+          "n": 34,
+          "min": 18.362887,
+          "median": 28.520001,
+          "mean": 30.431043,
+          "max": 56.820001
+        },
+        "charge_minus_slap_mean": -7.522268,
+        "standardized_mean_difference": -0.543296
+      },
+      "prep.down_x.range": {
+        "slap": {
+          "n": 25,
+          "min": 0.172533,
+          "median": 0.416788,
+          "mean": 0.450427,
+          "max": 0.836344
+        },
+        "charge": {
+          "n": 34,
+          "min": 0.096401,
+          "median": 0.277633,
+          "mean": 0.318774,
+          "max": 0.614294
+        },
+        "charge_minus_slap_mean": -0.131654,
+        "standardized_mean_difference": -0.757068
+      }
+    },
+    "exploratory_classifier": {
+      "type": "one-dimensional threshold",
+      "feature": "prep.angle_diff_y.path",
+      "feature_selection_caveat": "chosen after exploratory inspection as the most stable same-direction raw feature; with only two games, this is not an untouched model-selection holdout",
+      "split": "train one complete game, test the other, then reverse",
+      "results": [
+        {
+          "train_game": 1,
+          "test_game": 2,
+          "feature": "prep.angle_diff_y.path",
+          "model": {
+            "training_accuracy": 0.758621,
+            "threshold": 0.056361,
+            "charge_when_above_threshold": true
+          },
+          "test": {
+            "matrix_actual_then_predicted": {
+              "slap": {
+                "slap": 6,
+                "charge": 5
+              },
+              "charge": {
+                "slap": 4,
+                "charge": 15
+              }
+            },
+            "correct": 21,
+            "total": 30,
+            "accuracy": 0.7,
+            "false_charge": 5,
+            "false_slap": 4,
+            "disagreements": [
+              {
+                "game": 2,
+                "session": "mario_stadium-20260925T123759Z",
+                "pa_number": 1,
+                "pitch_number": 1,
+                "controller_port": 1,
+                "actual": "charge",
+                "predicted": "slap",
+                "feature_value": 0.0,
+                "threshold": 0.056361
+              },
+              {
+                "game": 2,
+                "session": "mario_stadium-20260925T123759Z",
+                "pa_number": 2,
+                "pitch_number": 1,
+                "controller_port": 1,
+                "actual": "charge",
+                "predicted": "slap",
+                "feature_value": 0.026071,
+                "threshold": 0.056361
+              },
+              {
+                "game": 2,
+                "session": "mario_stadium-20260925T123759Z",
+                "pa_number": 4,
+                "pitch_number": 1,
+                "controller_port": 1,
+                "actual": "charge",
+                "predicted": "slap",
+                "feature_value": 0.0,
+                "threshold": 0.056361
+              },
+              {
+                "game": 2,
+                "session": "mario_stadium-20260925T123759Z",
+                "pa_number": 8,
+                "pitch_number": 1,
+                "controller_port": 1,
+                "actual": "slap",
+                "predicted": "charge",
+                "feature_value": 0.076838,
+                "threshold": 0.056361
+              },
+              {
+                "game": 2,
+                "session": "mario_stadium-20260925T123759Z",
+                "pa_number": 9,
+                "pitch_number": 1,
+                "controller_port": 1,
+                "actual": "slap",
+                "predicted": "charge",
+                "feature_value": 0.059594,
+                "threshold": 0.056361
+              },
+              {
+                "game": 2,
+                "session": "mario_stadium-20260925T123759Z",
+                "pa_number": 15,
+                "pitch_number": 1,
+                "controller_port": 2,
+                "actual": "charge",
+                "predicted": "slap",
+                "feature_value": 0.013703,
+                "threshold": 0.056361
+              },
+              {
+                "game": 2,
+                "session": "mario_stadium-20260925T123759Z",
+                "pa_number": 24,
+                "pitch_number": 2,
+                "controller_port": 2,
+                "actual": "slap",
+                "predicted": "charge",
+                "feature_value": 0.188227,
+                "threshold": 0.056361
+              },
+              {
+                "game": 2,
+                "session": "mario_stadium-20260925T123759Z",
+                "pa_number": 26,
+                "pitch_number": 1,
+                "controller_port": 2,
+                "actual": "slap",
+                "predicted": "charge",
+                "feature_value": 0.074356,
+                "threshold": 0.056361
+              },
+              {
+                "game": 2,
+                "session": "mario_stadium-20260925T123759Z",
+                "pa_number": 26,
+                "pitch_number": 3,
+                "controller_port": 2,
+                "actual": "slap",
+                "predicted": "charge",
+                "feature_value": 0.246695,
+                "threshold": 0.056361
+              }
+            ]
+          },
+          "test_by_controller_port": {
+            "1": {
+              "matrix_actual_then_predicted": {
+                "slap": {
+                  "slap": 1,
+                  "charge": 2
+                },
+                "charge": {
+                  "slap": 3,
+                  "charge": 10
+                }
+              },
+              "correct": 11,
+              "total": 16,
+              "accuracy": 0.6875,
+              "false_charge": 2,
+              "false_slap": 3,
+              "disagreements": [
+                {
+                  "game": 2,
+                  "session": "mario_stadium-20260925T123759Z",
+                  "pa_number": 1,
+                  "pitch_number": 1,
+                  "controller_port": 1,
+                  "actual": "charge",
+                  "predicted": "slap"
+                },
+                {
+                  "game": 2,
+                  "session": "mario_stadium-20260925T123759Z",
+                  "pa_number": 2,
+                  "pitch_number": 1,
+                  "controller_port": 1,
+                  "actual": "charge",
+                  "predicted": "slap"
+                },
+                {
+                  "game": 2,
+                  "session": "mario_stadium-20260925T123759Z",
+                  "pa_number": 4,
+                  "pitch_number": 1,
+                  "controller_port": 1,
+                  "actual": "charge",
+                  "predicted": "slap"
+                },
+                {
+                  "game": 2,
+                  "session": "mario_stadium-20260925T123759Z",
+                  "pa_number": 8,
+                  "pitch_number": 1,
+                  "controller_port": 1,
+                  "actual": "slap",
+                  "predicted": "charge"
+                },
+                {
+                  "game": 2,
+                  "session": "mario_stadium-20260925T123759Z",
+                  "pa_number": 9,
+                  "pitch_number": 1,
+                  "controller_port": 1,
+                  "actual": "slap",
+                  "predicted": "charge"
+                }
+              ]
+            },
+            "2": {
+              "matrix_actual_then_predicted": {
+                "slap": {
+                  "slap": 5,
+                  "charge": 3
+                },
+                "charge": {
+                  "slap": 1,
+                  "charge": 5
+                }
+              },
+              "correct": 10,
+              "total": 14,
+              "accuracy": 0.714286,
+              "false_charge": 3,
+              "false_slap": 1,
+              "disagreements": [
+                {
+                  "game": 2,
+                  "session": "mario_stadium-20260925T123759Z",
+                  "pa_number": 15,
+                  "pitch_number": 1,
+                  "controller_port": 2,
+                  "actual": "charge",
+                  "predicted": "slap"
+                },
+                {
+                  "game": 2,
+                  "session": "mario_stadium-20260925T123759Z",
+                  "pa_number": 24,
+                  "pitch_number": 2,
+                  "controller_port": 2,
+                  "actual": "slap",
+                  "predicted": "charge"
+                },
+                {
+                  "game": 2,
+                  "session": "mario_stadium-20260925T123759Z",
+                  "pa_number": 26,
+                  "pitch_number": 1,
+                  "controller_port": 2,
+                  "actual": "slap",
+                  "predicted": "charge"
+                },
+                {
+                  "game": 2,
+                  "session": "mario_stadium-20260925T123759Z",
+                  "pa_number": 26,
+                  "pitch_number": 3,
+                  "controller_port": 2,
+                  "actual": "slap",
+                  "predicted": "charge"
+                }
+              ]
+            }
+          },
+          "majority_baseline": {
+            "label": "charge",
+            "correct": 19,
+            "total": 30,
+            "accuracy": 0.633333
+          }
+        },
+        {
+          "train_game": 2,
+          "test_game": 1,
+          "feature": "prep.angle_diff_y.path",
+          "model": {
+            "training_accuracy": 0.8,
+            "threshold": 0.077501,
+            "charge_when_above_threshold": true
+          },
+          "test": {
+            "matrix_actual_then_predicted": {
+              "slap": {
+                "slap": 12,
+                "charge": 2
+              },
+              "charge": {
+                "slap": 5,
+                "charge": 10
+              }
+            },
+            "correct": 22,
+            "total": 29,
+            "accuracy": 0.758621,
+            "false_charge": 2,
+            "false_slap": 5,
+            "disagreements": [
+              {
+                "game": 1,
+                "session": "mario_stadium-20260925T122709Z",
+                "pa_number": 6,
+                "pitch_number": 2,
+                "controller_port": 2,
+                "actual": "charge",
+                "predicted": "slap",
+                "feature_value": 0.0,
+                "threshold": 0.077501
+              },
+              {
+                "game": 1,
+                "session": "mario_stadium-20260925T122709Z",
+                "pa_number": 11,
+                "pitch_number": 1,
+                "controller_port": 1,
+                "actual": "charge",
+                "predicted": "slap",
+                "feature_value": 0.0,
+                "threshold": 0.077501
+              },
+              {
+                "game": 1,
+                "session": "mario_stadium-20260925T122709Z",
+                "pa_number": 12,
+                "pitch_number": 1,
+                "controller_port": 1,
+                "actual": "charge",
+                "predicted": "slap",
+                "feature_value": 0.0,
+                "threshold": 0.077501
+              },
+              {
+                "game": 1,
+                "session": "mario_stadium-20260925T122709Z",
+                "pa_number": 12,
+                "pitch_number": 2,
+                "controller_port": 1,
+                "actual": "charge",
+                "predicted": "slap",
+                "feature_value": 0.0,
+                "threshold": 0.077501
+              },
+              {
+                "game": 1,
+                "session": "mario_stadium-20260925T122709Z",
+                "pa_number": 13,
+                "pitch_number": 1,
+                "controller_port": 1,
+                "actual": "slap",
+                "predicted": "charge",
+                "feature_value": 0.997225,
+                "threshold": 0.077501
+              },
+              {
+                "game": 1,
+                "session": "mario_stadium-20260925T122709Z",
+                "pa_number": 14,
+                "pitch_number": 1,
+                "controller_port": 1,
+                "actual": "charge",
+                "predicted": "slap",
+                "feature_value": 0.026034,
+                "threshold": 0.077501
+              },
+              {
+                "game": 1,
+                "session": "mario_stadium-20260925T122709Z",
+                "pa_number": 16,
+                "pitch_number": 1,
+                "controller_port": 2,
+                "actual": "slap",
+                "predicted": "charge",
+                "feature_value": 0.862525,
+                "threshold": 0.077501
+              }
+            ]
+          },
+          "test_by_controller_port": {
+            "1": {
+              "matrix_actual_then_predicted": {
+                "slap": {
+                  "slap": 9,
+                  "charge": 1
+                },
+                "charge": {
+                  "slap": 4,
+                  "charge": 1
+                }
+              },
+              "correct": 10,
+              "total": 15,
+              "accuracy": 0.666667,
+              "false_charge": 1,
+              "false_slap": 4,
+              "disagreements": [
+                {
+                  "game": 1,
+                  "session": "mario_stadium-20260925T122709Z",
+                  "pa_number": 11,
+                  "pitch_number": 1,
+                  "controller_port": 1,
+                  "actual": "charge",
+                  "predicted": "slap"
+                },
+                {
+                  "game": 1,
+                  "session": "mario_stadium-20260925T122709Z",
+                  "pa_number": 12,
+                  "pitch_number": 1,
+                  "controller_port": 1,
+                  "actual": "charge",
+                  "predicted": "slap"
+                },
+                {
+                  "game": 1,
+                  "session": "mario_stadium-20260925T122709Z",
+                  "pa_number": 12,
+                  "pitch_number": 2,
+                  "controller_port": 1,
+                  "actual": "charge",
+                  "predicted": "slap"
+                },
+                {
+                  "game": 1,
+                  "session": "mario_stadium-20260925T122709Z",
+                  "pa_number": 13,
+                  "pitch_number": 1,
+                  "controller_port": 1,
+                  "actual": "slap",
+                  "predicted": "charge"
+                },
+                {
+                  "game": 1,
+                  "session": "mario_stadium-20260925T122709Z",
+                  "pa_number": 14,
+                  "pitch_number": 1,
+                  "controller_port": 1,
+                  "actual": "charge",
+                  "predicted": "slap"
+                }
+              ]
+            },
+            "2": {
+              "matrix_actual_then_predicted": {
+                "slap": {
+                  "slap": 3,
+                  "charge": 1
+                },
+                "charge": {
+                  "slap": 1,
+                  "charge": 9
+                }
+              },
+              "correct": 12,
+              "total": 14,
+              "accuracy": 0.857143,
+              "false_charge": 1,
+              "false_slap": 1,
+              "disagreements": [
+                {
+                  "game": 1,
+                  "session": "mario_stadium-20260925T122709Z",
+                  "pa_number": 6,
+                  "pitch_number": 2,
+                  "controller_port": 2,
+                  "actual": "charge",
+                  "predicted": "slap"
+                },
+                {
+                  "game": 1,
+                  "session": "mario_stadium-20260925T122709Z",
+                  "pa_number": 16,
+                  "pitch_number": 1,
+                  "controller_port": 2,
+                  "actual": "slap",
+                  "predicted": "charge"
+                }
+              ]
+            }
+          },
+          "majority_baseline": {
+            "label": "charge",
+            "correct": 15,
+            "total": 29,
+            "accuracy": 0.517241
+          }
+        }
+      ],
+      "all_disagreements": [
+        {
+          "game": 2,
+          "session": "mario_stadium-20260925T123759Z",
+          "pa_number": 1,
+          "pitch_number": 1,
+          "controller_port": 1,
+          "actual": "charge",
+          "predicted": "slap",
+          "feature_value": 0.0,
+          "threshold": 0.056361
+        },
+        {
+          "game": 2,
+          "session": "mario_stadium-20260925T123759Z",
+          "pa_number": 2,
+          "pitch_number": 1,
+          "controller_port": 1,
+          "actual": "charge",
+          "predicted": "slap",
+          "feature_value": 0.026071,
+          "threshold": 0.056361
+        },
+        {
+          "game": 2,
+          "session": "mario_stadium-20260925T123759Z",
+          "pa_number": 4,
+          "pitch_number": 1,
+          "controller_port": 1,
+          "actual": "charge",
+          "predicted": "slap",
+          "feature_value": 0.0,
+          "threshold": 0.056361
+        },
+        {
+          "game": 2,
+          "session": "mario_stadium-20260925T123759Z",
+          "pa_number": 8,
+          "pitch_number": 1,
+          "controller_port": 1,
+          "actual": "slap",
+          "predicted": "charge",
+          "feature_value": 0.076838,
+          "threshold": 0.056361
+        },
+        {
+          "game": 2,
+          "session": "mario_stadium-20260925T123759Z",
+          "pa_number": 9,
+          "pitch_number": 1,
+          "controller_port": 1,
+          "actual": "slap",
+          "predicted": "charge",
+          "feature_value": 0.059594,
+          "threshold": 0.056361
+        },
+        {
+          "game": 2,
+          "session": "mario_stadium-20260925T123759Z",
+          "pa_number": 15,
+          "pitch_number": 1,
+          "controller_port": 2,
+          "actual": "charge",
+          "predicted": "slap",
+          "feature_value": 0.013703,
+          "threshold": 0.056361
+        },
+        {
+          "game": 2,
+          "session": "mario_stadium-20260925T123759Z",
+          "pa_number": 24,
+          "pitch_number": 2,
+          "controller_port": 2,
+          "actual": "slap",
+          "predicted": "charge",
+          "feature_value": 0.188227,
+          "threshold": 0.056361
+        },
+        {
+          "game": 2,
+          "session": "mario_stadium-20260925T123759Z",
+          "pa_number": 26,
+          "pitch_number": 1,
+          "controller_port": 2,
+          "actual": "slap",
+          "predicted": "charge",
+          "feature_value": 0.074356,
+          "threshold": 0.056361
+        },
+        {
+          "game": 2,
+          "session": "mario_stadium-20260925T123759Z",
+          "pa_number": 26,
+          "pitch_number": 3,
+          "controller_port": 2,
+          "actual": "slap",
+          "predicted": "charge",
+          "feature_value": 0.246695,
+          "threshold": 0.056361
+        },
+        {
+          "game": 1,
+          "session": "mario_stadium-20260925T122709Z",
+          "pa_number": 6,
+          "pitch_number": 2,
+          "controller_port": 2,
+          "actual": "charge",
+          "predicted": "slap",
+          "feature_value": 0.0,
+          "threshold": 0.077501
+        },
+        {
+          "game": 1,
+          "session": "mario_stadium-20260925T122709Z",
+          "pa_number": 11,
+          "pitch_number": 1,
+          "controller_port": 1,
+          "actual": "charge",
+          "predicted": "slap",
+          "feature_value": 0.0,
+          "threshold": 0.077501
+        },
+        {
+          "game": 1,
+          "session": "mario_stadium-20260925T122709Z",
+          "pa_number": 12,
+          "pitch_number": 1,
+          "controller_port": 1,
+          "actual": "charge",
+          "predicted": "slap",
+          "feature_value": 0.0,
+          "threshold": 0.077501
+        },
+        {
+          "game": 1,
+          "session": "mario_stadium-20260925T122709Z",
+          "pa_number": 12,
+          "pitch_number": 2,
+          "controller_port": 1,
+          "actual": "charge",
+          "predicted": "slap",
+          "feature_value": 0.0,
+          "threshold": 0.077501
+        },
+        {
+          "game": 1,
+          "session": "mario_stadium-20260925T122709Z",
+          "pa_number": 13,
+          "pitch_number": 1,
+          "controller_port": 1,
+          "actual": "slap",
+          "predicted": "charge",
+          "feature_value": 0.997225,
+          "threshold": 0.077501
+        },
+        {
+          "game": 1,
+          "session": "mario_stadium-20260925T122709Z",
+          "pa_number": 14,
+          "pitch_number": 1,
+          "controller_port": 1,
+          "actual": "charge",
+          "predicted": "slap",
+          "feature_value": 0.026034,
+          "threshold": 0.077501
+        },
+        {
+          "game": 1,
+          "session": "mario_stadium-20260925T122709Z",
+          "pa_number": 16,
+          "pitch_number": 1,
+          "controller_port": 2,
+          "actual": "slap",
+          "predicted": "charge",
+          "feature_value": 0.862525,
+          "threshold": 0.077501
+        }
+      ]
+    },
+    "conclusion": "raw controller motion overlaps heavily and does not support a reliable standalone slap/charge classifier in these two games"
+  },
+  "focused_pitch_evidence": {
+    "game_1_pa_10_to_13": [
+      {
+        "schema_version": 1,
+        "game": 1,
+        "session": "mario_stadium-20260925T122709Z",
+        "pa_number": 10,
+        "pitch_number": 1,
+        "inning": 2,
+        "half": "top",
+        "batting_team": "Flowers",
+        "controller_port": 1,
+        "controller_port_source": "calibration_lineup_top_port1_bottom_port2",
+        "physical_remote_identity": null,
+        "batter_id": 29,
+        "batter": "Blue Toad",
+        "pitcher_id": 11,
+        "pitcher": "Waluigi",
+        "offer_type": "ordinary_swing",
+        "planned_swing_mode": "slap",
+        "detected_swing_mode": "charge",
+        "detected_swing_mode_source": "swing_charge_frames_rise",
+        "swing_charge_frames": 14,
+        "swing_charge_release_timing_frames": 1,
+        "swing_frames": 7,
+        "bunt_frames": 0,
+        "pitch_timer": 8496,
+        "resolved_timer": 8546,
+        "plate_timer": 8546,
+        "contact": true,
+        "pitch_outcome": "contact",
+        "actual_swing_mode": "charge",
+        "actual_swing_mode_source": "capture_charge_state",
+        "gold_eligible": true,
+        "exclusion_reason": null,
+        "detector_agrees_with_actual": true,
+        "swing_start_timer": 8540,
+        "motion_anchor_timer": 8540,
+        "motion_anchor_source": "swing_frames_rise",
+        "charge_memory_evidence": {
+          "detector_latched_rise": true,
+          "counter_rise_observed": true,
+          "first_rise_timer_in_window": 8526,
+          "last_rise_timer_in_window": 8539,
+          "max_counter_in_180_frame_window": 14,
+          "max_meter_in_180_frame_window": 0.233333,
+          "derived_release_timer": 8539,
+          "release_to_swing_start_frames": 1
+        },
+        "raw_wiimote_motion": {
+          "port": 1,
+          "struct_region": "wiimote_1_input",
+          "struct_size": 1336,
+          "kpad_status_offsets": {
+            "acc_x": "0x00c",
+            "acc_y": "0x010",
+            "acc_z": "0x014",
+            "acc_magnitude": "0x018",
+            "acc_variation": "0x01c",
+            "angle_diff_y": "0x040",
+            "angle_diff_magnitude": "0x044",
+            "down_x": "0x054",
+            "down_y": "0x058"
+          },
+          "raw_sample_array_offset": "0x110",
+          "raw_sample_stride": "0x38",
+          "prep": {
+            "relative_frames": [
+              -120,
+              -15
+            ],
+            "sample_count": 106,
+            "acc_x": {
+              "mean": 0.251041,
+              "min": -3.4,
+              "max": 1.443299,
+              "range": 4.843299,
+              "path": 21.552577
+            },
+            "acc_y": {
+              "mean": -0.649018,
+              "min": -3.4,
+              "max": 3.4,
+              "range": 6.8,
+              "path": 24.795877
+            },
+            "acc_z": {
+              "mean": -0.403929,
+              "min": -1.020619,
+              "max": 3.4,
+              "range": 4.420619,
+              "path": 13.542268
+            },
+            "acc_magnitude": {
+              "mean": 1.313236,
+              "min": 0.60912,
+              "max": 4.841642,
+              "range": 4.232522,
+              "path": 17.76085
+            },
+            "acc_variation": {
+              "mean": 0.150685,
+              "min": 0.0,
+              "max": 3.561538,
+              "range": 3.561538,
+              "path": 27.424578
+            },
+            "angle_diff_y": {
+              "mean": 0.002004,
+              "min": -0.005418,
+              "max": 0.02151,
+              "range": 0.026928,
+              "path": 0.096364
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.002525,
+              "min": 0.0,
+              "max": 0.023363,
+              "range": 0.023363,
+              "path": 0.103838
+            },
+            "down_x": {
+              "mean": 0.836899,
+              "min": 0.682334,
+              "max": 0.911532,
+              "range": 0.229198,
+              "path": 0.593237
+            },
+            "down_y": {
+              "mean": 0.53829,
+              "min": 0.411229,
+              "max": 0.73104,
+              "range": 0.319811,
+              "path": 0.847941
+            },
+            "raw_sample_acc_x": {
+              "mean": -19.150943,
+              "min": -114.0,
+              "max": 213.0,
+              "range": 327.0,
+              "path": 894.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -46.132075,
+              "min": -99.0,
+              "max": 73.0,
+              "range": 172.0,
+              "path": 414.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 52.377358,
+              "min": -387.0,
+              "max": 203.0,
+              "range": 590.0,
+              "path": 1782.0
+            }
+          },
+          "release": {
+            "relative_frames": [
+              -30,
+              5
+            ],
+            "sample_count": 36,
+            "acc_x": {
+              "mean": -0.062428,
+              "min": -0.226804,
+              "max": 0.298969,
+              "range": 0.525773,
+              "path": 2.27835
+            },
+            "acc_y": {
+              "mean": -0.69244,
+              "min": -0.896907,
+              "max": -0.072165,
+              "range": 0.824742,
+              "path": 2.453608
+            },
+            "acc_z": {
+              "mean": -0.647194,
+              "min": -0.731959,
+              "max": -0.587629,
+              "range": 0.14433,
+              "path": 0.43299
+            },
+            "acc_magnitude": {
+              "mean": 0.977613,
+              "min": 0.681817,
+              "max": 1.120017,
+              "range": 0.4382,
+              "path": 1.597097
+            },
+            "acc_variation": {
+              "mean": 0.02578,
+              "min": 0.0,
+              "max": 0.144698,
+              "range": 0.144698,
+              "path": 1.566178
+            },
+            "angle_diff_y": {
+              "mean": 0.001778,
+              "min": -0.013957,
+              "max": 0.011283,
+              "range": 0.025241,
+              "path": 0.079835
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.004039,
+              "min": 0.000464,
+              "max": 0.01396,
+              "range": 0.013496,
+              "path": 0.069756
+            },
+            "down_x": {
+              "mean": 0.756546,
+              "min": 0.6639,
+              "max": 0.794944,
+              "range": 0.131044,
+              "path": 0.270123
+            },
+            "down_y": {
+              "mean": 0.652197,
+              "min": 0.606683,
+              "max": 0.747821,
+              "range": 0.141138,
+              "path": 0.304499
+            },
+            "raw_sample_acc_x": {
+              "mean": 5.611111,
+              "min": -3.0,
+              "max": 14.0,
+              "range": 17.0,
+              "path": 37.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -62.777778,
+              "min": -65.0,
+              "max": -59.0,
+              "range": 6.0,
+              "path": 24.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 66.222222,
+              "min": 7.0,
+              "max": 85.0,
+              "range": 78.0,
+              "path": 120.0
+            }
+          }
+        },
+        "contact_result": "home_run",
+        "play_swing_timer": 8546,
+        "play_contact_timer": 8637
+      },
+      {
+        "schema_version": 1,
+        "game": 1,
+        "session": "mario_stadium-20260925T122709Z",
+        "pa_number": 11,
+        "pitch_number": 1,
+        "inning": 2,
+        "half": "top",
+        "batting_team": "Flowers",
+        "controller_port": 1,
+        "controller_port_source": "calibration_lineup_top_port1_bottom_port2",
+        "physical_remote_identity": null,
+        "batter_id": 42,
+        "batter": "Red Koopa Troopa",
+        "pitcher_id": 11,
+        "pitcher": "Waluigi",
+        "offer_type": "ordinary_swing",
+        "planned_swing_mode": "slap",
+        "detected_swing_mode": "charge",
+        "detected_swing_mode_source": "swing_charge_frames_rise",
+        "swing_charge_frames": 41,
+        "swing_charge_release_timing_frames": 1,
+        "swing_frames": 7,
+        "bunt_frames": 0,
+        "pitch_timer": 9539,
+        "resolved_timer": 9589,
+        "plate_timer": 9589,
+        "contact": true,
+        "pitch_outcome": "contact",
+        "actual_swing_mode": "charge",
+        "actual_swing_mode_source": "capture_charge_state",
+        "gold_eligible": true,
+        "exclusion_reason": null,
+        "detector_agrees_with_actual": true,
+        "swing_start_timer": 9583,
+        "motion_anchor_timer": 9583,
+        "motion_anchor_source": "swing_frames_rise",
+        "charge_memory_evidence": {
+          "detector_latched_rise": true,
+          "counter_rise_observed": true,
+          "first_rise_timer_in_window": 9542,
+          "last_rise_timer_in_window": 9582,
+          "max_counter_in_180_frame_window": 41,
+          "max_meter_in_180_frame_window": 0.683333,
+          "derived_release_timer": 9582,
+          "release_to_swing_start_frames": 1
+        },
+        "raw_wiimote_motion": {
+          "port": 1,
+          "struct_region": "wiimote_1_input",
+          "struct_size": 1336,
+          "kpad_status_offsets": {
+            "acc_x": "0x00c",
+            "acc_y": "0x010",
+            "acc_z": "0x014",
+            "acc_magnitude": "0x018",
+            "acc_variation": "0x01c",
+            "angle_diff_y": "0x040",
+            "angle_diff_magnitude": "0x044",
+            "down_x": "0x054",
+            "down_y": "0x058"
+          },
+          "raw_sample_array_offset": "0x110",
+          "raw_sample_stride": "0x38",
+          "prep": {
+            "relative_frames": [
+              -120,
+              -15
+            ],
+            "sample_count": 106,
+            "acc_x": {
+              "mean": 0.066232,
+              "min": -2.443299,
+              "max": 0.793814,
+              "range": 3.237113,
+              "path": 17.938144
+            },
+            "acc_y": {
+              "mean": -0.731531,
+              "min": -3.4,
+              "max": 3.4,
+              "range": 6.8,
+              "path": 25.435052
+            },
+            "acc_z": {
+              "mean": -0.189613,
+              "min": -0.876289,
+              "max": 3.4,
+              "range": 4.276289,
+              "path": 12.284536
+            },
+            "acc_magnitude": {
+              "mean": 1.395491,
+              "min": 0.5331,
+              "max": 4.727746,
+              "range": 4.194646,
+              "path": 19.740401
+            },
+            "acc_variation": {
+              "mean": 0.117166,
+              "min": 0.0,
+              "max": 2.260273,
+              "range": 2.260273,
+              "path": 20.200891
+            },
+            "angle_diff_y": {
+              "mean": -0.000103,
+              "min": -0.000103,
+              "max": -0.000103,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.000104,
+              "min": 0.000104,
+              "max": 0.000104,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "down_x": {
+              "mean": 0.859101,
+              "min": 0.772901,
+              "max": 0.955433,
+              "range": 0.182532,
+              "path": 0.426518
+            },
+            "down_y": {
+              "mean": 0.496703,
+              "min": 0.295207,
+              "max": 0.634526,
+              "range": 0.339319,
+              "path": 0.713244
+            },
+            "raw_sample_acc_x": {
+              "mean": -6.216981,
+              "min": -73.0,
+              "max": 158.0,
+              "range": 231.0,
+              "path": 774.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -13.811321,
+              "min": -103.0,
+              "max": 405.0,
+              "range": 508.0,
+              "path": 1096.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 62.924528,
+              "min": -261.0,
+              "max": 249.0,
+              "range": 510.0,
+              "path": 1362.0
+            }
+          },
+          "release": {
+            "relative_frames": [
+              -30,
+              5
+            ],
+            "sample_count": 36,
+            "acc_x": {
+              "mean": 0.188431,
+              "min": -0.061856,
+              "max": 0.371134,
+              "range": 0.43299,
+              "path": 1.525773
+            },
+            "acc_y": {
+              "mean": -0.902062,
+              "min": -1.164948,
+              "max": -0.546392,
+              "range": 0.618557,
+              "path": 1.876289
+            },
+            "acc_z": {
+              "mean": -0.306987,
+              "min": -0.381443,
+              "max": -0.257732,
+              "range": 0.123711,
+              "path": 0.57732
+            },
+            "acc_magnitude": {
+              "mean": 0.978644,
+              "min": 0.717662,
+              "max": 1.25566,
+              "range": 0.537998,
+              "path": 1.738828
+            },
+            "acc_variation": {
+              "mean": 0.036791,
+              "min": 0.0,
+              "max": 0.215264,
+              "range": 0.215264,
+              "path": 1.645058
+            },
+            "angle_diff_y": {
+              "mean": -0.000103,
+              "min": -0.000103,
+              "max": -0.000103,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.000104,
+              "min": 0.000104,
+              "max": 0.000104,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "down_x": {
+              "mean": 0.95099,
+              "min": 0.927755,
+              "max": 0.957849,
+              "range": 0.030094,
+              "path": 0.053547
+            },
+            "down_y": {
+              "mean": 0.308325,
+              "min": 0.287273,
+              "max": 0.37319,
+              "range": 0.085917,
+              "path": 0.158745
+            },
+            "raw_sample_acc_x": {
+              "mean": -18.444444,
+              "min": -33.0,
+              "max": -9.0,
+              "range": 24.0,
+              "path": 65.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -29.722222,
+              "min": -37.0,
+              "max": -25.0,
+              "range": 12.0,
+              "path": 26.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 88.333333,
+              "min": 71.0,
+              "max": 97.0,
+              "range": 26.0,
+              "path": 70.0
+            }
+          }
+        },
+        "contact_result": "fair_caught",
+        "play_swing_timer": 9589,
+        "play_contact_timer": 9609
+      },
+      {
+        "schema_version": 1,
+        "game": 1,
+        "session": "mario_stadium-20260925T122709Z",
+        "pa_number": 12,
+        "pitch_number": 1,
+        "inning": 2,
+        "half": "top",
+        "batting_team": "Flowers",
+        "controller_port": 1,
+        "controller_port_source": "calibration_lineup_top_port1_bottom_port2",
+        "physical_remote_identity": null,
+        "batter_id": 68,
+        "batter": "Yellow Yoshi",
+        "pitcher_id": 11,
+        "pitcher": "Waluigi",
+        "offer_type": "ordinary_swing",
+        "planned_swing_mode": "slap",
+        "detected_swing_mode": "charge",
+        "detected_swing_mode_source": "swing_charge_frames_rise",
+        "swing_charge_frames": 79,
+        "swing_charge_release_timing_frames": 1,
+        "swing_frames": 10,
+        "bunt_frames": 0,
+        "pitch_timer": 10108,
+        "resolved_timer": 10172,
+        "plate_timer": 10172,
+        "contact": true,
+        "pitch_outcome": "contact",
+        "actual_swing_mode": "charge",
+        "actual_swing_mode_source": "capture_charge_state",
+        "gold_eligible": true,
+        "exclusion_reason": null,
+        "detector_agrees_with_actual": true,
+        "swing_start_timer": 10163,
+        "motion_anchor_timer": 10163,
+        "motion_anchor_source": "swing_frames_rise",
+        "charge_memory_evidence": {
+          "detector_latched_rise": true,
+          "counter_rise_observed": true,
+          "first_rise_timer_in_window": 10084,
+          "last_rise_timer_in_window": 10162,
+          "max_counter_in_180_frame_window": 79,
+          "max_meter_in_180_frame_window": 1.0,
+          "derived_release_timer": 10162,
+          "release_to_swing_start_frames": 1
+        },
+        "raw_wiimote_motion": {
+          "port": 1,
+          "struct_region": "wiimote_1_input",
+          "struct_size": 1336,
+          "kpad_status_offsets": {
+            "acc_x": "0x00c",
+            "acc_y": "0x010",
+            "acc_z": "0x014",
+            "acc_magnitude": "0x018",
+            "acc_variation": "0x01c",
+            "angle_diff_y": "0x040",
+            "angle_diff_magnitude": "0x044",
+            "down_x": "0x054",
+            "down_y": "0x058"
+          },
+          "raw_sample_array_offset": "0x110",
+          "raw_sample_stride": "0x38",
+          "prep": {
+            "relative_frames": [
+              -120,
+              -15
+            ],
+            "sample_count": 106,
+            "acc_x": {
+              "mean": 0.1064,
+              "min": -2.350515,
+              "max": 1.154639,
+              "range": 3.505154,
+              "path": 24.515464
+            },
+            "acc_y": {
+              "mean": -0.554522,
+              "min": -3.4,
+              "max": 3.4,
+              "range": 6.8,
+              "path": 43.884536
+            },
+            "acc_z": {
+              "mean": -0.147792,
+              "min": -0.896907,
+              "max": 3.4,
+              "range": 4.296907,
+              "path": 20.857732
+            },
+            "acc_magnitude": {
+              "mean": 1.449355,
+              "min": 0.413786,
+              "max": 4.911081,
+              "range": 4.497295,
+              "path": 31.016094
+            },
+            "acc_variation": {
+              "mean": 0.290184,
+              "min": 0.0,
+              "max": 4.63322,
+              "range": 4.63322,
+              "path": 41.193618
+            },
+            "angle_diff_y": {
+              "mean": -0.000103,
+              "min": -0.000103,
+              "max": -0.000103,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.000104,
+              "min": 0.000104,
+              "max": 0.000104,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "down_x": {
+              "mean": 0.906574,
+              "min": 0.83609,
+              "max": 0.982037,
+              "range": 0.145947,
+              "path": 0.437091
+            },
+            "down_y": {
+              "mean": 0.407854,
+              "min": 0.188688,
+              "max": 0.548592,
+              "range": 0.359904,
+              "path": 1.086417
+            },
+            "raw_sample_acc_x": {
+              "mean": -14.726415,
+              "min": -103.0,
+              "max": 129.0,
+              "range": 232.0,
+              "path": 1125.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -17.849057,
+              "min": -85.0,
+              "max": 327.0,
+              "range": 412.0,
+              "path": 1172.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 61.509434,
+              "min": -285.0,
+              "max": 477.0,
+              "range": 762.0,
+              "path": 2576.0
+            }
+          },
+          "release": {
+            "relative_frames": [
+              -30,
+              5
+            ],
+            "sample_count": 36,
+            "acc_x": {
+              "mean": 0.283505,
+              "min": 0.123711,
+              "max": 0.391753,
+              "range": 0.268041,
+              "path": 0.917526
+            },
+            "acc_y": {
+              "mean": -0.808133,
+              "min": -0.896907,
+              "max": -0.587629,
+              "range": 0.309278,
+              "path": 0.969072
+            },
+            "acc_z": {
+              "mean": -0.465636,
+              "min": -0.505155,
+              "max": -0.42268,
+              "range": 0.082474,
+              "path": 0.43299
+            },
+            "acc_magnitude": {
+              "mean": 0.976766,
+              "min": 0.740189,
+              "max": 1.057543,
+              "range": 0.317354,
+              "path": 1.100293
+            },
+            "acc_variation": {
+              "mean": 0.023954,
+              "min": 0.0,
+              "max": 0.103093,
+              "range": 0.103093,
+              "path": 1.327004
+            },
+            "angle_diff_y": {
+              "mean": -0.000103,
+              "min": -0.000103,
+              "max": -0.000103,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.000104,
+              "min": 0.000104,
+              "max": 0.000104,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "down_x": {
+              "mean": 0.882938,
+              "min": 0.872404,
+              "max": 0.893151,
+              "range": 0.020748,
+              "path": 0.041175
+            },
+            "down_y": {
+              "mean": 0.469388,
+              "min": 0.449756,
+              "max": 0.488786,
+              "range": 0.03903,
+              "path": 0.077363
+            },
+            "raw_sample_acc_x": {
+              "mean": -26.305556,
+              "min": -34.0,
+              "max": -12.0,
+              "range": 22.0,
+              "path": 47.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -44.888889,
+              "min": -49.0,
+              "max": -41.0,
+              "range": 8.0,
+              "path": 20.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 79.166667,
+              "min": 63.0,
+              "max": 83.0,
+              "range": 20.0,
+              "path": 38.0
+            }
+          }
+        },
+        "contact_result": "foul",
+        "play_swing_timer": 10172,
+        "play_contact_timer": 10192
+      },
+      {
+        "schema_version": 1,
+        "game": 1,
+        "session": "mario_stadium-20260925T122709Z",
+        "pa_number": 12,
+        "pitch_number": 2,
+        "inning": 2,
+        "half": "top",
+        "batting_team": "Flowers",
+        "controller_port": 1,
+        "controller_port_source": "calibration_lineup_top_port1_bottom_port2",
+        "physical_remote_identity": null,
+        "batter_id": 68,
+        "batter": "Yellow Yoshi",
+        "pitcher_id": 11,
+        "pitcher": "Waluigi",
+        "offer_type": "ordinary_swing",
+        "planned_swing_mode": "slap",
+        "detected_swing_mode": "charge",
+        "detected_swing_mode_source": "swing_charge_frames_rise",
+        "swing_charge_frames": 39,
+        "swing_charge_release_timing_frames": 1,
+        "swing_frames": 4,
+        "bunt_frames": 0,
+        "pitch_timer": 11139,
+        "resolved_timer": 11186,
+        "plate_timer": 11186,
+        "contact": true,
+        "pitch_outcome": "contact",
+        "actual_swing_mode": "charge",
+        "actual_swing_mode_source": "capture_charge_state",
+        "gold_eligible": true,
+        "exclusion_reason": null,
+        "detector_agrees_with_actual": true,
+        "swing_start_timer": 11183,
+        "motion_anchor_timer": 11183,
+        "motion_anchor_source": "swing_frames_rise",
+        "charge_memory_evidence": {
+          "detector_latched_rise": true,
+          "counter_rise_observed": true,
+          "first_rise_timer_in_window": 11144,
+          "last_rise_timer_in_window": 11182,
+          "max_counter_in_180_frame_window": 39,
+          "max_meter_in_180_frame_window": 0.65,
+          "derived_release_timer": 11182,
+          "release_to_swing_start_frames": 1
+        },
+        "raw_wiimote_motion": {
+          "port": 1,
+          "struct_region": "wiimote_1_input",
+          "struct_size": 1336,
+          "kpad_status_offsets": {
+            "acc_x": "0x00c",
+            "acc_y": "0x010",
+            "acc_z": "0x014",
+            "acc_magnitude": "0x018",
+            "acc_variation": "0x01c",
+            "angle_diff_y": "0x040",
+            "angle_diff_magnitude": "0x044",
+            "down_x": "0x054",
+            "down_y": "0x058"
+          },
+          "raw_sample_array_offset": "0x110",
+          "raw_sample_stride": "0x38",
+          "prep": {
+            "relative_frames": [
+              -120,
+              -15
+            ],
+            "sample_count": 106,
+            "acc_x": {
+              "mean": 0.146742,
+              "min": -2.680412,
+              "max": 3.4,
+              "range": 6.080412,
+              "path": 24.037113
+            },
+            "acc_y": {
+              "mean": -0.510134,
+              "min": -3.4,
+              "max": 3.103093,
+              "range": 6.503093,
+              "path": 24.156701
+            },
+            "acc_z": {
+              "mean": -0.443066,
+              "min": -1.721649,
+              "max": 3.4,
+              "range": 5.12165,
+              "path": 15.542268
+            },
+            "acc_magnitude": {
+              "mean": 1.415885,
+              "min": 0.828535,
+              "max": 5.107257,
+              "range": 4.278722,
+              "path": 22.422908
+            },
+            "acc_variation": {
+              "mean": 0.094055,
+              "min": 0.0,
+              "max": 1.653378,
+              "range": 1.653378,
+              "path": 18.457508
+            },
+            "angle_diff_y": {
+              "mean": -0.000103,
+              "min": -0.000103,
+              "max": -0.000103,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.000104,
+              "min": 0.000104,
+              "max": 0.000104,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "down_x": {
+              "mean": 0.615433,
+              "min": 0.419418,
+              "max": 0.868531,
+              "range": 0.449113,
+              "path": 0.689834
+            },
+            "down_y": {
+              "mean": 0.757902,
+              "min": 0.495635,
+              "max": 0.907793,
+              "range": 0.412159,
+              "path": 0.571398
+            },
+            "raw_sample_acc_x": {
+              "mean": -15.066038,
+              "min": -95.0,
+              "max": 103.0,
+              "range": 198.0,
+              "path": 827.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -39.037736,
+              "min": -97.0,
+              "max": 263.0,
+              "range": 360.0,
+              "path": 766.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 59.811321,
+              "min": -301.0,
+              "max": 483.0,
+              "range": 784.0,
+              "path": 1766.0
+            }
+          },
+          "release": {
+            "relative_frames": [
+              -30,
+              5
+            ],
+            "sample_count": 36,
+            "acc_x": {
+              "mean": 0.345074,
+              "min": -0.072165,
+              "max": 0.536082,
+              "range": 0.608247,
+              "path": 1.659794
+            },
+            "acc_y": {
+              "mean": -0.746277,
+              "min": -0.896907,
+              "max": -0.340206,
+              "range": 0.556701,
+              "path": 1.340206
+            },
+            "acc_z": {
+              "mean": -0.541237,
+              "min": -0.670103,
+              "max": -0.443299,
+              "range": 0.226804,
+              "path": 0.597938
+            },
+            "acc_magnitude": {
+              "mean": 0.998116,
+              "min": 0.717662,
+              "max": 1.132802,
+              "range": 0.41514,
+              "path": 1.393572
+            },
+            "acc_variation": {
+              "mean": 0.018327,
+              "min": 0.0,
+              "max": 0.224212,
+              "range": 0.224212,
+              "path": 0.934057
+            },
+            "angle_diff_y": {
+              "mean": -0.000103,
+              "min": -0.000103,
+              "max": -0.000103,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.000104,
+              "min": 0.000104,
+              "max": 0.000104,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "down_x": {
+              "mean": 0.849592,
+              "min": 0.757873,
+              "max": 0.868531,
+              "range": 0.110658,
+              "path": 0.126689
+            },
+            "down_y": {
+              "mean": 0.525161,
+              "min": 0.495635,
+              "max": 0.652402,
+              "range": 0.156767,
+              "path": 0.184056
+            },
+            "raw_sample_acc_x": {
+              "mean": -35.472222,
+              "min": -44.0,
+              "max": -2.0,
+              "range": 42.0,
+              "path": 84.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -51.611111,
+              "min": -63.0,
+              "max": -43.0,
+              "range": 20.0,
+              "path": 24.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 74.611111,
+              "min": 53.0,
+              "max": 83.0,
+              "range": 30.0,
+              "path": 62.0
+            }
+          }
+        },
+        "contact_result": "fair_in_play",
+        "play_swing_timer": 11186,
+        "play_contact_timer": 11206
+      },
+      {
+        "schema_version": 1,
+        "game": 1,
+        "session": "mario_stadium-20260925T122709Z",
+        "pa_number": 13,
+        "pitch_number": 1,
+        "inning": 2,
+        "half": "top",
+        "batting_team": "Flowers",
+        "controller_port": 1,
+        "controller_port_source": "calibration_lineup_top_port1_bottom_port2",
+        "physical_remote_identity": null,
+        "batter_id": 70,
+        "batter": "Pink Yoshi",
+        "pitcher_id": 11,
+        "pitcher": "Waluigi",
+        "offer_type": "ordinary_swing",
+        "planned_swing_mode": "charge",
+        "detected_swing_mode": "slap",
+        "detected_swing_mode_source": "swing_charge_frames_rise",
+        "swing_charge_frames": 0,
+        "swing_charge_release_timing_frames": null,
+        "swing_frames": 7,
+        "bunt_frames": 0,
+        "pitch_timer": 12200,
+        "resolved_timer": 12271,
+        "plate_timer": 12271,
+        "contact": true,
+        "pitch_outcome": "contact",
+        "actual_swing_mode": "slap",
+        "actual_swing_mode_source": "operator_correction",
+        "gold_eligible": true,
+        "exclusion_reason": null,
+        "detector_agrees_with_actual": true,
+        "swing_start_timer": 12265,
+        "motion_anchor_timer": 12265,
+        "motion_anchor_source": "swing_frames_rise",
+        "charge_memory_evidence": {
+          "detector_latched_rise": false,
+          "counter_rise_observed": false,
+          "first_rise_timer_in_window": null,
+          "last_rise_timer_in_window": null,
+          "max_counter_in_180_frame_window": 0,
+          "max_meter_in_180_frame_window": 0.0,
+          "derived_release_timer": null,
+          "release_to_swing_start_frames": null
+        },
+        "raw_wiimote_motion": {
+          "port": 1,
+          "struct_region": "wiimote_1_input",
+          "struct_size": 1336,
+          "kpad_status_offsets": {
+            "acc_x": "0x00c",
+            "acc_y": "0x010",
+            "acc_z": "0x014",
+            "acc_magnitude": "0x018",
+            "acc_variation": "0x01c",
+            "angle_diff_y": "0x040",
+            "angle_diff_magnitude": "0x044",
+            "down_x": "0x054",
+            "down_y": "0x058"
+          },
+          "raw_sample_array_offset": "0x110",
+          "raw_sample_stride": "0x38",
+          "prep": {
+            "relative_frames": [
+              -120,
+              -15
+            ],
+            "sample_count": 106,
+            "acc_x": {
+              "mean": -0.192861,
+              "min": -2.28866,
+              "max": 2.195876,
+              "range": 4.484536,
+              "path": 53.597937
+            },
+            "acc_y": {
+              "mean": -0.572379,
+              "min": -3.4,
+              "max": 3.4,
+              "range": 6.8,
+              "path": 94.985568
+            },
+            "acc_z": {
+              "mean": -0.300525,
+              "min": -0.979381,
+              "max": 1.804124,
+              "range": 2.783505,
+              "path": 18.103092
+            },
+            "acc_magnitude": {
+              "mean": 2.023884,
+              "min": 0.85025,
+              "max": 4.06005,
+              "range": 3.209801,
+              "path": 49.425401
+            },
+            "acc_variation": {
+              "mean": 0.449468,
+              "min": 0.0,
+              "max": 4.451964,
+              "range": 4.451964,
+              "path": 80.008825
+            },
+            "angle_diff_y": {
+              "mean": 0.003446,
+              "min": -0.015566,
+              "max": 0.439344,
+              "range": 0.45491,
+              "path": 0.997225
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.0119,
+              "min": 0.0,
+              "max": 0.45327,
+              "range": 0.45327,
+              "path": 1.098723
+            },
+            "down_x": {
+              "mean": 0.805096,
+              "min": 0.62619,
+              "max": 0.900871,
+              "range": 0.274681,
+              "path": 0.490687
+            },
+            "down_y": {
+              "mean": 0.585924,
+              "min": 0.434088,
+              "max": 0.779671,
+              "range": 0.345583,
+              "path": 0.682944
+            },
+            "raw_sample_acc_x": {
+              "mean": -1.339623,
+              "min": -100.0,
+              "max": 175.0,
+              "range": 275.0,
+              "path": 1130.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -29.584906,
+              "min": -81.0,
+              "max": 61.0,
+              "range": 142.0,
+              "path": 662.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 15.90566,
+              "min": -343.0,
+              "max": 477.0,
+              "range": 820.0,
+              "path": 4782.0
+            }
+          },
+          "release": {
+            "relative_frames": [
+              -30,
+              5
+            ],
+            "sample_count": 36,
+            "acc_x": {
+              "mean": -0.316724,
+              "min": -0.556701,
+              "max": -0.154639,
+              "range": 0.402062,
+              "path": 1.42268
+            },
+            "acc_y": {
+              "mean": -0.611684,
+              "min": -0.85567,
+              "max": -0.257732,
+              "range": 0.597938,
+              "path": 2.247423
+            },
+            "acc_z": {
+              "mean": -0.633448,
+              "min": -0.752577,
+              "max": -0.525773,
+              "range": 0.226804,
+              "path": 1.134021
+            },
+            "acc_magnitude": {
+              "mean": 0.95593,
+              "min": 0.885578,
+              "max": 1.049827,
+              "range": 0.164248,
+              "path": 1.060149
+            },
+            "acc_variation": {
+              "mean": 0.026227,
+              "min": 0.0,
+              "max": 0.130403,
+              "range": 0.130403,
+              "path": 1.727116
+            },
+            "angle_diff_y": {
+              "mean": 0.016343,
+              "min": -0.004227,
+              "max": 0.439344,
+              "range": 0.443571,
+              "path": 0.933611
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.017588,
+              "min": 0.0,
+              "max": 0.45327,
+              "range": 0.45327,
+              "path": 0.957109
+            },
+            "down_x": {
+              "mean": 0.7693,
+              "min": 0.676039,
+              "max": 0.831836,
+              "range": 0.155797,
+              "path": 0.260954
+            },
+            "down_y": {
+              "mean": 0.6353,
+              "min": 0.555021,
+              "max": 0.736866,
+              "range": 0.181844,
+              "path": 0.309017
+            },
+            "raw_sample_acc_x": {
+              "mean": 27.111111,
+              "min": -4.0,
+              "max": 47.0,
+              "range": 51.0,
+              "path": 78.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -61.277778,
+              "min": -73.0,
+              "max": -53.0,
+              "range": 20.0,
+              "path": 52.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 61.166667,
+              "min": 27.0,
+              "max": 81.0,
+              "range": 54.0,
+              "path": 138.0
+            }
+          }
+        },
+        "contact_result": "fair_in_play",
+        "play_swing_timer": 12271,
+        "play_contact_timer": 12273
+      }
+    ],
+    "game_2_pa_23": [
+      {
+        "schema_version": 1,
+        "game": 2,
+        "session": "mario_stadium-20260925T123759Z",
+        "pa_number": 23,
+        "pitch_number": 1,
+        "inning": 3,
+        "half": "bottom",
+        "batting_team": "Spitballs",
+        "controller_port": 2,
+        "controller_port_source": "calibration_lineup_top_port1_bottom_port2",
+        "physical_remote_identity": null,
+        "batter_id": 47,
+        "batter": "Gray Shy Guy",
+        "pitcher_id": 5,
+        "pitcher": "Daisy",
+        "offer_type": "ordinary_swing",
+        "planned_swing_mode": "slap",
+        "detected_swing_mode": "charge",
+        "detected_swing_mode_source": "swing_charge_frames_rise",
+        "swing_charge_frames": 21,
+        "swing_charge_release_timing_frames": 1,
+        "swing_frames": 33,
+        "bunt_frames": 0,
+        "pitch_timer": 46606,
+        "resolved_timer": 46681,
+        "plate_timer": 46666,
+        "contact": false,
+        "pitch_outcome": "strike",
+        "actual_swing_mode": "charge",
+        "actual_swing_mode_source": "operator_correction",
+        "gold_eligible": true,
+        "exclusion_reason": null,
+        "detector_agrees_with_actual": true,
+        "swing_start_timer": 46649,
+        "motion_anchor_timer": 46649,
+        "motion_anchor_source": "swing_frames_rise",
+        "charge_memory_evidence": {
+          "detector_latched_rise": true,
+          "counter_rise_observed": true,
+          "first_rise_timer_in_window": 46628,
+          "last_rise_timer_in_window": 46648,
+          "max_counter_in_180_frame_window": 40,
+          "max_meter_in_180_frame_window": 0.35,
+          "derived_release_timer": 46648,
+          "release_to_swing_start_frames": 1
+        },
+        "raw_wiimote_motion": {
+          "port": 2,
+          "struct_region": "wiimote_2_input",
+          "struct_size": 1336,
+          "kpad_status_offsets": {
+            "acc_x": "0x00c",
+            "acc_y": "0x010",
+            "acc_z": "0x014",
+            "acc_magnitude": "0x018",
+            "acc_variation": "0x01c",
+            "angle_diff_y": "0x040",
+            "angle_diff_magnitude": "0x044",
+            "down_x": "0x054",
+            "down_y": "0x058"
+          },
+          "raw_sample_array_offset": "0x110",
+          "raw_sample_stride": "0x38",
+          "prep": {
+            "relative_frames": [
+              -120,
+              -15
+            ],
+            "sample_count": 106,
+            "acc_x": {
+              "mean": -0.16057,
+              "min": -2.316326,
+              "max": 1.326531,
+              "range": 3.642857,
+              "path": 25.887754
+            },
+            "acc_y": {
+              "mean": -0.70783,
+              "min": -3.4,
+              "max": 3.4,
+              "range": 6.8,
+              "path": 31.6
+            },
+            "acc_z": {
+              "mean": 0.041281,
+              "min": -0.838384,
+              "max": 3.4,
+              "range": 4.238384,
+              "path": 16.476768
+            },
+            "acc_magnitude": {
+              "mean": 1.507254,
+              "min": 0.725445,
+              "max": 4.899112,
+              "range": 4.173667,
+              "path": 24.600495
+            },
+            "acc_variation": {
+              "mean": 0.176191,
+              "min": 0.0,
+              "max": 2.360909,
+              "range": 2.360909,
+              "path": 23.581787
+            },
+            "angle_diff_y": {
+              "mean": 0.003447,
+              "min": -0.015095,
+              "max": 0.032786,
+              "range": 0.047881,
+              "path": 0.202113
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.004092,
+              "min": 0.0,
+              "max": 0.033341,
+              "range": 0.033341,
+              "path": 0.199834
+            },
+            "down_x": {
+              "mean": 0.961463,
+              "min": 0.804378,
+              "max": 0.999995,
+              "range": 0.195617,
+              "path": 0.250055
+            },
+            "down_y": {
+              "mean": 0.164782,
+              "min": -0.032475,
+              "max": 0.594118,
+              "range": 0.626592,
+              "path": 1.04417
+            },
+            "raw_sample_acc_x": {
+              "mean": 5.764151,
+              "min": -187.0,
+              "max": 108.0,
+              "range": 295.0,
+              "path": 1127.0
+            },
+            "raw_sample_acc_y": {
+              "mean": 11.924528,
+              "min": -81.0,
+              "max": 273.0,
+              "range": 354.0,
+              "path": 1304.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 88.566038,
+              "min": -247.0,
+              "max": 407.0,
+              "range": 654.0,
+              "path": 2086.0
+            }
+          },
+          "release": {
+            "relative_frames": [
+              -30,
+              5
+            ],
+            "sample_count": 36,
+            "acc_x": {
+              "mean": -0.278061,
+              "min": -1.653061,
+              "max": 0.489796,
+              "range": 2.142857,
+              "path": 6.030612
+            },
+            "acc_y": {
+              "mean": -0.709444,
+              "min": -1.33,
+              "max": 0.71,
+              "range": 2.04,
+              "path": 5.92
+            },
+            "acc_z": {
+              "mean": -0.407969,
+              "min": -0.656566,
+              "max": 0.454545,
+              "range": 1.111111,
+              "path": 2.181818
+            },
+            "acc_magnitude": {
+              "mean": 1.158748,
+              "min": 0.59606,
+              "max": 1.910856,
+              "range": 1.314797,
+              "path": 4.043741
+            },
+            "acc_variation": {
+              "mean": 0.092822,
+              "min": 0.0,
+              "max": 0.501667,
+              "range": 0.501667,
+              "path": 3.60834
+            },
+            "angle_diff_y": {
+              "mean": -0.007287,
+              "min": -0.317376,
+              "max": 0.022356,
+              "range": 0.339732,
+              "path": 0.771472
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.012667,
+              "min": 0.0,
+              "max": 0.321072,
+              "range": 0.321072,
+              "path": 0.7247
+            },
+            "down_x": {
+              "mean": 0.833583,
+              "min": 0.802471,
+              "max": 0.888337,
+              "range": 0.085866,
+              "path": 0.208926
+            },
+            "down_y": {
+              "mean": 0.551106,
+              "min": 0.459192,
+              "max": 0.596691,
+              "range": 0.137499,
+              "path": 0.318516
+            },
+            "raw_sample_acc_x": {
+              "mean": 20.083333,
+              "min": -17.0,
+              "max": 144.0,
+              "range": 161.0,
+              "path": 315.0
+            },
+            "raw_sample_acc_y": {
+              "mean": -42.611111,
+              "min": -61.0,
+              "max": 33.0,
+              "range": 94.0,
+              "path": 106.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 74.222222,
+              "min": -17.0,
+              "max": 113.0,
+              "range": 130.0,
+              "path": 370.0
+            }
+          }
+        },
+        "contact_result": "swinging_miss",
+        "play_swing_timer": null,
+        "play_contact_timer": null
+      },
+      {
+        "schema_version": 1,
+        "game": 2,
+        "session": "mario_stadium-20260925T123759Z",
+        "pa_number": 23,
+        "pitch_number": 2,
+        "inning": 3,
+        "half": "bottom",
+        "batting_team": "Spitballs",
+        "controller_port": 2,
+        "controller_port_source": "calibration_lineup_top_port1_bottom_port2",
+        "physical_remote_identity": null,
+        "batter_id": 47,
+        "batter": "Gray Shy Guy",
+        "pitcher_id": 5,
+        "pitcher": "Daisy",
+        "offer_type": "ordinary_swing",
+        "planned_swing_mode": "slap",
+        "detected_swing_mode": "slap",
+        "detected_swing_mode_source": "swing_charge_frames_rise",
+        "swing_charge_frames": 0,
+        "swing_charge_release_timing_frames": null,
+        "swing_frames": 10,
+        "bunt_frames": 0,
+        "pitch_timer": 46851,
+        "resolved_timer": 46909,
+        "plate_timer": 46909,
+        "contact": true,
+        "pitch_outcome": "contact",
+        "actual_swing_mode": "slap",
+        "actual_swing_mode_source": "operator_correction",
+        "gold_eligible": true,
+        "exclusion_reason": null,
+        "detector_agrees_with_actual": true,
+        "swing_start_timer": 46900,
+        "motion_anchor_timer": 46900,
+        "motion_anchor_source": "swing_frames_rise",
+        "charge_memory_evidence": {
+          "detector_latched_rise": false,
+          "counter_rise_observed": false,
+          "first_rise_timer_in_window": null,
+          "last_rise_timer_in_window": null,
+          "max_counter_in_180_frame_window": 21,
+          "max_meter_in_180_frame_window": 0.35,
+          "derived_release_timer": null,
+          "release_to_swing_start_frames": null
+        },
+        "raw_wiimote_motion": {
+          "port": 2,
+          "struct_region": "wiimote_2_input",
+          "struct_size": 1336,
+          "kpad_status_offsets": {
+            "acc_x": "0x00c",
+            "acc_y": "0x010",
+            "acc_z": "0x014",
+            "acc_magnitude": "0x018",
+            "acc_variation": "0x01c",
+            "angle_diff_y": "0x040",
+            "angle_diff_magnitude": "0x044",
+            "down_x": "0x054",
+            "down_y": "0x058"
+          },
+          "raw_sample_array_offset": "0x110",
+          "raw_sample_stride": "0x38",
+          "prep": {
+            "relative_frames": [
+              -120,
+              -15
+            ],
+            "sample_count": 106,
+            "acc_x": {
+              "mean": -0.288506,
+              "min": -2.744898,
+              "max": 1.306122,
+              "range": 4.05102,
+              "path": 34.040815
+            },
+            "acc_y": {
+              "mean": -0.775755,
+              "min": -3.4,
+              "max": 3.4,
+              "range": 6.8,
+              "path": 35.78
+            },
+            "acc_z": {
+              "mean": 0.149647,
+              "min": -0.959596,
+              "max": 3.4,
+              "range": 4.359596,
+              "path": 20.678789
+            },
+            "acc_magnitude": {
+              "mean": 1.491281,
+              "min": 0.313291,
+              "max": 5.4022,
+              "range": 5.088909,
+              "path": 24.984228
+            },
+            "acc_variation": {
+              "mean": 0.230541,
+              "min": 0.0,
+              "max": 3.19048,
+              "range": 3.19048,
+              "path": 24.866007
+            },
+            "angle_diff_y": {
+              "mean": -0.006676,
+              "min": -0.006676,
+              "max": -0.006676,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.008597,
+              "min": 0.008597,
+              "max": 0.008597,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "down_x": {
+              "mean": 0.812208,
+              "min": 0.489262,
+              "max": 0.999954,
+              "range": 0.510691,
+              "path": 0.603442
+            },
+            "down_y": {
+              "mean": 0.312198,
+              "min": -0.254062,
+              "max": 0.872137,
+              "range": 1.126199,
+              "path": 1.304244
+            },
+            "raw_sample_acc_x": {
+              "mean": 27.556604,
+              "min": -37.0,
+              "max": 205.0,
+              "range": 242.0,
+              "path": 717.0
+            },
+            "raw_sample_acc_y": {
+              "mean": 12.698113,
+              "min": -87.0,
+              "max": 243.0,
+              "range": 330.0,
+              "path": 1100.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 67.339623,
+              "min": -315.0,
+              "max": 253.0,
+              "range": 568.0,
+              "path": 2320.0
+            }
+          },
+          "release": {
+            "relative_frames": [
+              -30,
+              5
+            ],
+            "sample_count": 36,
+            "acc_x": {
+              "mean": -0.309524,
+              "min": -0.346939,
+              "max": -0.27551,
+              "range": 0.071429,
+              "path": 0.510204
+            },
+            "acc_y": {
+              "mean": -0.945,
+              "min": -0.99,
+              "max": -0.89,
+              "range": 0.1,
+              "path": 0.34
+            },
+            "acc_z": {
+              "mean": 0.205948,
+              "min": 0.171717,
+              "max": 0.232323,
+              "range": 0.060606,
+              "path": 0.282828
+            },
+            "acc_magnitude": {
+              "mean": 1.015797,
+              "min": 0.968069,
+              "max": 1.053556,
+              "range": 0.085487,
+              "path": 0.406463
+            },
+            "acc_variation": {
+              "mean": 0.011028,
+              "min": 0.0,
+              "max": 0.034995,
+              "range": 0.034995,
+              "path": 0.417665
+            },
+            "angle_diff_y": {
+              "mean": -0.006676,
+              "min": -0.006676,
+              "max": -0.006676,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "angle_diff_magnitude": {
+              "mean": 0.008597,
+              "min": 0.008597,
+              "max": 0.008597,
+              "range": 0.0,
+              "path": 0.0
+            },
+            "down_x": {
+              "mean": 0.976999,
+              "min": 0.968157,
+              "max": 0.981199,
+              "range": 0.013043,
+              "path": 0.013768
+            },
+            "down_y": {
+              "mean": -0.212761,
+              "min": -0.250345,
+              "max": -0.192997,
+              "range": 0.057347,
+              "path": 0.060726
+            },
+            "raw_sample_acc_x": {
+              "mean": 29.75,
+              "min": 26.0,
+              "max": 33.0,
+              "range": 7.0,
+              "path": 21.0
+            },
+            "raw_sample_acc_y": {
+              "mean": 20.722222,
+              "min": 19.0,
+              "max": 25.0,
+              "range": 6.0,
+              "path": 6.0
+            },
+            "raw_sample_acc_z": {
+              "mean": 93.944444,
+              "min": 89.0,
+              "max": 97.0,
+              "range": 8.0,
+              "path": 14.0
+            }
+          }
+        },
+        "contact_result": "fair_in_play",
+        "play_swing_timer": 46909,
+        "play_contact_timer": 46911
+      }
+    ]
+  },
+  "conclusion": {
+    "memory_state_separable": true,
+    "raw_controller_motion_separable": false,
+    "sufficient_for_memory_detector": true,
+    "sufficient_for_motion_only_detector": false,
+    "production_change_made": false
+  },
+  "remaining_confounds": [
+    "Only two games and one operator are represented.",
+    "Logical ports 1 and 2 are both covered, but the capture has no physical-remote serial, so the planned physical-device swap cannot be proven from the files.",
+    "Character, inning, planned mode, and contact result are not fully factorial; all six home runs in the gold set are charges.",
+    "Four Game 1 swings are resolved from the same charge-state signal the current detector uses, so they are excluded from the independent 55-swing detector check.",
+    "The raw-motion feature was selected during exploration with only two game groups, so its cross-game result is optimistic rather than a final untouched validation."
+  ]
+}

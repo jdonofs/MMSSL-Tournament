@@ -3,9 +3,10 @@ import FieldPlayBuilder from './FieldPlayBuilder'
 import VectorSprayChart from './VectorSprayChart'
 import TrackerPlayDiagram, { TrackerPlayBadge } from './TrackerPlayDiagram'
 import TrackerAdvancedMetrics from './TrackerAdvancedMetrics'
-import { FEET_PER_UNIT, hasMeasuredGeometry } from '../utils/parkGeometry'
+import { FEET_PER_UNIT, hasMeasuredGeometry, worldToImagePercentAtHeight } from '../utils/parkGeometry'
 import { formatPaResultLabel, formatPitchResultLabel, parseFielderChainFromNotation } from '../utils/notation'
 import { isCreditedHit } from '../utils/creditedHit'
+import { embeddedTrackerSnapshotError } from '../utils/trackerSnapshotIdentity'
 import { getCreditedRbiForPa, hasRispOpportunity, POSITION_LABELS } from '../utils/statsCalculator'
 import {
   AT_BAT_FILTERS,
@@ -76,6 +77,8 @@ const ANNOTATION_CATEGORIES = [
   ['missing_event', 'Missing event'],
   ['wrong_measurement', 'Wrong measurement'],
   ['stadium_event', 'Stadium event'],
+  ['swing_mode', 'Swing mode (slap/charge)'],
+  ['input_mode', 'Input mode (pitch/dive/shake/steer)'],
   ['other', 'Other'],
 ]
 
@@ -982,7 +985,7 @@ function InterpretationPanel({ interpretation, atBat, onFlag }) {
 
   return (
     <section className="panel tc-interpretation-panel">
-      <details className="tc-interpretation-details">
+      <details className="tc-interpretation-details" open>
         <summary>
           <span>Interpretation & source fields</span>
           <span style={{ color: statusTone.color }}>{statusTone.label}</span>
@@ -1230,10 +1233,10 @@ function PitchingCard({ pa, checks, interpretation }) {
       </div>
 
       <div className="tc-scroll" tabIndex={0} role="group" aria-label="Pitches in this plate appearance, scrollable" style={{ marginTop: 10 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 480 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 690 }}>
           <thead>
             <tr style={{ color: '#94a3b8', textAlign: 'left' }}>
-              {['#', 'Result', 'Offer', 'Type', 'Speed', 'Count', 'Pitch star', 'Batter star'].map((heading) => (
+              {['#', 'Result', 'Offer', 'Swing mode', 'Zone', 'Chase', 'Type', 'Speed', 'Count', 'Pitch star', 'Batter star'].map((heading) => (
                 <th key={heading} style={{ padding: '3px 8px 5px 0', fontWeight: 700 }}>{heading}</th>
               ))}
             </tr>
@@ -1247,6 +1250,15 @@ function PitchingCard({ pa, checks, interpretation }) {
                     only thing that separates a swinging strike from a called
                     one. A dash means no capture was running for this pitch. */}
                 <td style={{ padding: '4px 8px 4px 0', color: pitch.offer ? '#f8fafc' : '#94a3b8' }}>{pitch.offer || '—'}</td>
+                <td style={{ padding: '4px 8px 4px 0', color: ['slap', 'charge'].includes(pitch.swing_mode) ? '#86efac' : '#94a3b8' }}>
+                  {pitch.swing_mode || '—'}
+                </td>
+                <td style={{ padding: '4px 8px 4px 0', color: pitch.pitch_zone === 'out' ? '#fca5a5' : pitch.pitch_zone === 'in' ? '#86efac' : '#94a3b8' }}>
+                  {pitch.pitch_zone || '—'}
+                </td>
+                <td style={{ padding: '4px 8px 4px 0', color: pitch.is_chase ? '#fca5a5' : '#94a3b8' }}>
+                  {pitch.is_chase === true ? 'YES' : pitch.is_chase === false ? 'no' : '—'}
+                </td>
                 <td style={{ padding: '4px 8px 4px 0', color: pitch.pitch_type ? '#f8fafc' : '#f59e0b' }}>{pitch.pitch_type || 'unresolved'}</td>
                 <td style={{ padding: '4px 8px 4px 0' }}>{metric(pitch.pitch_speed_mph, 'mph') || '—'}</td>
                 <td style={{ padding: '4px 8px 4px 0', color: '#94a3b8' }}>
@@ -1256,7 +1268,7 @@ function PitchingCard({ pa, checks, interpretation }) {
                 <td style={{ padding: '4px 8px 4px 0', color: pitch.is_star_swing ? '#fde047' : '#94a3b8' }}>{pitch.is_star_swing ? 'STAR' : '—'}</td>
               </tr>
             )) : (
-              <tr><td colSpan={8} style={{ padding: '6px 0', color: '#94a3b8' }}>No pitches recorded yet.</td></tr>
+              <tr><td colSpan={11} style={{ padding: '6px 0', color: '#94a3b8' }}>No pitches recorded yet.</td></tr>
             )}
           </tbody>
         </table>
@@ -1476,6 +1488,7 @@ function FieldingCard({ pa, play, checks, evidence, onLoadEvidence }) {
   const chain = parseFielderChainFromNotation(pa.hit_notation)
   const fullPlay = evidence?.play || null
   const fieldingEvents = fullPlay?.fielding_events || []
+  const throws = (fullPlay?.throws || []).filter((entry) => entry.is_throw !== false)
 
   return (
     <Card title={<CheckHeader label="Fielding" status={checks?.fielding || 'pending'} />}>
@@ -1572,9 +1585,9 @@ function FieldingCard({ pa, play, checks, evidence, onLoadEvidence }) {
           </Drill>
         )}
 
-        {fullPlay?.throws?.length > 0 && (
-          <Drill label={`Throw chain (${fullPlay.throws.length})`} open>
-            {fullPlay.throws.map((entry) => (
+        {throws.length > 0 && (
+          <Drill label={`Throw chain (${throws.length})`} open>
+            {throws.map((entry) => (
               <div key={entry.sequence} style={{ padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,0.07)', fontSize: 11 }}>
                 <strong>
                   #{entry.sequence} {entry.thrower_character || entry.thrower_position} ({entry.thrower_position})
@@ -2023,6 +2036,7 @@ export default function TrackerLivePreview({
   baseUrl = DEFAULT_TRACKER_PREVIEW_BASE_URL,
   embedded = false,
   expectedGameId = null,
+  expectedGameStatus = null,
 } = {}) {
   const service = useMemo(() => {
     const root = String(baseUrl || DEFAULT_TRACKER_PREVIEW_BASE_URL).replace(/\/+$/, '')
@@ -2066,6 +2080,20 @@ export default function TrackerLivePreview({
   const [healthOpen, setHealthOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
 
+  useEffect(() => {
+    if (!embedded) return
+    setSnapshot(null)
+    setPinnedPaNumber(null)
+    setEvidence(null)
+  }, [embedded, expectedGameId])
+
+  useEffect(() => {
+    if (!embedded || !['pending', 'scheduled'].includes(expectedGameStatus)) return
+    setSnapshot(null)
+    setPinnedPaNumber(null)
+    setEvidence(null)
+  }, [embedded, expectedGameStatus])
+
   // When the last successful poll happened, which is what separates a dropped
   // request from a page that has been showing frozen numbers for an inning.
   const [lastGoodAt, setLastGoodAt] = useState(null)
@@ -2093,6 +2121,10 @@ export default function TrackerLivePreview({
         if (!response.ok) {
           throw new Error(next?.error || `Preview service returned ${response.status}`)
         }
+        const snapshotError = embedded
+          ? embeddedTrackerSnapshotError(next, { gameId: expectedGameId, gameStatus: expectedGameStatus })
+          : null
+        if (snapshotError) throw new Error(snapshotError)
         if (!cancelled) {
           const ageBucket = next?.capture?.last_frame_age_ms == null
             ? 'none' : Math.round(next.capture.last_frame_age_ms / 1000)
@@ -2109,14 +2141,20 @@ export default function TrackerLivePreview({
         // A dead API should be visible, but a stale tab does not need to hammer
         // Vite twice per second forever. Successful sessions still poll at 2 Hz.
         nextPollMs = 3000
-        if (!cancelled) setConnectionError(error.message)
+        if (!cancelled) {
+          if (embedded) {
+            signature = null
+            setSnapshot(null)
+          }
+          setConnectionError(error.message)
+        }
       } finally {
         if (!cancelled) timer = setTimeout(refresh, nextPollMs)
       }
     }
     refresh()
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [pinnedPaNumber, service, shutdownRequested])
+  }, [pinnedPaNumber, service, shutdownRequested, embedded, expectedGameId, expectedGameStatus])
 
   // A stale banner has to age on its own: once polling stops succeeding there
   // is nothing left to drive a re-render, and a page that froze silently is the
@@ -2334,6 +2372,70 @@ export default function TrackerLivePreview({
     pa?.fielded_x != null && pa?.fielded_y != null ? { x: pa.fielded_x, y: pa.fielded_y } : null
   ), [pa])
 
+  // THE PATH, when the stadium changed it. Redirects and table contacts are
+  // measured off the ball, so each waypoint is a position the ball provably
+  // passed through rather than a guessed route.
+  // the ball -- the frame its heading snapped to an arrow's axis -- so the
+  // waypoint is a position the ball provably passed through, not a guess at
+  // its route. Projected through the same homography the measured spray chart
+  // uses, so a redirect and a landing cannot be drawn in two coordinate
+  // systems. A park with no calibrated artwork returns null and the path is
+  // simply not drawn.
+  const redirectPath = useMemo(() => {
+    const stadium = pa?.hit_stadium_key
+    if (!stadium) return []
+    // HEIGHT-AWARE, because the markers this path connects are. hit_x/hit_y come
+    // from projectTrackerWorldSpot, which uses worldToImagePercentAtHeight; the
+    // path was using the flat ground homography, so the two ends and the middle
+    // of the same journey were drawn by two different mappings. It is a fifth of
+    // a percent for a rolling ball and two full percent for a ball three units
+    // up on an erupting manhole -- which is exactly the mark that has to land on
+    // the manhole in the artwork to be believed.
+    const project = (point) => (Array.isArray(point)
+      ? worldToImagePercentAtHeight(stadium, point[0], point[2], point[1] ?? 0) : null)
+    // Everything the ball provably passed through, in the order it did.
+    // `manhole_ball_strikes` comes FIRST when there is one: the ball came down
+    // on the raised manhole before anything else happened to it, and on such a
+    // play there is no landing marker at all, because the ball never reached
+    // the ground for one to be measured.
+    const waypoints = [
+      ...(displayPlay?.manhole_ball_strikes || []).map((strike) => project(strike.at)),
+      ...(displayPlay?.arrow_redirects || []).map((redirect) => project(redirect.at)),
+      ...(displayPlay?.table_ball_contacts || []).map((contact) => project(contact.at)),
+      // In at one Yoshi Park pipe, out at another.
+      ...(displayPlay?.pipe_transits || []).flatMap((transit) => [
+        project(transit.entry_at), project(transit.exit_at)]),
+      // Knocked back by Yoshi Park's train inside the outfield wall.
+      ...(displayPlay?.train_ball_hits || []).map((hit) => project(hit.at)),
+      // Or taken INTO the train, which is where that ball's path ends: the
+      // ride after this point is the train's, not the ball's.
+      ...(displayPlay?.train_ball_captures || []).map((ride) => project(ride.at)),
+    ].filter(Boolean)
+    if (!waypoints.length) return []
+    const start = landingSpot ? [landingSpot] : []
+    const end = fieldedSpot ? [fieldedSpot] : []
+    const path = [...start, ...waypoints, ...end]
+    return path.length > 1 ? path : []
+  }, [displayPlay, landingSpot, fieldedSpot, pa])
+
+  const struckManhole = (displayPlay?.manhole_ball_strikes || []).length > 0
+  const wasRedirected = (displayPlay?.arrow_redirects || []).length > 0
+  const struckTable = (displayPlay?.table_ball_contacts || []).length > 0
+
+  // A ball that came down on an erupting manhole never reached the ground, so
+  // it has no landing, so hit_x/hit_y are empty -- and this card drew an empty
+  // field for a ball whose final position the capture holds to three decimals.
+  // The strike is where it came down. The marker label says that rather than
+  // calling it a landing, because it is not one and the distance readout beside
+  // it is measured to a point three units in the air.
+  const manholeSpot = useMemo(() => {
+    if (landingSpot) return null
+    const strike = (displayPlay?.manhole_ball_strikes || [])[0]
+    const stadium = pa?.hit_stadium_key
+    if (!strike || !stadium || !Array.isArray(strike.at)) return null
+    return worldToImagePercentAtHeight(stadium, strike.at[0], strike.at[2], strike.at[1] ?? 0)
+  }, [displayPlay, landingSpot, pa])
+
   const recordLandingCalibration = async (spot) => {
     if (!pa?.pa_number || calibrationPending) return
     setCalibrationSpot(spot)
@@ -2492,15 +2594,10 @@ export default function TrackerLivePreview({
           />
 
           <div className="tc-primary-review">
-            <Card title="Measured field view" className="tc-diagram-card">
-              <TrackerPlayDiagram
-                stadiumKey={snapshot?.stadium_key}
-                geometry={snapshot?.play_geometry}
-                badges={[]}
-                height={700}
-              />
-            </Card>
-            <div className="tc-review-sidebar">
+            {/* The interpretation and its source fields are what the operator is
+                actually reading, so they hold the centre column. The measured
+                field view is corroboration and sits beside it. */}
+            <div className="tc-review-main">
               <PlayReviewSummary
                 pa={pa}
                 play={displayPlay}
@@ -2510,6 +2607,16 @@ export default function TrackerLivePreview({
                 projection={projection}
               />
               <InterpretationPanel interpretation={interpretation} atBat={pa} onFlag={openAnnotation} />
+            </div>
+            <div className="tc-review-sidebar">
+              <Card title="Measured field view" className="tc-diagram-card">
+                <TrackerPlayDiagram
+                  stadiumKey={snapshot?.stadium_key}
+                  geometry={snapshot?.play_geometry}
+                  badges={[]}
+                  height={520}
+                />
+              </Card>
             </div>
           </div>
 
@@ -2614,16 +2721,50 @@ export default function TrackerLivePreview({
                       )}
                       <FieldPlayBuilder
                         stadiumKey={pa.hit_stadium_key}
-                        landingSpot={calibrationSpot || landingSpot}
+                        landingSpot={calibrationSpot || landingSpot || manholeSpot}
                         onFieldTap={calibrationMode ? recordLandingCalibration : undefined}
                         secondarySpot={calibrationSpot ? landingSpot : fieldedSpot}
                         primaryMarkerLabel={calibrationSpot ? 'Marked actual impact'
-                          : projection?.is_projected ? 'Projected landing (no tracked landing)' : 'First landing / catch'}
+                          : manholeSpot ? 'Came down on an erupting manhole'
+                            : projection?.is_projected ? 'Projected landing (no tracked landing)' : 'First landing / catch'}
                         secondaryMarkerLabel={calibrationSpot ? 'Current automatic placement' : 'Fielded'}
                         label=""
                         showFielderMarkers={false}
                         allowFielderSelection={false}
+                        pathSpots={calibrationSpot ? [] : redirectPath}
+                        pathLabel={(displayPlay?.pipe_transits || []).length
+                          ? 'Pipe — the ball went in and came out here'
+                          : struckTable
+                            ? 'Stadium contact — the ball struck a table here'
+                            : 'Directional arrow — the ball turned here'}
                       />
+                      {(redirectPath.length > 1 || (struckManhole && !landingSpot)) && !calibrationSpot && (
+                        <p style={{ margin: '6px 0 0', fontSize: 11, color: '#fdba74' }}>
+                          {(displayPlay?.pipe_transits || []).length
+                            ? 'This ball went into one pipe and came out of another. The dashed path '
+                              + 'joins the two pipes; the ball did not cross the field between them.'
+                            : struckManhole && !landingSpot
+                            ? 'This ball came down on an erupting manhole, not on the ground. '
+                              + 'The marker is where it struck, above the field — there is no '
+                              + 'ground landing behind it.'
+                            : struckManhole && wasRedirected
+                              ? 'The stadium moved this ball: it struck an erupting manhole and a '
+                                + 'directional arrow turned it. The dashed path is where it went; '
+                                + 'a straight line between the markers is not a route it took.'
+                              : struckManhole
+                                ? 'This ball struck an erupting manhole above the ground. The dashed '
+                                  + 'path is where it actually went.'
+                                : struckTable && wasRedirected
+                                  ? 'The stadium moved this ball at a table and a directional arrow. '
+                                    + 'The dashed path is where it actually went.'
+                                  : struckTable
+                                    ? 'This ball bounced off a table. The dashed path includes the '
+                                      + 'measured table contact rather than drawing through it.'
+                                    : 'A directional arrow turned this ball mid-roll. The dashed path is '
+                                      + 'where it actually went; the straight line between the two markers '
+                                      + 'is not a route the ball took.'}
+                        </p>
+                      )}
                     </>
                   ) : (
                     <p className="muted">

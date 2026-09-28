@@ -1,4 +1,6 @@
 import talentProfiles from '../data/characterTalentProfiles.json'
+import catchMechanicsProfiles from '../data/characterCatchMechanics.json'
+import { getMovementMechanics } from '../data/gameSpeedCurves.js'
 import { characterNameKey } from './characterNames.js'
 import { buildCharacterIntrinsics } from './statsCalculator'
 import { getChemistry } from '../data/chemistry'
@@ -93,6 +95,23 @@ function resolveCharacterAbilityKey(character) {
   return normalizeCharacterTalentKey(character.name)
 }
 
+// SCORING READS THE ORIGINAL SHEET, not characterCatchMechanics.json.
+//
+// The revised import is a better DESCRIPTION -- ten named columns instead of
+// four -- but feeding it to the rating moved every character's defense twice
+// over, and neither move was a decision anyone made:
+//
+//   * relabelling column K as column J shifted 96 of 100 characters' catch
+//     coverage down (see the note on the `jumpWidth` term below);
+//   * `unused yoshi (white ?)` has no catch block in the original sheet and
+//     therefore scored 0, which anchored the bottom of the min-max range the
+//     whole cast is normalised against. Giving it real numbers lifted that
+//     floor and moved live characters by up to 37 rating points on its own.
+//
+// Adding traits to a scouting report is not a reason to restate the ratings.
+// The corrected sheet is exposed as `catchMechanics` for display and for the
+// measured comparisons; changing what the rating is made of is a separate
+// decision that needs its own validation.
 function buildDerivedProfile(profile = {}) {
   const contact = profile.contact || {}
   const starContact = profile.starContact || {}
@@ -137,6 +156,15 @@ function buildDerivedProfile(profile = {}) {
       (Number(catchProfile.regular || 0) * 0.35) +
       (Number(catchProfile.dive || 0) * 0.26) +
       (Number(catchProfile.height || 0) * 0.25) +
+      // Column K, and deliberately not the revised sheet's column J.
+      //
+      // The revised import labels J `jump`, but J is not a jump reach: it
+      // repeats the facing-away radius in 94 of 101 profiles and sits BELOW
+      // the standing radius in 96 of them (median 0.47x). A jumping catch
+      // reaches further than a standing one, which is what column K does --
+      // above `regular` in 76 of 101, median 1.13x. Neither column is proven,
+      // so characterCatchMechanics.json keeps J as `jump` and K as
+      // `unknownRegularLike` and the scouting report shows both as unresolved.
       (Number(catchProfile.jumpWidth || 0) * 0.14),
     armStrength: Number(profile.throwingSpeed || 0),
     fielding: Number(profile.fielding || 0),
@@ -163,7 +191,12 @@ const profileEntries = Object.entries(talentProfiles).map(([name, profile]) => [
 ])
 
 const talentProfilesByKey = Object.fromEntries(profileEntries)
-const derivedProfilesByKey = Object.fromEntries(profileEntries.map(([key, profile]) => [key, buildDerivedProfile(profile)]))
+const catchMechanicsByKey = Object.fromEntries(
+  Object.entries(catchMechanicsProfiles).map(([name, profile]) => [normalizeCharacterTalentKey(name), profile]),
+)
+const derivedProfilesByKey = Object.fromEntries(
+  profileEntries.map(([key, profile]) => [key, buildDerivedProfile(profile)]),
+)
 const derivedMetricKeys = Object.keys(Object.values(derivedProfilesByKey)[0] || {})
 
 const derivedRanges = derivedMetricKeys.reduce((ranges, metric) => {
@@ -425,6 +458,47 @@ export function getCharacterTalentProfile(name) {
   return talentProfilesByKey[talentKeyForName(name)] || null
 }
 
+/**
+ * The speed rating to use for a character, in the one order every caller agrees
+ * on: the data-mined talent profile first, the characters table only as a
+ * fallback.
+ *
+ * WHY THE ORDER MATTERS AND IS NOT COSMETIC. For Dry Bones and Green Paratroopa
+ * the two disagree -- the profile says 50 and 52, the characters table says 40
+ * and 64 -- and the game's own max-speed constant sides with the profile. A
+ * caller that reads the column directly gets a rating the game contradicts, and
+ * for those two characters the measured constant then matches neither the
+ * ordinary nor the boosted curve row and drops out of the report entirely.
+ *
+ * Exported so the measured side classifies against exactly the rating the mined
+ * side was built from. Two different answers on one row is worse than either.
+ */
+export function resolveCharacterRunSpeed(character) {
+  if (!character) return null
+  const profile = talentProfilesByKey[resolveCharacterTalentKey(character)]
+  return profile?.runSpeed ?? character.run_speed ?? character.speed ?? null
+}
+
+export function getCharacterMovementMechanics(characterOrName) {
+  const character = typeof characterOrName === 'string'
+    ? { name: characterOrName }
+    : characterOrName
+  if (!character) return null
+
+  const profile = talentProfilesByKey[resolveCharacterTalentKey(character)]
+  const speedStat = profile?.runSpeed ?? character.run_speed ?? character.speed
+  return getMovementMechanics(speedStat)
+}
+
+export function getCharacterCatchMechanics(characterOrName) {
+  const character = typeof characterOrName === 'string'
+    ? { name: characterOrName }
+    : characterOrName
+  if (!character) return null
+
+  return catchMechanicsByKey[resolveCharacterTalentKey(character)] || null
+}
+
 function partnerStrength(partnerName) {
   // CHEMISTRY_NAME_MAP still decides which member of a family stands in for the
   // family ("pianta" means the blue one); talentKeyForName then handles the
@@ -620,6 +694,10 @@ function computeTalentAnalysis(character, history = [], pitchingHistory = [], fi
     stamina: character.stamina,
   })
   const intrinsics = buildCharacterIntrinsics(character)
+  const catchMechanics = catchMechanicsByKey[normalizedKey] || null
+  const movementMechanics = getMovementMechanics(
+    profile?.runSpeed ?? character.run_speed ?? character.speed,
+  )
 
   // ── Ability lookups ──────────────────────────────────────────────────────────
   const fieldingAbility = CHARACTER_FIELDING_ABILITY[abilityKey] || 'None'
@@ -847,6 +925,8 @@ function computeTalentAnalysis(character, history = [], pitchingHistory = [], fi
         pcZoneHeight: normalized.pcZoneHeight,
         pcMoveSpeed: normalized.pcMoveSpeed,
         baserunning,
+        baserunSpeedPerFrame: movementMechanics?.baserunning?.speedPerFrame ?? null,
+        baserunSpeedPerSecond: movementMechanics?.baserunning?.speedPerSecond ?? null,
       },
       pitching: {
         velocity: normalized.velocity,
@@ -855,13 +935,18 @@ function computeTalentAnalysis(character, history = [], pitchingHistory = [], fi
       },
       fielding: {
         catchCoverage: normalized.catchCoverage,
+        catchRadii: catchMechanics,
         fielding: normalized.fielding,
         armStrength: normalized.armStrength,
         physicality: normalized.physicality,
         mobility: normalized.mobility,
         baseDefense,
+        fieldSpeedPerFrame: movementMechanics?.fielding?.speedPerFrame ?? null,
+        fieldSpeedPerSecond: movementMechanics?.fielding?.speedPerSecond ?? null,
       },
     },
+    movementMechanics,
+    catchMechanics,
     intrinsics,
     profile,
     fieldAbility: fieldingAbility,

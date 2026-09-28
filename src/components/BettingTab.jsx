@@ -2,6 +2,7 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } fro
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Moon, Sun, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
+import { createRefreshCoordinator } from '../utils/refreshCoordinator'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
 import { useToast } from '../context/ToastContext'
@@ -1151,7 +1152,7 @@ export default function BettingTab({ mode = 'tournament' }) {
   const oddsRequestRef = useRef(0)
   const trackerRequestRef = useRef(0)
   const gamesRequestRef = useRef(0)
-  const oddsRefreshTimerRef = useRef(null)
+  const loadScopeRequestRef = useRef(0)
   // Keep refs to frequently-changing values so the realtime subscription
   // effect below doesn't need them as dependencies (which would tear down
   // and recreate the channel on every update, dropping live events).
@@ -1165,6 +1166,8 @@ export default function BettingTab({ mode = 'tournament' }) {
   useEffect(() => { stadiumGameLogRef.current = stadiumGameLog }, [stadiumGameLog])
   const playersRef = useRef(players)
   useEffect(() => { playersRef.current = players }, [players])
+  const charactersRef = useRef(characters)
+  useEffect(() => { charactersRef.current = characters }, [characters])
   const seasonTeamsRef = useRef(seasonTeams)
   useEffect(() => { seasonTeamsRef.current = seasonTeams }, [seasonTeams])
   const runLineRailRef = useRef(null)
@@ -1175,13 +1178,25 @@ export default function BettingTab({ mode = 'tournament' }) {
   const { identitiesByPlayerId: tournamentIdentitiesByPlayerId } = useTournamentTeamIdentity(currentTournament?.id)
 
   useEffect(() => {
+    const loadScopeRequestId = ++loadScopeRequestRef.current
     async function load() {
       if (!hasLoadedOnceRef.current) setLoading(true)
       const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
       const economyContextId = sourceContext?.id || -1
+      const { data: gamesData, error: gamesError } = await fetchAllRows(() => supabase
+        .from(sourceTables.games)
+        .select('*')
+        .eq(sourceTables.sourceIdField, economyContextId))
+      if (gamesError) {
+        setLoading(false)
+        return
+      }
+      const gameIds = (gamesData || []).map((game) => game.id).filter(Boolean)
+      const gameRows = (table, columns = '*') => gameIds.length
+        ? fetchAllRows(() => supabase.from(table).select(columns).in('game_id', gameIds))
+        : Promise.resolve({ data: [], error: null })
 
       const [
-        { data: gamesData },
         { data: trackerStatsData },
         { data: playersData },
         { data: charactersData },
@@ -1201,32 +1216,26 @@ export default function BettingTab({ mode = 'tournament' }) {
         { data: sipRedemptionsData },
         { data: balanceAwardsData },
       ] = await Promise.all([
-        fetchAllRows(() => supabase.from(sourceTables.games).select('*')),
-        fetchAllRows(() => supabase.from(sourceTables.trackerStats).select('*')),
+        gameRows(sourceTables.trackerStats),
         fetchAllRows(() => supabase.from('players').select('*')),
         fetchAllRows(() => supabase.from('characters').select('*')),
-        isSeasonMode
-          ? fetchAllRows(() => supabase.from(sourceTables.picks).select('*').eq('season_id', sourceContext?.id || -1).order('created_at'))
-          : fetchAllRows(() => supabase.from(sourceTables.picks).select('*')),
-        fetchAllRows(() => supabase.from(sourceTables.pas).select('*').order('created_at')),
-        fetchAllRows(() => supabase.from(sourceTables.pitching).select('*').order('created_at')),
-        fetchAllRows(() => supabase.from(sourceTables.pitches).select('game_id,pitcher_id')),
-        fetchAllRows(() => supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false })),
-        isSeasonMode
-          ? fetchAllRows(() => supabase.from(sourceTables.bets).select('*').eq('season_id', sourceContext?.id || -1).order('placed_at', { ascending: false }))
-          : fetchAllRows(() => supabase.from(sourceTables.bets).select('*').order('placed_at', { ascending: false })),
-        fetchAllRows(() => supabase.from(sourceTables.settlements).select('*').order('settled_at', { ascending: false })),
+        fetchAllRows(() => supabase.from(sourceTables.picks).select('*').eq(sourceTables.sourceIdField, economyContextId)),
+        gameRows(sourceTables.pas),
+        gameRows(sourceTables.pitching),
+        gameRows(sourceTables.pitches, 'game_id,pitcher_id'),
+        gameRows(sourceTables.odds),
+        fetchAllRows(() => supabase.from(sourceTables.bets).select('*').eq(sourceTables.sourceIdField, economyContextId)),
+        gameRows(sourceTables.settlements),
         supabase.from('odds_engine_weights').select('*').eq('id', 1).maybeSingle(),
         fetchAllRows(() => supabase.from('stadiums').select('*')),
-        isSeasonMode
-          ? fetchAllRows(() => supabase.from(sourceTables.stadiumLog).select('*').eq('season_id', sourceContext?.id || -1).order('created_at'))
-          : fetchAllRows(() => supabase.from(sourceTables.stadiumLog).select('*').order('created_at')),
+        gameRows(sourceTables.stadiumLog),
         fetchAllRows(() => supabase.from(sourceTables.ledgerTable).select('*').eq(economyContextField, economyContextId)),
         fetchAllRows(() => supabase.from('player_sips').select('*').eq(economyContextField, economyContextId)),
         fetchAllRows(() => supabase.from('sip_transactions').select('*').eq(economyContextField, economyContextId)),
         fetchAllRows(() => supabase.from('sip_redemptions').select('*').eq(economyContextField, economyContextId).order('created_at', { ascending: false })),
         fetchAllRows(() => supabase.from('balance_awards').select('*').eq(economyContextField, economyContextId)),
       ])
+      if (loadScopeRequestId !== loadScopeRequestRef.current) return
 
       const teamsById = Object.fromEntries((seasonTeams || []).map((entry) => [entry.id, entry]))
       const stadiumsByName = Object.fromEntries((stadiumsData || []).map((entry) => [entry.name, entry]))
@@ -1290,29 +1299,33 @@ export default function BettingTab({ mode = 'tournament' }) {
     }
 
     load()
+    return () => {
+      if (loadScopeRequestId === loadScopeRequestRef.current) loadScopeRequestRef.current += 1
+    }
   }, [currentTournament?.id, currentSeason?.id, isSeasonMode, seasonTeams, sourceContext?.id])
 
   const refetchOdds = useCallback(async () => {
     const requestId = ++oddsRequestRef.current
-    const { data, error } = await supabase.from(sourceTables.odds).select('*').order('updated_at', { ascending: false }).range(0, 49999)
+    const gameIds = gamesRef.current.map((game) => game.id).filter(Boolean)
+    if (!gameIds.length) return
+    const { data, error } = await supabase.from(sourceTables.odds).select('*').in('game_id', gameIds).order('updated_at', { ascending: false }).range(0, 49999)
     if (error || requestId !== oddsRequestRef.current) return
     setGameOdds(data || [])
   }, [sourceTables])
 
-  const scheduleOddsRefetch = useCallback(() => {
-    clearTimeout(oddsRefreshTimerRef.current)
-    oddsRefreshTimerRef.current = setTimeout(refetchOdds, 150)
-  }, [refetchOdds])
-
   const refetchBets = useCallback(async () => {
-    const query = supabase.from(sourceTables.bets).select('*').order('placed_at', { ascending: false })
-    const { data } = isSeasonMode ? await query.eq('season_id', sourceContext?.id || -1) : await query
-    setBets(data || [])
-  }, [sourceTables, isSeasonMode, sourceContext?.id])
+    const { data, error } = await supabase.from(sourceTables.bets).select('*')
+      .eq(sourceTables.sourceIdField, sourceContext?.id || -1)
+      .order('placed_at', { ascending: false })
+    if (!error) setBets(data || [])
+  }, [sourceTables, sourceContext?.id])
 
   const refetchTrackerStats = useCallback(async () => {
     const requestId = ++trackerRequestRef.current
-    const { data } = await supabase.from(sourceTables.trackerStats).select('*')
+    const gameIds = gamesRef.current.map((game) => game.id).filter(Boolean)
+    if (!gameIds.length) return
+    const { data, error } = await supabase.from(sourceTables.trackerStats).select('*').in('game_id', gameIds)
+    if (error) return
     if (requestId !== trackerRequestRef.current) return
     const sourceGameIds = new Set(gamesRef.current
       .filter((entry) => entry.tournament_id === sourceContext?.id)
@@ -1324,7 +1337,10 @@ export default function BettingTab({ mode = 'tournament' }) {
   }, [isSeasonMode, sourceContext?.id, sourceTables])
 
   const refetchPlateAppearances = useCallback(async () => {
-    const { data } = await supabase.from(sourceTables.pas).select('*').order('created_at').range(0, 49999)
+    const gameIds = gamesRef.current.map((game) => game.id).filter(Boolean)
+    if (!gameIds.length) return
+    const { data, error } = await supabase.from(sourceTables.pas).select('*').in('game_id', gameIds).order('created_at').range(0, 49999)
+    if (error) return
     const stadiumKeyByGameId = buildStadiumKeyByGameId(
       gamesRef.current,
       stadiumsRef.current,
@@ -1335,9 +1351,9 @@ export default function BettingTab({ mode = 'tournament' }) {
 
   const refetchGames = useCallback(async () => {
     const requestId = ++gamesRequestRef.current
-    const { data } = isSeasonMode
-      ? await supabase.from(sourceTables.games).select('*').eq('season_id', sourceContext?.id || -1).order('id')
-      : await supabase.from(sourceTables.games).select('*').order('id')
+    const { data, error } = await supabase.from(sourceTables.games).select('*')
+      .eq(sourceTables.sourceIdField, sourceContext?.id || -1).order('id')
+    if (error) return
     if (requestId !== gamesRequestRef.current) return
     if (isSeasonMode) {
       const teamsById = Object.fromEntries((seasonTeamsRef.current || []).map((entry) => [entry.id, entry]))
@@ -1352,12 +1368,14 @@ export default function BettingTab({ mode = 'tournament' }) {
   }, [sourceTables, isSeasonMode, sourceContext?.id])
 
   const refetchPitching = useCallback(async () => {
-    const [{ data }, { data: pitchesData }, { data: charsData }] = await Promise.all([
-      supabase.from(sourceTables.pitching).select('*').order('created_at'),
-      supabase.from(sourceTables.pitches).select('game_id,pitcher_id'),
-      supabase.from('characters').select('id,name'),
+    const gameIds = gamesRef.current.map((game) => game.id).filter(Boolean)
+    if (!gameIds.length) return
+    const [{ data, error }, { data: pitchesData, error: pitchesError }] = await Promise.all([
+      supabase.from(sourceTables.pitching).select('*').in('game_id', gameIds).order('created_at'),
+      supabase.from(sourceTables.pitches).select('game_id,pitcher_id').in('game_id', gameIds),
     ])
-    const nameById = Object.fromEntries((charsData || []).map((c) => [c.id, c.name]))
+    if (error || pitchesError) return
+    const nameById = Object.fromEntries(charactersRef.current.map((c) => [c.id, c.name]))
     const thrownKeys = new Set((pitchesData || []).map((p) => `${p.game_id}:${p.pitcher_id}`))
     setPitchingStints((data || []).filter((stint) => (
       thrownKeys.has(`${stint.game_id}:${nameById[stint.character_id]}`) || Number(stint.innings_pitched) > 0
@@ -1374,8 +1392,9 @@ export default function BettingTab({ mode = 'tournament' }) {
       setDraftPicks(normalizeSeasonDraftPicks(data || [], sourceContext?.id, seasonTeamsRef.current, charactersByName))
       return
     }
-    const { data } = await supabase.from(sourceTables.picks).select('*')
-    setDraftPicks(data || [])
+    const { data, error } = await supabase.from(sourceTables.picks).select('*')
+      .eq('tournament_id', sourceContext?.id || -1)
+    if (!error) setDraftPicks(data || [])
   }, [sourceTables, isSeasonMode, sourceContext?.id])
 
   // Browsers throttle/suspend websockets on backgrounded tabs, so realtime
@@ -1396,39 +1415,57 @@ export default function BettingTab({ mode = 'tournament' }) {
       if (document.visibilityState === 'visible') refreshAll()
     }
     document.addEventListener('visibilitychange', handleVisibility)
-    // Realtime postgres_changes can silently fail to deliver in some
-    // environments, so also poll periodically as a fallback to guarantee the
-    // board (odds, pitcher props, bets) stays live without manual refresh.
+    // A foreground transition is the bounded recovery path for events a
+    // suspended websocket may have missed. Healthy visible tabs rely on the
+    // scoped Realtime subscriptions below and do not poll.
     // Skipped while hidden — polling every 5s regardless of visibility keeps the tab constantly
     // "active," which is exactly what makes browsers reclaim it first when freeing memory from
     // inactive tabs; handleVisibility above already re-syncs immediately once shown again.
-    const pollInterval = setInterval(() => {
-      if (document.hidden) return
-      refreshAll()
-    }, 5000)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility)
-      clearInterval(pollInterval)
     }
   }, [refetchOdds, refetchBets, refetchTrackerStats, refetchPlateAppearances, refetchPitching, refetchGames, refetchPicks])
 
   useEffect(() => {
+    const dirtyRefreshes = new Set()
+    const refreshCoordinator = createRefreshCoordinator({
+      run: async () => {
+        const tasks = [...dirtyRefreshes]
+        dirtyRefreshes.clear()
+        await Promise.all(tasks.map((task) => task()))
+      },
+      delayMs: 150,
+      maxWaitMs: 750,
+      isPaused: () => document.visibilityState === 'hidden',
+    })
+    const invalidate = (task) => {
+      dirtyRefreshes.add(task)
+      refreshCoordinator.request()
+    }
+    const invalidateBoard = () => {
+      [refetchOdds, refetchBets, refetchTrackerStats, refetchPlateAppearances,
+        refetchPitching, refetchGames, refetchPicks].forEach((task) => dirtyRefreshes.add(task))
+      refreshCoordinator.request({ immediate: true })
+    }
+    let hasSubscribed = false
     const channel = supabase
       .channel(`betting-board-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.odds }, scheduleOddsRefetch)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.bets }, refetchBets)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.games }, refetchGames)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.trackerStats }, refetchTrackerStats)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pas }, refetchPlateAppearances)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pitching }, refetchPitching)
-      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.picks }, refetchPicks)
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.odds }, () => invalidate(refetchOdds))
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.bets }, () => invalidate(refetchBets))
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.games }, () => invalidate(refetchGames))
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.trackerStats }, () => invalidate(refetchTrackerStats))
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pas }, () => invalidate(refetchPlateAppearances))
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.pitching }, () => invalidate(refetchPitching))
+      .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.picks }, () => invalidate(refetchPicks))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'odds_engine_weights' }, async () => {
         const { data } = await supabase.from('odds_engine_weights').select('*').eq('id', 1).maybeSingle()
         if (data) setWeights(data)
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.settlements }, async () => {
-        const { data } = await supabase.from(sourceTables.settlements).select('*').order('settled_at', { ascending: false })
-        setSettlements(data || [])
+        const gameIds = gamesRef.current.map((game) => game.id).filter(Boolean)
+        if (!gameIds.length) return
+        const { data, error } = await supabase.from(sourceTables.settlements).select('*').in('game_id', gameIds).order('settled_at', { ascending: false })
+        if (!error) setSettlements(data || [])
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.ledgerTable }, async () => {
         const economyContextField = isSeasonMode ? 'season_id' : 'tournament_id'
@@ -1460,9 +1497,10 @@ export default function BettingTab({ mode = 'tournament' }) {
         setStadiums(data || [])
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: sourceTables.stadiumLog }, async () => {
-        const { data } = isSeasonMode
-          ? await supabase.from(sourceTables.stadiumLog).select('*').eq('season_id', sourceContext?.id || -1).order('created_at')
-          : await supabase.from(sourceTables.stadiumLog).select('*').order('created_at')
+        const gameIds = gamesRef.current.map((game) => game.id).filter(Boolean)
+        if (!gameIds.length) return
+        const { data, error } = await supabase.from(sourceTables.stadiumLog).select('*').in('game_id', gameIds).order('created_at')
+        if (error) return
         if (isSeasonMode) {
           const stadiumsByName = Object.fromEntries(stadiumsRef.current.map((entry) => [entry.name, entry]))
           setStadiumGameLog((data || []).map((entry) => ({ ...entry, stadium_id: stadiumsByName[entry.stadium]?.id || null })))
@@ -1470,13 +1508,17 @@ export default function BettingTab({ mode = 'tournament' }) {
           setStadiumGameLog(data || [])
         }
       })
-      .subscribe()
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (hasSubscribed) invalidateBoard()
+        hasSubscribed = true
+      })
 
     return () => {
-      clearTimeout(oddsRefreshTimerRef.current)
+      refreshCoordinator.dispose()
       supabase.removeChannel(channel)
     }
-  }, [isSeasonMode, sourceContext?.id, sourceTables, scheduleOddsRefetch, refetchBets, refetchTrackerStats, refetchPlateAppearances, refetchGames, refetchPitching, refetchPicks])
+  }, [isSeasonMode, sourceContext?.id, sourceTables, refetchOdds, refetchBets, refetchTrackerStats, refetchPlateAppearances, refetchGames, refetchPitching, refetchPicks])
 
   const playersById = useMemo(() => Object.fromEntries(players.map((entry) => [entry.id, entry])), [players])
 
@@ -2133,26 +2175,44 @@ export default function BettingTab({ mode = 'tournament' }) {
       setExpectedPitcherByKey(next)
     }
 
-    runPoll()
+    const boardGameIds = new Set(boardGames.map((game) => String(game.id)))
+    const refreshCoordinator = createRefreshCoordinator({
+      run: runPoll,
+      delayMs: 150,
+      maxWaitMs: 750,
+      isPaused: () => document.visibilityState === 'hidden',
+    })
+    const refresh = () => refreshCoordinator.request()
+    refreshCoordinator.request({ immediate: true })
+    let hasSubscribed = false
     const channel = supabase
       .channel(`betting-lineups-${isSeasonMode ? 'season' : 'tournament'}-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: gameFieldersTable }, runPoll)
-      .on('postgres_changes', { event: '*', schema: 'public', table: tableConfig.table }, runPoll)
-      .subscribe()
+      .on('postgres_changes', { event: '*', schema: 'public', table: gameFieldersTable }, (payload) => {
+        const gameId = payload.new?.game_id ?? payload.old?.game_id
+        if (boardGameIds.has(String(gameId))) refresh()
+      })
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: tableConfig.table,
+        filter: `${tableConfig.idField}=eq.${sourceContext?.id || -1}`,
+      }, refresh)
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (hasSubscribed) refreshCoordinator.request({ immediate: true })
+        hasSubscribed = true
+      })
     // Skipped while hidden — see the fallback-poll comment on the odds/bets poll above for why
     // (an always-active background tab is exactly what browsers reclaim first for memory).
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') runPoll()
+      if (document.visibilityState === 'visible') {
+        refreshCoordinator.request({ immediate: true })
+        refreshCoordinator.resume()
+      }
     }
     document.addEventListener('visibilitychange', handleVisibility)
-    const interval = setInterval(() => {
-      if (document.hidden) return
-      runPoll()
-    }, 5000)
     return () => {
       cancelled = true
       document.removeEventListener('visibilitychange', handleVisibility)
-      clearInterval(interval)
+      refreshCoordinator.dispose()
       supabase.removeChannel(channel)
     }
   }, [boardGames, characters, isSeasonMode, seasonTeams, sourceContext?.id])

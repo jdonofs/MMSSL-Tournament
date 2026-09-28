@@ -38,6 +38,13 @@ export const TRACKER_MIGRATIONS = [
   '20260908123000_tracking_session_versions.sql',
   '20260908124000_tracker_unresolved_plays.sql',
   '20260909120000_tracker_fenced_game_mutations.sql',
+  '20260916120000_tracker_default_for_games.sql',
+  '20260918130000_tracker_persist_child_ids_are_uuids.sql',
+  '20260918132000_tracker_persist_blank_payload_is_not_a_conflict.sql',
+  '20260918133000_tracking_session_statuses.sql',
+  '20260918134000_tracking_session_uuid_functions.sql',
+  '20260922120000_batter_runner_opportunities.sql',
+  '20260922233000_user_swing_and_chase_tracking.sql',
 ]
 
 let pgliteModule = null

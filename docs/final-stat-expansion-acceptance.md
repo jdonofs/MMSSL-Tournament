@@ -1,0 +1,43 @@
+# Final stat expansion acceptance — 2026-09-16
+
+## Delivered locally
+
+- The shared Stats/SeasonStats route has Player and Character Baserunning views on desktop and narrow mobile. It shows runs, XBT opportunities/holds/attempts/safe advances/outs, three distinct rates, six opportunity splits, modeled coverage, experimental Rbaser, and qualifying movement measurements and sample counts. Count cells open assignment evidence with competition, game, PA/play, runner, origin, target, outcome, and model availability. XBT Attempt % preserves the old XBT% meaning. Rbaser is extra-base taking; experimental WAR BsR also contains DP avoidance.
+- Fielding overview exposes throws and Buddy Throws, arm opportunities and advances allowed, actual/expected outs and OAA samples, DP runs, Jump components and samples, and positioning samples. A character profile gives a concise scoped baserunning and fielding summary. The character extras hook now scopes those aggregates by competition type and event ID, including colliding numeric IDs.
+- Stadium Interactions and Player Mechanics are separate Stats views for owners and characters. Both consume `quality.stadium_incidents` and `quality.play_mechanics` from completed, active, non-quarantined tracking plays. The stadium view separates affected actors, identified initiators of ball interactions, and object breaks by type and park. Player-caused captain effects appear under Mechanics, separate from stadium luck. Buddy contacts, object clears, and affected victims are separate counts; raw Buddy Jump attempts are not added to official BJ credits.
+- Clicking an event count reveals its game, play, actor role, event, park/time if captured, evidence status and measured duration. The view names legacy plays without a contract, quarantined exclusions and unattributed actors. The existing Gimmick Luck score remains separate. An unsupported type absent from a capture is never given a zero leaderboard cell.
+
+## Reconciliation and verification
+
+- A focused baserunning fixture has one hold, one safe advance and one tag-up out: 3 opportunities, 2 attempts, 1 safe, 1 out, 2/3 attempt rate, 1/2 success per attempt and one modeled opportunity. Player and character splits reconcile with those totals. Third-out and doubled-off exclusions remain covered by the defense tests.
+- A producer-shaped Peach fixture creates one freeze and one frozen-fielder ball contact, which the display keeps as separate facts. A quarantined copy is excluded; a legacy play is marked as lacking the contract. A Mechanics fixture reconciles two attacks with one contact, one object clear, and one captain activation affecting one victim.
+- `npm.cmd run test:defense`: 33 passed. `node --test tests/final-stat-display.test.mjs tests/advanced-defense.test.mjs`: 20 passed. Backend handoff reports `test:metrics` 11/11, `test:persistence` 39/39, and producer tests 24/24. `npm.cmd run test:acceptance`: 42 passed. `npm.cmd run build`: passed. `git diff --check`: passed.
+- `npm.cmd run test:acceptance-browser` passed against the local preview. It rendered tournament 909, season 909 and combined career totals from persisted fixture rows with colliding numeric IDs, a character profile, and an unresolved editor play. It also opened the season's Stadium Interactions view, displayed a freeze count from the **17 persisted freeze onsets**, expanded supporting play evidence, opened Mechanics in both identity views, and selected Baserunning at 390 px mobile width. These are intercepted fixture reads, not a production database check.
+- No emulator was run and no production Supabase read/write was performed here. The backend handoff says **no migration is required** because both contracts live in existing `tracking_plays.quality` jsonb. Production column type/RLS and bridge write access remain unobserved. No existing capture was backfilled in this assignment.
+
+## Capture proof and limits
+
+- **Freeze:** 116 archived onsets exist. In the three Peach sessions with a captured Freezie object array, all 24 onsets were near an active Freezie and have object-confirmed cause. The remaining 92 are measured freezes with unknown cause. Freeze incidence is distinct from a frozen fielder contacting the ball. The acceptance fixture's 17 onsets reached persisted rows and the rendered site. This is a real recorded path, but production ingestion was not checked.
+- **Barrel:** The barrel position was verified live by the operator on 2026-09-03. Its allocation moved between matches, so two later recordings read the remembered address as zeros or garbage. Those recordings contain operator-labeled hits, but canonical output correctly leaves their causes `unknown`. The collector now runs `locate_barrel` at each DK match start, searching for the barrel's parked cannon sentinel and recording the whole candidate cluster. The live derivation was still handed the old fixed address after the capture region moved, so during a game it would have resolved no barrel at all while the postgame pass (which reads the header) did; it now reads the located address from the header too. Synthetic locator and stuck-slot controls pass. **No new real match has yet proven a barrel hit and near miss through the per-match locator, persistence and display.** The capture fix is implemented; it needs one live DK validation, not another exploratory memory search.
+- **Other unsupported causes:** Bowser Jr. Playroom's 16 knockdowns and Luigi's Mansion's generic stuns retain unknown cause. The listed night and object families below have no demonstrated named measurement. The calibration completeness gate remains **closed**.
+
+## Final nine-park capability matrix
+
+| Park | Current status | Recorded output | Remaining gap |
+| --- | --- | --- | --- |
+| Mario Stadium | Supported negative control | Six player-caused star effects, no named stadium hazard | Check no cross-park signal leakage on new captures |
+| Wario City | Supported | 37 arrow redirects, 19 manhole knockdowns, one rebound | Day/night arrow naming only where props captured |
+| Yoshi Park | Supported with inference labeled | 79 train knockdowns (23 object-confirmed, 56 inferred), pipe/Piranha/train ball events | Night Wiggler object not located |
+| Daisy Cruiser | Supported by day | Table rebounds, breaks and stuns | Night Cheep Cheep and Gooper tilt lack capture |
+| Peach Ice Garden | Partial | 116 freezes, object breaks, rebounds and frozen-ball contacts | Night blackout; 92 freeze causes remain unknown |
+| Bowser Castle | Partial | Statue fire, falling lava and Bob-omb effects | Podoboo, Thwomp block, fireball puddle; unnamed/discarded burns |
+| DK Jungle | Partial pending live check | Flower sprays and POW stuns; 24 older knockdowns retain unknown cause | Per-match barrel locator is implemented; verify it and a hit/near miss in a new capture |
+| Bowser Jr. Playroom | Unsupported named cause | 16 knockdowns of unknown cause | Thwomp, Chain Chomp and Bullet Bill object attribution |
+| Luigi's Mansion | Unsupported named cause | Generic impact stuns and player-caused effects | Gravestone, ghost and grass signals; some captures lack time of day |
+
+## TEST-season release check
+
+1. On the first DK Jungle game, check the capture header for `barrel_located: true` and a nonempty `barrel_candidates` list. A play with a rolling barrel should produce `barrel_events[]`. Record a hit and near miss, then reconcile the raw flag, canonical incident, owner/character count and evidence drilldown. If no cannon sentinel is found, the collector preserves the capture and stadium dump for diagnosis; only then use the motion/follow probe. The old fixed address is a seed, not the address trusted for a new game.
+2. On the TEST bridge, verify a completed Peach game writes `quality.stadium_incidents` and `quality.play_mechanics` to production Supabase with the ingest role. Check column type/RLS, active-version selection and refresh. Re-ingest only deliberately, using the handoff's `--unleased-reason` path; no bulk backfill was executed here.
+3. Check a runner hold, safe advance, extra-base out and tag-up in the site, plus third-out animation and doubled-off exclusions. Check correction/undo/delete, late identity resolution, re-ingestion, session replacement, inactive/quarantined exclusion, and a roster move. Browser checks should cover numeric/null sorting, count expansion, loading/read errors, links and filters in both identity views.
+4. Keep unsupported park mechanics labeled unavailable and the calibration completeness gate closed until the detector review proves otherwise. The barrel capture change is already in the collector; validate it on a real DK match before counting barrel statistics as TEST-season ready.

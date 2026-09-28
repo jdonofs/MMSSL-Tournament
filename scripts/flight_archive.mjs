@@ -1,11 +1,13 @@
-// A compact, permanent store of batted-ball flights, so the raw logs can be
-// deleted after a session instead of accumulating forever.
+// A compact, permanent store of batted-ball flights for the projection work.
+// It is not a substitute for the raw logs: it leaves out everything listed
+// under WHAT IS ACTUALLY NEEDED below, and the logs have research and
+// acceptance-test consumers of their own.
 //
 // WHY THIS EXISTS. The tracker logs everything the ball does at 60.5 Hz for the
 // whole time it is loaded, and TRACKER_BALL_SAMPLE is 71% of the bytes. Across
 // the 13 logs in this repo that is 18.5 MB for 328 flights, and a third of
 // those samples are the ball sitting still between plays. Keeping raw logs to
-// keep flights is paying ~30x for the part that matters.
+// keep flights is paying ~30x for the part the projection work uses.
 //
 // WHAT IS ACTUALLY NEEDED. Tuning the projection needs, per flight: the
 // trajectory samples, the endpoint, and the launch conditions. It does not need
@@ -33,7 +35,7 @@
 // Integers also compress better than decimal strings.
 //
 //   node scripts/distill_flights.mjs            # add new flights to the archive
-//   node scripts/distill_flights.mjs --verify   # prove it reproduces the logs
+//   node scripts/distill_flights.mjs --verify   # compare projection inputs against the logs
 import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { dirname, join, resolve } from 'node:path'

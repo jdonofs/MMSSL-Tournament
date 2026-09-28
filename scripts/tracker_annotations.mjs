@@ -37,6 +37,17 @@ export const ANNOTATION_CATEGORIES = Object.freeze([
   'missing_event',
   'wrong_measurement',
   'stadium_event',
+  // Not a complaint about the tracker: the operator's own record of which
+  // swing gesture a pitch actually got, for the slap/charge calibration. The
+  // plan in the lineup card is the default label and this is how a swing that
+  // did not come out as planned stops being one.
+  'swing_mode',
+  // The same idea as swing_mode, for everything else the operator puts in by
+  // hand: which pitch input was used, a dive or jump that touched nothing, a
+  // runner advanced with or without shaking, which fielder was being steered.
+  // Attempts that touch nothing are why this exists -- they leave no outcome
+  // flag behind, so if the operator does not say it happened, nothing can.
+  'input_mode',
   'other',
 ])
 
@@ -54,6 +65,8 @@ export const ANNOTATION_CATEGORY_LABELS = Object.freeze({
   missing_event: 'Missing event',
   wrong_measurement: 'Wrong measurement',
   stadium_event: 'Stadium event',
+  swing_mode: 'Swing mode (slap/charge)',
+  input_mode: 'Input mode (pitch/dive/shake/steer)',
   other: 'Other',
 })
 

@@ -1,0 +1,3154 @@
+{
+  "version": "pitch-evidence-restatement-v1",
+  "generatedAt": "2026-09-28T13:28:08.817Z",
+  "dryRun": true,
+  "databaseWrites": 0,
+  "canonicalSource": "live database read-only verification plus saved tracker bridge state",
+  "scope": {
+    "archivedPitchSessions": 69,
+    "selectedGameSessions": 11,
+    "excludedByReason": {
+      "calibration_excluded": 22,
+      "duplicate_game_capture": 4,
+      "no_game_identity": 32,
+      "selected_game_session": 11
+    }
+  },
+  "safety": {
+    "scoringFieldsMayBeUpdated": false,
+    "scoringFieldAttempts": 0,
+    "absentOrZeroStarEvidenceMayClearTrue": false,
+    "negativeStarPitchUpdates": 0,
+    "mixedModePlateAppearancesRemainPitchLevel": true,
+    "duplicateCanonicalTargets": 0
+  },
+  "coverage": {
+    "games": 11,
+    "archivePitches": 511,
+    "canonicalPitchRows": 510,
+    "plannedUpdates": 474,
+    "matchedPlateAppearanceGroups": 281,
+    "unmatchedPlateAppearanceGroups": 7,
+    "unmatchedPitches": 19,
+    "mixedModePlateAppearances": 55,
+    "positiveStarPitchUpdates": 0,
+    "evidenceFieldCoverage": {
+      "is_star_pitch": 0,
+      "swing_offer": 474,
+      "swing_mode": 474,
+      "swing_mode_source": 474,
+      "swing_charge_frames": 474,
+      "swing_charge_release_timing_frames": 474,
+      "plate_x_units": 474,
+      "plate_y_units": 474,
+      "plate_z_units": 474,
+      "pitch_zone": 474,
+      "pitch_zone_source": 474,
+      "is_chase": 474
+    }
+  },
+  "archiveSessions": [
+    {
+      "session": "bowser_castle-20260826T153516Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 129
+    },
+    {
+      "session": "bowser_castle-20260828T182145Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 145
+    },
+    {
+      "session": "bowser_castle-20260904T011909Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 167
+    },
+    {
+      "session": "bowser_castle-20260905T005948Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 111
+    },
+    {
+      "session": "bowser_castle-20260919T003634Z",
+      "gameId": "2814",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 84
+    },
+    {
+      "session": "bowser_jr_playroom-20260828T133634Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 18
+    },
+    {
+      "session": "bowser_jr_playroom-20260828T144924Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 107
+    },
+    {
+      "session": "bowser_jr_playroom-20260828T155225Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 142
+    },
+    {
+      "session": "bowser_jr_playroom-20260919T002240Z",
+      "gameId": "2813",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 50
+    },
+    {
+      "session": "daisy_cruiser-20260826T185635Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 117
+    },
+    {
+      "session": "daisy_cruiser-20260831T212804Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 132
+    },
+    {
+      "session": "daisy_cruiser-20260904T202047Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 126
+    },
+    {
+      "session": "daisy_cruiser-20260911T125243Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: balls deliberately not fielded so they reach the hazard",
+      "eligibility": "calibration_excluded",
+      "pitches": 39
+    },
+    {
+      "session": "daisy_cruiser-20260911T132750Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: balls deliberately not fielded so they reach the hazard",
+      "eligibility": "calibration_excluded",
+      "pitches": 124
+    },
+    {
+      "session": "daisy_cruiser-20260911T152720Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: balls deliberately not fielded so they reach the hazard",
+      "eligibility": "calibration_excluded",
+      "pitches": 101
+    },
+    {
+      "session": "daisy_cruiser-20260916T203027Z",
+      "gameId": "2751",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "duplicate_game_capture",
+      "pitches": 2
+    },
+    {
+      "session": "daisy_cruiser-20260918T131831Z",
+      "gameId": "2751",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 2
+    },
+    {
+      "session": "daisy_cruiser-20260918T134528Z",
+      "gameId": "2766",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "duplicate_game_capture",
+      "pitches": 1
+    },
+    {
+      "session": "daisy_cruiser-20260918T134654Z",
+      "gameId": "2766",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "duplicate_game_capture",
+      "pitches": 0
+    },
+    {
+      "session": "daisy_cruiser-20260918T135422Z",
+      "gameId": "2766",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "duplicate_game_capture",
+      "pitches": 3
+    },
+    {
+      "session": "daisy_cruiser-20260918T151412Z",
+      "gameId": "2766",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 61
+    },
+    {
+      "session": "daisy_cruiser-20260918T183550Z",
+      "gameId": "2767",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 40
+    },
+    {
+      "session": "daisy_cruiser-20260919T001111Z",
+      "gameId": "2812",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 42
+    },
+    {
+      "session": "dk_jungle-20260828T211713Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 133
+    },
+    {
+      "session": "dk_jungle-20260902T171957Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 106
+    },
+    {
+      "session": "dk_jungle-20260904T161731Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 119
+    },
+    {
+      "session": "dk_jungle-20260912T150755Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: balls deliberately not fielded so they reach the hazard",
+      "eligibility": "calibration_excluded",
+      "pitches": 127
+    },
+    {
+      "session": "dk_jungle-20260918T190117Z",
+      "gameId": "2768",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 55
+    },
+    {
+      "session": "luigis_mansion-20260828T005141Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 101
+    },
+    {
+      "session": "luigis_mansion-20260902T122308Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 120
+    },
+    {
+      "session": "luigis_mansion-20260904T171123Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 108
+    },
+    {
+      "session": "luigis_mansion-20260922T214904Z",
+      "gameId": "2948",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 32
+    },
+    {
+      "session": "mario_stadium-20260826T171346Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 153
+    },
+    {
+      "session": "mario_stadium-20260831T174649Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 41
+    },
+    {
+      "session": "mario_stadium-20260904T000419Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 102
+    },
+    {
+      "session": "mario_stadium-20260904T213725Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 130
+    },
+    {
+      "session": "mario_stadium-20260922T003239Z",
+      "gameId": "2946",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 31
+    },
+    {
+      "session": "mario_stadium-20260922T015835Z",
+      "gameId": "2947",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 60
+    },
+    {
+      "session": "mario_stadium-20260923T012536Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "scripted swing modes: slap in every top half, charge in every bottom half, for the slap/charge gesture calibration",
+      "eligibility": "calibration_excluded",
+      "pitches": 40
+    },
+    {
+      "session": "mario_stadium-20260925T122709Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "scripted slap-charge calibration",
+      "eligibility": "calibration_excluded",
+      "pitches": 29
+    },
+    {
+      "session": "mario_stadium-20260925T123759Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "scripted slap-charge calibration",
+      "eligibility": "calibration_excluded",
+      "pitches": 33
+    },
+    {
+      "session": "mario_stadium-20260925T165659Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "scripted input calibration",
+      "eligibility": "calibration_excluded",
+      "pitches": 41
+    },
+    {
+      "session": "peach_ice_garden-20260826T201820Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 135
+    },
+    {
+      "session": "peach_ice_garden-20260902T151327Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 107
+    },
+    {
+      "session": "peach_ice_garden-20260904T152214Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 110
+    },
+    {
+      "session": "peach_ice_garden-20260907T234715Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 111
+    },
+    {
+      "session": "peach_ice_garden-20260909T142827Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "retroactive 2026-09-18: part of the 2026-09-09 Peach Ice Garden Freezie research sitting (the Freezie object array was captured for the first time in 184001Z, 192448Z and 195355Z), not a normal game",
+      "eligibility": "calibration_excluded",
+      "pitches": 9
+    },
+    {
+      "session": "peach_ice_garden-20260909T155408Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "retroactive 2026-09-18: part of the 2026-09-09 Peach Ice Garden Freezie research sitting (the Freezie object array was captured for the first time in 184001Z, 192448Z and 195355Z), not a normal game",
+      "eligibility": "calibration_excluded",
+      "pitches": 3
+    },
+    {
+      "session": "peach_ice_garden-20260909T184001Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "retroactive 2026-09-18: part of the 2026-09-09 Peach Ice Garden Freezie research sitting (the Freezie object array was captured for the first time in 184001Z, 192448Z and 195355Z), not a normal game",
+      "eligibility": "calibration_excluded",
+      "pitches": 43
+    },
+    {
+      "session": "peach_ice_garden-20260909T192448Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "retroactive 2026-09-18: part of the 2026-09-09 Peach Ice Garden Freezie research sitting (the Freezie object array was captured for the first time in 184001Z, 192448Z and 195355Z), not a normal game",
+      "eligibility": "calibration_excluded",
+      "pitches": 27
+    },
+    {
+      "session": "peach_ice_garden-20260909T195355Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "retroactive 2026-09-18: part of the 2026-09-09 Peach Ice Garden Freezie research sitting (the Freezie object array was captured for the first time in 184001Z, 192448Z and 195355Z), not a normal game",
+      "eligibility": "calibration_excluded",
+      "pitches": 17
+    },
+    {
+      "session": "peach_ice_garden-20260909T201821Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "retroactive 2026-09-18: part of the 2026-09-09 Peach Ice Garden Freezie research sitting (the Freezie object array was captured for the first time in 184001Z, 192448Z and 195355Z), not a normal game",
+      "eligibility": "calibration_excluded",
+      "pitches": 17
+    },
+    {
+      "session": "peach_ice_garden-20260919T000243Z",
+      "gameId": "2811",
+      "competitionType": "season",
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "selected_game_session",
+      "pitches": 54
+    },
+    {
+      "session": "wario_city-20260902T135123Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 129
+    },
+    {
+      "session": "wario_city-20260904T144308Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 100
+    },
+    {
+      "session": "wario_city-20260905T191040Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 125
+    },
+    {
+      "session": "wario_city-20260909T230809Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: the operator deliberately let balls go so they would reach the arrows and the manholes, so the fielding, route and reaction measurements in this session are drawn from a defence that was not trying to make the play",
+      "eligibility": "calibration_excluded",
+      "pitches": 86
+    },
+    {
+      "session": "wario_city-20260910T002617Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: balls deliberately let go so they would reach the arrows and the manholes, so the fielding, route and reaction measurements in this session come from a defence that was not trying to make the play",
+      "eligibility": "calibration_excluded",
+      "pitches": 50
+    },
+    {
+      "session": "wario_city-20260910T011153Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "retroactive 2026-09-18: third capture of the 2026-09-09 Wario City night research session (after 20260909T230809Z and 20260910T002617Z, both flagged), which Jason said was deliberately missing balls for the arrows and manholes; 24 of 40 outfield chances missed",
+      "eligibility": "calibration_excluded",
+      "pitches": 165
+    },
+    {
+      "session": "wario_stadium-20260826T005958Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 67
+    },
+    {
+      "session": "yoshi_park-20260830T235406Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 106
+    },
+    {
+      "session": "yoshi_park-20260831T031212Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 97
+    },
+    {
+      "session": "yoshi_park-20260831T134815Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 35
+    },
+    {
+      "session": "yoshi_park-20260831T140742Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": false,
+      "calibrationExcludedReason": null,
+      "eligibility": "no_game_identity",
+      "pitches": 115
+    },
+    {
+      "session": "yoshi_park-20260911T164801Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: balls deliberately not fielded so they reach the hazard",
+      "eligibility": "calibration_excluded",
+      "pitches": 146
+    },
+    {
+      "session": "yoshi_park-20260911T193733Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "retroactive 2026-09-18: recorded in the 2026-09-11 Yoshi Park research sitting between flagged sessions 20260911T164801Z and 20260911T203017Z; 6 of 11 outfield chances missed",
+      "eligibility": "calibration_excluded",
+      "pitches": 51
+    },
+    {
+      "session": "yoshi_park-20260911T203017Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: balls deliberately not fielded so they reach the hazard",
+      "eligibility": "calibration_excluded",
+      "pitches": 191
+    },
+    {
+      "session": "yoshi_park-20260911T220152Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: balls deliberately not fielded so they reach the hazard",
+      "eligibility": "calibration_excluded",
+      "pitches": 136
+    },
+    {
+      "session": "yoshi_park-20260912T143842Z",
+      "gameId": null,
+      "competitionType": null,
+      "calibrationExcluded": true,
+      "calibrationExcludedReason": "stadium research: balls deliberately not fielded so they reach the hazard",
+      "eligibility": "calibration_excluded",
+      "pitches": 36
+    }
+  ],
+  "games": [
+    {
+      "gameId": "2751",
+      "session": "daisy_cruiser-20260918T131831Z",
+      "park": "daisy_cruiser",
+      "capturePitches": 2,
+      "capturePlateAppearanceGroups": 2,
+      "canonicalPlateAppearances": 9,
+      "canonicalPitchRows": 12,
+      "plannedUpdates": 2,
+      "matchedGroups": 2,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [],
+      "mixedModePlateAppearances": [],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 2,
+        "swing_mode": 2,
+        "swing_mode_source": 2,
+        "swing_charge_frames": 2,
+        "swing_charge_release_timing_frames": 2,
+        "plate_x_units": 2,
+        "plate_y_units": 2,
+        "plate_z_units": 2,
+        "pitch_zone": 2,
+        "pitch_zone_source": 2,
+        "is_chase": 2
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2766",
+      "session": "daisy_cruiser-20260918T151412Z",
+      "park": "daisy_cruiser",
+      "capturePitches": 61,
+      "capturePlateAppearanceGroups": 36,
+      "canonicalPlateAppearances": 38,
+      "canonicalPitchRows": 65,
+      "plannedUpdates": 61,
+      "matchedGroups": 36,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3244,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3245,
+          "modes": [
+            "none",
+            "slap",
+            "star"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 61,
+        "swing_mode": 61,
+        "swing_mode_source": 61,
+        "swing_charge_frames": 61,
+        "swing_charge_release_timing_frames": 61,
+        "plate_x_units": 61,
+        "plate_y_units": 61,
+        "plate_z_units": 61,
+        "pitch_zone": 61,
+        "pitch_zone_source": 61,
+        "is_chase": 61
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2767",
+      "session": "daisy_cruiser-20260918T183550Z",
+      "park": "daisy_cruiser",
+      "capturePitches": 40,
+      "capturePlateAppearanceGroups": 26,
+      "canonicalPlateAppearances": 26,
+      "canonicalPitchRows": 40,
+      "plannedUpdates": 40,
+      "matchedGroups": 26,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3264,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 40,
+        "swing_mode": 40,
+        "swing_mode_source": 40,
+        "swing_charge_frames": 40,
+        "swing_charge_release_timing_frames": 40,
+        "plate_x_units": 40,
+        "plate_y_units": 40,
+        "plate_z_units": 40,
+        "pitch_zone": 40,
+        "pitch_zone_source": 40,
+        "is_chase": 40
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2768",
+      "session": "dk_jungle-20260918T190117Z",
+      "park": "dk_jungle",
+      "capturePitches": 55,
+      "capturePlateAppearanceGroups": 30,
+      "canonicalPlateAppearances": 30,
+      "canonicalPitchRows": 52,
+      "plannedUpdates": 51,
+      "matchedGroups": 30,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [
+        {
+          "pa_id": 3292,
+          "pa_number": 8,
+          "pitch_number_pa": 3,
+          "pitch_timer": 8238
+        },
+        {
+          "pa_id": 3295,
+          "pa_number": 11,
+          "pitch_number_pa": 3,
+          "pitch_timer": 11958
+        },
+        {
+          "pa_id": 3298,
+          "pa_number": 14,
+          "pitch_number_pa": 3,
+          "pitch_timer": 14386
+        },
+        {
+          "pa_id": 3304,
+          "pa_number": 20,
+          "pitch_number_pa": 4,
+          "pitch_timer": 21806
+        }
+      ],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3293,
+          "modes": [
+            "none",
+            "star"
+          ]
+        },
+        {
+          "paId": 3304,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3310,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 51,
+        "swing_mode": 51,
+        "swing_mode_source": 51,
+        "swing_charge_frames": 51,
+        "swing_charge_release_timing_frames": 51,
+        "plate_x_units": 51,
+        "plate_y_units": 51,
+        "plate_z_units": 51,
+        "pitch_zone": 51,
+        "pitch_zone_source": 51,
+        "is_chase": 51
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2811",
+      "session": "peach_ice_garden-20260919T000243Z",
+      "park": "peach_ice_garden",
+      "capturePitches": 54,
+      "capturePlateAppearanceGroups": 23,
+      "canonicalPlateAppearances": 23,
+      "canonicalPitchRows": 52,
+      "plannedUpdates": 51,
+      "matchedGroups": 23,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [
+        {
+          "pa_id": 3327,
+          "pa_number": 13,
+          "pitch_number_pa": 3,
+          "pitch_timer": 12814
+        },
+        {
+          "pa_id": 3330,
+          "pa_number": 16,
+          "pitch_number_pa": 3,
+          "pitch_timer": 16329
+        },
+        {
+          "pa_id": 3334,
+          "pa_number": 20,
+          "pitch_number_pa": 3,
+          "pitch_timer": 21327
+        }
+      ],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3318,
+          "modes": [
+            "charge",
+            "star"
+          ]
+        },
+        {
+          "paId": 3319,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3320,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3321,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3322,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3326,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3327,
+          "modes": [
+            "none",
+            "slap"
+          ]
+        },
+        {
+          "paId": 3328,
+          "modes": [
+            "charge",
+            "slap"
+          ]
+        },
+        {
+          "paId": 3329,
+          "modes": [
+            "charge",
+            "slap"
+          ]
+        },
+        {
+          "paId": 3330,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3332,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3333,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3334,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3335,
+          "modes": [
+            "charge",
+            "slap"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 51,
+        "swing_mode": 51,
+        "swing_mode_source": 51,
+        "swing_charge_frames": 51,
+        "swing_charge_release_timing_frames": 51,
+        "plate_x_units": 51,
+        "plate_y_units": 51,
+        "plate_z_units": 51,
+        "pitch_zone": 51,
+        "pitch_zone_source": 51,
+        "is_chase": 51
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2812",
+      "session": "daisy_cruiser-20260919T001111Z",
+      "park": "daisy_cruiser",
+      "capturePitches": 42,
+      "capturePlateAppearanceGroups": 25,
+      "canonicalPlateAppearances": 25,
+      "canonicalPitchRows": 40,
+      "plannedUpdates": 39,
+      "matchedGroups": 25,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [
+        {
+          "pa_id": 3344,
+          "pa_number": 7,
+          "pitch_number_pa": 3,
+          "pitch_timer": 10368
+        },
+        {
+          "pa_id": 3350,
+          "pa_number": 13,
+          "pitch_number_pa": 3,
+          "pitch_timer": 15765
+        },
+        {
+          "pa_id": 3357,
+          "pa_number": 20,
+          "pitch_number_pa": 3,
+          "pitch_timer": 22740
+        }
+      ],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3343,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3349,
+          "modes": [
+            "charge",
+            "slap"
+          ]
+        },
+        {
+          "paId": 3352,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3361,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 39,
+        "swing_mode": 39,
+        "swing_mode_source": 39,
+        "swing_charge_frames": 39,
+        "swing_charge_release_timing_frames": 39,
+        "plate_x_units": 39,
+        "plate_y_units": 39,
+        "plate_z_units": 39,
+        "pitch_zone": 39,
+        "pitch_zone_source": 39,
+        "is_chase": 39
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2813",
+      "session": "bowser_jr_playroom-20260919T002240Z",
+      "park": "bowser_jr_playroom",
+      "capturePitches": 50,
+      "capturePlateAppearanceGroups": 27,
+      "canonicalPlateAppearances": 27,
+      "canonicalPitchRows": 45,
+      "plannedUpdates": 45,
+      "matchedGroups": 27,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [
+        {
+          "pa_id": 3368,
+          "pa_number": 6,
+          "pitch_number_pa": 3,
+          "pitch_timer": 5764
+        },
+        {
+          "pa_id": 3378,
+          "pa_number": 16,
+          "pitch_number_pa": 3,
+          "pitch_timer": 15407
+        },
+        {
+          "pa_id": 3380,
+          "pa_number": 18,
+          "pitch_number_pa": 3,
+          "pitch_timer": 16957
+        },
+        {
+          "pa_id": 3381,
+          "pa_number": 19,
+          "pitch_number_pa": 2,
+          "pitch_timer": 20592
+        },
+        {
+          "pa_id": 3388,
+          "pa_number": 26,
+          "pitch_number_pa": 3,
+          "pitch_timer": 28563
+        }
+      ],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3364,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3365,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3370,
+          "modes": [
+            "charge",
+            "slap"
+          ]
+        },
+        {
+          "paId": 3371,
+          "modes": [
+            "slap",
+            "star"
+          ]
+        },
+        {
+          "paId": 3372,
+          "modes": [
+            "none",
+            "slap"
+          ]
+        },
+        {
+          "paId": 3388,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 45,
+        "swing_mode": 45,
+        "swing_mode_source": 45,
+        "swing_charge_frames": 45,
+        "swing_charge_release_timing_frames": 45,
+        "plate_x_units": 45,
+        "plate_y_units": 45,
+        "plate_z_units": 45,
+        "pitch_zone": 45,
+        "pitch_zone_source": 45,
+        "is_chase": 45
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2814",
+      "session": "bowser_castle-20260919T003634Z",
+      "park": "bowser_castle",
+      "capturePitches": 84,
+      "capturePlateAppearanceGroups": 31,
+      "canonicalPlateAppearances": 31,
+      "canonicalPitchRows": 80,
+      "plannedUpdates": 63,
+      "matchedGroups": 24,
+      "unmatchedGroups": [
+        {
+          "inning": 3,
+          "inning_half": 1,
+          "batter": "Red Magikoopa",
+          "batter_id": 34,
+          "pitches": 3
+        },
+        {
+          "inning": 3,
+          "inning_half": 1,
+          "batter": "Mario",
+          "batter_id": 0,
+          "pitches": 3
+        },
+        {
+          "inning": 3,
+          "inning_half": 1,
+          "batter": "Blue Dry Bones",
+          "batter_id": 51,
+          "pitches": 2
+        },
+        {
+          "inning": 3,
+          "inning_half": 1,
+          "batter": "Dark Bones",
+          "batter_id": 50,
+          "pitches": 3
+        },
+        {
+          "inning": 3,
+          "inning_half": 1,
+          "batter": "Hammer Bro.",
+          "batter_id": 27,
+          "pitches": 3
+        },
+        {
+          "inning": 3,
+          "inning_half": 1,
+          "batter": "Fire Bro.",
+          "batter_id": 52,
+          "pitches": 3
+        },
+        {
+          "inning": 3,
+          "inning_half": 1,
+          "batter": "Blooper",
+          "batter_id": 55,
+          "pitches": 1
+        }
+      ],
+      "unmatchedPitches": [
+        {
+          "pa_id": 3396,
+          "pa_number": 7,
+          "pitch_number_pa": 3,
+          "pitch_timer": 9427
+        },
+        {
+          "pa_id": 3406,
+          "pa_number": 17,
+          "pitch_number_pa": 3,
+          "pitch_timer": 20586
+        },
+        {
+          "pa_id": 3411,
+          "pa_number": 22,
+          "pitch_number_pa": 4,
+          "pitch_timer": 27393
+        }
+      ],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3392,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3393,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3394,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3395,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3396,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3397,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3399,
+          "modes": [
+            "charge",
+            "slap"
+          ]
+        },
+        {
+          "paId": 3400,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3403,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3407,
+          "modes": [
+            "charge",
+            "slap"
+          ]
+        },
+        {
+          "paId": 3408,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3409,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3411,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3412,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3421,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 63,
+        "swing_mode": 63,
+        "swing_mode_source": 63,
+        "swing_charge_frames": 63,
+        "swing_charge_release_timing_frames": 63,
+        "plate_x_units": 63,
+        "plate_y_units": 63,
+        "plate_z_units": 63,
+        "pitch_zone": 63,
+        "pitch_zone_source": 63,
+        "is_chase": 63
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2946",
+      "session": "mario_stadium-20260922T003239Z",
+      "park": "mario_stadium",
+      "capturePitches": 31,
+      "capturePlateAppearanceGroups": 22,
+      "canonicalPlateAppearances": 22,
+      "canonicalPitchRows": 31,
+      "plannedUpdates": 31,
+      "matchedGroups": 22,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3442,
+          "modes": [
+            "charge",
+            "star"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 31,
+        "swing_mode": 31,
+        "swing_mode_source": 31,
+        "swing_charge_frames": 31,
+        "swing_charge_release_timing_frames": 31,
+        "plate_x_units": 31,
+        "plate_y_units": 31,
+        "plate_z_units": 31,
+        "pitch_zone": 31,
+        "pitch_zone_source": 31,
+        "is_chase": 31
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2947",
+      "session": "mario_stadium-20260922T015835Z",
+      "park": "mario_stadium",
+      "capturePitches": 60,
+      "capturePlateAppearanceGroups": 42,
+      "canonicalPlateAppearances": 42,
+      "canonicalPitchRows": 60,
+      "plannedUpdates": 59,
+      "matchedGroups": 42,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [
+        {
+          "pa_id": 3444,
+          "pa_number": 1,
+          "pitch_number_pa": 4,
+          "pitch_timer": 1550
+        }
+      ],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3448,
+          "modes": [
+            "charge",
+            "star"
+          ]
+        },
+        {
+          "paId": 3450,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3451,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3457,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3468,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3469,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3484,
+          "modes": [
+            "charge",
+            "star"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 59,
+        "swing_mode": 59,
+        "swing_mode_source": 59,
+        "swing_charge_frames": 59,
+        "swing_charge_release_timing_frames": 59,
+        "plate_x_units": 59,
+        "plate_y_units": 59,
+        "plate_z_units": 59,
+        "pitch_zone": 59,
+        "pitch_zone_source": 59,
+        "is_chase": 59
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    },
+    {
+      "gameId": "2948",
+      "session": "luigis_mansion-20260922T214904Z",
+      "park": "luigis_mansion",
+      "capturePitches": 32,
+      "capturePlateAppearanceGroups": 24,
+      "canonicalPlateAppearances": 24,
+      "canonicalPitchRows": 33,
+      "plannedUpdates": 32,
+      "matchedGroups": 24,
+      "unmatchedGroups": [],
+      "unmatchedPitches": [],
+      "mixedModePlateAppearances": [
+        {
+          "paId": 3497,
+          "modes": [
+            "charge",
+            "none"
+          ]
+        },
+        {
+          "paId": 3501,
+          "modes": [
+            "charge",
+            "star"
+          ]
+        }
+      ],
+      "duplicateTargets": 0,
+      "scoringFieldAttempts": [],
+      "evidenceFieldCoverage": {
+        "is_star_pitch": 0,
+        "swing_offer": 32,
+        "swing_mode": 32,
+        "swing_mode_source": 32,
+        "swing_charge_frames": 32,
+        "swing_charge_release_timing_frames": 32,
+        "plate_x_units": 32,
+        "plate_y_units": 32,
+        "plate_z_units": 32,
+        "pitch_zone": 32,
+        "pitch_zone_source": 32,
+        "is_chase": 32
+      },
+      "positiveStarPitchUpdates": 0,
+      "negativeStarPitchUpdates": 0
+    }
+  ],
+  "limitations": [
+    "The base audit uses saved scorebook bridge state as a canonical-row mirror; --remote adds a read-only check of rows visible to the tracker account.",
+    "Captures without a durable game identity cannot be joined safely to canonical player-owned rows.",
+    "Duplicate captures for a game are excluded in favor of the session named by its selected manifest."
+  ],
+  "remoteCanonicalVerification": {
+    "checkedAt": "2026-09-28T13:28:09.727Z",
+    "readOnly": true,
+    "databaseWrites": 0,
+    "tablesRead": [
+      "characters",
+      "season_plate_appearances",
+      "season_pitches"
+    ],
+    "visibility": "Rows visible to the authenticated tracker account; zero rows may mean absent data or row-level-security scope.",
+    "games": 11,
+    "canonicalPlateAppearances": 88,
+    "canonicalPitchRows": 124,
+    "plannedUpdates": 122,
+    "unmatchedGroups": 200,
+    "unmatchedPitches": 1,
+    "alreadyTrueStarFlagsPreserved": 0,
+    "gamesDetail": [
+      {
+        "gameId": "2751",
+        "session": "daisy_cruiser-20260918T131831Z",
+        "canonicalPlateAppearances": 0,
+        "canonicalPitchRows": 0,
+        "plannedUpdates": 0,
+        "matchedGroups": 0,
+        "unmatchedGroups": [
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Mario",
+            "batter_id": 0,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Mario",
+            "batter_id": 0,
+            "pitches": 1
+          }
+        ],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2766",
+        "session": "daisy_cruiser-20260918T151412Z",
+        "canonicalPlateAppearances": 0,
+        "canonicalPitchRows": 0,
+        "plannedUpdates": 0,
+        "matchedGroups": 0,
+        "unmatchedGroups": [
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Mario",
+            "batter_id": 0,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Blue Dry Bones",
+            "batter_id": 51,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Dark Bones",
+            "batter_id": 50,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Hammer Bro.",
+            "batter_id": 27,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Fire Bro.",
+            "batter_id": 52,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Wario",
+            "batter_id": 10,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Bowser",
+            "batter_id": 9,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Blue Pianta",
+            "batter_id": 21,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Blooper",
+            "batter_id": 55,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Green Paratroopa",
+            "batter_id": 43,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Yoshi",
+            "batter_id": 6,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Yellow Shy Guy",
+            "batter_id": 45,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Mario",
+            "batter_id": 0,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Red Pianta",
+            "batter_id": 22,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Blue Kritter",
+            "batter_id": 59,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Baby DK",
+            "batter_id": 65,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Shy Guy",
+            "batter_id": 16,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Tiny Kong",
+            "batter_id": 57,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Blue Dry Bones",
+            "batter_id": 51,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Dark Bones",
+            "batter_id": 50,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Hammer Bro.",
+            "batter_id": 27,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Fire Bro.",
+            "batter_id": 52,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Blooper",
+            "batter_id": 55,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Toadette",
+            "batter_id": 15,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Wario",
+            "batter_id": 10,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Bowser",
+            "batter_id": 9,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Blue Pianta",
+            "batter_id": 21,
+            "pitches": 4
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Red Pianta",
+            "batter_id": 22,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Blue Kritter",
+            "batter_id": 59,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Baby DK",
+            "batter_id": 65,
+            "pitches": 2
+          },
+          {
+            "inning": 4,
+            "inning_half": 0,
+            "batter": "Green Paratroopa",
+            "batter_id": 43,
+            "pitches": 2
+          },
+          {
+            "inning": 4,
+            "inning_half": 0,
+            "batter": "Yoshi",
+            "batter_id": 6,
+            "pitches": 1
+          },
+          {
+            "inning": 4,
+            "inning_half": 0,
+            "batter": "Yellow Shy Guy",
+            "batter_id": 45,
+            "pitches": 1
+          },
+          {
+            "inning": 4,
+            "inning_half": 1,
+            "batter": "Shy Guy",
+            "batter_id": 16,
+            "pitches": 2
+          },
+          {
+            "inning": 4,
+            "inning_half": 1,
+            "batter": "Tiny Kong",
+            "batter_id": 57,
+            "pitches": 1
+          },
+          {
+            "inning": 4,
+            "inning_half": 1,
+            "batter": "Toadette",
+            "batter_id": 15,
+            "pitches": 2
+          }
+        ],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2767",
+        "session": "daisy_cruiser-20260918T183550Z",
+        "canonicalPlateAppearances": 0,
+        "canonicalPitchRows": 0,
+        "plannedUpdates": 0,
+        "matchedGroups": 0,
+        "unmatchedGroups": [
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Luigi",
+            "batter_id": 1,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "King K. Rool",
+            "batter_id": 62,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Yellow Pianta",
+            "batter_id": 23,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Funky Kong",
+            "batter_id": 56,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Mii",
+            "batter_id": 78,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Red Toad",
+            "batter_id": 13,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Green Shy Guy",
+            "batter_id": 46,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Peach",
+            "batter_id": 4,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Green Dry Bones",
+            "batter_id": 49,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Dry Bones",
+            "batter_id": 48,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Red Yoshi",
+            "batter_id": 66,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Light Blue Yoshi",
+            "batter_id": 69,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Luigi",
+            "batter_id": 1,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Kritter",
+            "batter_id": 58,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Wiggler",
+            "batter_id": 54,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Yellow Toad",
+            "batter_id": 30,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "King K. Rool",
+            "batter_id": 62,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Yellow Pianta",
+            "batter_id": 23,
+            "pitches": 5
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Funky Kong",
+            "batter_id": 56,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Mii",
+            "batter_id": 78,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Red Toad",
+            "batter_id": 13,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Green Shy Guy",
+            "batter_id": 46,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Monty Mole",
+            "batter_id": 18,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Paratroopa",
+            "batter_id": 20,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Blue Shy Guy",
+            "batter_id": 44,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Peach",
+            "batter_id": 4,
+            "pitches": 1
+          }
+        ],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2768",
+        "session": "dk_jungle-20260918T190117Z",
+        "canonicalPlateAppearances": 0,
+        "canonicalPitchRows": 0,
+        "plannedUpdates": 0,
+        "matchedGroups": 0,
+        "unmatchedGroups": [
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Waluigi",
+            "batter_id": 11,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Donkey Kong",
+            "batter_id": 2,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Bowser Jr.",
+            "batter_id": 19,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "King Boo",
+            "batter_id": 37,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Brown Kritter",
+            "batter_id": 61,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Daisy",
+            "batter_id": 5,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Petey Piranha",
+            "batter_id": 38,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Red Kritter",
+            "batter_id": 60,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Birdo",
+            "batter_id": 17,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Boomerang Bro.",
+            "batter_id": 53,
+            "pitches": 5
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Blue Toad",
+            "batter_id": 29,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Purple Toad",
+            "batter_id": 32,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Koopa Troopa",
+            "batter_id": 12,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Green Noki",
+            "batter_id": 26,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Gray Shy Guy",
+            "batter_id": 47,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Waluigi",
+            "batter_id": 11,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Red Koopa Troopa",
+            "batter_id": 42,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Yellow Yoshi",
+            "batter_id": 68,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Pink Yoshi",
+            "batter_id": 70,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Daisy",
+            "batter_id": 5,
+            "pitches": 4
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Donkey Kong",
+            "batter_id": 2,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Bowser Jr.",
+            "batter_id": 19,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "King Boo",
+            "batter_id": 37,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Brown Kritter",
+            "batter_id": 61,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Petey Piranha",
+            "batter_id": 38,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Red Kritter",
+            "batter_id": 60,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Birdo",
+            "batter_id": 17,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Boomerang Bro.",
+            "batter_id": 53,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Blue Toad",
+            "batter_id": 29,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Red Koopa Troopa",
+            "batter_id": 42,
+            "pitches": 1
+          }
+        ],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2811",
+        "session": "peach_ice_garden-20260919T000243Z",
+        "canonicalPlateAppearances": 0,
+        "canonicalPitchRows": 0,
+        "plannedUpdates": 0,
+        "matchedGroups": 0,
+        "unmatchedGroups": [
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Mario",
+            "batter_id": 0,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Blue Dry Bones",
+            "batter_id": 51,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Dark Bones",
+            "batter_id": 50,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Wario",
+            "batter_id": 10,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Bowser",
+            "batter_id": 9,
+            "pitches": 6
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Blue Pianta",
+            "batter_id": 21,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Red Pianta",
+            "batter_id": 22,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Blue Kritter",
+            "batter_id": 59,
+            "pitches": 4
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Baby DK",
+            "batter_id": 65,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Shy Guy",
+            "batter_id": 16,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Tiny Kong",
+            "batter_id": 57,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Hammer Bro.",
+            "batter_id": 27,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Fire Bro.",
+            "batter_id": 52,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Blooper",
+            "batter_id": 55,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Green Paratroopa",
+            "batter_id": 43,
+            "pitches": 4
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Toadette",
+            "batter_id": 15,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Wario",
+            "batter_id": 10,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Bowser",
+            "batter_id": 9,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Blue Pianta",
+            "batter_id": 21,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Red Pianta",
+            "batter_id": 22,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Yoshi",
+            "batter_id": 6,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Yellow Shy Guy",
+            "batter_id": 45,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Mario",
+            "batter_id": 0,
+            "pitches": 3
+          }
+        ],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2812",
+        "session": "daisy_cruiser-20260919T001111Z",
+        "canonicalPlateAppearances": 0,
+        "canonicalPitchRows": 0,
+        "plannedUpdates": 0,
+        "matchedGroups": 0,
+        "unmatchedGroups": [
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Luigi",
+            "batter_id": 1,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "King K. Rool",
+            "batter_id": 62,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Yellow Pianta",
+            "batter_id": 23,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Peach",
+            "batter_id": 4,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Green Dry Bones",
+            "batter_id": 49,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Dry Bones",
+            "batter_id": 48,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Kritter",
+            "batter_id": 58,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Wiggler",
+            "batter_id": 54,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Yellow Toad",
+            "batter_id": 30,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Funky Kong",
+            "batter_id": 56,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Mii",
+            "batter_id": 78,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Red Toad",
+            "batter_id": 13,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Monty Mole",
+            "batter_id": 18,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Paratroopa",
+            "batter_id": 20,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Blue Shy Guy",
+            "batter_id": 44,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Green Shy Guy",
+            "batter_id": 46,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Red Yoshi",
+            "batter_id": 66,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Light Blue Yoshi",
+            "batter_id": 69,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Luigi",
+            "batter_id": 1,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "King K. Rool",
+            "batter_id": 62,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Yellow Pianta",
+            "batter_id": 23,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Funky Kong",
+            "batter_id": 56,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Peach",
+            "batter_id": 4,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Green Dry Bones",
+            "batter_id": 49,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Dry Bones",
+            "batter_id": 48,
+            "pitches": 1
+          }
+        ],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2813",
+        "session": "bowser_jr_playroom-20260919T002240Z",
+        "canonicalPlateAppearances": 0,
+        "canonicalPitchRows": 0,
+        "plannedUpdates": 0,
+        "matchedGroups": 0,
+        "unmatchedGroups": [
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Waluigi",
+            "batter_id": 11,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Donkey Kong",
+            "batter_id": 2,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Bowser Jr.",
+            "batter_id": 19,
+            "pitches": 4
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "King Boo",
+            "batter_id": 37,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Brown Kritter",
+            "batter_id": 61,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Daisy",
+            "batter_id": 5,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Petey Piranha",
+            "batter_id": 38,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Red Kritter",
+            "batter_id": 60,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Birdo",
+            "batter_id": 17,
+            "pitches": 2
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Boomerang Bro.",
+            "batter_id": 53,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Purple Toad",
+            "batter_id": 32,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Koopa Troopa",
+            "batter_id": 12,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Green Noki",
+            "batter_id": 26,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Gray Shy Guy",
+            "batter_id": 47,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Waluigi",
+            "batter_id": 11,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Blue Toad",
+            "batter_id": 29,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Red Koopa Troopa",
+            "batter_id": 42,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Yellow Yoshi",
+            "batter_id": 68,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Donkey Kong",
+            "batter_id": 2,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Bowser Jr.",
+            "batter_id": 19,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "King Boo",
+            "batter_id": 37,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Brown Kritter",
+            "batter_id": 61,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Purple Toad",
+            "batter_id": 32,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Pink Yoshi",
+            "batter_id": 70,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Daisy",
+            "batter_id": 5,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Petey Piranha",
+            "batter_id": 38,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Red Kritter",
+            "batter_id": 60,
+            "pitches": 1
+          }
+        ],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2814",
+        "session": "bowser_castle-20260919T003634Z",
+        "canonicalPlateAppearances": 0,
+        "canonicalPitchRows": 0,
+        "plannedUpdates": 0,
+        "matchedGroups": 0,
+        "unmatchedGroups": [
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Luigi",
+            "batter_id": 1,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "King K. Rool",
+            "batter_id": 62,
+            "pitches": 1
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Yellow Pianta",
+            "batter_id": 23,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Funky Kong",
+            "batter_id": 56,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Mii",
+            "batter_id": 78,
+            "pitches": 5
+          },
+          {
+            "inning": 1,
+            "inning_half": 0,
+            "batter": "Red Toad",
+            "batter_id": 13,
+            "pitches": 4
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Mario",
+            "batter_id": 0,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Blue Dry Bones",
+            "batter_id": 51,
+            "pitches": 3
+          },
+          {
+            "inning": 1,
+            "inning_half": 1,
+            "batter": "Dark Bones",
+            "batter_id": 50,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Green Shy Guy",
+            "batter_id": 46,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Red Yoshi",
+            "batter_id": 66,
+            "pitches": 4
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Light Blue Yoshi",
+            "batter_id": 69,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 0,
+            "batter": "Luigi",
+            "batter_id": 1,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Hammer Bro.",
+            "batter_id": 27,
+            "pitches": 2
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Fire Bro.",
+            "batter_id": 52,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Blooper",
+            "batter_id": 55,
+            "pitches": 1
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Green Paratroopa",
+            "batter_id": 43,
+            "pitches": 3
+          },
+          {
+            "inning": 2,
+            "inning_half": 1,
+            "batter": "Yoshi",
+            "batter_id": 6,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "King K. Rool",
+            "batter_id": 62,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Yellow Pianta",
+            "batter_id": 23,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Funky Kong",
+            "batter_id": 56,
+            "pitches": 1
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Mii",
+            "batter_id": 78,
+            "pitches": 4
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Red Toad",
+            "batter_id": 13,
+            "pitches": 6
+          },
+          {
+            "inning": 3,
+            "inning_half": 0,
+            "batter": "Green Shy Guy",
+            "batter_id": 46,
+            "pitches": 4
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Red Magikoopa",
+            "batter_id": 34,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Mario",
+            "batter_id": 0,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Blue Dry Bones",
+            "batter_id": 51,
+            "pitches": 2
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Dark Bones",
+            "batter_id": 50,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Hammer Bro.",
+            "batter_id": 27,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Fire Bro.",
+            "batter_id": 52,
+            "pitches": 3
+          },
+          {
+            "inning": 3,
+            "inning_half": 1,
+            "batter": "Blooper",
+            "batter_id": 55,
+            "pitches": 1
+          }
+        ],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2946",
+        "session": "mario_stadium-20260922T003239Z",
+        "canonicalPlateAppearances": 22,
+        "canonicalPitchRows": 31,
+        "plannedUpdates": 31,
+        "matchedGroups": 22,
+        "unmatchedGroups": [],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2947",
+        "session": "mario_stadium-20260922T015835Z",
+        "canonicalPlateAppearances": 42,
+        "canonicalPitchRows": 60,
+        "plannedUpdates": 59,
+        "matchedGroups": 42,
+        "unmatchedGroups": [],
+        "unmatchedPitches": [
+          {
+            "pa_id": 3444,
+            "pa_number": 1,
+            "pitch_number_pa": 4,
+            "pitch_timer": 1550
+          }
+        ],
+        "alreadyTrueStarFlagsPreserved": 0
+      },
+      {
+        "gameId": "2948",
+        "session": "luigis_mansion-20260922T214904Z",
+        "canonicalPlateAppearances": 24,
+        "canonicalPitchRows": 33,
+        "plannedUpdates": 32,
+        "matchedGroups": 24,
+        "unmatchedGroups": [],
+        "unmatchedPitches": [],
+        "alreadyTrueStarFlagsPreserved": 0
+      }
+    ]
+  }
+}

@@ -1,4 +1,6 @@
 import { rosterCharacterName } from './tracker_character_ids.mjs'
+import { TRACKER_POSITION_NUMBERS } from './tracker_alignment.mjs'
+import { parseFielderChainFromNotation } from '../src/utils/notation.js'
 import { estimateTrackerWallDistance, projectTrackerBattedBallDistanceFeet, projectTrackerFieldSpot } from './tracker_field_projection.mjs'
 import {
   BALL_RADIUS_UNITS,
@@ -454,6 +456,34 @@ export function parseTrackerBattedBallMessage(message) {
 /** How the batter offered, in the vocabulary the pitch rows already use. */
 export const MEASURED_OFFERS = Object.freeze(['swing', 'bunt', 'take'])
 
+export const PITCH_ZONE_IN_MAX_ABS_X = 0.60
+export const PITCH_ZONE_OUT_MIN_ABS_X = 0.70
+
+/**
+ * Conservative zone/chase classification shared by preview and persistence.
+ * Taken calls are ground truth. For offered-at pitches, the 0.60..0.70-unit
+ * edge is deliberately left as shadow because the calibration samples overlap
+ * there; only a clearly-out ordinary swing is a chase.
+ */
+export function classifyMeasuredPitchZone(record = {}) {
+  const explicit = String(record.pitch_zone ?? '').toLowerCase()
+  if (['in', 'out'].includes(explicit)) {
+    return {
+      zone: explicit,
+      isChase: explicit === 'out' ? record.offer === 'swing' : false,
+      source: record.pitch_zone_source || 'player_tracking_pitch',
+    }
+  }
+  if (explicit === 'shadow') return { zone: 'shadow', isChase: null, source: record.pitch_zone_source || 'player_tracking_pitch' }
+  if (record.offer === 'take' && record.outcome === 'ball') return { zone: 'out', isChase: false, source: 'taken_ball' }
+  if (record.offer === 'take' && record.outcome === 'strike') return { zone: 'in', isChase: false, source: 'taken_strike' }
+  const x = finiteTrackerNumber(record.plate_x_units)
+  if (x == null) return { zone: 'unknown', isChase: null, source: 'plate_location_missing' }
+  if (Math.abs(x) <= PITCH_ZONE_IN_MAX_ABS_X) return { zone: 'in', isChase: false, source: 'horizontal_zone_v1' }
+  if (Math.abs(x) >= PITCH_ZONE_OUT_MIN_ABS_X) return { zone: 'out', isChase: record.offer === 'swing', source: 'horizontal_zone_v1' }
+  return { zone: 'shadow', isChase: null, source: 'horizontal_shadow_band_v1' }
+}
+
 const LOGGED_CONTACT_RESULTS = new Set(['in_play', 'foul'])
 
 /**
@@ -514,6 +544,7 @@ export function applyMeasuredPitchOffers(pitches = [], measured = [], {
     const resolved = result === 'strike_unknown'
       ? (record.offer === 'take' ? 'looking' : 'swinging_miss')
       : result
+    const zone = classifyMeasuredPitchZone(record)
     return {
       ...pitch,
       [resultKey]: resolved,
@@ -521,6 +552,17 @@ export function applyMeasuredPitchOffers(pitches = [], measured = [], {
       offer_source: 'player_tracking_pitch.swing_frames',
       swing_frames: record.swing_frames ?? null,
       bunt_frames: record.bunt_frames ?? null,
+      swing_mode: record.swing_mode ?? null,
+      swing_mode_source: record.swing_mode_source ?? null,
+      swing_charge_frames: record.swing_charge_frames ?? null,
+      swing_charge_release_timing_frames:
+        record.swing_charge_release_timing_frames ?? null,
+      plate_x_units: finiteTrackerNumber(record.plate_x_units),
+      plate_y_units: finiteTrackerNumber(record.plate_y_units),
+      plate_z_units: finiteTrackerNumber(record.plate_z_units),
+      pitch_zone: zone.zone,
+      pitch_zone_source: zone.source,
+      is_chase: zone.isChase,
       // The frame the swing started, which is what a joined play carries under
       // the same name. Present only on a pitch that was hit.
       swing_timer: record.swing_timer ?? null,
@@ -625,8 +667,17 @@ export function normalizeRbiForPaResult(result, rbi = 0, isError = false) {
 //
 // Take the larger of the two rather than overwriting: if a build ever does
 // announce the RBI, the announcement wins and this changes nothing.
+//
+// A HOME RUN ALWAYS CARRIES ONE RBI PER RUN, the batter's own included (OBR
+// 9.04(a)(1)). The executable only prints "recorded N RBI!" when its team-hits
+// counter moved since the last pitch, and on 14 of 867 archived homers it had
+// not: season game 2811's Bowser hit "a two-run homer" with Wario on second
+// and was written with 0 RBI. The runs themselves were announced either way.
 export function trackerRbiForPaResult({ result, rbi = 0, scoredNonBatterRunners = 0 } = {}) {
   const announced = Number(rbi || 0)
+  if (result === 'HR' || result === 'IPHR') {
+    return Math.max(announced, Number(scoredNonBatterRunners || 0) + 1)
+  }
   if (result !== 'SF') return announced
   return Math.max(announced, Number(scoredNonBatterRunners || 0))
 }
@@ -1186,12 +1237,26 @@ export function trackerProjectedCarryFromObservedImpact(record) {
  * coordinate. This keeps every log recorded before it from plotting a catch at
  * home plate, by handing the position back to the 60 Hz capture, which measured
  * the same catch independently and was never affected.
+ *
+ * v28 does not step back from the game's OTHER parking spot: on the catch
+ * update the ball can instead jump to a point within a unit of home plate and
+ * 18-52 units up. Season game 2812 (Nighttime Daisy Cruiser, 2026-09-18) wrote
+ * three outfield catches of 190-280 measured feet at 4.0 ft that way; DK
+ * Jungle and Wario City logs hold four more. No real endpoint in any log sits
+ * within 6 units of the plate more than 2 units up, so this is equally a
+ * sentinel and gets the same treatment.
  */
+const PARKED_BALL_MAX_RADIUS_UNITS = 2
+const PARKED_BALL_MIN_HEIGHT_UNITS = 10
+
 export function trackerEndpointIsCoordinateReset(record) {
   if (!record) return false
   if (record.endpoint !== 'catch' && record.endpoint !== 'landing') return false
   if (record.x == null || record.y == null || record.z == null) return false
-  return Number(record.x) === 0 && Number(record.y) === 0 && Number(record.z) === 0
+  const [x, y, z] = [record.x, record.y, record.z].map(Number)
+  if (x === 0 && y === 0 && z === 0) return true
+  return y > PARKED_BALL_MIN_HEIGHT_UNITS
+    && Math.hypot(x - HOME_PLATE.x, z - HOME_PLATE.z) < PARKED_BALL_MAX_RADIUS_UNITS
 }
 
 function trackerObservedPlayLanding(record, play) {
@@ -1767,9 +1832,35 @@ export function consumeTrackerPitch(buffer, pitch) {
 
 export function trackerPitchStatFields(pitch) {
   const telemetry = pitch?.pitchTelemetry || pitch?.pitch_telemetry || null
+  const starPitch = Boolean(pitch?.isStarPitch ?? pitch?.is_star_pitch)
+    || finiteTrackerNumber(pitch?.fielding_star_meter_spent) > 0
+  const starSwing = Boolean(pitch?.isStarSwing ?? pitch?.is_star_swing)
+    || finiteTrackerNumber(pitch?.batting_star_meter_spent) > 0
+  const measuredMode = String(pitch?.swing_mode ?? '').toLowerCase()
+  const hasSwingEvidence = starSwing || MEASURED_OFFERS.includes(pitch?.offer) || Boolean(measuredMode)
+    || pitch?.swing_charge_frames != null
+    || pitch?.swing_charge_release_timing_frames != null
+  const hasZoneEvidence = pitch?.plate_x_units != null || pitch?.plate_y_units != null
+    || pitch?.plate_z_units != null || pitch?.pitch_zone != null || typeof pitch?.is_chase === 'boolean'
   const fields = {
-    is_star_pitch: Boolean(pitch?.isStarPitch),
-    is_star_swing: Boolean(pitch?.isStarSwing ?? pitch?.is_star_swing),
+    is_star_pitch: starPitch,
+    is_star_swing: starSwing,
+    ...(hasSwingEvidence ? {
+      swing_offer: MEASURED_OFFERS.includes(pitch?.offer) ? pitch.offer : null,
+      swing_mode: starSwing ? 'star' : measuredMode || null,
+      swing_mode_source: starSwing ? 'tracker_star_swing' : pitch?.swing_mode_source || null,
+      swing_charge_frames: finiteTrackerNumber(pitch?.swing_charge_frames),
+      swing_charge_release_timing_frames:
+        finiteTrackerNumber(pitch?.swing_charge_release_timing_frames),
+    } : {}),
+    ...(hasZoneEvidence ? {
+      plate_x_units: finiteTrackerNumber(pitch?.plate_x_units),
+      plate_y_units: finiteTrackerNumber(pitch?.plate_y_units),
+      plate_z_units: finiteTrackerNumber(pitch?.plate_z_units),
+      pitch_zone: ['in', 'out', 'shadow', 'unknown'].includes(pitch?.pitch_zone) ? pitch.pitch_zone : null,
+      pitch_zone_source: pitch?.pitch_zone_source || null,
+      is_chase: typeof pitch?.is_chase === 'boolean' ? pitch.is_chase : null,
+    } : {}),
     result: pitch?.type,
     count_balls_before: pitch?.before?.balls,
     count_strikes_before: pitch?.before?.strikes,
@@ -2018,6 +2109,70 @@ export function shouldDowngradeTrackerHitToRoe({ result, bobbleFielderName, play
   return !trackerErrorKeptTheHit({ bobbleFielderName, play })
 }
 
+/**
+ * The hit a batter keeps when an outfield boot let him take more than it.
+ *
+ * trackerErrorKeptTheHit says the hit stands; it does not say how big a hit.
+ * Game 2766, Blue Pianta: a liner dropped in front of Yoshi, Yoshi booted it
+ * 1.92 s after contact, the batter reached first at 4.02 s and went on to
+ * second, and the row said 2B beside Yoshi's E8 -- crediting the extra base as
+ * a hit and charging it as an error at once. Jason's scoring: a single, E8.
+ *
+ * So when the boot came before the batter reached first, a clean play holds him
+ * to a single and the error is the rest. When he was already past first -- the
+ * Mario Stadium PA 43 double above -- the capture cannot say how far a clean
+ * play would have held him, and the tracker's own hit stands (null).
+ * Shared by the bridge and the preview.
+ */
+export function trackerHitBeforeOutfieldBoot({ result, bobbleFielderName, play = null } = {}) {
+  if (!['2B', '3B', 'IPHR'].includes(result)) return null
+  const kept = trackerErrorKeptTheHit({ bobbleFielderName, play })
+  const bootedAt = Number(kept?.event?.t)
+  const reachedFirstAt = Number(play?.home_to_first_s)
+  if (!Number.isFinite(bootedAt) || !Number.isFinite(reachedFirstAt)) return null
+  return bootedAt < reachedFirstAt ? '1B' : null
+}
+
+/**
+ * Recover an omitted hit announcement from a complete joined 60 Hz play.
+ *
+ * The game's batter runner slot measures bases actually reached.  It is a
+ * fallback only: callers must preserve any result the tracker announced, and
+ * this refuses fouls, caught balls, truncated captures, and zero-base outs.
+ */
+export function trackerResultFromMeasuredBatterBases(play) {
+  if (!play || play.truncated || play.batted_ball_class !== 'fair_in_play') return null
+  const basesRan = Number(play.runners?.BAT?.bases_ran)
+  if (!Number.isInteger(basesRan) || basesRan < 1) return null
+  if (basesRan >= 4 || play.home_run === true) return 'HR'
+  return ({ 1: '1B', 2: '2B', 3: '3B' })[basesRan] || null
+}
+
+/**
+ * Whether a logged single is measurably a safe fielder's choice.
+ *
+ * A fielder's choice does not require an out: the defense can choose a lead
+ * runner and lose the close play. DK Jungle PA 21 is the labelled case. The
+ * batter reached only first, the shortstop threw to third, and +0x246 value 2
+ * says the lead runner won the contest. Keep this deliberately narrow so an
+ * ordinary single followed by a speculative throw is never re-scored.
+ */
+export function shouldReclassifyTrackerSingleAsFielderChoice({ result, play } = {}) {
+  if (result !== '1B' || !play || play.batted_ball_class !== 'fair_in_play') return false
+  if (Number(play.runners?.BAT?.bases_ran) !== 1) return false
+  return (play.close_plays || []).some((contest) => {
+    if (contest?.won_by !== 'runner') return false
+    return (play.throws || []).some((throwRecord) => (
+      throwRecord?.is_throw !== false
+      && Number(throwRecord?.outs_recorded || 0) === 0
+      && ['second', 'third', 'home'].includes(throwRecord?.target_base)
+      && throwRecord?.receiver_position === contest.by
+      && Boolean(throwRecord?.runner_at_arrival?.runner)
+      && throwRecord?.runner_at_arrival?.runner !== 'BAT'
+    ))
+  })
+}
+
 // WHY A BOBBLE IS NOT ENOUGH ON ITS OWN.
 //
 // The tracker .exe announces "X bobbled the ball!" from the game's fielding
@@ -2063,6 +2218,7 @@ const BOBBLE_VETO_REASONS = Object.freeze({
   not_on_the_play: 'the capture has the named fielder doing nothing on this play, '
     + 'while a different fielder made confirmed contact with the ball',
   extraordinary: 'the ball was reached on a dive or a leap, which is not ordinary effort',
+  fielder_choice_out: 'the lead runner was retired and the batter reached only first on the fielder\'s choice, so the bobble prolonged no runner\'s life and awarded no extra base',
 })
 
 /**
@@ -2072,7 +2228,7 @@ const BOBBLE_VETO_REASONS = Object.freeze({
  * either way and the tracker's own call stands -- absence of the capture must
  * never invent an exoneration.
  */
-export function trackerBobbleErrorVeto({ bobbleFielderName, play } = {}) {
+export function trackerBobbleErrorVeto({ bobbleFielderName, result, play } = {}) {
   const name = String(bobbleFielderName || '').trim()
   if (!name || !play) return null
   const events = (play.fielding_events || []).filter((event) => event.character === name)
@@ -2139,13 +2295,26 @@ export function trackerBobbleErrorVeto({ bobbleFielderName, play } = {}) {
   if (first.dive === true || first.leap === true) {
     return { reason: 'extraordinary', detail: BOBBLE_VETO_REASONS.extraordinary, event: first }
   }
+  // A bobble before a completed force play is not automatically an error. If
+  // the lead runner was still retired and the batter took only the first base
+  // an FC already awards, the misplay prolonged no life and added no advance.
+  // This is the measured 4-8-6 sequence in Yoshi Park PA 68.
+  const outRecorded = (play.throws || []).some((entry) => Number(entry.outs_recorded) > 0)
+  const batterBases = Number(play.runners?.BAT?.bases_ran)
+  if (result === 'FC' && outRecorded && batterBases === 1) {
+    return {
+      reason: 'fielder_choice_out',
+      detail: BOBBLE_VETO_REASONS.fielder_choice_out,
+      event: first,
+    }
+  }
   return null
 }
 
 export function shouldChargeTrackerBobbleError({ bobbleFielderName, result, play = null }) {
   if (!String(bobbleFielderName || '').trim()) return false
   if (!TRACKER_BATTED_BALL_SAFE_RESULTS.has(result)) return false
-  return !trackerBobbleErrorVeto({ bobbleFielderName, play })
+  return !trackerBobbleErrorVeto({ bobbleFielderName, result, play })
 }
 
 /**
@@ -2178,6 +2347,65 @@ export function trackerPlayThrowingError(play) {
     receiverDistanceFromTargetUnits: throwRecord.receiver_distance_from_target_units ?? null,
     runnerAtArrival: throwRecord.runner_at_arrival ?? null,
   }
+}
+
+/**
+ * The letter an out's notation starts with.
+ *
+ * The notation describes how the out was made; the `trajectory` column keeps
+ * how the ball left the bat. They differ on a low liner that lands and is
+ * thrown out: game 2766 PA 15 was a groundout 9-1 with the pitcher covering,
+ * and was written "L9-1" beside result GO because the letter came from the
+ * launch angle. A groundout -- or a force or double play on a ball the capture
+ * saw land -- was fielded on the ground, so it is a G.
+ */
+export function trackerOutNotationLetter({ result, trajectory, play = null } = {}) {
+  const fieldedOnTheGround = result === 'GO'
+    || (play?.caught_in_flight === false && ['FC', 'DP', 'TP'].includes(result))
+  if (fieldedOnTheGround && trajectory !== 'B') return 'G'
+  return trajectory || (result === 'FO' ? 'F' : result === 'LO' ? 'L' : 'G')
+}
+
+/**
+ * The position that caught a ball in flight, as the capture saw it.
+ *
+ * The tracker names the putout fielder from its last-holder read, and when that
+ * read never updates it prints "No Player put X out!" -- game 2766, Yoshi's
+ * diving catch of Bowser's liner, which then went into the database with no
+ * fielder credited at all. The capture's first secured possession of a ball
+ * caught in flight is the same fact, measured.
+ */
+export function trackerPlayCatchPosition(play) {
+  if (!play?.caught_in_flight) return null
+  const secured = (play.fielding_events || [])
+    .filter((event) => event?.ball_contact === 'confirmed' && event?.secured)
+    .sort((a, b) => Number(a.t) - Number(b.t))[0]
+  return secured?.by || null
+}
+
+/**
+ * Whether this play is a Nice Play: the first fielder to secure the ball did it
+ * with a dive (catch_type 3) and the play recorded an out.
+ *
+ * The tracker log has no nice-play line, and the game's own highlight replay is
+ * not the same thing -- it replays some dives and skips others (Daisy Cruiser
+ * 2026-09-18: Shy Guy's diving stop for a force at second, no replay). Leaps
+ * are left out: every leap window in the archive is one frame long and most sit
+ * at routine catch height. A Buddy Jump has its own column.
+ *
+ * The stats page credits a Nice Play to the first fielder in the notation, so
+ * the diver has to BE that fielder, or the credit would land on whoever
+ * deflected the ball first.
+ */
+export function trackerPlayIsNicePlay({ play, hitNotation, outsOnPlay, isBuddyJump }) {
+  if (!(Number(outsOnPlay) > 0) || isBuddyJump || (play?.buddy_jumps || []).length) return false
+  const firstSecured = (play?.fielding_events || [])
+    .filter((event) => event?.ball_contact === 'confirmed' && event?.secured)
+    .sort((a, b) => Number(a.t) - Number(b.t))[0]
+  if (!firstSecured?.dive) return false
+  const diverPosition = TRACKER_POSITION_NUMBERS[firstSecured.by]
+  return diverPosition != null
+    && parseFielderChainFromNotation(hitNotation)[0] === String(diverPosition)
 }
 
 /**

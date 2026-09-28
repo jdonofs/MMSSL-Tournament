@@ -1,0 +1,692 @@
+{
+  "version": "sluggers-uva-v1",
+  "generatedAt": "2026-09-28T12:38:37.938Z",
+  "scope": {
+    "rawArchive": "All non-pre-recovery *.pitches.jsonl and *.plays.jsonl files in data/player_tracking; counts are capture records, not deduplicated official PAs.",
+    "bridgeArchive": "All season tracker bridge state files, deduplicated by game and pitch_number_game.",
+    "testGames": [
+      "2946",
+      "2947",
+      "2948"
+    ]
+  },
+  "captureCoverage": {
+    "sessions": 69,
+    "fullStateBlockSessions": 69,
+    "swingChargeStateCapturedSessions": 69,
+    "starMeterCapturedSessions": 1,
+    "controllerInputCapturedSessions": 4,
+    "competitiveControllerInputCapturedSessions": 0,
+    "controllerSessions": [
+      {
+        "stem": "mario_stadium-20260923T012536Z",
+        "recordedUtc": "20260923T012536Z",
+        "stateSize": 27968,
+        "fullStateBlock": true,
+        "swingChargeStateCaptured": true,
+        "starMeterCaptured": false,
+        "controllerInputCaptured": true,
+        "calibrationExcluded": true,
+        "calibrationExcludedReason": "scripted swing modes: slap in every top half, charge in every bottom half, for the slap/charge gesture calibration"
+      },
+      {
+        "stem": "mario_stadium-20260925T122709Z",
+        "recordedUtc": "20260925T122709Z",
+        "stateSize": 27968,
+        "fullStateBlock": true,
+        "swingChargeStateCaptured": true,
+        "starMeterCaptured": false,
+        "controllerInputCaptured": true,
+        "calibrationExcluded": true,
+        "calibrationExcludedReason": "scripted slap-charge calibration"
+      },
+      {
+        "stem": "mario_stadium-20260925T123759Z",
+        "recordedUtc": "20260925T123759Z",
+        "stateSize": 27968,
+        "fullStateBlock": true,
+        "swingChargeStateCaptured": true,
+        "starMeterCaptured": false,
+        "controllerInputCaptured": true,
+        "calibrationExcluded": true,
+        "calibrationExcludedReason": "scripted slap-charge calibration"
+      },
+      {
+        "stem": "mario_stadium-20260925T165659Z",
+        "recordedUtc": "20260925T165659Z",
+        "stateSize": 28480,
+        "fullStateBlock": true,
+        "swingChargeStateCaptured": true,
+        "starMeterCaptured": true,
+        "controllerInputCaptured": true,
+        "calibrationExcluded": true,
+        "calibrationExcludedReason": "scripted input calibration"
+      }
+    ]
+  },
+  "archive": {
+    "raw": {
+      "files": 134,
+      "records": 9949,
+      "batting": {
+        "pitches": 5572,
+        "swings": 5295,
+        "takes": 277,
+        "bunts": 10,
+        "contacts": 4377,
+        "misses": 941,
+        "starSwings": 195,
+        "ordinarySwingsWithoutChargeState": 0,
+        "explicitSlap": 159,
+        "explicitCharge": 4932,
+        "chargeDurationObserved": 5285,
+        "chargeReleaseTimingObserved": 5122,
+        "swingOnsetObserved": 5295
+      },
+      "pitching": {
+        "classifiedPitches": 0,
+        "starPitches": 9,
+        "changeups": 0,
+        "pitchChargeObserved": 0,
+        "aimEndpointObserved": 5572,
+        "types": {},
+        "measuredVelocity": 0,
+        "starMeterObserved": 41,
+        "starMeterSpendObserved": 9
+      },
+      "baserunning": {
+        "runnerSegments": 8188,
+        "speedMeasured": 8188,
+        "shakeInputObserved": 0,
+        "discretionaryDecisionObserved": 0
+      },
+      "fielding": {
+        "fielderRoutes": 39393,
+        "speedMeasured": 39393,
+        "shakeInputObserved": 0,
+        "events": 4368,
+        "dives": 686,
+        "jumps": 130,
+        "buddyJumps": 57,
+        "buddyAttacks": 562,
+        "buddyThrows": 96,
+        "ordinaryEvents": 3173
+      }
+    },
+    "scorebook": {
+      "files": 11,
+      "records": 297,
+      "batting": {
+        "pitches": 0,
+        "swings": 0,
+        "takes": 0,
+        "bunts": 0,
+        "contacts": 0,
+        "misses": 0,
+        "starSwings": 0,
+        "ordinarySwingsWithoutChargeState": 0,
+        "explicitSlap": 0,
+        "explicitCharge": 0,
+        "chargeDurationObserved": 0,
+        "chargeReleaseTimingObserved": 0,
+        "swingOnsetObserved": 0
+      },
+      "pitching": {
+        "classifiedPitches": 488,
+        "starPitches": 4,
+        "changeups": 14,
+        "pitchChargeObserved": 0,
+        "aimEndpointObserved": 0,
+        "types": {
+          "fastball": 277,
+          "curveball": 196,
+          "changeup": 15
+        },
+        "measuredVelocity": 492,
+        "starMeterObserved": 0,
+        "starMeterSpendObserved": 0
+      },
+      "baserunning": {
+        "runnerSegments": 0,
+        "speedMeasured": 0,
+        "shakeInputObserved": 0,
+        "discretionaryDecisionObserved": 0
+      },
+      "fielding": {
+        "fielderRoutes": 0,
+        "speedMeasured": 0,
+        "shakeInputObserved": 0,
+        "events": 0,
+        "dives": 0,
+        "jumps": 0,
+        "buddyJumps": 0,
+        "buddyAttacks": 0,
+        "buddyThrows": 0,
+        "ordinaryEvents": 0
+      }
+    }
+  },
+  "test": {
+    "raw": {
+      "files": 6,
+      "records": 221,
+      "batting": {
+        "pitches": 123,
+        "swings": 117,
+        "takes": 6,
+        "bunts": 0,
+        "contacts": 97,
+        "misses": 20,
+        "starSwings": 8,
+        "ordinarySwingsWithoutChargeState": 0,
+        "explicitSlap": 0,
+        "explicitCharge": 110,
+        "chargeDurationObserved": 117,
+        "chargeReleaseTimingObserved": 117,
+        "swingOnsetObserved": 117
+      },
+      "pitching": {
+        "classifiedPitches": 0,
+        "starPitches": 0,
+        "changeups": 0,
+        "pitchChargeObserved": 0,
+        "aimEndpointObserved": 123,
+        "types": {},
+        "measuredVelocity": 0,
+        "starMeterObserved": 0,
+        "starMeterSpendObserved": 0
+      },
+      "baserunning": {
+        "runnerSegments": 178,
+        "speedMeasured": 178,
+        "shakeInputObserved": 0,
+        "discretionaryDecisionObserved": 0
+      },
+      "fielding": {
+        "fielderRoutes": 882,
+        "speedMeasured": 882,
+        "shakeInputObserved": 0,
+        "events": 102,
+        "dives": 17,
+        "jumps": 3,
+        "buddyJumps": 0,
+        "buddyAttacks": 6,
+        "buddyThrows": 0,
+        "ordinaryEvents": 77
+      }
+    },
+    "scorebook": {
+      "files": 3,
+      "records": 88,
+      "batting": {
+        "pitches": 0,
+        "swings": 0,
+        "takes": 0,
+        "bunts": 0,
+        "contacts": 0,
+        "misses": 0,
+        "starSwings": 0,
+        "ordinarySwingsWithoutChargeState": 0,
+        "explicitSlap": 0,
+        "explicitCharge": 0,
+        "chargeDurationObserved": 0,
+        "chargeReleaseTimingObserved": 0,
+        "swingOnsetObserved": 0
+      },
+      "pitching": {
+        "classifiedPitches": 122,
+        "starPitches": 0,
+        "changeups": 0,
+        "pitchChargeObserved": 0,
+        "aimEndpointObserved": 0,
+        "types": {
+          "fastball": 67,
+          "curveball": 55
+        },
+        "measuredVelocity": 122,
+        "starMeterObserved": 0,
+        "starMeterSpendObserved": 0
+      },
+      "baserunning": {
+        "runnerSegments": 0,
+        "speedMeasured": 0,
+        "shakeInputObserved": 0,
+        "discretionaryDecisionObserved": 0
+      },
+      "fielding": {
+        "fielderRoutes": 0,
+        "speedMeasured": 0,
+        "shakeInputObserved": 0,
+        "events": 0,
+        "dives": 0,
+        "jumps": 0,
+        "buddyJumps": 0,
+        "buddyAttacks": 0,
+        "buddyThrows": 0,
+        "ordinaryEvents": 0
+      }
+    },
+    "games": {
+      "2946": {
+        "gameId": "2946",
+        "park": "mario_stadium",
+        "recordedUtc": "20260922T003239Z",
+        "stem": "mario_stadium-20260922T003239Z",
+        "raw": {
+          "files": 2,
+          "records": 57,
+          "batting": {
+            "pitches": 31,
+            "swings": 31,
+            "takes": 0,
+            "bunts": 0,
+            "contacts": 26,
+            "misses": 5,
+            "starSwings": 1,
+            "ordinarySwingsWithoutChargeState": 0,
+            "explicitSlap": 0,
+            "explicitCharge": 30,
+            "chargeDurationObserved": 31,
+            "chargeReleaseTimingObserved": 31,
+            "swingOnsetObserved": 31
+          },
+          "pitching": {
+            "classifiedPitches": 0,
+            "starPitches": 0,
+            "changeups": 0,
+            "pitchChargeObserved": 0,
+            "aimEndpointObserved": 31,
+            "types": {},
+            "measuredVelocity": 0,
+            "starMeterObserved": 0,
+            "starMeterSpendObserved": 0
+          },
+          "baserunning": {
+            "runnerSegments": 36,
+            "speedMeasured": 36,
+            "shakeInputObserved": 0,
+            "discretionaryDecisionObserved": 0
+          },
+          "fielding": {
+            "fielderRoutes": 234,
+            "speedMeasured": 234,
+            "shakeInputObserved": 0,
+            "events": 23,
+            "dives": 4,
+            "jumps": 0,
+            "buddyJumps": 0,
+            "buddyAttacks": 1,
+            "buddyThrows": 0,
+            "ordinaryEvents": 18
+          }
+        },
+        "scorebook": {
+          "files": 1,
+          "records": 22,
+          "batting": {
+            "pitches": 0,
+            "swings": 0,
+            "takes": 0,
+            "bunts": 0,
+            "contacts": 0,
+            "misses": 0,
+            "starSwings": 0,
+            "ordinarySwingsWithoutChargeState": 0,
+            "explicitSlap": 0,
+            "explicitCharge": 0,
+            "chargeDurationObserved": 0,
+            "chargeReleaseTimingObserved": 0,
+            "swingOnsetObserved": 0
+          },
+          "pitching": {
+            "classifiedPitches": 31,
+            "starPitches": 0,
+            "changeups": 0,
+            "pitchChargeObserved": 0,
+            "aimEndpointObserved": 0,
+            "types": {
+              "fastball": 16,
+              "curveball": 15
+            },
+            "measuredVelocity": 31,
+            "starMeterObserved": 0,
+            "starMeterSpendObserved": 0
+          },
+          "baserunning": {
+            "runnerSegments": 0,
+            "speedMeasured": 0,
+            "shakeInputObserved": 0,
+            "discretionaryDecisionObserved": 0
+          },
+          "fielding": {
+            "fielderRoutes": 0,
+            "speedMeasured": 0,
+            "shakeInputObserved": 0,
+            "events": 0,
+            "dives": 0,
+            "jumps": 0,
+            "buddyJumps": 0,
+            "buddyAttacks": 0,
+            "buddyThrows": 0,
+            "ordinaryEvents": 0
+          },
+          "plateAppearances": 22,
+          "results": {
+            "HR": 3,
+            "GO": 6,
+            "LO": 7,
+            "FO": 1,
+            "ROE": 1,
+            "1B": 3,
+            "DP": 1
+          }
+        }
+      },
+      "2947": {
+        "gameId": "2947",
+        "park": "mario_stadium",
+        "recordedUtc": "20260922T015835Z",
+        "stem": "mario_stadium-20260922T015835Z",
+        "raw": {
+          "files": 2,
+          "records": 105,
+          "batting": {
+            "pitches": 60,
+            "swings": 55,
+            "takes": 5,
+            "bunts": 0,
+            "contacts": 45,
+            "misses": 10,
+            "starSwings": 4,
+            "ordinarySwingsWithoutChargeState": 0,
+            "explicitSlap": 0,
+            "explicitCharge": 51,
+            "chargeDurationObserved": 55,
+            "chargeReleaseTimingObserved": 55,
+            "swingOnsetObserved": 55
+          },
+          "pitching": {
+            "classifiedPitches": 0,
+            "starPitches": 0,
+            "changeups": 0,
+            "pitchChargeObserved": 0,
+            "aimEndpointObserved": 60,
+            "types": {},
+            "measuredVelocity": 0,
+            "starMeterObserved": 0,
+            "starMeterSpendObserved": 0
+          },
+          "baserunning": {
+            "runnerSegments": 80,
+            "speedMeasured": 80,
+            "shakeInputObserved": 0,
+            "discretionaryDecisionObserved": 0
+          },
+          "fielding": {
+            "fielderRoutes": 405,
+            "speedMeasured": 405,
+            "shakeInputObserved": 0,
+            "events": 49,
+            "dives": 9,
+            "jumps": 2,
+            "buddyJumps": 0,
+            "buddyAttacks": 3,
+            "buddyThrows": 0,
+            "ordinaryEvents": 35
+          }
+        },
+        "scorebook": {
+          "files": 1,
+          "records": 42,
+          "batting": {
+            "pitches": 0,
+            "swings": 0,
+            "takes": 0,
+            "bunts": 0,
+            "contacts": 0,
+            "misses": 0,
+            "starSwings": 0,
+            "ordinarySwingsWithoutChargeState": 0,
+            "explicitSlap": 0,
+            "explicitCharge": 0,
+            "chargeDurationObserved": 0,
+            "chargeReleaseTimingObserved": 0,
+            "swingOnsetObserved": 0
+          },
+          "pitching": {
+            "classifiedPitches": 59,
+            "starPitches": 0,
+            "changeups": 0,
+            "pitchChargeObserved": 0,
+            "aimEndpointObserved": 0,
+            "types": {
+              "fastball": 32,
+              "curveball": 27
+            },
+            "measuredVelocity": 59,
+            "starMeterObserved": 0,
+            "starMeterSpendObserved": 0
+          },
+          "baserunning": {
+            "runnerSegments": 0,
+            "speedMeasured": 0,
+            "shakeInputObserved": 0,
+            "discretionaryDecisionObserved": 0
+          },
+          "fielding": {
+            "fielderRoutes": 0,
+            "speedMeasured": 0,
+            "shakeInputObserved": 0,
+            "events": 0,
+            "dives": 0,
+            "jumps": 0,
+            "buddyJumps": 0,
+            "buddyAttacks": 0,
+            "buddyThrows": 0,
+            "ordinaryEvents": 0
+          },
+          "plateAppearances": 42,
+          "results": {
+            "K": 1,
+            "HR": 4,
+            "GO": 4,
+            "FO": 6,
+            "1B": 6,
+            "DP": 3,
+            "LO": 10,
+            "ROE": 3,
+            "2B": 3,
+            "SF": 2
+          }
+        }
+      },
+      "2948": {
+        "gameId": "2948",
+        "park": "luigis_mansion",
+        "recordedUtc": "20260922T214904Z",
+        "stem": "luigis_mansion-20260922T214904Z",
+        "raw": {
+          "files": 2,
+          "records": 59,
+          "batting": {
+            "pitches": 32,
+            "swings": 31,
+            "takes": 1,
+            "bunts": 0,
+            "contacts": 26,
+            "misses": 5,
+            "starSwings": 3,
+            "ordinarySwingsWithoutChargeState": 0,
+            "explicitSlap": 0,
+            "explicitCharge": 29,
+            "chargeDurationObserved": 31,
+            "chargeReleaseTimingObserved": 31,
+            "swingOnsetObserved": 31
+          },
+          "pitching": {
+            "classifiedPitches": 0,
+            "starPitches": 0,
+            "changeups": 0,
+            "pitchChargeObserved": 0,
+            "aimEndpointObserved": 32,
+            "types": {},
+            "measuredVelocity": 0,
+            "starMeterObserved": 0,
+            "starMeterSpendObserved": 0
+          },
+          "baserunning": {
+            "runnerSegments": 62,
+            "speedMeasured": 62,
+            "shakeInputObserved": 0,
+            "discretionaryDecisionObserved": 0
+          },
+          "fielding": {
+            "fielderRoutes": 243,
+            "speedMeasured": 243,
+            "shakeInputObserved": 0,
+            "events": 30,
+            "dives": 4,
+            "jumps": 1,
+            "buddyJumps": 0,
+            "buddyAttacks": 2,
+            "buddyThrows": 0,
+            "ordinaryEvents": 24
+          }
+        },
+        "scorebook": {
+          "files": 1,
+          "records": 24,
+          "batting": {
+            "pitches": 0,
+            "swings": 0,
+            "takes": 0,
+            "bunts": 0,
+            "contacts": 0,
+            "misses": 0,
+            "starSwings": 0,
+            "ordinarySwingsWithoutChargeState": 0,
+            "explicitSlap": 0,
+            "explicitCharge": 0,
+            "chargeDurationObserved": 0,
+            "chargeReleaseTimingObserved": 0,
+            "swingOnsetObserved": 0
+          },
+          "pitching": {
+            "classifiedPitches": 32,
+            "starPitches": 0,
+            "changeups": 0,
+            "pitchChargeObserved": 0,
+            "aimEndpointObserved": 0,
+            "types": {
+              "fastball": 19,
+              "curveball": 13
+            },
+            "measuredVelocity": 32,
+            "starMeterObserved": 0,
+            "starMeterSpendObserved": 0
+          },
+          "baserunning": {
+            "runnerSegments": 0,
+            "speedMeasured": 0,
+            "shakeInputObserved": 0,
+            "discretionaryDecisionObserved": 0
+          },
+          "fielding": {
+            "fielderRoutes": 0,
+            "speedMeasured": 0,
+            "shakeInputObserved": 0,
+            "events": 0,
+            "dives": 0,
+            "jumps": 0,
+            "buddyJumps": 0,
+            "buddyAttacks": 0,
+            "buddyThrows": 0,
+            "ordinaryEvents": 0
+          },
+          "plateAppearances": 24,
+          "results": {
+            "2B": 2,
+            "FC": 2,
+            "DP": 1,
+            "LO": 5,
+            "GO": 2,
+            "HR": 1,
+            "1B": 4,
+            "FO": 3,
+            "ROE": 3,
+            "SF": 1
+          }
+        }
+      }
+    }
+  },
+  "readiness": {
+    "batting": {
+      "now": [
+        "swing/take",
+        "bunt",
+        "contact/whiff",
+        "star swing",
+        "slap/charge state",
+        "charge duration",
+        "charge release relative to swing onset",
+        "count",
+        "batted-ball quality"
+      ],
+      "missing": [
+        "independent power/contact timing marker"
+      ]
+    },
+    "pitching": {
+      "now": [
+        "classified pitch movement/type",
+        "velocity",
+        "horizontal/vertical movement",
+        "absolute plate endpoint",
+        "count",
+        "result",
+        "star pitch from a fielding-side meter spend when the expanded state block is present"
+      ],
+      "missing": [
+        "normal/changeup input independent of inferred pitch class",
+        "charge state/duration",
+        "user aim target before movement"
+      ]
+    },
+    "baserunning": {
+      "now": [
+        "runner speed",
+        "splits",
+        "path",
+        "result"
+      ],
+      "missing": [
+        "shake input/onset/duration"
+      ],
+      "attribution": "Advance/hold is automatic in the no-Nunchuk league and must not be credited as user decision value."
+    },
+    "fielding": {
+      "now": [
+        "route",
+        "speed",
+        "dive",
+        "jump/leap",
+        "buddy jump",
+        "buddy attack",
+        "buddy throw",
+        "throw quality",
+        "catch result"
+      ],
+      "missing": [
+        "shake input/onset/duration",
+        "raw action edges for attempts with no animation or contact"
+      ],
+      "attribution": "Selection, positioning, route, ordinary catch, and ordinary throw target are automatic; only explicit actions and sprint execution enter UVA."
+    }
+  },
+  "constraints": {
+    "controllerInput": "Only scripted calibration sessions capture both Wii Remote structs; no normal competitive session has raw controller input.",
+    "starMeter": "Only captures using the expanded state block contain team star meters; positive spends are exact star-use evidence, while older sessions retain their existing tracker/scorer flags.",
+    "attribution": "Recovered observations support descriptive rates, but player-versus-character run attribution still requires counterfactual models and player/character crossover validation."
+  }
+}

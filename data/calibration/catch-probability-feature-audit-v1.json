@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "exporter_schema_version": "sluggers-catch-preoutcome-flight-v1",
-  "exported_rows": 1060,
-  "valid_rows": 1024,
+  "exported_rows": 2355,
+  "valid_rows": 2279,
   "invalid_reasons": {
-    "trajectory_projection_failed": 36
+    "trajectory_projection_failed": 76
   },
-  "failure_projection_distance_mae_units": 6.7640072400156,
-  "failure_projection_time_mae_seconds": 0.3159437333333333
+  "failure_projection_distance_mae_units": 6.785262791273062,
+  "failure_projection_time_mae_seconds": 0.3411008834355829
 }

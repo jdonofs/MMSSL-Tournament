@@ -34,6 +34,7 @@ import {
 } from '../utils/hitDistanceStats'
 import { summarizeExpectedBatting, summarizeExpectedPitching } from '../utils/expectedStats'
 import { MIN_RANGE_CHANCES } from '../utils/fieldingRange'
+import { FEET_PER_SECOND_TO_MPH } from '../utils/advancedDefense'
 import { buildScopeOptions, getHistoryEntryLabel, sortHistoryEntries } from '../utils/characterScopes'
 import { selectPitchesForPlateAppearances } from '../utils/statReconciliation'
 import useCharacterProfileData from '../hooks/useCharacterProfileData'
@@ -227,6 +228,37 @@ function StatTypeToggle({ value, onChange, options = DEFAULT_TOGGLE_OPTIONS }) {
   )
 }
 
+// The measured tracker numbers, as [group, label, value] rows. They have been
+// computed for this character all along and only the Scouting Report ever
+// showed them, so the character's own Fielding and Baserunning sections listed
+// how many opportunities were tracked without ever saying how they went.
+//
+// A row whose value is null is dropped rather than printed as a dash: an
+// untracked metric and a measured zero are different answers, and a table of
+// dashes hides which one this is.
+function MeasuredMetricTable({ rows }) {
+  const present = rows.filter(([, , value]) => value != null && value !== '')
+  if (!present.length) return null
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table className="data-table" style={{ minWidth: 320 }}>
+        <thead><tr><th>Group</th><th>Metric</th><th>Measured</th></tr></thead>
+        <tbody>
+          {present.map(([group, label, value], index) => (
+            <tr key={`${group}:${label}`}>
+              <td style={{ color: '#94A3B8' }}>
+                {index > 0 && present[index - 1][0] === group ? '' : group}
+              </td>
+              <td>{label}</td>
+              <td>{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // Pos/G/GS/TC/PO/A/E/FLD%/BJ table — shared by the "Standard Stats > Fielding" view and the
 // standalone "Fielding" section so both render the same fieldingByPosition data identically.
 function FieldingPositionTable({ appearances, allTimeFielding }) {
@@ -329,6 +361,7 @@ const SECTION_LINKS = [
   { id: 'power', label: 'Contact Authority' },
   { id: 'postseason', label: 'Postseason' },
   { id: 'fielding', label: 'Fielding' },
+  { id: 'baserunning', label: 'Baserunning' },
   { id: 'splits', label: 'Splits' },
   { id: 'park-factors', label: 'Park Factors' },
   { id: 'awards', label: 'Awards' },
@@ -406,7 +439,7 @@ export default function CharacterPage() {
   const {
     fieldingHistory, allTimeFielding, fieldingByPosition, fieldingHistoryByPosition,
     starHitFieldingHistoryByPosition, fieldingRangeByPosition, parkFactorRows, teamHistory, transactions, awardRows, statMedians, statMaxes, statMins,
-    advancedFielding, advancedBaserunning, advancedValueByEventKey,
+    advancedFielding, advancedBaserunning, advancedMovement, playMechanics, advancedValueByEventKey,
   } = extras
 
   const [gamelogStatType, setGamelogStatType] = useState('batting')
@@ -653,6 +686,56 @@ export default function CharacterPage() {
     }),
     ...expectedRowFor(allTimeBatting.rawPas || []),
   } : null
+  // The measured fielding and running lines. Every value comes straight from
+  // the tracker summaries the page already loads; a metric with no samples
+  // resolves to null and MeasuredMetricTable drops the row.
+  const signed = (value, digits = 2) => (value == null ? null
+    : `${value > 0 ? '+' : ''}${formatDecimal(value, digits)}`)
+  const mph = (fps) => (fps == null ? null : `${formatDecimal(fps * FEET_PER_SECOND_TO_MPH, 1)} mph`)
+  const feet = (value) => (value == null ? null : `${formatDecimal(value, 1)} ft`)
+  const seconds = (value) => (value == null ? null : `${formatDecimal(value, 2)} s`)
+  const af = advancedFielding || {}
+  const am = advancedMovement || {}
+  const measuredFieldingRows = [
+    ['Range', 'OAA Opportunities', af.fieldingOpportunities || null],
+    ['Range', 'Actual Outs', af.fieldingOpportunities ? af.actualOuts : null],
+    ['Range', 'Expected Outs', af.fieldingOpportunities ? formatDecimal(af.expectedOuts, 2) : null],
+    ['Range', 'Outs Above Average', af.fieldingOpportunities ? signed(af.outsAboveAverage) : null],
+    ['Range', 'Fielding Run Value', af.fieldingOpportunities || af.armOpportunities || af.doublePlayOpportunities
+      ? signed(af.fieldingRunValue) : null],
+    ['Arm', 'Throws', af.throws || null],
+    ['Arm', 'Arm Strength', af.armStrengthMph == null ? null : `${formatDecimal(af.armStrengthMph, 1)} mph`],
+    ['Arm', 'Max Throw', af.hardestThrowMph == null ? null : `${formatDecimal(af.hardestThrowMph, 1)} mph`],
+    ['Arm', 'Buddy Throws', af.buddyThrows || null],
+    ['Arm', 'Max Buddy Throw', af.hardestBuddyThrowMph == null ? null : `${formatDecimal(af.hardestBuddyThrowMph, 1)} mph`],
+    ['Runners', 'Arm Opportunities', af.armOpportunities || null],
+    ['Runners', 'Holds', af.armOpportunities ? af.armHolds || 0 : null],
+    ['Runners', 'Runners Thrown Out', af.armOpportunities ? af.armKills || 0 : null],
+    ['Runners', 'Advances Allowed', af.armOpportunities ? af.armAdvances || 0 : null],
+    ['Double Plays', 'DP Opportunities', af.doublePlayOpportunities || null],
+    ['Double Plays', 'Double Plays', af.doublePlayOpportunities ? af.doublePlays || 0 : null],
+    ['Double Plays', 'DP Added', af.doublePlayOpportunities ? signed(af.doublePlaysAdded) : null],
+    ['Double Plays', 'DP Runs', af.doublePlayOpportunities ? signed(af.doublePlayRuns) : null],
+    ['Jump', 'Jump Samples', am.jumpSamples || null],
+    ['Jump', 'Jump', feet(am.jumpDistanceFeet)],
+    ['Jump', 'Reaction', feet(am.jumpReactionFeet)],
+    ['Jump', 'Burst', feet(am.jumpBurstFeet)],
+    ['Jump', 'Route Efficiency', am.jumpRouteEfficiency == null ? null : formatDecimal(am.jumpRouteEfficiency, 2)],
+    ['Positioning', 'Position Samples', af.positioningSamples || null],
+    ['Positioning', 'Average Depth', feet(af.averagePositionDepthFeet)],
+    ['Positioning', 'Average Angle', af.averagePositionAngleDeg == null ? null : `${formatDecimal(af.averagePositionAngleDeg, 1)}°`],
+  ]
+  const measuredRunningRows = [
+    ['Sprint', 'Qualifying Runs', am.speedSamples || null],
+    ['Sprint', 'Sprint Speed', mph(am.sprintSpeedFps)],
+    ['Sprint', 'Max Speed', mph(am.maxSprintSpeedFps)],
+    ['Sprint', 'Bolts', am.speedSamples ? am.bolts || 0 : null],
+    ['Home to First', 'Samples', am.homeToFirstSamples || null],
+    ['Home to First', 'Home-to-First', seconds(am.homeToFirstSeconds)],
+    ['90 Feet', 'Samples', am.ninetyFootSplitSamples || null],
+    ['90 Feet', '90-ft Split', seconds(am.ninetyFootSplitSeconds)],
+  ]
+
   const valueBattingColumns = [
     ...seasonColumn,
     { key: 'sampleSize', label: 'BIP', render: (r) => formatInteger(r.sampleSize) },
@@ -1446,6 +1529,27 @@ export default function CharacterPage() {
                 )}
               </div>
             )}
+            {playMechanics?.closePlays ? <p className="muted">Close plays defended: {playMechanics.closePlays} · {playMechanics.closePlaysWon} held on · {playMechanics.closePlaysLost} knocked loose.</p> : null}
+            {advancedFielding || advancedMovement ? (
+              <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+                <div style={{ color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>Measured Fielding</div>
+                <MeasuredMetricTable rows={measuredFieldingRows} />
+              </div>
+            ) : null}
+          </Section>
+
+          <Section id="baserunning" title="Baserunning">
+            {advancedBaserunning?.opportunities ? <>
+              <p>{advancedBaserunning.opportunities} XBT opportunities · {advancedBaserunning.holds} holds · {advancedBaserunning.attempts} attempts · {advancedBaserunning.advances} safe · {advancedBaserunning.outs} outs</p>
+              <p className="muted">Attempt rate {formatPercent(advancedBaserunning.attemptRate, 1)} · Safe per attempt {formatPercent(advancedBaserunning.successRate, 1)} · Safe per opportunity {formatPercent(advancedBaserunning.safeRate, 1)}. Experimental Rbaser {advancedBaserunning.baserunningRunValue == null ? 'not modeled' : formatDecimal(advancedBaserunning.baserunningRunValue, 2)} across {advancedBaserunning.modeledOpportunities} modeled opportunities.</p>
+            </> : <p className="muted">No recorded extra-base opportunities in this scope. Historical games may not have tracking coverage.</p>}
+            {playMechanics?.closePlaysRun ? <p className="muted">Close plays run into: {playMechanics.closePlaysRun} · {playMechanics.closePlaysRunWon} knocked the ball loose · {playMechanics.closePlaysRunLost} the fielder held on.</p> : null}
+            {advancedMovement ? (
+              <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+                <div style={{ color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>Measured Running</div>
+                <MeasuredMetricTable rows={measuredRunningRows} />
+              </div>
+            ) : null}
           </Section>
 
           {/* Splits */}

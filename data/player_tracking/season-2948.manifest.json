@@ -1,0 +1,38 @@
+{
+  "status": "captured",
+  "stem": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\luigis_mansion-20260922T214904Z",
+  "header_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\luigis_mansion-20260922T214904Z.json",
+  "stream_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\luigis_mansion-20260922T214904Z.bin",
+  "game_id": "2948",
+  "competition_type": "season",
+  "source_id": "78",
+  "recorded_utc": "20260922T214904Z",
+  "park": "luigis_mansion",
+  "stadium_byte": 6,
+  "day_night_bytes": [
+    1,
+    1
+  ],
+  "is_night": true,
+  "frames": 25292,
+  "missed_frames": 0,
+  "duration_seconds": 629.607,
+  "checksum_sha256": "541ce145e4326ba7c000ab755a123e88a25f83f56312326b877c7c498f57f5b8",
+  "fielder_pointers_left_region": false,
+  "live_derivation": {
+    "calibration_status": "confirmed",
+    "position_offset": 4,
+    "lock_frames": 30,
+    "plays_seen": 27,
+    "plays_emitted": 27,
+    "plays_withheld": 0,
+    "live_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\luigis_mansion-20260922T214904Z.live.jsonl",
+    "pitches_path": "C:\\Users\\jdono\\Sluggers\\data\\player_tracking\\luigis_mansion-20260922T214904Z.pitches.jsonl",
+    "mean_feed_ms": 0.12,
+    "max_feed_ms": 4.719,
+    "max_play_build_ms": 83.5,
+    "replay_duplicates": 2,
+    "pitches_emitted": 32,
+    "pitch_replay_increments": 6
+  }
+}

@@ -9,13 +9,15 @@
 // can flush the raw recording and finish the authoritative postgame pass.
 
 import net from 'node:net'
+import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { createServer as createViteServer } from 'vite'
+import { assertEvidenceProfileReady } from './tracker_collector_feed.mjs'
 
-function readArgs(argv) {
+export function readArgs(argv) {
   const options = {
     apiPort: Number(process.env.TRACKER_PREVIEW_PORT || 4317),
     uiPort: Number(process.env.TRACKER_PREVIEW_UI_PORT || 5173),
@@ -23,6 +25,8 @@ function readArgs(argv) {
       String(process.env.TRACKER_PREVIEW_OPEN ?? '').trim().toLowerCase(),
     ),
     replay: null,
+    calibrationExcluded: false,
+    calibrationExcludedReason: null,
     backendArgs: [],
   }
 
@@ -36,11 +40,84 @@ function readArgs(argv) {
       options.uiPort = Number(argv[index += 1])
     } else if (token === '--no-open') {
       options.open = false
+    } else if (token === '--calibration-excluded') {
+      options.calibrationExcluded = true
+    // A reason given without the flag is an operator saying why this session
+    // does not count, so it excludes on its own. The alternative is a typed
+    // sentence that silently does nothing and a capture that counts anyway.
+    } else if (token === '--calibration-excluded-reason') {
+      options.calibrationExcludedReason = String(argv[index += 1] ?? '').trim() || null
+      options.calibrationExcluded = true
     } else {
       options.backendArgs.push(token)
     }
   }
   return options
+}
+
+export function backendEnvironment(options, environment = process.env) {
+  return {
+    ...environment,
+    TRACKER_PREVIEW_PORT: String(options.apiPort),
+    ...(options.calibrationExcluded ? { TRACKER_CALIBRATION_EXCLUDED: '1' } : {}),
+    // Without this the collector writes its own default -- "stadium research:
+    // balls deliberately not fielded so they reach the hazard" -- onto every
+    // excluded capture, including the ones that were excluded for something
+    // else entirely. mario_stadium-20260923T012536Z was a scripted slap/charge
+    // game and its header says it was stadium research.
+    ...(options.calibrationExcludedReason
+      ? { TRACKER_CALIBRATION_EXCLUDED_REASON: options.calibrationExcludedReason }
+      : {}),
+  }
+}
+
+// The live bridge already reads this setting from .env.tracker-bridge. The
+// standalone preview used to ignore that file and fall back to whichever
+// `python` happened to be first in the launching shell's PATH. That can be a
+// different installation from the one AutoTeam and the bridge use, so the
+// tracker game would start normally while the 60 Hz collector failed every
+// five seconds with a missing import. Read only this non-secret setting; a
+// read-only preview must not inherit the bridge's database credentials.
+export function collectorPythonEnvironment(environment = process.env, {
+  configPath = path.resolve('.env.tracker-bridge'),
+  readFile = (filePath) => fs.readFileSync(filePath, 'utf8'),
+} = {}) {
+  if (environment.TRACKER_PLAYER_PYTHON) return { ...environment }
+  let configured = null
+  try {
+    for (const line of readFile(configPath).split(/\r?\n/)) {
+      const match = line.trim().match(/^TRACKER_PLAYER_PYTHON\s*=\s*(.*)$/)
+      if (!match) continue
+      configured = match[1].trim().replace(/^(['"])(.*)\1$/, '$2')
+      break
+    }
+  } catch { /* no local bridge environment; the ordinary PATH fallback remains */ }
+  return configured ? { ...environment, TRACKER_PLAYER_PYTHON: configured } : { ...environment }
+}
+
+// Fail before the native tracker (and therefore before a game) can start. The
+// bridge has had this guard since its AutoTeam handshake was added; preview
+// needs the same guarantee because fielding/baserunning cannot be recovered
+// from the tracker log after a collector import failure.
+export function assertCollectorPythonReady(options, environment = process.env, run = spawnSync) {
+  if (options.replay || environment.TRACKER_PLAYER_TRACKING === '0') return null
+  const python = String(environment.TRACKER_PLAYER_PYTHON || 'python')
+  const check = run(python,
+    ['-c', 'import numpy, dolphin_memory_engine, collect_player_tracking'], {
+      cwd: path.resolve('scripts'),
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 10000,
+      env: environment,
+    })
+  if (check.error || check.status !== 0) {
+    const detail = check.error?.message || String(check.stderr || '').trim()
+      || `exit code ${check.status}`
+    throw new Error(`60 Hz collector Python is not ready (${python}): ${detail}. `
+      + 'Set TRACKER_PLAYER_PYTHON to a Python with numpy and dolphin-memory-engine installed; '
+      + 'the preview stopped before launching the tracker.')
+  }
+  return python
 }
 
 function backendCommand(options) {
@@ -169,6 +246,16 @@ async function main() {
   }
 
   await assertApiPortIsFree(options.apiPort)
+  const childEnvironment = collectorPythonEnvironment(process.env)
+  assertCollectorPythonReady(options, childEnvironment)
+  if (!options.replay) {
+    const evidence = assertEvidenceProfileReady(childEnvironment)
+    if (evidence) {
+      console.log('[tracker-preview] comprehensive evidence capture; ports: '
+        + Object.entries(evidence.ports || {}).map(([port, entry]) =>
+          `${port}=${entry.player} (${entry.remote_label})`).join(', '))
+    }
+  }
   // vite.config.js reads this when it installs the quiet localhost API proxy.
   // Keeping it on this process also makes custom --api-port values work.
   process.env.TRACKER_PREVIEW_PORT = String(options.apiPort)
@@ -176,7 +263,7 @@ async function main() {
   const backend = backendCommand(options)
   const child = spawn(process.execPath, [backend.file, ...backend.args], {
     cwd: process.cwd(),
-    env: { ...process.env, TRACKER_PREVIEW_PORT: String(options.apiPort) },
+    env: backendEnvironment(options, childEnvironment),
     stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
     windowsHide: true,
   })

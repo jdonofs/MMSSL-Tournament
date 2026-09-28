@@ -1,6 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
+import { fetchSupersededTrackingPlayIds, onlyActiveTrackingFacts, onlyActiveTrackingPlays } from '../utils/activeTrackingVersions'
+import { summarizeMechanics } from '../utils/playerMechanics'
+import {
+  DOUBLE_PLAY_OPPORTUNITY_COLUMNS,
+  FIELDING_OPPORTUNITY_COLUMNS,
+  MOVEMENT_METRIC_COLUMNS,
+  RUNNER_OPPORTUNITY_COLUMNS,
+  TRACKING_PLAY_MECHANICS_COLUMNS,
+  TRACKING_THROW_COLUMNS,
+  restoreQuality,
+} from '../utils/trackingColumns'
+import {
+  FEET_PER_SECOND_TO_MPH,
+  summarizeAdvancedBaserunning,
+  summarizeAdvancedFielding,
+  summarizeMovementMetrics,
+} from '../utils/advancedDefense'
 import { computeRangeLeagueConstants, summarizeFieldingRange } from '../utils/fieldingRange'
 import {
   abbreviateSeasonName,
@@ -16,6 +33,7 @@ import {
   summarizeBatting,
   summarizeBattingSplits,
   enrichPasWithPitchingContext,
+  fieldingChanceCount,
   summarizePitching,
   summarizePitchingSplits,
   summarizePlateDiscipline,
@@ -95,6 +113,13 @@ function createEmptyTables() {
     hasBatting: false,
     hasPitching: false,
     hasFielding: false,
+    playMechanics: null,
+    trackedFieldingRows: [],
+    trackedFieldingCareerRow: null,
+    trackedBaserunningRows: [],
+    trackedBaserunningCareerRow: null,
+    hasTrackedFielding: false,
+    hasTrackedBaserunning: false,
   }
 }
 
@@ -312,6 +337,9 @@ export default function useTeamProfileData(playerId, scope) {
         seasonRunsScoredResult, tournamentRunsScoredResult,
         stadiumsResult, stadiumGameLogResult, seasonStadiumGameLogResult,
         gameFieldersResult, seasonGameFieldersResult,
+        trackingPlaysResult, activeVersionsResult,
+        trackingThrowsResult, runnerOpportunitiesResult,
+        doublePlayOpportunitiesResult, fieldingOpportunitiesResult, movementMetricsResult,
       ] = await Promise.all([
         fetchAllRows(() => supabase.from('players').select('*')),
         fetchAllRows(() => supabase.from('season_teams').select('*')),
@@ -344,6 +372,34 @@ export default function useTeamProfileData(playerId, scope) {
         fetchAllRows(() => supabase.from('season_stadium_game_log').select(SEASON_STADIUM_GAME_LOG_SELECT)),
         fetchAllRows(() => supabase.from('game_fielders').select('*')),
         fetchAllRows(() => supabase.from('season_game_fielders').select('*')),
+        // The measured player mechanics. They ride on the tracking play's own
+        // `quality` rather than in a fact table, so this page -- which reads no
+        // tracking table at all -- had no way to show a close play.
+        fetchAllRows(() => supabase.from('tracking_plays').select(TRACKING_PLAY_MECHANICS_COLUMNS)),
+        fetchSupersededTrackingPlayIds(supabase),
+        // The measured defence and running. This page has never read a tracking
+        // table, so a team's OAA, arm, jump, positioning and sprint speed --
+        // all of which the Stats page has shown per owner for months -- simply
+        // did not exist here.
+        //
+        // NARROW ON THE SERVER, NOT IN THE BROWSER. These are the widest tables
+        // in the database and the page only ever shows this one team, so
+        // `select('*')` over all of them cost 22.9 MB a page load against a
+        // 5 GB egress budget -- 218 views would have spent the month. Three
+        // things keep it near 1 MB: only this team's rows (every fact carries
+        // the owning player id), only the columns the summarisers actually
+        // read, and the two `quality` booleans as JSON paths rather than the
+        // whole blob. Adding a metric here means adding its column here too.
+        fetchAllRows(() => supabase.from('tracking_throws').select(TRACKING_THROW_COLUMNS)
+          .eq('thrower_player_id', playerId)),
+        fetchAllRows(() => supabase.from('runner_opportunities').select(RUNNER_OPPORTUNITY_COLUMNS)
+          .or(`runner_player_id.eq.${playerId},responsible_fielder_player_id.eq.${playerId}`)),
+        fetchAllRows(() => supabase.from('double_play_opportunities').select(DOUBLE_PLAY_OPPORTUNITY_COLUMNS)
+          .or(`first_fielder_player_id.eq.${playerId},pivot_fielder_player_id.eq.${playerId}`)),
+        fetchAllRows(() => supabase.from('fielding_opportunities').select(FIELDING_OPPORTUNITY_COLUMNS)
+          .eq('fielder_player_id', playerId)),
+        fetchAllRows(() => supabase.from('movement_metrics').select(MOVEMENT_METRIC_COLUMNS)
+          .eq('player_id', playerId)),
       ])
       if (cancelled || generation !== loadGenerationRef.current) return
 
@@ -356,6 +412,9 @@ export default function useTeamProfileData(playerId, scope) {
         seasonRunsScoredResult, tournamentRunsScoredResult,
         stadiumsResult, stadiumGameLogResult, seasonStadiumGameLogResult,
         gameFieldersResult, seasonGameFieldersResult,
+        trackingPlaysResult, activeVersionsResult,
+        trackingThrowsResult, runnerOpportunitiesResult,
+        doublePlayOpportunitiesResult, fieldingOpportunitiesResult, movementMetricsResult,
       ]
       const failedResult = results.find((result) => result?.error)
       if (failedResult?.error) {
@@ -538,6 +597,64 @@ export default function useTeamProfileData(playerId, scope) {
       } else if (scope.type === 'tournament') {
         fieldingChances = allTournamentFieldingChances.filter((c) => String(c.playerId) === String(playerId) && String(c.tournamentId) === String(scope.id))
       }
+      // ─── Scoped player mechanics ────────────────────────────────────────────
+      // Credited by PLAYER, not by character: the mechanics records resolve their
+      // owner from the game's own fielder rows, so a character who changed hands
+      // keeps each contest with the team it was made for. Only the active version
+      // of a session counts, the same gate every other tracking read applies.
+      const inTrackerScope = (row) => {
+        if (scope.type === 'career') return true
+        if (scope.type === 'season') {
+          return row.competition_type === 'season'
+            && String(seasonIdByGameId[String(row.game_id)]) === String(scope.id)
+        }
+        return row.competition_type !== 'season'
+          && String(tournamentIdByGameId[String(row.game_id)]) === String(scope.id)
+      }
+      // The mechanics came back as top-level aliases rather than inside the
+      // `quality` blob they were selected out of; summarizeMechanics reads the
+      // blob, so the shape is restored here.
+      const trackingPlayRows = restoreQuality(trackingPlaysResult.data)
+      const trackingPlaysInScope = onlyActiveTrackingPlays(
+        trackingPlayRows, activeVersionsResult.data,
+      ).filter(inTrackerScope)
+      const playMechanics = summarizeMechanics(trackingPlaysInScope, 'player')[String(playerId)] || null
+
+      // ─── Scoped tracking facts ───────────────────────────────────────────────
+      // Same two gates the character page applies: only the active version of a
+      // session, and only the current scope. Then narrowed to THIS team by the
+      // owning player id each fact carries, so the per-character rows below
+      // cannot pick up a game the character played for somebody else.
+      const trackerFacts = (rows) => onlyActiveTrackingFacts(
+        restoreQuality(rows), activeVersionsResult.data).filter(inTrackerScope)
+      const mine = (rows, ...keys) => rows.filter(
+        (row) => keys.some((key) => String(row[key]) === String(playerId)))
+      const trackingThrows = mine(trackerFacts(trackingThrowsResult.data), 'thrower_player_id')
+      const armOpportunities = mine(
+        trackerFacts(runnerOpportunitiesResult.data), 'responsible_fielder_player_id')
+      const doublePlayOpportunities = mine(
+        trackerFacts(doublePlayOpportunitiesResult.data),
+        'first_fielder_player_id', 'pivot_fielder_player_id')
+      const fieldingOpportunities = mine(
+        trackerFacts(fieldingOpportunitiesResult.data), 'fielder_player_id')
+      // The baserunning side is keyed by the RUNNER, not by the fielder who was
+      // responsible, so it is a different slice of the same table.
+      const runnerOpportunities = mine(
+        trackerFacts(runnerOpportunitiesResult.data), 'runner_player_id')
+      const movementMetrics = mine(trackerFacts(movementMetricsResult.data), 'player_id')
+      const trackedBundle = {
+        throws: trackingThrows,
+        runnerOpportunities: armOpportunities,
+        doublePlayOpportunities,
+        fieldingOpportunities,
+      }
+      const trackedFieldingByCharacter = summarizeAdvancedFielding(trackedBundle, 'character')
+      const trackedFieldingTeam = summarizeAdvancedFielding(trackedBundle, 'player')[String(playerId)] || null
+      const trackedMovementByCharacter = summarizeMovementMetrics(movementMetrics, 'character')
+      const trackedMovementTeam = summarizeMovementMetrics(movementMetrics, 'player')[String(playerId)] || null
+      const trackedBaserunningByCharacter = summarizeAdvancedBaserunning(runnerOpportunities, 'character')
+      const trackedBaserunningTeam = summarizeAdvancedBaserunning(runnerOpportunities, 'player')[String(playerId)] || null
+
       let fieldingGameFielderRows = []
       if (scope.type === 'career') {
         fieldingGameFielderRows = [
@@ -725,6 +842,7 @@ export default function useTeamProfileData(playerId, scope) {
       // instead of by position, since the team page shows "who fielded", not "which position".
       function summarizeFieldingForChances(chances, games) {
         const realChances = chances.filter((c) => !c.isBuddyJump)
+        const totalChances = realChances.reduce((sum, chance) => sum + fieldingChanceCount(chance), 0)
         const putouts = realChances.filter((c) => c.isPutout).length
         const assists = realChances.filter((c) => c.isAssist).length
         const errors = realChances.filter((c) => c.isError).length
@@ -733,14 +851,14 @@ export default function useTeamProfileData(playerId, scope) {
         const range = summarizeFieldingRange(chances, rangeLeagueConstants)
         return {
           games,
-          chances: realChances.length,
+          chances: totalChances,
           putouts,
           assists,
           errors,
           buddyJumps,
           nicePlays,
-          fieldingPct: realChances.length ? (realChances.length - errors) / realChances.length : null,
-          nicePlayRate: realChances.length ? nicePlays / realChances.length : null,
+          fieldingPct: totalChances ? (totalChances - errors) / totalChances : null,
+          nicePlayRate: totalChances ? nicePlays / totalChances : null,
           rangeRuns: range.totalRangeRuns,
           rangeable: range.totalRangeable,
           rangeFactorPlus: range.rangeFactorPlus,
@@ -765,6 +883,32 @@ export default function useTeamProfileData(playerId, scope) {
         label: 'Team Total',
         ...summarizeFieldingForChances(fieldingChances, new Set(fieldingGameFielderRows.map((row) => String(row.game_id))).size),
       }
+
+      // ─── Tracked defence and running, one row per character ──────────────────
+      // The summaries were computed above from this team's own fact rows; this
+      // only turns them into table rows and adds the team's line beside them.
+      const trackedRows = (byCharacter, empty) => [...new Set(Object.keys(byCharacter))]
+        .map((characterId) => ({
+          characterId: Number(characterId),
+          label: characterNameFor(Number(characterId)),
+          linkTo: characterLinkFor(Number(characterId)),
+          ...empty,
+          ...byCharacter[characterId],
+        }))
+      const trackedFieldingRows = trackedRows(trackedFieldingByCharacter, {})
+        .map((row) => ({ ...row, ...(trackedMovementByCharacter[String(row.characterId)] || {}) }))
+        .sort((a, b) => (b.fieldingOpportunities || 0) - (a.fieldingOpportunities || 0)
+          || a.label.localeCompare(b.label))
+      const trackedFieldingCareerRow = trackedFieldingTeam
+        ? { label: 'Team Total', ...trackedFieldingTeam, ...(trackedMovementTeam || {}) }
+        : null
+      const trackedBaserunningRows = trackedRows(trackedBaserunningByCharacter, {})
+        .map((row) => ({ ...row, ...(trackedMovementByCharacter[String(row.characterId)] || {}) }))
+        .sort((a, b) => (b.opportunities || 0) - (a.opportunities || 0)
+          || a.label.localeCompare(b.label))
+      const trackedBaserunningCareerRow = trackedBaserunningTeam
+        ? { label: 'Team Total', ...trackedBaserunningTeam, ...(trackedMovementTeam || {}) }
+        : null
 
       const currentSeasonBattingPas = battingPas.filter((pa) => pa.season_id != null)
       const currentTournamentBattingPas = battingPas.filter((pa) => pa.season_id == null)
@@ -930,6 +1074,13 @@ export default function useTeamProfileData(playerId, scope) {
         hasBatting: battingPas.length > 0,
         hasPitching: pitchingPas.length > 0 || pitchingStints.length > 0,
         hasFielding: fieldingChances.length > 0 || fieldingGameFielderRows.length > 0,
+        playMechanics,
+        trackedFieldingRows,
+        trackedFieldingCareerRow,
+        trackedBaserunningRows,
+        trackedBaserunningCareerRow,
+        hasTrackedFielding: trackedFieldingRows.length > 0,
+        hasTrackedBaserunning: trackedBaserunningRows.length > 0,
       }
 
       // ─── Record (W-L/RS/RA) ─────────────────────────────────────────────────────
@@ -1244,6 +1395,12 @@ export default function useTeamProfileData(playerId, scope) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitches' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, load)
+      // The tracking facts this page now reads. Without these a finished game's
+      // measured defence and running appear only on a manual reload, while every
+      // scored number beside them refreshes live.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracking_plays' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fielding_opportunities' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movement_metrics' }, load)
       .subscribe()
 
     return () => {

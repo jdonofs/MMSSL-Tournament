@@ -1,0 +1,6996 @@
+{
+  "version": "batting-uva-feasibility-v1",
+  "generatedAt": "2026-09-28T13:23:27.644Z",
+  "productionScoringActivated": false,
+  "splitPolicy": "Every prediction is out of sample by entire game. No random pitch split is used.",
+  "leakagePolicy": {
+    "realizedHitOutRbiUsedAsPreContactInput": false,
+    "derivedSwingModeUsedToValidateChargeDetector": false,
+    "sameGameInTrainingAndTest": false,
+    "missingEvidenceImputedAsZero": false
+  },
+  "cohort": {
+    "games": 11,
+    "sessions": [
+      "daisy_cruiser-20260918T131831Z",
+      "daisy_cruiser-20260918T151412Z",
+      "daisy_cruiser-20260918T183550Z",
+      "dk_jungle-20260918T190117Z",
+      "peach_ice_garden-20260919T000243Z",
+      "daisy_cruiser-20260919T001111Z",
+      "bowser_jr_playroom-20260919T002240Z",
+      "bowser_castle-20260919T003634Z",
+      "mario_stadium-20260922T003239Z",
+      "mario_stadium-20260922T015835Z",
+      "luigis_mansion-20260922T214904Z"
+    ],
+    "archivePitchesInSelectedSessions": 511,
+    "canonicalAlignedPitches": 474,
+    "players": 6,
+    "batterCharacters": 54,
+    "parks": 7,
+    "offers": 403,
+    "takes": 71,
+    "ordinarySwings": 384,
+    "slapSwings": 31,
+    "chargeSwings": 353,
+    "contactModelSwings": 403,
+    "chargedTimingSamples": 353,
+    "starSwings": 19,
+    "starAvailabilityObserved": 0,
+    "contactQualitySamples": 234,
+    "controllerSideObserved": 0
+  },
+  "evaluations": {
+    "swingTakeDecisionBehavior": {
+      "split": "leave_one_whole_game_out",
+      "games": 11,
+      "features": [
+        "count",
+        "pitch_zone",
+        "batter_character",
+        "pitcher_character",
+        "park",
+        "player",
+        "opponent",
+        "pitch_type",
+        "plate_x",
+        "plate_y",
+        "pitch_speed",
+        "pitch_horizontal",
+        "pitch_vertical"
+      ],
+      "metrics": {
+        "n": 474,
+        "positives": 403,
+        "rate": 0.850211,
+        "brier": 0.11648,
+        "logLoss": 0.398252,
+        "accuracy": 0.835443,
+        "auc": 0.728865
+      },
+      "baselineMetrics": {
+        "n": 474,
+        "positives": 403,
+        "rate": 0.850211,
+        "brier": 0.130923,
+        "logLoss": 0.4367,
+        "accuracy": 0.850211,
+        "auc": 0.249152
+      },
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.2,
+          "n": 1,
+          "meanPrediction": 0.198945,
+          "observedRate": 1
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.4,
+          "n": 9,
+          "meanPrediction": 0.30814,
+          "observedRate": 0.666667
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.6,
+          "n": 24,
+          "meanPrediction": 0.525839,
+          "observedRate": 0.375
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.8,
+          "n": 37,
+          "meanPrediction": 0.70808,
+          "observedRate": 0.702703
+        },
+        {
+          "lower": 0.8,
+          "upper": 1,
+          "n": 403,
+          "meanPrediction": 0.940785,
+          "observedRate": 0.895782
+        }
+      ],
+      "folds": [
+        {
+          "heldOutGame": "2751",
+          "trainN": 472,
+          "test": {
+            "n": 2,
+            "positives": 2,
+            "rate": 1,
+            "brier": 0.000102,
+            "logLoss": 0.01014,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 2,
+            "positives": 2,
+            "rate": 1,
+            "brier": 0.023073,
+            "logLoss": 0.164755,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        {
+          "heldOutGame": "2766",
+          "trainN": 413,
+          "test": {
+            "n": 61,
+            "positives": 59,
+            "rate": 0.967213,
+            "brier": 0.045965,
+            "logLoss": 0.175198,
+            "accuracy": 0.934426,
+            "auc": 0.70339
+          },
+          "baseline": {
+            "n": 61,
+            "positives": 59,
+            "rate": 0.967213,
+            "brier": 0.050177,
+            "logLoss": 0.237031,
+            "accuracy": 0.967213,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2767",
+          "trainN": 434,
+          "test": {
+            "n": 40,
+            "positives": 39,
+            "rate": 0.975,
+            "brier": 0.069791,
+            "logLoss": 0.231949,
+            "accuracy": 0.9,
+            "auc": 0.666667
+          },
+          "baseline": {
+            "n": 40,
+            "positives": 39,
+            "rate": 0.975,
+            "brier": 0.043376,
+            "logLoss": 0.218675,
+            "accuracy": 0.975,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2768",
+          "trainN": 423,
+          "test": {
+            "n": 51,
+            "positives": 39,
+            "rate": 0.764706,
+            "brier": 0.163083,
+            "logLoss": 0.54505,
+            "accuracy": 0.764706,
+            "auc": 0.700855
+          },
+          "baseline": {
+            "n": 51,
+            "positives": 39,
+            "rate": 0.764706,
+            "brier": 0.188789,
+            "logLoss": 0.577028,
+            "accuracy": 0.764706,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2811",
+          "trainN": 423,
+          "test": {
+            "n": 51,
+            "positives": 36,
+            "rate": 0.705882,
+            "brier": 0.192914,
+            "logLoss": 0.585822,
+            "accuracy": 0.705882,
+            "auc": 0.894444
+          },
+          "baseline": {
+            "n": 51,
+            "positives": 36,
+            "rate": 0.705882,
+            "brier": 0.233212,
+            "logLoss": 0.692545,
+            "accuracy": 0.705882,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2812",
+          "trainN": 435,
+          "test": {
+            "n": 39,
+            "positives": 32,
+            "rate": 0.820513,
+            "brier": 0.190736,
+            "logLoss": 0.758481,
+            "accuracy": 0.769231,
+            "auc": 0.486607
+          },
+          "baseline": {
+            "n": 39,
+            "positives": 32,
+            "rate": 0.820513,
+            "brier": 0.148217,
+            "logLoss": 0.474156,
+            "accuracy": 0.820513,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2813",
+          "trainN": 429,
+          "test": {
+            "n": 45,
+            "positives": 38,
+            "rate": 0.844444,
+            "brier": 0.147625,
+            "logLoss": 0.552323,
+            "accuracy": 0.822222,
+            "auc": 0.567669
+          },
+          "baseline": {
+            "n": 45,
+            "positives": 38,
+            "rate": 0.844444,
+            "brier": 0.131381,
+            "logLoss": 0.432313,
+            "accuracy": 0.844444,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2814",
+          "trainN": 411,
+          "test": {
+            "n": 63,
+            "positives": 42,
+            "rate": 0.666667,
+            "brier": 0.168563,
+            "logLoss": 0.507982,
+            "accuracy": 0.698413,
+            "auc": 0.899093
+          },
+          "baseline": {
+            "n": 63,
+            "positives": 42,
+            "rate": 0.666667,
+            "brier": 0.266258,
+            "logLoss": 0.785076,
+            "accuracy": 0.666667,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2946",
+          "trainN": 443,
+          "test": {
+            "n": 31,
+            "positives": 31,
+            "rate": 1,
+            "brier": 0.01202,
+            "logLoss": 0.0888,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 31,
+            "positives": 31,
+            "rate": 1,
+            "brier": 0.026179,
+            "logLoss": 0.176496,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        {
+          "heldOutGame": "2947",
+          "trainN": 415,
+          "test": {
+            "n": 59,
+            "positives": 54,
+            "rate": 0.915254,
+            "brier": 0.075336,
+            "logLoss": 0.250509,
+            "accuracy": 0.915254,
+            "auc": 0.77037
+          },
+          "baseline": {
+            "n": 59,
+            "positives": 54,
+            "rate": 0.915254,
+            "brier": 0.083329,
+            "logLoss": 0.315258,
+            "accuracy": 0.915254,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2948",
+          "trainN": 442,
+          "test": {
+            "n": 32,
+            "positives": 31,
+            "rate": 0.96875,
+            "brier": 0.060666,
+            "logLoss": 0.223141,
+            "accuracy": 0.9375,
+            "auc": 0.967742
+          },
+          "baseline": {
+            "n": 32,
+            "positives": 31,
+            "rate": 0.96875,
+            "brier": 0.046827,
+            "logLoss": 0.226087,
+            "accuracy": 0.96875,
+            "auc": 0.5
+          }
+        }
+      ],
+      "slices": {
+        "player": {
+          "1ce2362b-44bb-4292-92bc-a70fe6ba1c23": {
+            "n": 129,
+            "positives": 105,
+            "rate": 0.813953,
+            "brier": 0.109011,
+            "logLoss": 0.331088,
+            "accuracy": 0.806202,
+            "auc": 0.912698
+          },
+          "347ec3da-ae5d-4442-851c-3e7c022c240b": {
+            "n": 79,
+            "positives": 74,
+            "rate": 0.936709,
+            "brier": 0.055048,
+            "logLoss": 0.201282,
+            "accuracy": 0.936709,
+            "auc": 0.789189
+          },
+          "37e3db42-5608-4e78-b497-c081a2fb30f8": {
+            "n": 80,
+            "positives": 65,
+            "rate": 0.8125,
+            "brier": 0.138088,
+            "logLoss": 0.437866,
+            "accuracy": 0.7875,
+            "auc": 0.762051
+          },
+          "3b12101d-2d43-4fa0-9e07-f4132d86dfe3": {
+            "n": 53,
+            "positives": 49,
+            "rate": 0.924528,
+            "brier": 0.075125,
+            "logLoss": 0.3136,
+            "accuracy": 0.90566,
+            "auc": 0.520408
+          },
+          "a4d98664-1778-492c-8962-a27be4c30012": {
+            "n": 75,
+            "positives": 59,
+            "rate": 0.786667,
+            "brier": 0.172267,
+            "logLoss": 0.575625,
+            "accuracy": 0.773333,
+            "auc": 0.611229
+          },
+          "be1d20c0-c1f2-4831-a589-4195f9c5bbad": {
+            "n": 58,
+            "positives": 51,
+            "rate": 0.87931,
+            "brier": 0.152616,
+            "logLoss": 0.609273,
+            "accuracy": 0.844828,
+            "auc": 0.22409
+          }
+        },
+        "batterCharacter": {
+          "1": {
+            "n": 10,
+            "positives": 8,
+            "rate": 0.8,
+            "brier": 0.178152,
+            "logLoss": 0.622094,
+            "accuracy": 0.8,
+            "auc": 0.4375
+          },
+          "2": {
+            "n": 16,
+            "positives": 15,
+            "rate": 0.9375,
+            "brier": 0.057345,
+            "logLoss": 0.207355,
+            "accuracy": 0.9375,
+            "auc": 0.733333
+          },
+          "3": {
+            "n": 13,
+            "positives": 12,
+            "rate": 0.923077,
+            "brier": 0.054349,
+            "logLoss": 0.169633,
+            "accuracy": 0.923077,
+            "auc": 1
+          },
+          "4": {
+            "n": 11,
+            "positives": 11,
+            "rate": 1,
+            "brier": 0.064205,
+            "logLoss": 0.210178,
+            "accuracy": 0.909091,
+            "auc": null
+          },
+          "5": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.001312,
+            "logLoss": 0.036276,
+            "accuracy": 1,
+            "auc": null
+          },
+          "6": {
+            "n": 11,
+            "positives": 9,
+            "rate": 0.818182,
+            "brier": 0.233654,
+            "logLoss": 0.823469,
+            "accuracy": 0.727273,
+            "auc": 0.333333
+          },
+          "7": {
+            "n": 14,
+            "positives": 8,
+            "rate": 0.571429,
+            "brier": 0.258772,
+            "logLoss": 0.727882,
+            "accuracy": 0.428571,
+            "auc": 0.75
+          },
+          "8": {
+            "n": 9,
+            "positives": 7,
+            "rate": 0.777778,
+            "brier": 0.207507,
+            "logLoss": 0.861224,
+            "accuracy": 0.777778,
+            "auc": 0.357143
+          },
+          "10": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.003932,
+            "logLoss": 0.050071,
+            "accuracy": 1,
+            "auc": null
+          },
+          "11": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.006235,
+            "logLoss": 0.071,
+            "accuracy": 1,
+            "auc": null
+          },
+          "12": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.040816,
+            "logLoss": 0.180453,
+            "accuracy": 1,
+            "auc": null
+          },
+          "15": {
+            "n": 8,
+            "positives": 8,
+            "rate": 1,
+            "brier": 0.001273,
+            "logLoss": 0.030217,
+            "accuracy": 1,
+            "auc": null
+          },
+          "16": {
+            "n": 8,
+            "positives": 5,
+            "rate": 0.625,
+            "brier": 0.198082,
+            "logLoss": 0.531359,
+            "accuracy": 0.625,
+            "auc": 1
+          },
+          "17": {
+            "n": 15,
+            "positives": 10,
+            "rate": 0.666667,
+            "brier": 0.213729,
+            "logLoss": 0.576321,
+            "accuracy": 0.6,
+            "auc": 0.78
+          },
+          "18": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.00547,
+            "logLoss": 0.057569,
+            "accuracy": 1,
+            "auc": null
+          },
+          "19": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.004536,
+            "logLoss": 0.056884,
+            "accuracy": 1,
+            "auc": null
+          },
+          "20": {
+            "n": 14,
+            "positives": 12,
+            "rate": 0.857143,
+            "brier": 0.079639,
+            "logLoss": 0.250323,
+            "accuracy": 0.857143,
+            "auc": 0.958333
+          },
+          "21": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.003323,
+            "logLoss": 0.049982,
+            "accuracy": 1,
+            "auc": null
+          },
+          "22": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.418564,
+            "logLoss": 1.626258,
+            "accuracy": 0.5,
+            "auc": 0
+          },
+          "24": {
+            "n": 9,
+            "positives": 8,
+            "rate": 0.888889,
+            "brier": 0.174637,
+            "logLoss": 0.669161,
+            "accuracy": 0.888889,
+            "auc": 0
+          },
+          "25": {
+            "n": 10,
+            "positives": 7,
+            "rate": 0.7,
+            "brier": 0.295635,
+            "logLoss": 0.939217,
+            "accuracy": 0.7,
+            "auc": 0.333333
+          },
+          "26": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.033448,
+            "logLoss": 0.16586,
+            "accuracy": 1,
+            "auc": null
+          },
+          "29": {
+            "n": 10,
+            "positives": 9,
+            "rate": 0.9,
+            "brier": 0.100048,
+            "logLoss": 0.369325,
+            "accuracy": 0.9,
+            "auc": 0.444444
+          },
+          "31": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.165022,
+            "logLoss": 0.635662,
+            "accuracy": 0.833333,
+            "auc": 0.2
+          },
+          "32": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.062756,
+            "logLoss": 0.23507,
+            "accuracy": 0.857143,
+            "auc": 1
+          },
+          "35": {
+            "n": 12,
+            "positives": 5,
+            "rate": 0.416667,
+            "brier": 0.273813,
+            "logLoss": 0.743982,
+            "accuracy": 0.416667,
+            "auc": 0.942857
+          },
+          "36": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.250167,
+            "logLoss": 0.905551,
+            "accuracy": 0.625,
+            "auc": 0.5
+          },
+          "37": {
+            "n": 8,
+            "positives": 7,
+            "rate": 0.875,
+            "brier": 0.132786,
+            "logLoss": 0.504865,
+            "accuracy": 0.875,
+            "auc": 0.428571
+          },
+          "38": {
+            "n": 9,
+            "positives": 8,
+            "rate": 0.888889,
+            "brier": 0.103371,
+            "logLoss": 0.378343,
+            "accuracy": 0.888889,
+            "auc": 0.375
+          },
+          "39": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.000751,
+            "logLoss": 0.025289,
+            "accuracy": 1,
+            "auc": null
+          },
+          "40": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.164226,
+            "logLoss": 0.624606,
+            "accuracy": 0.857143,
+            "auc": 0.333333
+          },
+          "41": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.003143,
+            "logLoss": 0.043867,
+            "accuracy": 1,
+            "auc": null
+          },
+          "42": {
+            "n": 11,
+            "positives": 11,
+            "rate": 1,
+            "brier": 0.006457,
+            "logLoss": 0.060301,
+            "accuracy": 1,
+            "auc": null
+          },
+          "43": {
+            "n": 15,
+            "positives": 13,
+            "rate": 0.866667,
+            "brier": 0.080701,
+            "logLoss": 0.254845,
+            "accuracy": 0.866667,
+            "auc": 0.923077
+          },
+          "45": {
+            "n": 10,
+            "positives": 8,
+            "rate": 0.8,
+            "brier": 0.156484,
+            "logLoss": 0.481451,
+            "accuracy": 0.8,
+            "auc": 0.9375
+          },
+          "46": {
+            "n": 9,
+            "positives": 9,
+            "rate": 1,
+            "brier": 0.029805,
+            "logLoss": 0.106508,
+            "accuracy": 0.888889,
+            "auc": null
+          },
+          "48": {
+            "n": 5,
+            "positives": 3,
+            "rate": 0.6,
+            "brier": 0.436152,
+            "logLoss": 1.883044,
+            "accuracy": 0.6,
+            "auc": 0
+          },
+          "49": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.005196,
+            "logLoss": 0.063646,
+            "accuracy": 1,
+            "auc": null
+          },
+          "50": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.003059,
+            "logLoss": 0.049722,
+            "accuracy": 1,
+            "auc": null
+          },
+          "51": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.005979,
+            "logLoss": 0.064569,
+            "accuracy": 1,
+            "auc": null
+          },
+          "54": {
+            "n": 19,
+            "positives": 13,
+            "rate": 0.684211,
+            "brier": 0.14759,
+            "logLoss": 0.430204,
+            "accuracy": 0.789474,
+            "auc": 0.987179
+          },
+          "55": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.0134,
+            "logLoss": 0.102668,
+            "accuracy": 1,
+            "auc": null
+          },
+          "56": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.118175,
+            "logLoss": 0.394031,
+            "accuracy": 0.875,
+            "auc": 1
+          },
+          "58": {
+            "n": 11,
+            "positives": 10,
+            "rate": 0.909091,
+            "brier": 0.116625,
+            "logLoss": 0.42891,
+            "accuracy": 0.818182,
+            "auc": 0.3
+          },
+          "60": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.001527,
+            "logLoss": 0.03237,
+            "accuracy": 1,
+            "auc": null
+          },
+          "61": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.013223,
+            "logLoss": 0.104195,
+            "accuracy": 1,
+            "auc": null
+          },
+          "62": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.014605,
+            "logLoss": 0.109042,
+            "accuracy": 1,
+            "auc": null
+          },
+          "63": {
+            "n": 11,
+            "positives": 9,
+            "rate": 0.818182,
+            "brier": 0.160133,
+            "logLoss": 0.44808,
+            "accuracy": 0.727273,
+            "auc": 0.833333
+          },
+          "67": {
+            "n": 14,
+            "positives": 12,
+            "rate": 0.857143,
+            "brier": 0.132563,
+            "logLoss": 0.413973,
+            "accuracy": 0.857143,
+            "auc": 0.791667
+          },
+          "68": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.000804,
+            "logLoss": 0.026262,
+            "accuracy": 1,
+            "auc": null
+          },
+          "69": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.035891,
+            "logLoss": 0.175287,
+            "accuracy": 1,
+            "auc": null
+          },
+          "70": {
+            "n": 10,
+            "positives": 9,
+            "rate": 0.9,
+            "brier": 0.06589,
+            "logLoss": 0.208906,
+            "accuracy": 0.9,
+            "auc": 0.888889
+          },
+          "71": {
+            "n": 10,
+            "positives": 8,
+            "rate": 0.8,
+            "brier": 0.193762,
+            "logLoss": 0.735852,
+            "accuracy": 0.8,
+            "auc": 0.4375
+          },
+          "72": {
+            "n": 18,
+            "positives": 14,
+            "rate": 0.777778,
+            "brier": 0.08941,
+            "logLoss": 0.269888,
+            "accuracy": 0.777778,
+            "auc": 1
+          }
+        },
+        "pitcherCharacter": {
+          "1": {
+            "n": 45,
+            "positives": 42,
+            "rate": 0.933333,
+            "brier": 0.065889,
+            "logLoss": 0.25887,
+            "accuracy": 0.911111,
+            "auc": 0.642857
+          },
+          "2": {
+            "n": 66,
+            "positives": 56,
+            "rate": 0.848485,
+            "brier": 0.168465,
+            "logLoss": 0.638571,
+            "accuracy": 0.818182,
+            "auc": 0.325
+          },
+          "3": {
+            "n": 80,
+            "positives": 65,
+            "rate": 0.8125,
+            "brier": 0.138088,
+            "logLoss": 0.437866,
+            "accuracy": 0.7875,
+            "auc": 0.762051
+          },
+          "4": {
+            "n": 48,
+            "positives": 43,
+            "rate": 0.895833,
+            "brier": 0.092789,
+            "logLoss": 0.281349,
+            "accuracy": 0.854167,
+            "auc": 0.865116
+          },
+          "5": {
+            "n": 66,
+            "positives": 51,
+            "rate": 0.772727,
+            "brier": 0.17884,
+            "logLoss": 0.580539,
+            "accuracy": 0.757576,
+            "auc": 0.63268
+          },
+          "7": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.018927,
+            "logLoss": 0.13093,
+            "accuracy": 1,
+            "auc": null
+          },
+          "21": {
+            "n": 1,
+            "positives": 1,
+            "rate": 1,
+            "brier": 0.091278,
+            "logLoss": 0.359711,
+            "accuracy": 1,
+            "auc": null
+          },
+          "26": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.000146,
+            "logLoss": 0.01209,
+            "accuracy": 1,
+            "auc": null
+          },
+          "36": {
+            "n": 8,
+            "positives": 7,
+            "rate": 0.875,
+            "brier": 0.128167,
+            "logLoss": 0.562069,
+            "accuracy": 0.875,
+            "auc": 0
+          },
+          "49": {
+            "n": 27,
+            "positives": 26,
+            "rate": 0.962963,
+            "brier": 0.050695,
+            "logLoss": 0.175251,
+            "accuracy": 0.925926,
+            "auc": 0.807692
+          },
+          "50": {
+            "n": 8,
+            "positives": 7,
+            "rate": 0.875,
+            "brier": 0.127078,
+            "logLoss": 0.621454,
+            "accuracy": 0.875,
+            "auc": 0
+          },
+          "52": {
+            "n": 49,
+            "positives": 31,
+            "rate": 0.632653,
+            "brier": 0.168141,
+            "logLoss": 0.498152,
+            "accuracy": 0.673469,
+            "auc": 0.94086
+          },
+          "58": {
+            "n": 38,
+            "positives": 36,
+            "rate": 0.947368,
+            "brier": 0.048927,
+            "logLoss": 0.189931,
+            "accuracy": 0.947368,
+            "auc": 0.694444
+          },
+          "63": {
+            "n": 25,
+            "positives": 25,
+            "rate": 1,
+            "brier": 0.004353,
+            "logLoss": 0.042805,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        "park": {
+          "bowser_castle": {
+            "n": 63,
+            "positives": 42,
+            "rate": 0.666667,
+            "brier": 0.168563,
+            "logLoss": 0.507982,
+            "accuracy": 0.698413,
+            "auc": 0.899093
+          },
+          "bowser_jr_playroom": {
+            "n": 45,
+            "positives": 38,
+            "rate": 0.844444,
+            "brier": 0.147625,
+            "logLoss": 0.552323,
+            "accuracy": 0.822222,
+            "auc": 0.567669
+          },
+          "daisy_cruiser": {
+            "n": 142,
+            "positives": 132,
+            "rate": 0.929577,
+            "brier": 0.091792,
+            "logLoss": 0.349057,
+            "accuracy": 0.880282,
+            "auc": 0.45303
+          },
+          "dk_jungle": {
+            "n": 51,
+            "positives": 39,
+            "rate": 0.764706,
+            "brier": 0.163083,
+            "logLoss": 0.54505,
+            "accuracy": 0.764706,
+            "auc": 0.700855
+          },
+          "luigis_mansion": {
+            "n": 32,
+            "positives": 31,
+            "rate": 0.96875,
+            "brier": 0.060666,
+            "logLoss": 0.223141,
+            "accuracy": 0.9375,
+            "auc": 0.967742
+          },
+          "mario_stadium": {
+            "n": 90,
+            "positives": 85,
+            "rate": 0.944444,
+            "brier": 0.053527,
+            "logLoss": 0.194809,
+            "accuracy": 0.944444,
+            "auc": 0.8
+          },
+          "peach_ice_garden": {
+            "n": 51,
+            "positives": 36,
+            "rate": 0.705882,
+            "brier": 0.192914,
+            "logLoss": 0.585822,
+            "accuracy": 0.705882,
+            "auc": 0.894444
+          }
+        },
+        "swingMode": {
+          "charge": {
+            "n": 353,
+            "positives": 353,
+            "rate": 1,
+            "brier": 0.025419,
+            "logLoss": 0.114766,
+            "accuracy": 0.974504,
+            "auc": null
+          },
+          "none": {
+            "n": 71,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.637196,
+            "logLoss": 2.018218,
+            "accuracy": 0.056338,
+            "auc": null
+          },
+          "slap": {
+            "n": 31,
+            "positives": 31,
+            "rate": 1,
+            "brier": 0.029224,
+            "logLoss": 0.130754,
+            "accuracy": 0.935484,
+            "auc": null
+          },
+          "star": {
+            "n": 19,
+            "positives": 19,
+            "rate": 1,
+            "brier": 0.00484,
+            "logLoss": 0.048005,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        "controllerSide": {
+          "unobserved": {
+            "n": 474,
+            "positives": 403,
+            "rate": 0.850211,
+            "brier": 0.11648,
+            "logLoss": 0.398252,
+            "accuracy": 0.835443,
+            "auc": 0.728865
+          }
+        },
+        "contactResult": {
+          "contact": {
+            "n": 309,
+            "positives": 309,
+            "rate": 1,
+            "brier": 0.015508,
+            "logLoss": 0.088056,
+            "accuracy": 0.990291,
+            "auc": null
+          },
+          "no_contact": {
+            "n": 165,
+            "positives": 94,
+            "rate": 0.569697,
+            "brier": 0.305573,
+            "logLoss": 0.979165,
+            "accuracy": 0.545455,
+            "auc": 0.649685
+          }
+        }
+      }
+    },
+    "slapChargeChoiceBehavior": {
+      "split": "leave_one_whole_game_out",
+      "games": 11,
+      "features": [
+        "count",
+        "pitch_zone",
+        "batter_character",
+        "pitcher_character",
+        "park",
+        "player",
+        "opponent",
+        "pitch_type",
+        "plate_x",
+        "plate_y",
+        "pitch_speed",
+        "pitch_horizontal",
+        "pitch_vertical"
+      ],
+      "metrics": {
+        "n": 384,
+        "positives": 353,
+        "rate": 0.919271,
+        "brier": 0.09599,
+        "logLoss": 0.427095,
+        "accuracy": 0.916667,
+        "auc": 0.203875
+      },
+      "baselineMetrics": {
+        "n": 384,
+        "positives": 353,
+        "rate": 0.919271,
+        "brier": 0.076974,
+        "logLoss": 0.299755,
+        "accuracy": 0.919271,
+        "auc": 0.129581
+      },
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.2,
+          "n": 0,
+          "meanPrediction": null,
+          "observedRate": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.4,
+          "n": 0,
+          "meanPrediction": null,
+          "observedRate": null
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.6,
+          "n": 2,
+          "meanPrediction": 0.511765,
+          "observedRate": 1
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.8,
+          "n": 77,
+          "meanPrediction": 0.742675,
+          "observedRate": 1
+        },
+        {
+          "lower": 0.8,
+          "upper": 1,
+          "n": 305,
+          "meanPrediction": 0.948999,
+          "observedRate": 0.898361
+        }
+      ],
+      "folds": [
+        {
+          "heldOutGame": "2751",
+          "trainN": 382,
+          "test": {
+            "n": 2,
+            "positives": 1,
+            "rate": 0.5,
+            "brier": 0.474098,
+            "logLoss": 1.713687,
+            "accuracy": 0.5,
+            "auc": 0
+          },
+          "baseline": {
+            "n": 2,
+            "positives": 1,
+            "rate": 0.5,
+            "brier": 0.425788,
+            "logLoss": 1.300415,
+            "accuracy": 0.5,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2766",
+          "trainN": 328,
+          "test": {
+            "n": 56,
+            "positives": 55,
+            "rate": 0.982143,
+            "brier": 0.052877,
+            "logLoss": 0.230069,
+            "accuracy": 0.964286,
+            "auc": 0.090909
+          },
+          "baseline": {
+            "n": 56,
+            "positives": 55,
+            "rate": 0.982143,
+            "brier": 0.023327,
+            "logLoss": 0.139122,
+            "accuracy": 0.982143,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2767",
+          "trainN": 345,
+          "test": {
+            "n": 39,
+            "positives": 39,
+            "rate": 1,
+            "brier": 0.052912,
+            "logLoss": 0.243852,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 39,
+            "positives": 39,
+            "rate": 1,
+            "brier": 0.008504,
+            "logLoss": 0.096752,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        {
+          "heldOutGame": "2768",
+          "trainN": 346,
+          "test": {
+            "n": 38,
+            "positives": 38,
+            "rate": 1,
+            "brier": 0.024807,
+            "logLoss": 0.140487,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 38,
+            "positives": 38,
+            "rate": 1,
+            "brier": 0.008456,
+            "logLoss": 0.09646,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        {
+          "heldOutGame": "2811",
+          "trainN": 350,
+          "test": {
+            "n": 34,
+            "positives": 27,
+            "rate": 0.794118,
+            "brier": 0.192743,
+            "logLoss": 0.719788,
+            "accuracy": 0.794118,
+            "auc": 0.645503
+          },
+          "baseline": {
+            "n": 34,
+            "positives": 27,
+            "rate": 0.794118,
+            "brier": 0.181682,
+            "logLoss": 0.603012,
+            "accuracy": 0.794118,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2812",
+          "trainN": 355,
+          "test": {
+            "n": 29,
+            "positives": 19,
+            "rate": 0.655172,
+            "brier": 0.337649,
+            "logLoss": 1.592179,
+            "accuracy": 0.655172,
+            "auc": 0.247368
+          },
+          "baseline": {
+            "n": 29,
+            "positives": 19,
+            "rate": 0.655172,
+            "brier": 0.306125,
+            "logLoss": 1.002601,
+            "accuracy": 0.655172,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2813",
+          "trainN": 349,
+          "test": {
+            "n": 35,
+            "positives": 26,
+            "rate": 0.742857,
+            "brier": 0.250628,
+            "logLoss": 1.125284,
+            "accuracy": 0.742857,
+            "auc": 0.239316
+          },
+          "baseline": {
+            "n": 35,
+            "positives": 26,
+            "rate": 0.742857,
+            "brier": 0.227737,
+            "logLoss": 0.751135,
+            "accuracy": 0.742857,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2814",
+          "trainN": 342,
+          "test": {
+            "n": 42,
+            "positives": 39,
+            "rate": 0.928571,
+            "brier": 0.06562,
+            "logLoss": 0.250111,
+            "accuracy": 0.928571,
+            "auc": 0.74359
+          },
+          "baseline": {
+            "n": 42,
+            "positives": 39,
+            "rate": 0.928571,
+            "brier": 0.066492,
+            "logLoss": 0.258446,
+            "accuracy": 0.928571,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2946",
+          "trainN": 354,
+          "test": {
+            "n": 30,
+            "positives": 30,
+            "rate": 1,
+            "brier": 0.004037,
+            "logLoss": 0.048822,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 30,
+            "positives": 30,
+            "rate": 1,
+            "brier": 0.00808,
+            "logLoss": 0.094187,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        {
+          "heldOutGame": "2947",
+          "trainN": 334,
+          "test": {
+            "n": 50,
+            "positives": 50,
+            "rate": 1,
+            "brier": 0.023011,
+            "logLoss": 0.13273,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 50,
+            "positives": 50,
+            "rate": 1,
+            "brier": 0.00907,
+            "logLoss": 0.100083,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        {
+          "heldOutGame": "2948",
+          "trainN": 355,
+          "test": {
+            "n": 29,
+            "positives": 29,
+            "rate": 1,
+            "brier": 0.027577,
+            "logLoss": 0.145091,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 29,
+            "positives": 29,
+            "rate": 1,
+            "brier": 0.008035,
+            "logLoss": 0.093911,
+            "accuracy": 1,
+            "auc": null
+          }
+        }
+      ],
+      "slices": {
+        "player": {
+          "1ce2362b-44bb-4292-92bc-a70fe6ba1c23": {
+            "n": 102,
+            "positives": 92,
+            "rate": 0.901961,
+            "brier": 0.12592,
+            "logLoss": 0.594148,
+            "accuracy": 0.901961,
+            "auc": 0.054348
+          },
+          "347ec3da-ae5d-4442-851c-3e7c022c240b": {
+            "n": 72,
+            "positives": 62,
+            "rate": 0.861111,
+            "brier": 0.157699,
+            "logLoss": 0.59728,
+            "accuracy": 0.847222,
+            "auc": 0.141935
+          },
+          "37e3db42-5608-4e78-b497-c081a2fb30f8": {
+            "n": 61,
+            "positives": 60,
+            "rate": 0.983607,
+            "brier": 0.016444,
+            "logLoss": 0.08508,
+            "accuracy": 0.983607,
+            "auc": 0.566667
+          },
+          "3b12101d-2d43-4fa0-9e07-f4132d86dfe3": {
+            "n": 47,
+            "positives": 47,
+            "rate": 1,
+            "brier": 0.000506,
+            "logLoss": 0.021839,
+            "accuracy": 1,
+            "auc": null
+          },
+          "a4d98664-1778-492c-8962-a27be4c30012": {
+            "n": 55,
+            "positives": 46,
+            "rate": 0.836364,
+            "brier": 0.190737,
+            "logLoss": 0.870993,
+            "accuracy": 0.836364,
+            "auc": 0.070048
+          },
+          "be1d20c0-c1f2-4831-a589-4195f9c5bbad": {
+            "n": 47,
+            "positives": 46,
+            "rate": 0.978723,
+            "brier": 0.024349,
+            "logLoss": 0.133534,
+            "accuracy": 0.978723,
+            "auc": 0.195652
+          }
+        },
+        "batterCharacter": {
+          "1": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.018764,
+            "logLoss": 0.12919,
+            "accuracy": 1,
+            "auc": null
+          },
+          "2": {
+            "n": 12,
+            "positives": 11,
+            "rate": 0.916667,
+            "brier": 0.117287,
+            "logLoss": 0.58636,
+            "accuracy": 0.916667,
+            "auc": 0
+          },
+          "3": {
+            "n": 11,
+            "positives": 10,
+            "rate": 0.909091,
+            "brier": 0.095597,
+            "logLoss": 0.384713,
+            "accuracy": 0.909091,
+            "auc": 0.1
+          },
+          "4": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.008318,
+            "logLoss": 0.077609,
+            "accuracy": 1,
+            "auc": null
+          },
+          "5": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.000462,
+            "logLoss": 0.021475,
+            "accuracy": 1,
+            "auc": null
+          },
+          "6": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.184346,
+            "logLoss": 0.835547,
+            "accuracy": 0.857143,
+            "auc": 0
+          },
+          "7": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.286098,
+            "logLoss": 1.35776,
+            "accuracy": 0.75,
+            "auc": 0
+          },
+          "8": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.000647,
+            "logLoss": 0.024695,
+            "accuracy": 1,
+            "auc": null
+          },
+          "10": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.324906,
+            "logLoss": 1.157716,
+            "accuracy": 0.666667,
+            "auc": 0.25
+          },
+          "11": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.000895,
+            "logLoss": 0.028941,
+            "accuracy": 1,
+            "auc": null
+          },
+          "12": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.001476,
+            "logLoss": 0.034833,
+            "accuracy": 1,
+            "auc": null
+          },
+          "15": {
+            "n": 8,
+            "positives": 7,
+            "rate": 0.875,
+            "brier": 0.149901,
+            "logLoss": 0.611374,
+            "accuracy": 0.875,
+            "auc": 0
+          },
+          "16": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.000797,
+            "logLoss": 0.026467,
+            "accuracy": 1,
+            "auc": null
+          },
+          "17": {
+            "n": 10,
+            "positives": 10,
+            "rate": 1,
+            "brier": 0.001058,
+            "logLoss": 0.025106,
+            "accuracy": 1,
+            "auc": null
+          },
+          "18": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.000383,
+            "logLoss": 0.019663,
+            "accuracy": 1,
+            "auc": null
+          },
+          "19": {
+            "n": 7,
+            "positives": 4,
+            "rate": 0.571429,
+            "brier": 0.463604,
+            "logLoss": 1.55215,
+            "accuracy": 0.428571,
+            "auc": 0
+          },
+          "20": {
+            "n": 12,
+            "positives": 11,
+            "rate": 0.916667,
+            "brier": 0.106788,
+            "logLoss": 0.514583,
+            "accuracy": 0.916667,
+            "auc": 0.181818
+          },
+          "21": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.000579,
+            "logLoss": 0.023472,
+            "accuracy": 1,
+            "auc": null
+          },
+          "22": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.004667,
+            "logLoss": 0.060355,
+            "accuracy": 1,
+            "auc": null
+          },
+          "24": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.287483,
+            "logLoss": 1.290468,
+            "accuracy": 0.75,
+            "auc": 0.166667
+          },
+          "25": {
+            "n": 7,
+            "positives": 5,
+            "rate": 0.714286,
+            "brier": 0.314651,
+            "logLoss": 1.421884,
+            "accuracy": 0.714286,
+            "auc": 0
+          },
+          "26": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.002307,
+            "logLoss": 0.042653,
+            "accuracy": 1,
+            "auc": null
+          },
+          "29": {
+            "n": 9,
+            "positives": 9,
+            "rate": 1,
+            "brier": 0.02671,
+            "logLoss": 0.141283,
+            "accuracy": 1,
+            "auc": null
+          },
+          "31": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.003432,
+            "logLoss": 0.054287,
+            "accuracy": 1,
+            "auc": null
+          },
+          "32": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.016174,
+            "logLoss": 0.117687,
+            "accuracy": 1,
+            "auc": null
+          },
+          "35": {
+            "n": 5,
+            "positives": 4,
+            "rate": 0.8,
+            "brier": 0.22479,
+            "logLoss": 1.013065,
+            "accuracy": 0.8,
+            "auc": 0
+          },
+          "36": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.000649,
+            "logLoss": 0.023644,
+            "accuracy": 1,
+            "auc": null
+          },
+          "37": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.003102,
+            "logLoss": 0.04271,
+            "accuracy": 1,
+            "auc": null
+          },
+          "38": {
+            "n": 8,
+            "positives": 7,
+            "rate": 0.875,
+            "brier": 0.155548,
+            "logLoss": 0.618088,
+            "accuracy": 0.875,
+            "auc": 0
+          },
+          "39": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.000362,
+            "logLoss": 0.019055,
+            "accuracy": 1,
+            "auc": null
+          },
+          "40": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.003784,
+            "logLoss": 0.049773,
+            "accuracy": 1,
+            "auc": null
+          },
+          "41": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.000338,
+            "logLoss": 0.018214,
+            "accuracy": 1,
+            "auc": null
+          },
+          "42": {
+            "n": 11,
+            "positives": 10,
+            "rate": 0.909091,
+            "brier": 0.103004,
+            "logLoss": 0.416166,
+            "accuracy": 0.909091,
+            "auc": 0
+          },
+          "43": {
+            "n": 13,
+            "positives": 11,
+            "rate": 0.846154,
+            "brier": 0.184967,
+            "logLoss": 0.766334,
+            "accuracy": 0.846154,
+            "auc": 0.090909
+          },
+          "45": {
+            "n": 8,
+            "positives": 8,
+            "rate": 1,
+            "brier": 0.02178,
+            "logLoss": 0.134917,
+            "accuracy": 1,
+            "auc": null
+          },
+          "46": {
+            "n": 9,
+            "positives": 8,
+            "rate": 0.888889,
+            "brier": 0.151147,
+            "logLoss": 0.671167,
+            "accuracy": 0.888889,
+            "auc": 0
+          },
+          "48": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.003669,
+            "logLoss": 0.057346,
+            "accuracy": 1,
+            "auc": null
+          },
+          "49": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.002006,
+            "logLoss": 0.040482,
+            "accuracy": 1,
+            "auc": null
+          },
+          "50": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.277763,
+            "logLoss": 1.25873,
+            "accuracy": 0.75,
+            "auc": 0
+          },
+          "51": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.000622,
+            "logLoss": 0.024439,
+            "accuracy": 1,
+            "auc": null
+          },
+          "54": {
+            "n": 13,
+            "positives": 11,
+            "rate": 0.846154,
+            "brier": 0.171223,
+            "logLoss": 0.846947,
+            "accuracy": 0.846154,
+            "auc": 0
+          },
+          "55": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.000724,
+            "logLoss": 0.024742,
+            "accuracy": 1,
+            "auc": null
+          },
+          "56": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.000629,
+            "logLoss": 0.023557,
+            "accuracy": 1,
+            "auc": null
+          },
+          "58": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.158772,
+            "logLoss": 0.619618,
+            "accuracy": 0.833333,
+            "auc": 0.6
+          },
+          "60": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.27921,
+            "logLoss": 1.049145,
+            "accuracy": 0.75,
+            "auc": 0
+          },
+          "61": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.242838,
+            "logLoss": 0.998544,
+            "accuracy": 0.75,
+            "auc": 0
+          },
+          "62": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.35772,
+            "logLoss": 1.576054,
+            "accuracy": 0.666667,
+            "auc": 0
+          },
+          "63": {
+            "n": 9,
+            "positives": 9,
+            "rate": 1,
+            "brier": 0.001028,
+            "logLoss": 0.027944,
+            "accuracy": 1,
+            "auc": null
+          },
+          "67": {
+            "n": 12,
+            "positives": 12,
+            "rate": 1,
+            "brier": 0.020413,
+            "logLoss": 0.115719,
+            "accuracy": 1,
+            "auc": null
+          },
+          "68": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.000372,
+            "logLoss": 0.019287,
+            "accuracy": 1,
+            "auc": null
+          },
+          "69": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.017794,
+            "logLoss": 0.123505,
+            "accuracy": 1,
+            "auc": null
+          },
+          "70": {
+            "n": 9,
+            "positives": 9,
+            "rate": 1,
+            "brier": 0.017031,
+            "logLoss": 0.102245,
+            "accuracy": 1,
+            "auc": null
+          },
+          "71": {
+            "n": 8,
+            "positives": 8,
+            "rate": 1,
+            "brier": 0.000743,
+            "logLoss": 0.025481,
+            "accuracy": 1,
+            "auc": null
+          },
+          "72": {
+            "n": 14,
+            "positives": 13,
+            "rate": 0.928571,
+            "brier": 0.105507,
+            "logLoss": 0.514841,
+            "accuracy": 0.928571,
+            "auc": 0.076923
+          }
+        },
+        "pitcherCharacter": {
+          "1": {
+            "n": 40,
+            "positives": 40,
+            "rate": 1,
+            "brier": 0.000439,
+            "logLoss": 0.020428,
+            "accuracy": 1,
+            "auc": null
+          },
+          "2": {
+            "n": 53,
+            "positives": 50,
+            "rate": 0.943396,
+            "brier": 0.054928,
+            "logLoss": 0.227009,
+            "accuracy": 0.943396,
+            "auc": 0.553333
+          },
+          "3": {
+            "n": 61,
+            "positives": 60,
+            "rate": 0.983607,
+            "brier": 0.016444,
+            "logLoss": 0.08508,
+            "accuracy": 0.983607,
+            "auc": 0.566667
+          },
+          "4": {
+            "n": 41,
+            "positives": 32,
+            "rate": 0.780488,
+            "brier": 0.244156,
+            "logLoss": 1.169129,
+            "accuracy": 0.780488,
+            "auc": 0.104167
+          },
+          "5": {
+            "n": 48,
+            "positives": 41,
+            "rate": 0.854167,
+            "brier": 0.174293,
+            "logLoss": 0.79757,
+            "accuracy": 0.854167,
+            "auc": 0.052265
+          },
+          "7": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.001393,
+            "logLoss": 0.037989,
+            "accuracy": 1,
+            "auc": null
+          },
+          "21": {
+            "n": 1,
+            "positives": 1,
+            "rate": 1,
+            "brier": 0.02401,
+            "logLoss": 0.168362,
+            "accuracy": 1,
+            "auc": null
+          },
+          "26": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.007488,
+            "logLoss": 0.089158,
+            "accuracy": 1,
+            "auc": null
+          },
+          "36": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.350084,
+            "logLoss": 1.575481,
+            "accuracy": 0.666667,
+            "auc": 0.25
+          },
+          "49": {
+            "n": 26,
+            "positives": 25,
+            "rate": 0.961538,
+            "brier": 0.105938,
+            "logLoss": 0.423152,
+            "accuracy": 0.961538,
+            "auc": 0
+          },
+          "50": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.000893,
+            "logLoss": 0.029906,
+            "accuracy": 1,
+            "auc": null
+          },
+          "52": {
+            "n": 31,
+            "positives": 30,
+            "rate": 0.967742,
+            "brier": 0.031687,
+            "logLoss": 0.147075,
+            "accuracy": 0.967742,
+            "auc": 0.333333
+          },
+          "58": {
+            "n": 36,
+            "positives": 29,
+            "rate": 0.805556,
+            "brier": 0.196395,
+            "logLoss": 0.744516,
+            "accuracy": 0.777778,
+            "auc": 0.142857
+          },
+          "63": {
+            "n": 23,
+            "positives": 23,
+            "rate": 1,
+            "brier": 0.067922,
+            "logLoss": 0.296907,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        "park": {
+          "bowser_castle": {
+            "n": 42,
+            "positives": 39,
+            "rate": 0.928571,
+            "brier": 0.06562,
+            "logLoss": 0.250111,
+            "accuracy": 0.928571,
+            "auc": 0.74359
+          },
+          "bowser_jr_playroom": {
+            "n": 35,
+            "positives": 26,
+            "rate": 0.742857,
+            "brier": 0.250628,
+            "logLoss": 1.125284,
+            "accuracy": 0.742857,
+            "auc": 0.239316
+          },
+          "daisy_cruiser": {
+            "n": 126,
+            "positives": 114,
+            "rate": 0.904762,
+            "brier": 0.125117,
+            "logLoss": 0.571386,
+            "accuracy": 0.896825,
+            "auc": 0.082602
+          },
+          "dk_jungle": {
+            "n": 38,
+            "positives": 38,
+            "rate": 1,
+            "brier": 0.024807,
+            "logLoss": 0.140487,
+            "accuracy": 1,
+            "auc": null
+          },
+          "luigis_mansion": {
+            "n": 29,
+            "positives": 29,
+            "rate": 1,
+            "brier": 0.027577,
+            "logLoss": 0.145091,
+            "accuracy": 1,
+            "auc": null
+          },
+          "mario_stadium": {
+            "n": 80,
+            "positives": 80,
+            "rate": 1,
+            "brier": 0.015895,
+            "logLoss": 0.101265,
+            "accuracy": 1,
+            "auc": null
+          },
+          "peach_ice_garden": {
+            "n": 34,
+            "positives": 27,
+            "rate": 0.794118,
+            "brier": 0.192743,
+            "logLoss": 0.719788,
+            "accuracy": 0.794118,
+            "auc": 0.645503
+          }
+        },
+        "swingMode": {
+          "charge": {
+            "n": 353,
+            "positives": 353,
+            "rate": 1,
+            "brier": 0.020534,
+            "logLoss": 0.113543,
+            "accuracy": 0.997167,
+            "auc": null
+          },
+          "slap": {
+            "n": 31,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.955213,
+            "logLoss": 3.997533,
+            "accuracy": 0,
+            "auc": null
+          }
+        },
+        "controllerSide": {
+          "unobserved": {
+            "n": 384,
+            "positives": 353,
+            "rate": 0.919271,
+            "brier": 0.09599,
+            "logLoss": 0.427095,
+            "accuracy": 0.916667,
+            "auc": 0.203875
+          }
+        },
+        "contactResult": {
+          "contact": {
+            "n": 290,
+            "positives": 271,
+            "rate": 0.934483,
+            "brier": 0.080661,
+            "logLoss": 0.370294,
+            "accuracy": 0.931034,
+            "auc": 0.172655
+          },
+          "no_contact": {
+            "n": 94,
+            "positives": 82,
+            "rate": 0.87234,
+            "brier": 0.14328,
+            "logLoss": 0.602329,
+            "accuracy": 0.87234,
+            "auc": 0.25813
+          }
+        }
+      }
+    },
+    "contactProbability": {
+      "split": "leave_one_whole_game_out",
+      "games": 11,
+      "features": [
+        "count",
+        "pitch_zone",
+        "batter_character",
+        "pitcher_character",
+        "park",
+        "player",
+        "opponent",
+        "pitch_type",
+        "swing_mode",
+        "plate_x",
+        "plate_y",
+        "pitch_speed",
+        "pitch_horizontal",
+        "pitch_vertical"
+      ],
+      "metrics": {
+        "n": 403,
+        "positives": 309,
+        "rate": 0.766749,
+        "brier": 0.144144,
+        "logLoss": 0.448871,
+        "accuracy": 0.808933,
+        "auc": 0.772189
+      },
+      "baselineMetrics": {
+        "n": 403,
+        "positives": 309,
+        "rate": 0.766749,
+        "brier": 0.180376,
+        "logLoss": 0.547473,
+        "accuracy": 0.766749,
+        "auc": 0.378968
+      },
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.2,
+          "n": 4,
+          "meanPrediction": 0.123045,
+          "observedRate": 0
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.4,
+          "n": 13,
+          "meanPrediction": 0.332634,
+          "observedRate": 0.230769
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.6,
+          "n": 40,
+          "meanPrediction": 0.527826,
+          "observedRate": 0.5
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.8,
+          "n": 91,
+          "meanPrediction": 0.715288,
+          "observedRate": 0.725275
+        },
+        {
+          "lower": 0.8,
+          "upper": 1,
+          "n": 255,
+          "meanPrediction": 0.892883,
+          "observedRate": 0.862745
+        }
+      ],
+      "folds": [
+        {
+          "heldOutGame": "2751",
+          "trainN": 401,
+          "test": {
+            "n": 2,
+            "positives": 2,
+            "rate": 1,
+            "brier": 0.031353,
+            "logLoss": 0.194684,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 2,
+            "positives": 2,
+            "rate": 1,
+            "brier": 0.05557,
+            "logLoss": 0.268837,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        {
+          "heldOutGame": "2766",
+          "trainN": 344,
+          "test": {
+            "n": 59,
+            "positives": 46,
+            "rate": 0.779661,
+            "brier": 0.134979,
+            "logLoss": 0.419647,
+            "accuracy": 0.813559,
+            "auc": 0.846154
+          },
+          "baseline": {
+            "n": 59,
+            "positives": 46,
+            "rate": 0.779661,
+            "brier": 0.172067,
+            "logLoss": 0.528117,
+            "accuracy": 0.779661,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2767",
+          "trainN": 364,
+          "test": {
+            "n": 39,
+            "positives": 33,
+            "rate": 0.846154,
+            "brier": 0.119104,
+            "logLoss": 0.392258,
+            "accuracy": 0.871795,
+            "auc": 0.767677
+          },
+          "baseline": {
+            "n": 39,
+            "positives": 33,
+            "rate": 0.846154,
+            "brier": 0.138156,
+            "logLoss": 0.45329,
+            "accuracy": 0.846154,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2768",
+          "trainN": 364,
+          "test": {
+            "n": 39,
+            "positives": 29,
+            "rate": 0.74359,
+            "brier": 0.111267,
+            "logLoss": 0.3703,
+            "accuracy": 0.923077,
+            "auc": 0.92069
+          },
+          "baseline": {
+            "n": 39,
+            "positives": 29,
+            "rate": 0.74359,
+            "brier": 0.191248,
+            "logLoss": 0.570869,
+            "accuracy": 0.74359,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2811",
+          "trainN": 367,
+          "test": {
+            "n": 36,
+            "positives": 24,
+            "rate": 0.666667,
+            "brier": 0.212127,
+            "logLoss": 0.600377,
+            "accuracy": 0.666667,
+            "auc": 0.854167
+          },
+          "baseline": {
+            "n": 36,
+            "positives": 24,
+            "rate": 0.666667,
+            "brier": 0.233973,
+            "logLoss": 0.667189,
+            "accuracy": 0.666667,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2812",
+          "trainN": 371,
+          "test": {
+            "n": 32,
+            "positives": 27,
+            "rate": 0.84375,
+            "brier": 0.100958,
+            "logLoss": 0.341215,
+            "accuracy": 0.90625,
+            "auc": 0.807407
+          },
+          "baseline": {
+            "n": 32,
+            "positives": 27,
+            "rate": 0.84375,
+            "brier": 0.139067,
+            "logLoss": 0.455137,
+            "accuracy": 0.84375,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2813",
+          "trainN": 365,
+          "test": {
+            "n": 38,
+            "positives": 24,
+            "rate": 0.631579,
+            "brier": 0.187233,
+            "logLoss": 0.550668,
+            "accuracy": 0.657895,
+            "auc": 0.869048
+          },
+          "baseline": {
+            "n": 38,
+            "positives": 24,
+            "rate": 0.631579,
+            "brier": 0.254506,
+            "logLoss": 0.714149,
+            "accuracy": 0.631579,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2814",
+          "trainN": 361,
+          "test": {
+            "n": 42,
+            "positives": 27,
+            "rate": 0.642857,
+            "brier": 0.180219,
+            "logLoss": 0.542048,
+            "accuracy": 0.738095,
+            "auc": 0.787654
+          },
+          "baseline": {
+            "n": 42,
+            "positives": 27,
+            "rate": 0.642857,
+            "brier": 0.248294,
+            "logLoss": 0.700177,
+            "accuracy": 0.642857,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2946",
+          "trainN": 372,
+          "test": {
+            "n": 31,
+            "positives": 26,
+            "rate": 0.83871,
+            "brier": 0.155166,
+            "logLoss": 0.485636,
+            "accuracy": 0.774194,
+            "auc": 0.730769
+          },
+          "baseline": {
+            "n": 31,
+            "positives": 26,
+            "rate": 0.83871,
+            "brier": 0.141572,
+            "logLoss": 0.460631,
+            "accuracy": 0.83871,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2947",
+          "trainN": 349,
+          "test": {
+            "n": 54,
+            "positives": 45,
+            "rate": 0.833333,
+            "brier": 0.126027,
+            "logLoss": 0.403388,
+            "accuracy": 0.833333,
+            "auc": 0.819753
+          },
+          "baseline": {
+            "n": 54,
+            "positives": 45,
+            "rate": 0.833333,
+            "brier": 0.145027,
+            "logLoss": 0.46862,
+            "accuracy": 0.833333,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2948",
+          "trainN": 372,
+          "test": {
+            "n": 31,
+            "positives": 26,
+            "rate": 0.83871,
+            "brier": 0.126205,
+            "logLoss": 0.417592,
+            "accuracy": 0.903226,
+            "auc": 0.738462
+          },
+          "baseline": {
+            "n": 31,
+            "positives": 26,
+            "rate": 0.83871,
+            "brier": 0.141572,
+            "logLoss": 0.460631,
+            "accuracy": 0.83871,
+            "auc": 0.5
+          }
+        }
+      ],
+      "slices": {
+        "player": {
+          "1ce2362b-44bb-4292-92bc-a70fe6ba1c23": {
+            "n": 105,
+            "positives": 78,
+            "rate": 0.742857,
+            "brier": 0.160914,
+            "logLoss": 0.505078,
+            "accuracy": 0.8,
+            "auc": 0.690883
+          },
+          "347ec3da-ae5d-4442-851c-3e7c022c240b": {
+            "n": 74,
+            "positives": 55,
+            "rate": 0.743243,
+            "brier": 0.187152,
+            "logLoss": 0.547042,
+            "accuracy": 0.72973,
+            "auc": 0.707177
+          },
+          "37e3db42-5608-4e78-b497-c081a2fb30f8": {
+            "n": 65,
+            "positives": 50,
+            "rate": 0.769231,
+            "brier": 0.142679,
+            "logLoss": 0.44473,
+            "accuracy": 0.784615,
+            "auc": 0.785333
+          },
+          "3b12101d-2d43-4fa0-9e07-f4132d86dfe3": {
+            "n": 49,
+            "positives": 42,
+            "rate": 0.857143,
+            "brier": 0.110942,
+            "logLoss": 0.368063,
+            "accuracy": 0.857143,
+            "auc": 0.727891
+          },
+          "a4d98664-1778-492c-8962-a27be4c30012": {
+            "n": 59,
+            "positives": 37,
+            "rate": 0.627119,
+            "brier": 0.168312,
+            "logLoss": 0.513176,
+            "accuracy": 0.79661,
+            "auc": 0.807125
+          },
+          "be1d20c0-c1f2-4831-a589-4195f9c5bbad": {
+            "n": 51,
+            "positives": 47,
+            "rate": 0.921569,
+            "brier": 0.053022,
+            "logLoss": 0.199237,
+            "accuracy": 0.941176,
+            "auc": 0.973404
+          }
+        },
+        "batterCharacter": {
+          "1": {
+            "n": 8,
+            "positives": 5,
+            "rate": 0.625,
+            "brier": 0.140272,
+            "logLoss": 0.444014,
+            "accuracy": 0.875,
+            "auc": 0.866667
+          },
+          "2": {
+            "n": 15,
+            "positives": 9,
+            "rate": 0.6,
+            "brier": 0.324638,
+            "logLoss": 0.966096,
+            "accuracy": 0.666667,
+            "auc": 0.444444
+          },
+          "3": {
+            "n": 12,
+            "positives": 8,
+            "rate": 0.666667,
+            "brier": 0.227059,
+            "logLoss": 0.649625,
+            "accuracy": 0.666667,
+            "auc": 0.6875
+          },
+          "4": {
+            "n": 11,
+            "positives": 7,
+            "rate": 0.636364,
+            "brier": 0.222799,
+            "logLoss": 0.6448,
+            "accuracy": 0.727273,
+            "auc": 0.928571
+          },
+          "5": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.00676,
+            "logLoss": 0.081672,
+            "accuracy": 1,
+            "auc": null
+          },
+          "6": {
+            "n": 9,
+            "positives": 6,
+            "rate": 0.666667,
+            "brier": 0.105304,
+            "logLoss": 0.353672,
+            "accuracy": 0.888889,
+            "auc": 0.944444
+          },
+          "7": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.10483,
+            "logLoss": 0.369614,
+            "accuracy": 0.875,
+            "auc": 1
+          },
+          "8": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.129388,
+            "logLoss": 0.440405,
+            "accuracy": 0.857143,
+            "auc": 0.5
+          },
+          "10": {
+            "n": 7,
+            "positives": 5,
+            "rate": 0.714286,
+            "brier": 0.19758,
+            "logLoss": 0.560647,
+            "accuracy": 0.571429,
+            "auc": 0.7
+          },
+          "11": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.026198,
+            "logLoss": 0.157977,
+            "accuracy": 1,
+            "auc": null
+          },
+          "12": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.030817,
+            "logLoss": 0.180898,
+            "accuracy": 1,
+            "auc": null
+          },
+          "15": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.170434,
+            "logLoss": 0.503131,
+            "accuracy": 0.75,
+            "auc": 0.75
+          },
+          "16": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.025436,
+            "logLoss": 0.160097,
+            "accuracy": 1,
+            "auc": null
+          },
+          "17": {
+            "n": 10,
+            "positives": 5,
+            "rate": 0.5,
+            "brier": 0.204168,
+            "logLoss": 0.583496,
+            "accuracy": 0.5,
+            "auc": 0.8
+          },
+          "18": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.141861,
+            "logLoss": 0.46155,
+            "accuracy": 0.833333,
+            "auc": 0.4
+          },
+          "19": {
+            "n": 7,
+            "positives": 5,
+            "rate": 0.714286,
+            "brier": 0.215642,
+            "logLoss": 0.608076,
+            "accuracy": 0.714286,
+            "auc": 0.8
+          },
+          "20": {
+            "n": 12,
+            "positives": 9,
+            "rate": 0.75,
+            "brier": 0.200531,
+            "logLoss": 0.60928,
+            "accuracy": 0.75,
+            "auc": 0.518519
+          },
+          "21": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.116908,
+            "logLoss": 0.378739,
+            "accuracy": 0.857143,
+            "auc": 0.666667
+          },
+          "22": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.014009,
+            "logLoss": 0.106956,
+            "accuracy": 1,
+            "auc": null
+          },
+          "24": {
+            "n": 8,
+            "positives": 5,
+            "rate": 0.625,
+            "brier": 0.274255,
+            "logLoss": 0.790064,
+            "accuracy": 0.5,
+            "auc": 0.533333
+          },
+          "25": {
+            "n": 7,
+            "positives": 5,
+            "rate": 0.714286,
+            "brier": 0.117181,
+            "logLoss": 0.389918,
+            "accuracy": 0.857143,
+            "auc": 0.9
+          },
+          "26": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.005761,
+            "logLoss": 0.078403,
+            "accuracy": 1,
+            "auc": null
+          },
+          "29": {
+            "n": 9,
+            "positives": 8,
+            "rate": 0.888889,
+            "brier": 0.070355,
+            "logLoss": 0.253233,
+            "accuracy": 0.888889,
+            "auc": 1
+          },
+          "31": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.003955,
+            "logLoss": 0.062433,
+            "accuracy": 1,
+            "auc": null
+          },
+          "32": {
+            "n": 6,
+            "positives": 3,
+            "rate": 0.5,
+            "brier": 0.256135,
+            "logLoss": 0.712867,
+            "accuracy": 0.666667,
+            "auc": 0.444444
+          },
+          "35": {
+            "n": 5,
+            "positives": 4,
+            "rate": 0.8,
+            "brier": 0.095169,
+            "logLoss": 0.336078,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "36": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.067399,
+            "logLoss": 0.215029,
+            "accuracy": 0.833333,
+            "auc": 1
+          },
+          "37": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.004672,
+            "logLoss": 0.064599,
+            "accuracy": 1,
+            "auc": null
+          },
+          "38": {
+            "n": 8,
+            "positives": 5,
+            "rate": 0.625,
+            "brier": 0.256218,
+            "logLoss": 0.698359,
+            "accuracy": 0.625,
+            "auc": 0.666667
+          },
+          "39": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.010716,
+            "logLoss": 0.105314,
+            "accuracy": 1,
+            "auc": null
+          },
+          "40": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.004018,
+            "logLoss": 0.06179,
+            "accuracy": 1,
+            "auc": null
+          },
+          "41": {
+            "n": 6,
+            "positives": 3,
+            "rate": 0.5,
+            "brier": 0.380441,
+            "logLoss": 1.087334,
+            "accuracy": 0.5,
+            "auc": 0.444444
+          },
+          "42": {
+            "n": 11,
+            "positives": 8,
+            "rate": 0.727273,
+            "brier": 0.223092,
+            "logLoss": 0.654499,
+            "accuracy": 0.727273,
+            "auc": 0.541667
+          },
+          "43": {
+            "n": 13,
+            "positives": 9,
+            "rate": 0.692308,
+            "brier": 0.120494,
+            "logLoss": 0.383973,
+            "accuracy": 0.846154,
+            "auc": 0.861111
+          },
+          "45": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.190037,
+            "logLoss": 0.565168,
+            "accuracy": 0.75,
+            "auc": 0.666667
+          },
+          "46": {
+            "n": 9,
+            "positives": 7,
+            "rate": 0.777778,
+            "brier": 0.034327,
+            "logLoss": 0.179043,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "48": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.007493,
+            "logLoss": 0.089973,
+            "accuracy": 1,
+            "auc": null
+          },
+          "49": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.006565,
+            "logLoss": 0.082169,
+            "accuracy": 1,
+            "auc": null
+          },
+          "50": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.12185,
+            "logLoss": 0.403931,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "51": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.015661,
+            "logLoss": 0.127502,
+            "accuracy": 1,
+            "auc": null
+          },
+          "54": {
+            "n": 13,
+            "positives": 11,
+            "rate": 0.846154,
+            "brier": 0.119531,
+            "logLoss": 0.389637,
+            "accuracy": 0.846154,
+            "auc": 0.727273
+          },
+          "55": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.1372,
+            "logLoss": 0.443158,
+            "accuracy": 0.857143,
+            "auc": 0.5
+          },
+          "56": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.151869,
+            "logLoss": 0.505339,
+            "accuracy": 0.833333,
+            "auc": 0.2
+          },
+          "58": {
+            "n": 10,
+            "positives": 6,
+            "rate": 0.6,
+            "brier": 0.222265,
+            "logLoss": 0.605897,
+            "accuracy": 0.6,
+            "auc": 0.833333
+          },
+          "60": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.052823,
+            "logLoss": 0.223167,
+            "accuracy": 1,
+            "auc": null
+          },
+          "61": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.00751,
+            "logLoss": 0.087601,
+            "accuracy": 1,
+            "auc": null
+          },
+          "62": {
+            "n": 6,
+            "positives": 2,
+            "rate": 0.333333,
+            "brier": 0.206447,
+            "logLoss": 0.602204,
+            "accuracy": 0.666667,
+            "auc": 0.75
+          },
+          "63": {
+            "n": 9,
+            "positives": 7,
+            "rate": 0.777778,
+            "brier": 0.136674,
+            "logLoss": 0.436582,
+            "accuracy": 0.888889,
+            "auc": 0.714286
+          },
+          "67": {
+            "n": 12,
+            "positives": 10,
+            "rate": 0.833333,
+            "brier": 0.177192,
+            "logLoss": 0.532061,
+            "accuracy": 0.75,
+            "auc": 0.55
+          },
+          "68": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.010595,
+            "logLoss": 0.10665,
+            "accuracy": 1,
+            "auc": null
+          },
+          "69": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.184576,
+            "logLoss": 0.550952,
+            "accuracy": 0.833333,
+            "auc": 0.75
+          },
+          "70": {
+            "n": 9,
+            "positives": 6,
+            "rate": 0.666667,
+            "brier": 0.169597,
+            "logLoss": 0.497422,
+            "accuracy": 0.777778,
+            "auc": 0.777778
+          },
+          "71": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.186984,
+            "logLoss": 0.556911,
+            "accuracy": 0.75,
+            "auc": 0.75
+          },
+          "72": {
+            "n": 14,
+            "positives": 11,
+            "rate": 0.785714,
+            "brier": 0.12139,
+            "logLoss": 0.410259,
+            "accuracy": 0.785714,
+            "auc": 0.818182
+          }
+        },
+        "pitcherCharacter": {
+          "1": {
+            "n": 42,
+            "positives": 36,
+            "rate": 0.857143,
+            "brier": 0.108922,
+            "logLoss": 0.361243,
+            "accuracy": 0.857143,
+            "auc": 0.759259
+          },
+          "2": {
+            "n": 56,
+            "positives": 48,
+            "rate": 0.857143,
+            "brier": 0.095458,
+            "logLoss": 0.312624,
+            "accuracy": 0.875,
+            "auc": 0.950521
+          },
+          "3": {
+            "n": 65,
+            "positives": 50,
+            "rate": 0.769231,
+            "brier": 0.142679,
+            "logLoss": 0.44473,
+            "accuracy": 0.784615,
+            "auc": 0.785333
+          },
+          "4": {
+            "n": 43,
+            "positives": 32,
+            "rate": 0.744186,
+            "brier": 0.176732,
+            "logLoss": 0.5543,
+            "accuracy": 0.790698,
+            "auc": 0.625
+          },
+          "5": {
+            "n": 51,
+            "positives": 30,
+            "rate": 0.588235,
+            "brier": 0.172774,
+            "logLoss": 0.519481,
+            "accuracy": 0.784314,
+            "auc": 0.815873
+          },
+          "7": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.001451,
+            "logLoss": 0.03764,
+            "accuracy": 1,
+            "auc": null
+          },
+          "21": {
+            "n": 1,
+            "positives": 1,
+            "rate": 1,
+            "brier": 0.182199,
+            "logLoss": 0.556605,
+            "accuracy": 1,
+            "auc": null
+          },
+          "26": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.125544,
+            "logLoss": 0.419628,
+            "accuracy": 0.857143,
+            "auc": 0.666667
+          },
+          "36": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.133821,
+            "logLoss": 0.461031,
+            "accuracy": 0.857143,
+            "auc": 0.166667
+          },
+          "49": {
+            "n": 26,
+            "positives": 22,
+            "rate": 0.846154,
+            "brier": 0.136979,
+            "logLoss": 0.440612,
+            "accuracy": 0.846154,
+            "auc": 0.738636
+          },
+          "50": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.123064,
+            "logLoss": 0.408984,
+            "accuracy": 0.857143,
+            "auc": 0.333333
+          },
+          "52": {
+            "n": 31,
+            "positives": 20,
+            "rate": 0.645161,
+            "brier": 0.158677,
+            "logLoss": 0.49014,
+            "accuracy": 0.774194,
+            "auc": 0.872727
+          },
+          "58": {
+            "n": 36,
+            "positives": 27,
+            "rate": 0.75,
+            "brier": 0.212651,
+            "logLoss": 0.611466,
+            "accuracy": 0.722222,
+            "auc": 0.547325
+          },
+          "63": {
+            "n": 25,
+            "positives": 19,
+            "rate": 0.76,
+            "brier": 0.139238,
+            "logLoss": 0.42029,
+            "accuracy": 0.76,
+            "auc": 0.973684
+          }
+        },
+        "park": {
+          "bowser_castle": {
+            "n": 42,
+            "positives": 27,
+            "rate": 0.642857,
+            "brier": 0.180219,
+            "logLoss": 0.542048,
+            "accuracy": 0.738095,
+            "auc": 0.787654
+          },
+          "bowser_jr_playroom": {
+            "n": 38,
+            "positives": 24,
+            "rate": 0.631579,
+            "brier": 0.187233,
+            "logLoss": 0.550668,
+            "accuracy": 0.657895,
+            "auc": 0.869048
+          },
+          "daisy_cruiser": {
+            "n": 132,
+            "positives": 108,
+            "rate": 0.818182,
+            "brier": 0.120471,
+            "logLoss": 0.389133,
+            "accuracy": 0.856061,
+            "auc": 0.78588
+          },
+          "dk_jungle": {
+            "n": 39,
+            "positives": 29,
+            "rate": 0.74359,
+            "brier": 0.111267,
+            "logLoss": 0.3703,
+            "accuracy": 0.923077,
+            "auc": 0.92069
+          },
+          "luigis_mansion": {
+            "n": 31,
+            "positives": 26,
+            "rate": 0.83871,
+            "brier": 0.126205,
+            "logLoss": 0.417592,
+            "accuracy": 0.903226,
+            "auc": 0.738462
+          },
+          "mario_stadium": {
+            "n": 85,
+            "positives": 71,
+            "rate": 0.835294,
+            "brier": 0.136654,
+            "logLoss": 0.433384,
+            "accuracy": 0.811765,
+            "auc": 0.691147
+          },
+          "peach_ice_garden": {
+            "n": 36,
+            "positives": 24,
+            "rate": 0.666667,
+            "brier": 0.212127,
+            "logLoss": 0.600377,
+            "accuracy": 0.666667,
+            "auc": 0.854167
+          }
+        },
+        "swingMode": {
+          "charge": {
+            "n": 353,
+            "positives": 271,
+            "rate": 0.767705,
+            "brier": 0.146403,
+            "logLoss": 0.45678,
+            "accuracy": 0.810198,
+            "auc": 0.753893
+          },
+          "slap": {
+            "n": 31,
+            "positives": 19,
+            "rate": 0.612903,
+            "brier": 0.200235,
+            "logLoss": 0.575312,
+            "accuracy": 0.677419,
+            "auc": 0.850877
+          },
+          "star": {
+            "n": 19,
+            "positives": 19,
+            "rate": 1,
+            "brier": 0.010663,
+            "logLoss": 0.095646,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        "controllerSide": {
+          "unobserved": {
+            "n": 403,
+            "positives": 309,
+            "rate": 0.766749,
+            "brier": 0.144144,
+            "logLoss": 0.448871,
+            "accuracy": 0.808933,
+            "auc": 0.772189
+          }
+        },
+        "contactResult": {
+          "contact": {
+            "n": 309,
+            "positives": 309,
+            "rate": 1,
+            "brier": 0.043321,
+            "logLoss": 0.197087,
+            "accuracy": 0.983819,
+            "auc": null
+          },
+          "no_contact": {
+            "n": 94,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.475572,
+            "logLoss": 1.276546,
+            "accuracy": 0.234043,
+            "auc": null
+          }
+        }
+      }
+    },
+    "chargeContactContextOnly": {
+      "split": "leave_one_whole_game_out",
+      "games": 11,
+      "features": [
+        "count",
+        "pitch_zone",
+        "batter_character",
+        "pitcher_character",
+        "park",
+        "player",
+        "opponent",
+        "pitch_type",
+        "swing_mode",
+        "plate_x",
+        "plate_y",
+        "pitch_speed",
+        "pitch_horizontal",
+        "pitch_vertical"
+      ],
+      "metrics": {
+        "n": 353,
+        "positives": 271,
+        "rate": 0.767705,
+        "brier": 0.148985,
+        "logLoss": 0.462041,
+        "accuracy": 0.813031,
+        "auc": 0.746692
+      },
+      "baselineMetrics": {
+        "n": 353,
+        "positives": 271,
+        "rate": 0.767705,
+        "brier": 0.179566,
+        "logLoss": 0.545491,
+        "accuracy": 0.767705,
+        "auc": 0.389749
+      },
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.2,
+          "n": 4,
+          "meanPrediction": 0.120402,
+          "observedRate": 0
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.4,
+          "n": 11,
+          "meanPrediction": 0.312989,
+          "observedRate": 0.272727
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.6,
+          "n": 37,
+          "meanPrediction": 0.517206,
+          "observedRate": 0.513514
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.8,
+          "n": 90,
+          "meanPrediction": 0.719534,
+          "observedRate": 0.733333
+        },
+        {
+          "lower": 0.8,
+          "upper": 1,
+          "n": 211,
+          "meanPrediction": 0.889021,
+          "observedRate": 0.867299
+        }
+      ],
+      "folds": [
+        {
+          "heldOutGame": "2751",
+          "trainN": 352,
+          "test": {
+            "n": 1,
+            "positives": 1,
+            "rate": 1,
+            "brier": 0.040773,
+            "logLoss": 0.225551,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 1,
+            "positives": 1,
+            "rate": 1,
+            "brier": 0.054973,
+            "logLoss": 0.267178,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        {
+          "heldOutGame": "2766",
+          "trainN": 298,
+          "test": {
+            "n": 55,
+            "positives": 43,
+            "rate": 0.781818,
+            "brier": 0.137261,
+            "logLoss": 0.42654,
+            "accuracy": 0.8,
+            "auc": 0.843023
+          },
+          "baseline": {
+            "n": 55,
+            "positives": 43,
+            "rate": 0.781818,
+            "brier": 0.17092,
+            "logLoss": 0.525561,
+            "accuracy": 0.781818,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2767",
+          "trainN": 314,
+          "test": {
+            "n": 39,
+            "positives": 33,
+            "rate": 0.846154,
+            "brier": 0.132629,
+            "logLoss": 0.424012,
+            "accuracy": 0.871795,
+            "auc": 0.762626
+          },
+          "baseline": {
+            "n": 39,
+            "positives": 33,
+            "rate": 0.846154,
+            "brier": 0.138246,
+            "logLoss": 0.453534,
+            "accuracy": 0.846154,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2768",
+          "trainN": 315,
+          "test": {
+            "n": 38,
+            "positives": 28,
+            "rate": 0.736842,
+            "brier": 0.118435,
+            "logLoss": 0.38925,
+            "accuracy": 0.921053,
+            "auc": 0.914286
+          },
+          "baseline": {
+            "n": 38,
+            "positives": 28,
+            "rate": 0.736842,
+            "brier": 0.194987,
+            "logLoss": 0.579288,
+            "accuracy": 0.736842,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2811",
+          "trainN": 326,
+          "test": {
+            "n": 27,
+            "positives": 18,
+            "rate": 0.666667,
+            "brier": 0.21722,
+            "logLoss": 0.616986,
+            "accuracy": 0.666667,
+            "auc": 0.814815
+          },
+          "baseline": {
+            "n": 27,
+            "positives": 18,
+            "rate": 0.666667,
+            "brier": 0.233827,
+            "logLoss": 0.666769,
+            "accuracy": 0.666667,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2812",
+          "trainN": 334,
+          "test": {
+            "n": 19,
+            "positives": 16,
+            "rate": 0.842105,
+            "brier": 0.096431,
+            "logLoss": 0.318259,
+            "accuracy": 0.894737,
+            "auc": 0.9375
+          },
+          "baseline": {
+            "n": 19,
+            "positives": 16,
+            "rate": 0.842105,
+            "brier": 0.139396,
+            "logLoss": 0.455589,
+            "accuracy": 0.842105,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2813",
+          "trainN": 327,
+          "test": {
+            "n": 26,
+            "positives": 16,
+            "rate": 0.615385,
+            "brier": 0.216704,
+            "logLoss": 0.637254,
+            "accuracy": 0.653846,
+            "auc": 0.8
+          },
+          "baseline": {
+            "n": 26,
+            "positives": 16,
+            "rate": 0.615385,
+            "brier": 0.263168,
+            "logLoss": 0.733464,
+            "accuracy": 0.615385,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2814",
+          "trainN": 314,
+          "test": {
+            "n": 39,
+            "positives": 26,
+            "rate": 0.666667,
+            "brier": 0.182325,
+            "logLoss": 0.55262,
+            "accuracy": 0.74359,
+            "auc": 0.736686
+          },
+          "baseline": {
+            "n": 39,
+            "positives": 26,
+            "rate": 0.666667,
+            "brier": 0.234725,
+            "logLoss": 0.669356,
+            "accuracy": 0.666667,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2946",
+          "trainN": 323,
+          "test": {
+            "n": 30,
+            "positives": 25,
+            "rate": 0.833333,
+            "brier": 0.145906,
+            "logLoss": 0.467445,
+            "accuracy": 0.8,
+            "auc": 0.72
+          },
+          "baseline": {
+            "n": 30,
+            "positives": 25,
+            "rate": 0.833333,
+            "brier": 0.144267,
+            "logLoss": 0.46655,
+            "accuracy": 0.833333,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2947",
+          "trainN": 303,
+          "test": {
+            "n": 50,
+            "positives": 41,
+            "rate": 0.82,
+            "brier": 0.127883,
+            "logLoss": 0.40018,
+            "accuracy": 0.84,
+            "auc": 0.869919
+          },
+          "baseline": {
+            "n": 50,
+            "positives": 41,
+            "rate": 0.82,
+            "brier": 0.151522,
+            "logLoss": 0.482798,
+            "accuracy": 0.82,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2948",
+          "trainN": 324,
+          "test": {
+            "n": 29,
+            "positives": 24,
+            "rate": 0.827586,
+            "brier": 0.141904,
+            "logLoss": 0.456152,
+            "accuracy": 0.896552,
+            "auc": 0.733333
+          },
+          "baseline": {
+            "n": 29,
+            "positives": 24,
+            "rate": 0.827586,
+            "brier": 0.147156,
+            "logLoss": 0.472903,
+            "accuracy": 0.827586,
+            "auc": 0.5
+          }
+        }
+      ],
+      "slices": {
+        "player": {
+          "1ce2362b-44bb-4292-92bc-a70fe6ba1c23": {
+            "n": 92,
+            "positives": 68,
+            "rate": 0.73913,
+            "brier": 0.170409,
+            "logLoss": 0.522691,
+            "accuracy": 0.793478,
+            "auc": 0.674632
+          },
+          "347ec3da-ae5d-4442-851c-3e7c022c240b": {
+            "n": 62,
+            "positives": 47,
+            "rate": 0.758065,
+            "brier": 0.18427,
+            "logLoss": 0.548738,
+            "accuracy": 0.758065,
+            "auc": 0.638298
+          },
+          "37e3db42-5608-4e78-b497-c081a2fb30f8": {
+            "n": 60,
+            "positives": 46,
+            "rate": 0.766667,
+            "brier": 0.145626,
+            "logLoss": 0.452429,
+            "accuracy": 0.766667,
+            "auc": 0.785714
+          },
+          "3b12101d-2d43-4fa0-9e07-f4132d86dfe3": {
+            "n": 47,
+            "positives": 40,
+            "rate": 0.851064,
+            "brier": 0.115448,
+            "logLoss": 0.379905,
+            "accuracy": 0.851064,
+            "auc": 0.710714
+          },
+          "a4d98664-1778-492c-8962-a27be4c30012": {
+            "n": 46,
+            "positives": 28,
+            "rate": 0.608696,
+            "brier": 0.191826,
+            "logLoss": 0.581152,
+            "accuracy": 0.826087,
+            "auc": 0.761905
+          },
+          "be1d20c0-c1f2-4831-a589-4195f9c5bbad": {
+            "n": 46,
+            "positives": 42,
+            "rate": 0.913043,
+            "brier": 0.054389,
+            "logLoss": 0.201234,
+            "accuracy": 0.934783,
+            "auc": 0.970238
+          }
+        },
+        "batterCharacter": {
+          "1": {
+            "n": 6,
+            "positives": 3,
+            "rate": 0.5,
+            "brier": 0.181874,
+            "logLoss": 0.549016,
+            "accuracy": 0.833333,
+            "auc": 0.777778
+          },
+          "2": {
+            "n": 11,
+            "positives": 5,
+            "rate": 0.454545,
+            "brier": 0.423476,
+            "logLoss": 1.179947,
+            "accuracy": 0.454545,
+            "auc": 0.3
+          },
+          "3": {
+            "n": 10,
+            "positives": 6,
+            "rate": 0.6,
+            "brier": 0.271145,
+            "logLoss": 0.759799,
+            "accuracy": 0.6,
+            "auc": 0.625
+          },
+          "4": {
+            "n": 7,
+            "positives": 3,
+            "rate": 0.428571,
+            "brier": 0.316672,
+            "logLoss": 0.862437,
+            "accuracy": 0.571429,
+            "auc": 0.833333
+          },
+          "5": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.008333,
+            "logLoss": 0.090676,
+            "accuracy": 1,
+            "auc": null
+          },
+          "6": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.082432,
+            "logLoss": 0.326417,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "7": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.104338,
+            "logLoss": 0.367624,
+            "accuracy": 0.833333,
+            "auc": 1
+          },
+          "8": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.126761,
+            "logLoss": 0.42899,
+            "accuracy": 0.857143,
+            "auc": 0.5
+          },
+          "10": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.244444,
+            "logLoss": 0.700164,
+            "accuracy": 0.75,
+            "auc": 0.333333
+          },
+          "11": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.02439,
+            "logLoss": 0.159512,
+            "accuracy": 1,
+            "auc": null
+          },
+          "12": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.029881,
+            "logLoss": 0.182091,
+            "accuracy": 1,
+            "auc": null
+          },
+          "15": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.094916,
+            "logLoss": 0.314525,
+            "accuracy": 0.857143,
+            "auc": 0.833333
+          },
+          "16": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.024407,
+            "logLoss": 0.163211,
+            "accuracy": 1,
+            "auc": null
+          },
+          "17": {
+            "n": 10,
+            "positives": 5,
+            "rate": 0.5,
+            "brier": 0.219614,
+            "logLoss": 0.620803,
+            "accuracy": 0.5,
+            "auc": 0.76
+          },
+          "18": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.141,
+            "logLoss": 0.457856,
+            "accuracy": 0.833333,
+            "auc": 0.4
+          },
+          "19": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.20079,
+            "logLoss": 0.583625,
+            "accuracy": 0.75,
+            "auc": 0.666667
+          },
+          "20": {
+            "n": 11,
+            "positives": 8,
+            "rate": 0.727273,
+            "brier": 0.215904,
+            "logLoss": 0.638004,
+            "accuracy": 0.727273,
+            "auc": 0.541667
+          },
+          "21": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.120514,
+            "logLoss": 0.395044,
+            "accuracy": 0.857143,
+            "auc": 0.666667
+          },
+          "22": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.017485,
+            "logLoss": 0.1209,
+            "accuracy": 1,
+            "auc": null
+          },
+          "24": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.328213,
+            "logLoss": 0.947716,
+            "accuracy": 0.5,
+            "auc": 0.5
+          },
+          "25": {
+            "n": 5,
+            "positives": 3,
+            "rate": 0.6,
+            "brier": 0.178142,
+            "logLoss": 0.542285,
+            "accuracy": 0.8,
+            "auc": 0.833333
+          },
+          "26": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.006367,
+            "logLoss": 0.082443,
+            "accuracy": 1,
+            "auc": null
+          },
+          "29": {
+            "n": 9,
+            "positives": 8,
+            "rate": 0.888889,
+            "brier": 0.067845,
+            "logLoss": 0.242856,
+            "accuracy": 0.888889,
+            "auc": 1
+          },
+          "31": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.005404,
+            "logLoss": 0.072459,
+            "accuracy": 1,
+            "auc": null
+          },
+          "32": {
+            "n": 6,
+            "positives": 3,
+            "rate": 0.5,
+            "brier": 0.278597,
+            "logLoss": 0.767181,
+            "accuracy": 0.666667,
+            "auc": 0.333333
+          },
+          "35": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.128001,
+            "logLoss": 0.424303,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "36": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.07053,
+            "logLoss": 0.223918,
+            "accuracy": 0.833333,
+            "auc": 1
+          },
+          "37": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.004726,
+            "logLoss": 0.066394,
+            "accuracy": 1,
+            "auc": null
+          },
+          "38": {
+            "n": 7,
+            "positives": 5,
+            "rate": 0.714286,
+            "brier": 0.19752,
+            "logLoss": 0.556003,
+            "accuracy": 0.714286,
+            "auc": 0.7
+          },
+          "39": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.011476,
+            "logLoss": 0.109116,
+            "accuracy": 1,
+            "auc": null
+          },
+          "40": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.004203,
+            "logLoss": 0.064261,
+            "accuracy": 1,
+            "auc": null
+          },
+          "41": {
+            "n": 6,
+            "positives": 3,
+            "rate": 0.5,
+            "brier": 0.375563,
+            "logLoss": 1.062377,
+            "accuracy": 0.5,
+            "auc": 0.444444
+          },
+          "42": {
+            "n": 10,
+            "positives": 7,
+            "rate": 0.7,
+            "brier": 0.257818,
+            "logLoss": 0.765143,
+            "accuracy": 0.7,
+            "auc": 0.333333
+          },
+          "43": {
+            "n": 11,
+            "positives": 8,
+            "rate": 0.727273,
+            "brier": 0.117085,
+            "logLoss": 0.37149,
+            "accuracy": 0.818182,
+            "auc": 0.875
+          },
+          "45": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.189425,
+            "logLoss": 0.570649,
+            "accuracy": 0.75,
+            "auc": 0.666667
+          },
+          "46": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.04066,
+            "logLoss": 0.199735,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "48": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.009748,
+            "logLoss": 0.102404,
+            "accuracy": 1,
+            "auc": null
+          },
+          "49": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.007874,
+            "logLoss": 0.089933,
+            "accuracy": 1,
+            "auc": null
+          },
+          "50": {
+            "n": 3,
+            "positives": 2,
+            "rate": 0.666667,
+            "brier": 0.173224,
+            "logLoss": 0.53504,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "51": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.015775,
+            "logLoss": 0.128575,
+            "accuracy": 1,
+            "auc": null
+          },
+          "54": {
+            "n": 11,
+            "positives": 10,
+            "rate": 0.909091,
+            "brier": 0.07827,
+            "logLoss": 0.283425,
+            "accuracy": 0.909091,
+            "auc": 0.9
+          },
+          "55": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.126717,
+            "logLoss": 0.413569,
+            "accuracy": 0.857143,
+            "auc": 0.666667
+          },
+          "56": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.146457,
+            "logLoss": 0.480732,
+            "accuracy": 0.833333,
+            "auc": 0.2
+          },
+          "58": {
+            "n": 5,
+            "positives": 2,
+            "rate": 0.4,
+            "brier": 0.354987,
+            "logLoss": 0.919615,
+            "accuracy": 0.2,
+            "auc": 0.5
+          },
+          "60": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.060368,
+            "logLoss": 0.264202,
+            "accuracy": 1,
+            "auc": null
+          },
+          "61": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.0072,
+            "logLoss": 0.088153,
+            "accuracy": 1,
+            "auc": null
+          },
+          "62": {
+            "n": 4,
+            "positives": 2,
+            "rate": 0.5,
+            "brier": 0.136796,
+            "logLoss": 0.458812,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "63": {
+            "n": 9,
+            "positives": 7,
+            "rate": 0.777778,
+            "brier": 0.124697,
+            "logLoss": 0.404185,
+            "accuracy": 0.888889,
+            "auc": 0.714286
+          },
+          "67": {
+            "n": 12,
+            "positives": 10,
+            "rate": 0.833333,
+            "brier": 0.181566,
+            "logLoss": 0.544273,
+            "accuracy": 0.75,
+            "auc": 0.5
+          },
+          "68": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.01112,
+            "logLoss": 0.109119,
+            "accuracy": 1,
+            "auc": null
+          },
+          "69": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.187956,
+            "logLoss": 0.557005,
+            "accuracy": 0.833333,
+            "auc": 0.75
+          },
+          "70": {
+            "n": 9,
+            "positives": 6,
+            "rate": 0.666667,
+            "brier": 0.184177,
+            "logLoss": 0.532206,
+            "accuracy": 0.777778,
+            "auc": 0.777778
+          },
+          "71": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.185633,
+            "logLoss": 0.549818,
+            "accuracy": 0.75,
+            "auc": 0.75
+          },
+          "72": {
+            "n": 13,
+            "positives": 10,
+            "rate": 0.769231,
+            "brier": 0.131373,
+            "logLoss": 0.443173,
+            "accuracy": 0.923077,
+            "auc": 0.666667
+          }
+        },
+        "pitcherCharacter": {
+          "1": {
+            "n": 40,
+            "positives": 34,
+            "rate": 0.85,
+            "brier": 0.113629,
+            "logLoss": 0.3727,
+            "accuracy": 0.85,
+            "auc": 0.759804
+          },
+          "2": {
+            "n": 50,
+            "positives": 43,
+            "rate": 0.86,
+            "brier": 0.096484,
+            "logLoss": 0.317262,
+            "accuracy": 0.88,
+            "auc": 0.910299
+          },
+          "3": {
+            "n": 60,
+            "positives": 46,
+            "rate": 0.766667,
+            "brier": 0.145626,
+            "logLoss": 0.452429,
+            "accuracy": 0.766667,
+            "auc": 0.785714
+          },
+          "4": {
+            "n": 32,
+            "positives": 23,
+            "rate": 0.71875,
+            "brier": 0.188944,
+            "logLoss": 0.57327,
+            "accuracy": 0.78125,
+            "auc": 0.700483
+          },
+          "5": {
+            "n": 41,
+            "positives": 24,
+            "rate": 0.585366,
+            "brier": 0.184251,
+            "logLoss": 0.552391,
+            "accuracy": 0.829268,
+            "auc": 0.794118
+          },
+          "7": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.001538,
+            "logLoss": 0.038792,
+            "accuracy": 1,
+            "auc": null
+          },
+          "21": {
+            "n": 1,
+            "positives": 1,
+            "rate": 1,
+            "brier": 0.209258,
+            "logLoss": 0.611471,
+            "accuracy": 1,
+            "auc": null
+          },
+          "26": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.142315,
+            "logLoss": 0.459061,
+            "accuracy": 0.833333,
+            "auc": 0.6
+          },
+          "36": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.265114,
+            "logLoss": 0.86838,
+            "accuracy": 0.75,
+            "auc": 0
+          },
+          "49": {
+            "n": 25,
+            "positives": 21,
+            "rate": 0.84,
+            "brier": 0.161507,
+            "logLoss": 0.498487,
+            "accuracy": 0.84,
+            "auc": 0.714286
+          },
+          "50": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.125841,
+            "logLoss": 0.421075,
+            "accuracy": 0.857143,
+            "auc": 0.333333
+          },
+          "52": {
+            "n": 30,
+            "positives": 20,
+            "rate": 0.666667,
+            "brier": 0.159355,
+            "logLoss": 0.49173,
+            "accuracy": 0.766667,
+            "auc": 0.845
+          },
+          "58": {
+            "n": 29,
+            "positives": 23,
+            "rate": 0.793103,
+            "brier": 0.183942,
+            "logLoss": 0.553797,
+            "accuracy": 0.793103,
+            "auc": 0.485507
+          },
+          "63": {
+            "n": 23,
+            "positives": 17,
+            "rate": 0.73913,
+            "brier": 0.161722,
+            "logLoss": 0.47547,
+            "accuracy": 0.73913,
+            "auc": 0.901961
+          }
+        },
+        "park": {
+          "bowser_castle": {
+            "n": 39,
+            "positives": 26,
+            "rate": 0.666667,
+            "brier": 0.182325,
+            "logLoss": 0.55262,
+            "accuracy": 0.74359,
+            "auc": 0.736686
+          },
+          "bowser_jr_playroom": {
+            "n": 26,
+            "positives": 16,
+            "rate": 0.615385,
+            "brier": 0.216704,
+            "logLoss": 0.637254,
+            "accuracy": 0.653846,
+            "auc": 0.8
+          },
+          "daisy_cruiser": {
+            "n": 114,
+            "positives": 93,
+            "rate": 0.815789,
+            "brier": 0.128025,
+            "logLoss": 0.405865,
+            "accuracy": 0.842105,
+            "auc": 0.781874
+          },
+          "dk_jungle": {
+            "n": 38,
+            "positives": 28,
+            "rate": 0.736842,
+            "brier": 0.118435,
+            "logLoss": 0.38925,
+            "accuracy": 0.921053,
+            "auc": 0.914286
+          },
+          "luigis_mansion": {
+            "n": 29,
+            "positives": 24,
+            "rate": 0.827586,
+            "brier": 0.141904,
+            "logLoss": 0.456152,
+            "accuracy": 0.896552,
+            "auc": 0.733333
+          },
+          "mario_stadium": {
+            "n": 80,
+            "positives": 66,
+            "rate": 0.825,
+            "brier": 0.134642,
+            "logLoss": 0.425405,
+            "accuracy": 0.825,
+            "auc": 0.700216
+          },
+          "peach_ice_garden": {
+            "n": 27,
+            "positives": 18,
+            "rate": 0.666667,
+            "brier": 0.21722,
+            "logLoss": 0.616986,
+            "accuracy": 0.666667,
+            "auc": 0.814815
+          }
+        },
+        "swingMode": {
+          "charge": {
+            "n": 353,
+            "positives": 271,
+            "rate": 0.767705,
+            "brier": 0.148985,
+            "logLoss": 0.462041,
+            "accuracy": 0.813031,
+            "auc": 0.746692
+          }
+        },
+        "controllerSide": {
+          "unobserved": {
+            "n": 353,
+            "positives": 271,
+            "rate": 0.767705,
+            "brier": 0.148985,
+            "logLoss": 0.462041,
+            "accuracy": 0.813031,
+            "auc": 0.746692
+          }
+        },
+        "contactResult": {
+          "contact": {
+            "n": 271,
+            "positives": 271,
+            "rate": 1,
+            "brier": 0.049617,
+            "logLoss": 0.215833,
+            "accuracy": 0.97786,
+            "auc": null
+          },
+          "no_contact": {
+            "n": 82,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.477385,
+            "logLoss": 1.275728,
+            "accuracy": 0.268293,
+            "auc": null
+          }
+        }
+      }
+    },
+    "chargeContactWithTiming": {
+      "split": "leave_one_whole_game_out",
+      "games": 11,
+      "features": [
+        "count",
+        "pitch_zone",
+        "batter_character",
+        "pitcher_character",
+        "park",
+        "player",
+        "opponent",
+        "pitch_type",
+        "swing_mode",
+        "plate_x",
+        "plate_y",
+        "pitch_speed",
+        "pitch_horizontal",
+        "pitch_vertical",
+        "charge_frames",
+        "release_timing"
+      ],
+      "metrics": {
+        "n": 353,
+        "positives": 271,
+        "rate": 0.767705,
+        "brier": 0.150773,
+        "logLoss": 0.466996,
+        "accuracy": 0.810198,
+        "auc": 0.737782
+      },
+      "baselineMetrics": {
+        "n": 353,
+        "positives": 271,
+        "rate": 0.767705,
+        "brier": 0.179566,
+        "logLoss": 0.545491,
+        "accuracy": 0.767705,
+        "auc": 0.389749
+      },
+      "calibration": [
+        {
+          "lower": 0,
+          "upper": 0.2,
+          "n": 4,
+          "meanPrediction": 0.124087,
+          "observedRate": 0
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.4,
+          "n": 11,
+          "meanPrediction": 0.314338,
+          "observedRate": 0.272727
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.6,
+          "n": 34,
+          "meanPrediction": 0.514554,
+          "observedRate": 0.5
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.8,
+          "n": 93,
+          "meanPrediction": 0.71164,
+          "observedRate": 0.752688
+        },
+        {
+          "lower": 0.8,
+          "upper": 1,
+          "n": 211,
+          "meanPrediction": 0.889388,
+          "observedRate": 0.85782
+        }
+      ],
+      "folds": [
+        {
+          "heldOutGame": "2751",
+          "trainN": 352,
+          "test": {
+            "n": 1,
+            "positives": 1,
+            "rate": 1,
+            "brier": 0.044556,
+            "logLoss": 0.237093,
+            "accuracy": 1,
+            "auc": null
+          },
+          "baseline": {
+            "n": 1,
+            "positives": 1,
+            "rate": 1,
+            "brier": 0.054973,
+            "logLoss": 0.267178,
+            "accuracy": 1,
+            "auc": null
+          }
+        },
+        {
+          "heldOutGame": "2766",
+          "trainN": 298,
+          "test": {
+            "n": 55,
+            "positives": 43,
+            "rate": 0.781818,
+            "brier": 0.142236,
+            "logLoss": 0.443462,
+            "accuracy": 0.8,
+            "auc": 0.781008
+          },
+          "baseline": {
+            "n": 55,
+            "positives": 43,
+            "rate": 0.781818,
+            "brier": 0.17092,
+            "logLoss": 0.525561,
+            "accuracy": 0.781818,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2767",
+          "trainN": 314,
+          "test": {
+            "n": 39,
+            "positives": 33,
+            "rate": 0.846154,
+            "brier": 0.134657,
+            "logLoss": 0.42829,
+            "accuracy": 0.871795,
+            "auc": 0.767677
+          },
+          "baseline": {
+            "n": 39,
+            "positives": 33,
+            "rate": 0.846154,
+            "brier": 0.138246,
+            "logLoss": 0.453534,
+            "accuracy": 0.846154,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2768",
+          "trainN": 315,
+          "test": {
+            "n": 38,
+            "positives": 28,
+            "rate": 0.736842,
+            "brier": 0.12111,
+            "logLoss": 0.393933,
+            "accuracy": 0.894737,
+            "auc": 0.907143
+          },
+          "baseline": {
+            "n": 38,
+            "positives": 28,
+            "rate": 0.736842,
+            "brier": 0.194987,
+            "logLoss": 0.579288,
+            "accuracy": 0.736842,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2811",
+          "trainN": 326,
+          "test": {
+            "n": 27,
+            "positives": 18,
+            "rate": 0.666667,
+            "brier": 0.225157,
+            "logLoss": 0.639145,
+            "accuracy": 0.666667,
+            "auc": 0.753086
+          },
+          "baseline": {
+            "n": 27,
+            "positives": 18,
+            "rate": 0.666667,
+            "brier": 0.233827,
+            "logLoss": 0.666769,
+            "accuracy": 0.666667,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2812",
+          "trainN": 334,
+          "test": {
+            "n": 19,
+            "positives": 16,
+            "rate": 0.842105,
+            "brier": 0.095594,
+            "logLoss": 0.316211,
+            "accuracy": 0.894737,
+            "auc": 0.895833
+          },
+          "baseline": {
+            "n": 19,
+            "positives": 16,
+            "rate": 0.842105,
+            "brier": 0.139396,
+            "logLoss": 0.455589,
+            "accuracy": 0.842105,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2813",
+          "trainN": 327,
+          "test": {
+            "n": 26,
+            "positives": 16,
+            "rate": 0.615385,
+            "brier": 0.214633,
+            "logLoss": 0.629798,
+            "accuracy": 0.653846,
+            "auc": 0.8125
+          },
+          "baseline": {
+            "n": 26,
+            "positives": 16,
+            "rate": 0.615385,
+            "brier": 0.263168,
+            "logLoss": 0.733464,
+            "accuracy": 0.615385,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2814",
+          "trainN": 314,
+          "test": {
+            "n": 39,
+            "positives": 26,
+            "rate": 0.666667,
+            "brier": 0.183199,
+            "logLoss": 0.555047,
+            "accuracy": 0.74359,
+            "auc": 0.727811
+          },
+          "baseline": {
+            "n": 39,
+            "positives": 26,
+            "rate": 0.666667,
+            "brier": 0.234725,
+            "logLoss": 0.669356,
+            "accuracy": 0.666667,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2946",
+          "trainN": 323,
+          "test": {
+            "n": 30,
+            "positives": 25,
+            "rate": 0.833333,
+            "brier": 0.148275,
+            "logLoss": 0.473532,
+            "accuracy": 0.8,
+            "auc": 0.68
+          },
+          "baseline": {
+            "n": 30,
+            "positives": 25,
+            "rate": 0.833333,
+            "brier": 0.144267,
+            "logLoss": 0.46655,
+            "accuracy": 0.833333,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2947",
+          "trainN": 303,
+          "test": {
+            "n": 50,
+            "positives": 41,
+            "rate": 0.82,
+            "brier": 0.127522,
+            "logLoss": 0.398123,
+            "accuracy": 0.84,
+            "auc": 0.880759
+          },
+          "baseline": {
+            "n": 50,
+            "positives": 41,
+            "rate": 0.82,
+            "brier": 0.151522,
+            "logLoss": 0.482798,
+            "accuracy": 0.82,
+            "auc": 0.5
+          }
+        },
+        {
+          "heldOutGame": "2948",
+          "trainN": 324,
+          "test": {
+            "n": 29,
+            "positives": 24,
+            "rate": 0.827586,
+            "brier": 0.139884,
+            "logLoss": 0.453479,
+            "accuracy": 0.896552,
+            "auc": 0.733333
+          },
+          "baseline": {
+            "n": 29,
+            "positives": 24,
+            "rate": 0.827586,
+            "brier": 0.147156,
+            "logLoss": 0.472903,
+            "accuracy": 0.827586,
+            "auc": 0.5
+          }
+        }
+      ],
+      "slices": {
+        "player": {
+          "1ce2362b-44bb-4292-92bc-a70fe6ba1c23": {
+            "n": 92,
+            "positives": 68,
+            "rate": 0.73913,
+            "brier": 0.171412,
+            "logLoss": 0.524162,
+            "accuracy": 0.793478,
+            "auc": 0.681373
+          },
+          "347ec3da-ae5d-4442-851c-3e7c022c240b": {
+            "n": 62,
+            "positives": 47,
+            "rate": 0.758065,
+            "brier": 0.18933,
+            "logLoss": 0.564384,
+            "accuracy": 0.758065,
+            "auc": 0.577305
+          },
+          "37e3db42-5608-4e78-b497-c081a2fb30f8": {
+            "n": 60,
+            "positives": 46,
+            "rate": 0.766667,
+            "brier": 0.149729,
+            "logLoss": 0.464877,
+            "accuracy": 0.766667,
+            "auc": 0.73913
+          },
+          "3b12101d-2d43-4fa0-9e07-f4132d86dfe3": {
+            "n": 47,
+            "positives": 40,
+            "rate": 0.851064,
+            "brier": 0.115042,
+            "logLoss": 0.3766,
+            "accuracy": 0.851064,
+            "auc": 0.760714
+          },
+          "a4d98664-1778-492c-8962-a27be4c30012": {
+            "n": 46,
+            "positives": 28,
+            "rate": 0.608696,
+            "brier": 0.192007,
+            "logLoss": 0.582498,
+            "accuracy": 0.804348,
+            "auc": 0.748016
+          },
+          "be1d20c0-c1f2-4831-a589-4195f9c5bbad": {
+            "n": 46,
+            "positives": 42,
+            "rate": 0.913043,
+            "brier": 0.054166,
+            "logLoss": 0.201028,
+            "accuracy": 0.934783,
+            "auc": 0.970238
+          }
+        },
+        "batterCharacter": {
+          "1": {
+            "n": 6,
+            "positives": 3,
+            "rate": 0.5,
+            "brier": 0.182098,
+            "logLoss": 0.549522,
+            "accuracy": 0.833333,
+            "auc": 0.666667
+          },
+          "2": {
+            "n": 11,
+            "positives": 5,
+            "rate": 0.454545,
+            "brier": 0.426255,
+            "logLoss": 1.182215,
+            "accuracy": 0.454545,
+            "auc": 0.3
+          },
+          "3": {
+            "n": 10,
+            "positives": 6,
+            "rate": 0.6,
+            "brier": 0.287425,
+            "logLoss": 0.822119,
+            "accuracy": 0.6,
+            "auc": 0.458333
+          },
+          "4": {
+            "n": 7,
+            "positives": 3,
+            "rate": 0.428571,
+            "brier": 0.314206,
+            "logLoss": 0.854241,
+            "accuracy": 0.571429,
+            "auc": 0.833333
+          },
+          "5": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.007554,
+            "logLoss": 0.086748,
+            "accuracy": 1,
+            "auc": null
+          },
+          "6": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.093816,
+            "logLoss": 0.352876,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "7": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.107577,
+            "logLoss": 0.375456,
+            "accuracy": 0.833333,
+            "auc": 1
+          },
+          "8": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.126539,
+            "logLoss": 0.427482,
+            "accuracy": 0.857143,
+            "auc": 0.5
+          },
+          "10": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.233732,
+            "logLoss": 0.659602,
+            "accuracy": 0.75,
+            "auc": 0.333333
+          },
+          "11": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.022152,
+            "logLoss": 0.152169,
+            "accuracy": 1,
+            "auc": null
+          },
+          "12": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.028866,
+            "logLoss": 0.179804,
+            "accuracy": 1,
+            "auc": null
+          },
+          "15": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.092473,
+            "logLoss": 0.311263,
+            "accuracy": 0.857143,
+            "auc": 1
+          },
+          "16": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.026118,
+            "logLoss": 0.169414,
+            "accuracy": 1,
+            "auc": null
+          },
+          "17": {
+            "n": 10,
+            "positives": 5,
+            "rate": 0.5,
+            "brier": 0.231063,
+            "logLoss": 0.653406,
+            "accuracy": 0.5,
+            "auc": 0.64
+          },
+          "18": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.14056,
+            "logLoss": 0.45588,
+            "accuracy": 0.833333,
+            "auc": 0.4
+          },
+          "19": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.215977,
+            "logLoss": 0.632404,
+            "accuracy": 0.75,
+            "auc": 0.666667
+          },
+          "20": {
+            "n": 11,
+            "positives": 8,
+            "rate": 0.727273,
+            "brier": 0.213997,
+            "logLoss": 0.62781,
+            "accuracy": 0.727273,
+            "auc": 0.583333
+          },
+          "21": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.117353,
+            "logLoss": 0.38077,
+            "accuracy": 0.857143,
+            "auc": 0.666667
+          },
+          "22": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.016772,
+            "logLoss": 0.11863,
+            "accuracy": 1,
+            "auc": null
+          },
+          "24": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.323058,
+            "logLoss": 0.94692,
+            "accuracy": 0.5,
+            "auc": 0.5
+          },
+          "25": {
+            "n": 5,
+            "positives": 3,
+            "rate": 0.6,
+            "brier": 0.168538,
+            "logLoss": 0.52486,
+            "accuracy": 0.8,
+            "auc": 1
+          },
+          "26": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.006852,
+            "logLoss": 0.085439,
+            "accuracy": 1,
+            "auc": null
+          },
+          "29": {
+            "n": 9,
+            "positives": 8,
+            "rate": 0.888889,
+            "brier": 0.068702,
+            "logLoss": 0.246422,
+            "accuracy": 0.888889,
+            "auc": 1
+          },
+          "31": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.005732,
+            "logLoss": 0.07439,
+            "accuracy": 1,
+            "auc": null
+          },
+          "32": {
+            "n": 6,
+            "positives": 3,
+            "rate": 0.5,
+            "brier": 0.272443,
+            "logLoss": 0.749024,
+            "accuracy": 0.666667,
+            "auc": 0.333333
+          },
+          "35": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.119939,
+            "logLoss": 0.410541,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "36": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.071498,
+            "logLoss": 0.22312,
+            "accuracy": 0.833333,
+            "auc": 1
+          },
+          "37": {
+            "n": 7,
+            "positives": 7,
+            "rate": 1,
+            "brier": 0.004675,
+            "logLoss": 0.066087,
+            "accuracy": 1,
+            "auc": null
+          },
+          "38": {
+            "n": 7,
+            "positives": 5,
+            "rate": 0.714286,
+            "brier": 0.210185,
+            "logLoss": 0.58845,
+            "accuracy": 0.714286,
+            "auc": 0.6
+          },
+          "39": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.011058,
+            "logLoss": 0.107336,
+            "accuracy": 1,
+            "auc": null
+          },
+          "40": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.004096,
+            "logLoss": 0.063091,
+            "accuracy": 1,
+            "auc": null
+          },
+          "41": {
+            "n": 6,
+            "positives": 3,
+            "rate": 0.5,
+            "brier": 0.376342,
+            "logLoss": 1.06202,
+            "accuracy": 0.5,
+            "auc": 0.444444
+          },
+          "42": {
+            "n": 10,
+            "positives": 7,
+            "rate": 0.7,
+            "brier": 0.262804,
+            "logLoss": 0.775827,
+            "accuracy": 0.7,
+            "auc": 0.285714
+          },
+          "43": {
+            "n": 11,
+            "positives": 8,
+            "rate": 0.727273,
+            "brier": 0.115853,
+            "logLoss": 0.369185,
+            "accuracy": 0.818182,
+            "auc": 0.875
+          },
+          "45": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.187209,
+            "logLoss": 0.559659,
+            "accuracy": 0.75,
+            "auc": 0.666667
+          },
+          "46": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.040885,
+            "logLoss": 0.199555,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "48": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.010073,
+            "logLoss": 0.10421,
+            "accuracy": 1,
+            "auc": null
+          },
+          "49": {
+            "n": 6,
+            "positives": 6,
+            "rate": 1,
+            "brier": 0.008488,
+            "logLoss": 0.093673,
+            "accuracy": 1,
+            "auc": null
+          },
+          "50": {
+            "n": 3,
+            "positives": 2,
+            "rate": 0.666667,
+            "brier": 0.162043,
+            "logLoss": 0.514179,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "51": {
+            "n": 4,
+            "positives": 4,
+            "rate": 1,
+            "brier": 0.016026,
+            "logLoss": 0.127064,
+            "accuracy": 1,
+            "auc": null
+          },
+          "54": {
+            "n": 11,
+            "positives": 10,
+            "rate": 0.909091,
+            "brier": 0.078996,
+            "logLoss": 0.28436,
+            "accuracy": 0.909091,
+            "auc": 0.9
+          },
+          "55": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.135888,
+            "logLoss": 0.445259,
+            "accuracy": 0.857143,
+            "auc": 0.5
+          },
+          "56": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.148143,
+            "logLoss": 0.488034,
+            "accuracy": 0.833333,
+            "auc": 0
+          },
+          "58": {
+            "n": 5,
+            "positives": 2,
+            "rate": 0.4,
+            "brier": 0.363217,
+            "logLoss": 0.937238,
+            "accuracy": 0.2,
+            "auc": 0.5
+          },
+          "60": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.067581,
+            "logLoss": 0.283755,
+            "accuracy": 1,
+            "auc": null
+          },
+          "61": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.007913,
+            "logLoss": 0.092713,
+            "accuracy": 1,
+            "auc": null
+          },
+          "62": {
+            "n": 4,
+            "positives": 2,
+            "rate": 0.5,
+            "brier": 0.126916,
+            "logLoss": 0.436481,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "63": {
+            "n": 9,
+            "positives": 7,
+            "rate": 0.777778,
+            "brier": 0.124744,
+            "logLoss": 0.402209,
+            "accuracy": 0.888889,
+            "auc": 0.714286
+          },
+          "67": {
+            "n": 12,
+            "positives": 10,
+            "rate": 0.833333,
+            "brier": 0.185587,
+            "logLoss": 0.558697,
+            "accuracy": 0.75,
+            "auc": 0.5
+          },
+          "68": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.011422,
+            "logLoss": 0.11077,
+            "accuracy": 1,
+            "auc": null
+          },
+          "69": {
+            "n": 6,
+            "positives": 4,
+            "rate": 0.666667,
+            "brier": 0.214598,
+            "logLoss": 0.608319,
+            "accuracy": 0.666667,
+            "auc": 0.5
+          },
+          "70": {
+            "n": 9,
+            "positives": 6,
+            "rate": 0.666667,
+            "brier": 0.186242,
+            "logLoss": 0.534244,
+            "accuracy": 0.777778,
+            "auc": 0.777778
+          },
+          "71": {
+            "n": 8,
+            "positives": 6,
+            "rate": 0.75,
+            "brier": 0.188573,
+            "logLoss": 0.562565,
+            "accuracy": 0.75,
+            "auc": 0.583333
+          },
+          "72": {
+            "n": 13,
+            "positives": 10,
+            "rate": 0.769231,
+            "brier": 0.131387,
+            "logLoss": 0.443222,
+            "accuracy": 0.923077,
+            "auc": 0.7
+          }
+        },
+        "pitcherCharacter": {
+          "1": {
+            "n": 40,
+            "positives": 34,
+            "rate": 0.85,
+            "brier": 0.113445,
+            "logLoss": 0.370181,
+            "accuracy": 0.85,
+            "auc": 0.794118
+          },
+          "2": {
+            "n": 50,
+            "positives": 43,
+            "rate": 0.86,
+            "brier": 0.096226,
+            "logLoss": 0.316991,
+            "accuracy": 0.88,
+            "auc": 0.89701
+          },
+          "3": {
+            "n": 60,
+            "positives": 46,
+            "rate": 0.766667,
+            "brier": 0.149729,
+            "logLoss": 0.464877,
+            "accuracy": 0.766667,
+            "auc": 0.73913
+          },
+          "4": {
+            "n": 32,
+            "positives": 23,
+            "rate": 0.71875,
+            "brier": 0.18833,
+            "logLoss": 0.570283,
+            "accuracy": 0.78125,
+            "auc": 0.73913
+          },
+          "5": {
+            "n": 41,
+            "positives": 24,
+            "rate": 0.585366,
+            "brier": 0.182568,
+            "logLoss": 0.548305,
+            "accuracy": 0.804878,
+            "auc": 0.781863
+          },
+          "7": {
+            "n": 5,
+            "positives": 5,
+            "rate": 1,
+            "brier": 0.001508,
+            "logLoss": 0.038361,
+            "accuracy": 1,
+            "auc": null
+          },
+          "21": {
+            "n": 1,
+            "positives": 1,
+            "rate": 1,
+            "brier": 0.221997,
+            "logLoss": 0.637081,
+            "accuracy": 1,
+            "auc": null
+          },
+          "26": {
+            "n": 6,
+            "positives": 5,
+            "rate": 0.833333,
+            "brier": 0.141138,
+            "logLoss": 0.452733,
+            "accuracy": 0.833333,
+            "auc": 0.6
+          },
+          "36": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.281262,
+            "logLoss": 0.919322,
+            "accuracy": 0.75,
+            "auc": 0
+          },
+          "49": {
+            "n": 25,
+            "positives": 21,
+            "rate": 0.84,
+            "brier": 0.164941,
+            "logLoss": 0.505671,
+            "accuracy": 0.84,
+            "auc": 0.714286
+          },
+          "50": {
+            "n": 7,
+            "positives": 6,
+            "rate": 0.857143,
+            "brier": 0.124163,
+            "logLoss": 0.413278,
+            "accuracy": 0.857143,
+            "auc": 0.333333
+          },
+          "52": {
+            "n": 30,
+            "positives": 20,
+            "rate": 0.666667,
+            "brier": 0.160585,
+            "logLoss": 0.495092,
+            "accuracy": 0.766667,
+            "auc": 0.84
+          },
+          "58": {
+            "n": 29,
+            "positives": 23,
+            "rate": 0.793103,
+            "brier": 0.190126,
+            "logLoss": 0.571335,
+            "accuracy": 0.793103,
+            "auc": 0.434783
+          },
+          "63": {
+            "n": 23,
+            "positives": 17,
+            "rate": 0.73913,
+            "brier": 0.167524,
+            "logLoss": 0.495303,
+            "accuracy": 0.73913,
+            "auc": 0.843137
+          }
+        },
+        "park": {
+          "bowser_castle": {
+            "n": 39,
+            "positives": 26,
+            "rate": 0.666667,
+            "brier": 0.183199,
+            "logLoss": 0.555047,
+            "accuracy": 0.74359,
+            "auc": 0.727811
+          },
+          "bowser_jr_playroom": {
+            "n": 26,
+            "positives": 16,
+            "rate": 0.615385,
+            "brier": 0.214633,
+            "logLoss": 0.629798,
+            "accuracy": 0.653846,
+            "auc": 0.8125
+          },
+          "daisy_cruiser": {
+            "n": 114,
+            "positives": 93,
+            "rate": 0.815789,
+            "brier": 0.131013,
+            "logLoss": 0.415253,
+            "accuracy": 0.842105,
+            "auc": 0.757296
+          },
+          "dk_jungle": {
+            "n": 38,
+            "positives": 28,
+            "rate": 0.736842,
+            "brier": 0.12111,
+            "logLoss": 0.393933,
+            "accuracy": 0.894737,
+            "auc": 0.907143
+          },
+          "luigis_mansion": {
+            "n": 29,
+            "positives": 24,
+            "rate": 0.827586,
+            "brier": 0.139884,
+            "logLoss": 0.453479,
+            "accuracy": 0.896552,
+            "auc": 0.733333
+          },
+          "mario_stadium": {
+            "n": 80,
+            "positives": 66,
+            "rate": 0.825,
+            "brier": 0.135304,
+            "logLoss": 0.426401,
+            "accuracy": 0.825,
+            "auc": 0.698052
+          },
+          "peach_ice_garden": {
+            "n": 27,
+            "positives": 18,
+            "rate": 0.666667,
+            "brier": 0.225157,
+            "logLoss": 0.639145,
+            "accuracy": 0.666667,
+            "auc": 0.753086
+          }
+        },
+        "swingMode": {
+          "charge": {
+            "n": 353,
+            "positives": 271,
+            "rate": 0.767705,
+            "brier": 0.150773,
+            "logLoss": 0.466996,
+            "accuracy": 0.810198,
+            "auc": 0.737782
+          }
+        },
+        "controllerSide": {
+          "unobserved": {
+            "n": 353,
+            "positives": 271,
+            "rate": 0.767705,
+            "brier": 0.150773,
+            "logLoss": 0.466996,
+            "accuracy": 0.810198,
+            "auc": 0.737782
+          }
+        },
+        "contactResult": {
+          "contact": {
+            "n": 271,
+            "positives": 271,
+            "rate": 1,
+            "brier": 0.050513,
+            "logLoss": 0.21805,
+            "accuracy": 0.97786,
+            "auc": null
+          },
+          "no_contact": {
+            "n": 82,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.482122,
+            "logLoss": 1.289735,
+            "accuracy": 0.256098,
+            "auc": null
+          }
+        }
+      }
+    },
+    "contactQuality": {
+      "modelVersion": "sluggers-contact-kernel-v3-star-contact-oof",
+      "split": "leave_one_whole_game_out",
+      "predictors": [
+        "measured post-contact exit velocity",
+        "measured post-contact launch angle"
+      ],
+      "realizedOutcomeIsInput": false,
+      "samples": 234,
+      "evaluated": 234,
+      "hitProbability": {
+        "n": 234,
+        "positives": 75,
+        "rate": 0.320513,
+        "brier": 0.185595,
+        "logLoss": 0.550147,
+        "accuracy": 0.735043,
+        "auc": 0.706834
+      },
+      "wobaMae": 0.507254,
+      "wobaRmse": 0.614935,
+      "residualWobaVariance": 0.377897,
+      "folds": [
+        {
+          "heldOutGame": "2766",
+          "n": 31,
+          "hitProbability": {
+            "n": 31,
+            "positives": 10,
+            "rate": 0.322581,
+            "brier": 0.208301,
+            "logLoss": 0.604362,
+            "accuracy": 0.677419,
+            "auc": 0.6
+          },
+          "wobaMae": 0.492186,
+          "wobaRmse": 0.585783
+        },
+        {
+          "heldOutGame": "2767",
+          "n": 25,
+          "hitProbability": {
+            "n": 25,
+            "positives": 8,
+            "rate": 0.32,
+            "brier": 0.136556,
+            "logLoss": 0.443872,
+            "accuracy": 0.92,
+            "auc": 0.933824
+          },
+          "wobaMae": 0.43926,
+          "wobaRmse": 0.528562
+        },
+        {
+          "heldOutGame": "2768",
+          "n": 24,
+          "hitProbability": {
+            "n": 24,
+            "positives": 10,
+            "rate": 0.416667,
+            "brier": 0.226407,
+            "logLoss": 0.638687,
+            "accuracy": 0.583333,
+            "auc": 0.657143
+          },
+          "wobaMae": 0.662936,
+          "wobaRmse": 0.783057
+        },
+        {
+          "heldOutGame": "2811",
+          "n": 16,
+          "hitProbability": {
+            "n": 16,
+            "positives": 5,
+            "rate": 0.3125,
+            "brier": 0.137267,
+            "logLoss": 0.426213,
+            "accuracy": 0.875,
+            "auc": 0.890909
+          },
+          "wobaMae": 0.496437,
+          "wobaRmse": 0.604648
+        },
+        {
+          "heldOutGame": "2812",
+          "n": 19,
+          "hitProbability": {
+            "n": 19,
+            "positives": 6,
+            "rate": 0.315789,
+            "brier": 0.158441,
+            "logLoss": 0.466683,
+            "accuracy": 0.736842,
+            "auc": 0.807692
+          },
+          "wobaMae": 0.360747,
+          "wobaRmse": 0.435047
+        },
+        {
+          "heldOutGame": "2813",
+          "n": 18,
+          "hitProbability": {
+            "n": 18,
+            "positives": 8,
+            "rate": 0.444444,
+            "brier": 0.23238,
+            "logLoss": 0.636784,
+            "accuracy": 0.611111,
+            "auc": 0.725
+          },
+          "wobaMae": 0.421082,
+          "wobaRmse": 0.477229
+        },
+        {
+          "heldOutGame": "2814",
+          "n": 21,
+          "hitProbability": {
+            "n": 21,
+            "positives": 7,
+            "rate": 0.333333,
+            "brier": 0.158157,
+            "logLoss": 0.483558,
+            "accuracy": 0.761905,
+            "auc": 0.836735
+          },
+          "wobaMae": 0.552263,
+          "wobaRmse": 0.658655
+        },
+        {
+          "heldOutGame": "2946",
+          "n": 21,
+          "hitProbability": {
+            "n": 21,
+            "positives": 5,
+            "rate": 0.238095,
+            "brier": 0.146015,
+            "logLoss": 0.451441,
+            "accuracy": 0.809524,
+            "auc": 0.7875
+          },
+          "wobaMae": 0.454786,
+          "wobaRmse": 0.606017
+        },
+        {
+          "heldOutGame": "2947",
+          "n": 37,
+          "hitProbability": {
+            "n": 37,
+            "positives": 10,
+            "rate": 0.27027,
+            "brier": 0.208175,
+            "logLoss": 0.61911,
+            "accuracy": 0.702703,
+            "auc": 0.622222
+          },
+          "wobaMae": 0.58328,
+          "wobaRmse": 0.682836
+        },
+        {
+          "heldOutGame": "2948",
+          "n": 22,
+          "hitProbability": {
+            "n": 22,
+            "positives": 6,
+            "rate": 0.272727,
+            "brier": 0.211122,
+            "logLoss": 0.631066,
+            "accuracy": 0.727273,
+            "auc": 0.520833
+          },
+          "wobaMae": 0.52008,
+          "wobaRmse": 0.622608
+        }
+      ],
+      "slices": {
+        "player": {
+          "1ce2362b-44bb-4292-92bc-a70fe6ba1c23": {
+            "n": 59,
+            "positives": 22,
+            "rate": 0.372881,
+            "brier": 0.175431,
+            "logLoss": 0.537599,
+            "accuracy": 0.79661,
+            "auc": 0.805897
+          },
+          "347ec3da-ae5d-4442-851c-3e7c022c240b": {
+            "n": 40,
+            "positives": 10,
+            "rate": 0.25,
+            "brier": 0.161228,
+            "logLoss": 0.481507,
+            "accuracy": 0.75,
+            "auc": 0.746667
+          },
+          "37e3db42-5608-4e78-b497-c081a2fb30f8": {
+            "n": 34,
+            "positives": 11,
+            "rate": 0.323529,
+            "brier": 0.184219,
+            "logLoss": 0.548855,
+            "accuracy": 0.764706,
+            "auc": 0.711462
+          },
+          "3b12101d-2d43-4fa0-9e07-f4132d86dfe3": {
+            "n": 34,
+            "positives": 13,
+            "rate": 0.382353,
+            "brier": 0.224571,
+            "logLoss": 0.621945,
+            "accuracy": 0.588235,
+            "auc": 0.666667
+          },
+          "a4d98664-1778-492c-8962-a27be4c30012": {
+            "n": 30,
+            "positives": 11,
+            "rate": 0.366667,
+            "brier": 0.220862,
+            "logLoss": 0.650931,
+            "accuracy": 0.7,
+            "auc": 0.550239
+          },
+          "be1d20c0-c1f2-4831-a589-4195f9c5bbad": {
+            "n": 37,
+            "positives": 8,
+            "rate": 0.216216,
+            "brier": 0.164999,
+            "logLoss": 0.497859,
+            "accuracy": 0.756757,
+            "auc": 0.737069
+          }
+        },
+        "batterCharacter": {
+          "1": {
+            "n": 3,
+            "positives": 2,
+            "rate": 0.666667,
+            "brier": 0.42073,
+            "logLoss": 1.338386,
+            "accuracy": 0.333333,
+            "auc": 0.5
+          },
+          "2": {
+            "n": 6,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.096576,
+            "logLoss": 0.334818,
+            "accuracy": 0.833333,
+            "auc": null
+          },
+          "3": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.329734,
+            "logLoss": 0.863051,
+            "accuracy": 0.5,
+            "auc": 0.333333
+          },
+          "4": {
+            "n": 2,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.074599,
+            "logLoss": 0.316544,
+            "accuracy": 1,
+            "auc": null
+          },
+          "5": {
+            "n": 4,
+            "positives": 1,
+            "rate": 0.25,
+            "brier": 0.150444,
+            "logLoss": 0.45251,
+            "accuracy": 0.75,
+            "auc": 1
+          },
+          "6": {
+            "n": 3,
+            "positives": 2,
+            "rate": 0.666667,
+            "brier": 0.396283,
+            "logLoss": 1.013354,
+            "accuracy": 0.333333,
+            "auc": 0
+          },
+          "7": {
+            "n": 6,
+            "positives": 2,
+            "rate": 0.333333,
+            "brier": 0.216291,
+            "logLoss": 0.6027,
+            "accuracy": 0.666667,
+            "auc": 0.375
+          },
+          "8": {
+            "n": 5,
+            "positives": 1,
+            "rate": 0.2,
+            "brier": 0.169987,
+            "logLoss": 0.509185,
+            "accuracy": 0.8,
+            "auc": 0.75
+          },
+          "10": {
+            "n": 4,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.138411,
+            "logLoss": 0.457284,
+            "accuracy": 0.75,
+            "auc": null
+          },
+          "11": {
+            "n": 4,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.089326,
+            "logLoss": 0.334345,
+            "accuracy": 1,
+            "auc": null
+          },
+          "12": {
+            "n": 4,
+            "positives": 2,
+            "rate": 0.5,
+            "brier": 0.31483,
+            "logLoss": 0.849606,
+            "accuracy": 0.5,
+            "auc": 0.5
+          },
+          "15": {
+            "n": 4,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.072848,
+            "logLoss": 0.296032,
+            "accuracy": 1,
+            "auc": null
+          },
+          "16": {
+            "n": 4,
+            "positives": 1,
+            "rate": 0.25,
+            "brier": 0.083365,
+            "logLoss": 0.315083,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "17": {
+            "n": 5,
+            "positives": 2,
+            "rate": 0.4,
+            "brier": 0.120177,
+            "logLoss": 0.379718,
+            "accuracy": 0.8,
+            "auc": 1
+          },
+          "18": {
+            "n": 5,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.152609,
+            "logLoss": 0.469789,
+            "accuracy": 0.8,
+            "auc": null
+          },
+          "19": {
+            "n": 5,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.030052,
+            "logLoss": 0.148468,
+            "accuracy": 1,
+            "auc": null
+          },
+          "20": {
+            "n": 8,
+            "positives": 2,
+            "rate": 0.25,
+            "brier": 0.129894,
+            "logLoss": 0.42118,
+            "accuracy": 0.875,
+            "auc": 1
+          },
+          "21": {
+            "n": 5,
+            "positives": 4,
+            "rate": 0.8,
+            "brier": 0.348517,
+            "logLoss": 0.897235,
+            "accuracy": 0.2,
+            "auc": 1
+          },
+          "22": {
+            "n": 4,
+            "positives": 1,
+            "rate": 0.25,
+            "brier": 0.267849,
+            "logLoss": 0.728939,
+            "accuracy": 0.5,
+            "auc": 0.333333
+          },
+          "24": {
+            "n": 5,
+            "positives": 2,
+            "rate": 0.4,
+            "brier": 0.225427,
+            "logLoss": 0.618666,
+            "accuracy": 0.6,
+            "auc": 0.666667
+          },
+          "25": {
+            "n": 5,
+            "positives": 2,
+            "rate": 0.4,
+            "brier": 0.220858,
+            "logLoss": 0.637707,
+            "accuracy": 0.8,
+            "auc": 0.5
+          },
+          "26": {
+            "n": 4,
+            "positives": 1,
+            "rate": 0.25,
+            "brier": 0.179492,
+            "logLoss": 0.513796,
+            "accuracy": 0.5,
+            "auc": 0.666667
+          },
+          "29": {
+            "n": 6,
+            "positives": 2,
+            "rate": 0.333333,
+            "brier": 0.102722,
+            "logLoss": 0.33664,
+            "accuracy": 0.833333,
+            "auc": 1
+          },
+          "31": {
+            "n": 4,
+            "positives": 1,
+            "rate": 0.25,
+            "brier": 0.20613,
+            "logLoss": 0.602459,
+            "accuracy": 0.75,
+            "auc": 0.666667
+          },
+          "32": {
+            "n": 2,
+            "positives": 1,
+            "rate": 0.5,
+            "brier": 0.07655,
+            "logLoss": 0.272782,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "35": {
+            "n": 3,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.074905,
+            "logLoss": 0.313464,
+            "accuracy": 1,
+            "auc": null
+          },
+          "36": {
+            "n": 5,
+            "positives": 2,
+            "rate": 0.4,
+            "brier": 0.127479,
+            "logLoss": 0.392145,
+            "accuracy": 0.8,
+            "auc": 0.833333
+          },
+          "37": {
+            "n": 6,
+            "positives": 2,
+            "rate": 0.333333,
+            "brier": 0.130413,
+            "logLoss": 0.396957,
+            "accuracy": 0.833333,
+            "auc": 0.875
+          },
+          "38": {
+            "n": 4,
+            "positives": 2,
+            "rate": 0.5,
+            "brier": 0.324356,
+            "logLoss": 0.846507,
+            "accuracy": 0.25,
+            "auc": 0.5
+          },
+          "39": {
+            "n": 2,
+            "positives": 1,
+            "rate": 0.5,
+            "brier": 0.255639,
+            "logLoss": 0.700557,
+            "accuracy": 0.5,
+            "auc": 1
+          },
+          "40": {
+            "n": 6,
+            "positives": 2,
+            "rate": 0.333333,
+            "brier": 0.144592,
+            "logLoss": 0.45813,
+            "accuracy": 0.833333,
+            "auc": 1
+          },
+          "41": {
+            "n": 1,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.200384,
+            "logLoss": 0.593561,
+            "accuracy": 1,
+            "auc": null
+          },
+          "42": {
+            "n": 4,
+            "positives": 2,
+            "rate": 0.5,
+            "brier": 0.266221,
+            "logLoss": 0.705033,
+            "accuracy": 0.5,
+            "auc": 0.5
+          },
+          "43": {
+            "n": 7,
+            "positives": 1,
+            "rate": 0.142857,
+            "brier": 0.214506,
+            "logLoss": 0.751806,
+            "accuracy": 0.857143,
+            "auc": 0
+          },
+          "45": {
+            "n": 5,
+            "positives": 1,
+            "rate": 0.2,
+            "brier": 0.1723,
+            "logLoss": 0.531494,
+            "accuracy": 0.8,
+            "auc": 0.75
+          },
+          "46": {
+            "n": 4,
+            "positives": 2,
+            "rate": 0.5,
+            "brier": 0.280664,
+            "logLoss": 0.756457,
+            "accuracy": 0.5,
+            "auc": 0.5
+          },
+          "48": {
+            "n": 3,
+            "positives": 1,
+            "rate": 0.333333,
+            "brier": 0.233068,
+            "logLoss": 0.660631,
+            "accuracy": 0.666667,
+            "auc": 0
+          },
+          "49": {
+            "n": 4,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.073444,
+            "logLoss": 0.287658,
+            "accuracy": 1,
+            "auc": null
+          },
+          "50": {
+            "n": 3,
+            "positives": 1,
+            "rate": 0.333333,
+            "brier": 0.219737,
+            "logLoss": 0.630453,
+            "accuracy": 0.666667,
+            "auc": 1
+          },
+          "51": {
+            "n": 4,
+            "positives": 1,
+            "rate": 0.25,
+            "brier": 0.228191,
+            "logLoss": 0.627662,
+            "accuracy": 0.5,
+            "auc": 0.333333
+          },
+          "54": {
+            "n": 7,
+            "positives": 3,
+            "rate": 0.428571,
+            "brier": 0.171228,
+            "logLoss": 0.530877,
+            "accuracy": 1,
+            "auc": 1
+          },
+          "55": {
+            "n": 4,
+            "positives": 1,
+            "rate": 0.25,
+            "brier": 0.210051,
+            "logLoss": 0.609141,
+            "accuracy": 0.75,
+            "auc": 0.333333
+          },
+          "56": {
+            "n": 3,
+            "positives": 1,
+            "rate": 0.333333,
+            "brier": 0.297715,
+            "logLoss": 0.856427,
+            "accuracy": 0.666667,
+            "auc": 0
+          },
+          "58": {
+            "n": 2,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.132557,
+            "logLoss": 0.451361,
+            "accuracy": 1,
+            "auc": null
+          },
+          "60": {
+            "n": 4,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.073683,
+            "logLoss": 0.292248,
+            "accuracy": 1,
+            "auc": null
+          },
+          "61": {
+            "n": 4,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.174714,
+            "logLoss": 0.535965,
+            "accuracy": 0.75,
+            "auc": null
+          },
+          "62": {
+            "n": 2,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.093636,
+            "logLoss": 0.365283,
+            "accuracy": 1,
+            "auc": null
+          },
+          "63": {
+            "n": 5,
+            "positives": 1,
+            "rate": 0.2,
+            "brier": 0.151411,
+            "logLoss": 0.469925,
+            "accuracy": 0.8,
+            "auc": 1
+          },
+          "67": {
+            "n": 8,
+            "positives": 4,
+            "rate": 0.5,
+            "brier": 0.114255,
+            "logLoss": 0.369653,
+            "accuracy": 0.875,
+            "auc": 1
+          },
+          "68": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.472088,
+            "logLoss": 1.163001,
+            "accuracy": 0,
+            "auc": null
+          },
+          "69": {
+            "n": 4,
+            "positives": 1,
+            "rate": 0.25,
+            "brier": 0.179773,
+            "logLoss": 0.520738,
+            "accuracy": 0.75,
+            "auc": 0.666667
+          },
+          "70": {
+            "n": 5,
+            "positives": 1,
+            "rate": 0.2,
+            "brier": 0.150421,
+            "logLoss": 0.464193,
+            "accuracy": 0.8,
+            "auc": 1
+          },
+          "71": {
+            "n": 3,
+            "positives": 3,
+            "rate": 1,
+            "brier": 0.318985,
+            "logLoss": 0.836055,
+            "accuracy": 0.333333,
+            "auc": null
+          },
+          "72": {
+            "n": 8,
+            "positives": 7,
+            "rate": 0.875,
+            "brier": 0.243145,
+            "logLoss": 0.680123,
+            "accuracy": 0.625,
+            "auc": 0.714286
+          }
+        },
+        "pitcherCharacter": {
+          "1": {
+            "n": 30,
+            "positives": 11,
+            "rate": 0.366667,
+            "brier": 0.222731,
+            "logLoss": 0.622049,
+            "accuracy": 0.6,
+            "auc": 0.645933
+          },
+          "2": {
+            "n": 38,
+            "positives": 9,
+            "rate": 0.236842,
+            "brier": 0.164353,
+            "logLoss": 0.494612,
+            "accuracy": 0.736842,
+            "auc": 0.739464
+          },
+          "3": {
+            "n": 34,
+            "positives": 11,
+            "rate": 0.323529,
+            "brier": 0.184219,
+            "logLoss": 0.548855,
+            "accuracy": 0.764706,
+            "auc": 0.711462
+          },
+          "4": {
+            "n": 26,
+            "positives": 6,
+            "rate": 0.230769,
+            "brier": 0.16371,
+            "logLoss": 0.48396,
+            "accuracy": 0.769231,
+            "auc": 0.675
+          },
+          "5": {
+            "n": 24,
+            "positives": 11,
+            "rate": 0.458333,
+            "brier": 0.243361,
+            "logLoss": 0.706668,
+            "accuracy": 0.625,
+            "auc": 0.573427
+          },
+          "7": {
+            "n": 5,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.17043,
+            "logLoss": 0.502399,
+            "accuracy": 0.8,
+            "auc": null
+          },
+          "21": {
+            "n": 1,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.00435,
+            "logLoss": 0.068228,
+            "accuracy": 1,
+            "auc": null
+          },
+          "26": {
+            "n": 4,
+            "positives": 3,
+            "rate": 0.75,
+            "brier": 0.41569,
+            "logLoss": 1.303485,
+            "accuracy": 0.5,
+            "auc": 0.666667
+          },
+          "36": {
+            "n": 5,
+            "positives": 0,
+            "rate": 0,
+            "brier": 0.15617,
+            "logLoss": 0.499933,
+            "accuracy": 1,
+            "auc": null
+          },
+          "49": {
+            "n": 14,
+            "positives": 7,
+            "rate": 0.5,
+            "brier": 0.150183,
+            "logLoss": 0.475227,
+            "accuracy": 0.928571,
+            "auc": 0.959184
+          },
+          "50": {
+            "n": 4,
+            "positives": 2,
+            "rate": 0.5,
+            "brier": 0.238375,
+            "logLoss": 0.621165,
+            "accuracy": 0.5,
+            "auc": 1
+          },
+          "52": {
+            "n": 15,
+            "positives": 6,
+            "rate": 0.4,
+            "brier": 0.155245,
+            "logLoss": 0.48455,
+            "accuracy": 0.8,
+            "auc": 0.907407
+          },
+          "58": {
+            "n": 22,
+            "positives": 5,
+            "rate": 0.227273,
+            "brier": 0.132839,
+            "logLoss": 0.41072,
+            "accuracy": 0.818182,
+            "auc": 0.858824
+          },
+          "63": {
+            "n": 12,
+            "positives": 4,
+            "rate": 0.333333,
+            "brier": 0.211169,
+            "logLoss": 0.611497,
+            "accuracy": 0.666667,
+            "auc": 0.625
+          }
+        },
+        "park": {
+          "bowser_castle": {
+            "n": 21,
+            "positives": 7,
+            "rate": 0.333333,
+            "brier": 0.158157,
+            "logLoss": 0.483558,
+            "accuracy": 0.761905,
+            "auc": 0.836735
+          },
+          "bowser_jr_playroom": {
+            "n": 18,
+            "positives": 8,
+            "rate": 0.444444,
+            "brier": 0.23238,
+            "logLoss": 0.636784,
+            "accuracy": 0.611111,
+            "auc": 0.725
+          },
+          "daisy_cruiser": {
+            "n": 75,
+            "positives": 24,
+            "rate": 0.32,
+            "brier": 0.171755,
+            "logLoss": 0.515987,
+            "accuracy": 0.773333,
+            "auc": 0.765523
+          },
+          "dk_jungle": {
+            "n": 24,
+            "positives": 10,
+            "rate": 0.416667,
+            "brier": 0.226407,
+            "logLoss": 0.638687,
+            "accuracy": 0.583333,
+            "auc": 0.657143
+          },
+          "luigis_mansion": {
+            "n": 22,
+            "positives": 6,
+            "rate": 0.272727,
+            "brier": 0.211122,
+            "logLoss": 0.631066,
+            "accuracy": 0.727273,
+            "auc": 0.520833
+          },
+          "mario_stadium": {
+            "n": 58,
+            "positives": 15,
+            "rate": 0.258621,
+            "brier": 0.185669,
+            "logLoss": 0.558402,
+            "accuracy": 0.741379,
+            "auc": 0.68062
+          },
+          "peach_ice_garden": {
+            "n": 16,
+            "positives": 5,
+            "rate": 0.3125,
+            "brier": 0.137267,
+            "logLoss": 0.426213,
+            "accuracy": 0.875,
+            "auc": 0.890909
+          }
+        },
+        "swingMode": {
+          "charge": {
+            "n": 218,
+            "positives": 71,
+            "rate": 0.325688,
+            "brier": 0.186998,
+            "logLoss": 0.555191,
+            "accuracy": 0.733945,
+            "auc": 0.712753
+          },
+          "slap": {
+            "n": 16,
+            "positives": 4,
+            "rate": 0.25,
+            "brier": 0.166476,
+            "logLoss": 0.481432,
+            "accuracy": 0.75,
+            "auc": 0.666667
+          }
+        }
+      }
+    }
+  },
+  "chargeTimingComparison": {
+    "contextOnlyBrier": 0.148985,
+    "withTimingBrier": 0.150773,
+    "brierImprovement": -0.001788,
+    "interpretation": "Association only. The charge counter is not an independent batter power/contact timing marker."
+  },
+  "confounding": {
+    "players": 6,
+    "batterCharacters": 54,
+    "playerCharacterCells": 54,
+    "sparseCellsOneGameOrFewerThan20Pitches": 54,
+    "playersWithOneCharacter": [],
+    "charactersWithOnePlayer": [
+      "3",
+      "29",
+      "19",
+      "45",
+      "38",
+      "58",
+      "17",
+      "63",
+      "15",
+      "42",
+      "10",
+      "60",
+      "71",
+      "16",
+      "12",
+      "55",
+      "11",
+      "56",
+      "2",
+      "67",
+      "72",
+      "20",
+      "7",
+      "54",
+      "43",
+      "4",
+      "40",
+      "37",
+      "70",
+      "46",
+      "22",
+      "26",
+      "61",
+      "48",
+      "49",
+      "31",
+      "5",
+      "36",
+      "8",
+      "21",
+      "18",
+      "1",
+      "24",
+      "25",
+      "6",
+      "35",
+      "32",
+      "51",
+      "68",
+      "41",
+      "39",
+      "69",
+      "62",
+      "50"
+    ],
+    "gamesPerPlayer": {
+      "347ec3da-ae5d-4442-851c-3e7c022c240b": 5,
+      "37e3db42-5608-4e78-b497-c081a2fb30f8": 3,
+      "1ce2362b-44bb-4292-92bc-a70fe6ba1c23": 4,
+      "be1d20c0-c1f2-4831-a589-4195f9c5bbad": 3,
+      "3b12101d-2d43-4fa0-9e07-f4132d86dfe3": 3,
+      "a4d98664-1778-492c-8962-a27be4c30012": 3
+    },
+    "gamesPerPark": {
+      "daisy_cruiser": 4,
+      "dk_jungle": 1,
+      "peach_ice_garden": 1,
+      "bowser_jr_playroom": 1,
+      "bowser_castle": 1,
+      "mario_stadium": 2,
+      "luigis_mansion": 1
+    },
+    "cells": [
+      {
+        "playerId": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+        "characterId": 54,
+        "pitches": 19,
+        "games": 4
+      },
+      {
+        "playerId": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+        "characterId": 72,
+        "pitches": 18,
+        "games": 4
+      },
+      {
+        "playerId": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+        "characterId": 2,
+        "pitches": 16,
+        "games": 4
+      },
+      {
+        "playerId": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+        "characterId": 17,
+        "pitches": 15,
+        "games": 3
+      },
+      {
+        "playerId": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+        "characterId": 43,
+        "pitches": 15,
+        "games": 4
+      },
+      {
+        "playerId": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+        "characterId": 67,
+        "pitches": 14,
+        "games": 4
+      },
+      {
+        "playerId": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+        "characterId": 20,
+        "pitches": 14,
+        "games": 4
+      },
+      {
+        "playerId": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+        "characterId": 7,
+        "pitches": 14,
+        "games": 4
+      },
+      {
+        "playerId": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+        "characterId": 3,
+        "pitches": 13,
+        "games": 5
+      },
+      {
+        "playerId": "a4d98664-1778-492c-8962-a27be4c30012",
+        "characterId": 35,
+        "pitches": 12,
+        "games": 3
+      },
+      {
+        "playerId": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+        "characterId": 58,
+        "pitches": 11,
+        "games": 3
+      },
+      {
+        "playerId": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+        "characterId": 63,
+        "pitches": 11,
+        "games": 3
+      },
+      {
+        "playerId": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+        "characterId": 42,
+        "pitches": 11,
+        "games": 4
+      },
+      {
+        "playerId": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+        "characterId": 4,
+        "pitches": 11,
+        "games": 3
+      },
+      {
+        "playerId": "a4d98664-1778-492c-8962-a27be4c30012",
+        "characterId": 6,
+        "pitches": 11,
+        "games": 3
+      },
+      {
+        "playerId": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+        "characterId": 29,
+        "pitches": 10,
+        "games": 4
+      },
+      {
+        "playerId": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+        "characterId": 45,
+        "pitches": 10,
+        "games": 4
+      },
+      {
+        "playerId": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+        "characterId": 71,
+        "pitches": 10,
+        "games": 3
+      },
+      {
+        "playerId": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+        "characterId": 70,
+        "pitches": 10,
+        "games": 4
+      },
+      {
+        "playerId": "a4d98664-1778-492c-8962-a27be4c30012",
+        "characterId": 1,
+        "pitches": 10,
+        "games": 3
+      },
+      {
+        "playerId": "a4d98664-1778-492c-8962-a27be4c30012",
+        "characterId": 25,
+        "pitches": 10,
+        "games": 3
+      },
+      {
+        "playerId": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+        "characterId": 38,
+        "pitches": 9,
+        "games": 4
+      },
+      {
+        "playerId": "1ce2362b-44bb-4292-92bc-a70fe6ba1c23",
+        "characterId": 46,
+        "pitches": 9,
+        "games": 4
+      },
+      {
+        "playerId": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+        "characterId": 8,
+        "pitches": 9,
+        "games": 3
+      },
+      {
+        "playerId": "a4d98664-1778-492c-8962-a27be4c30012",
+        "characterId": 24,
+        "pitches": 9,
+        "games": 3
+      },
+      {
+        "playerId": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+        "characterId": 15,
+        "pitches": 8,
+        "games": 4
+      },
+      {
+        "playerId": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+        "characterId": 16,
+        "pitches": 8,
+        "games": 3
+      },
+      {
+        "playerId": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+        "characterId": 56,
+        "pitches": 8,
+        "games": 3
+      },
+      {
+        "playerId": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+        "characterId": 37,
+        "pitches": 8,
+        "games": 3
+      },
+      {
+        "playerId": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+        "characterId": 36,
+        "pitches": 8,
+        "games": 3
+      },
+      {
+        "playerId": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+        "characterId": 19,
+        "pitches": 7,
+        "games": 4
+      },
+      {
+        "playerId": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+        "characterId": 10,
+        "pitches": 7,
+        "games": 4
+      },
+      {
+        "playerId": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+        "characterId": 55,
+        "pitches": 7,
+        "games": 3
+      },
+      {
+        "playerId": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+        "characterId": 40,
+        "pitches": 7,
+        "games": 3
+      },
+      {
+        "playerId": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+        "characterId": 5,
+        "pitches": 7,
+        "games": 3
+      },
+      {
+        "playerId": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+        "characterId": 21,
+        "pitches": 7,
+        "games": 3
+      },
+      {
+        "playerId": "a4d98664-1778-492c-8962-a27be4c30012",
+        "characterId": 32,
+        "pitches": 7,
+        "games": 3
+      },
+      {
+        "playerId": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+        "characterId": 22,
+        "pitches": 6,
+        "games": 3
+      },
+      {
+        "playerId": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+        "characterId": 49,
+        "pitches": 6,
+        "games": 3
+      },
+      {
+        "playerId": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+        "characterId": 31,
+        "pitches": 6,
+        "games": 3
+      },
+      {
+        "playerId": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+        "characterId": 18,
+        "pitches": 6,
+        "games": 3
+      },
+      {
+        "playerId": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+        "characterId": 41,
+        "pitches": 6,
+        "games": 3
+      },
+      {
+        "playerId": "a4d98664-1778-492c-8962-a27be4c30012",
+        "characterId": 69,
+        "pitches": 6,
+        "games": 3
+      },
+      {
+        "playerId": "a4d98664-1778-492c-8962-a27be4c30012",
+        "characterId": 62,
+        "pitches": 6,
+        "games": 3
+      },
+      {
+        "playerId": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+        "characterId": 12,
+        "pitches": 5,
+        "games": 3
+      },
+      {
+        "playerId": "37e3db42-5608-4e78-b497-c081a2fb30f8",
+        "characterId": 11,
+        "pitches": 5,
+        "games": 3
+      },
+      {
+        "playerId": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+        "characterId": 26,
+        "pitches": 5,
+        "games": 3
+      },
+      {
+        "playerId": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+        "characterId": 48,
+        "pitches": 5,
+        "games": 3
+      },
+      {
+        "playerId": "347ec3da-ae5d-4442-851c-3e7c022c240b",
+        "characterId": 60,
+        "pitches": 4,
+        "games": 3
+      },
+      {
+        "playerId": "be1d20c0-c1f2-4831-a589-4195f9c5bbad",
+        "characterId": 61,
+        "pitches": 4,
+        "games": 3
+      },
+      {
+        "playerId": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+        "characterId": 51,
+        "pitches": 4,
+        "games": 3
+      },
+      {
+        "playerId": "a4d98664-1778-492c-8962-a27be4c30012",
+        "characterId": 50,
+        "pitches": 4,
+        "games": 3
+      },
+      {
+        "playerId": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+        "characterId": 68,
+        "pitches": 3,
+        "games": 3
+      },
+      {
+        "playerId": "3b12101d-2d43-4fa0-9e07-f4132d86dfe3",
+        "characterId": 39,
+        "pitches": 3,
+        "games": 3
+      }
+    ]
+  },
+  "components": {
+    "swingDecisionRuns": {
+      "status": "not_publishable",
+      "observed": [
+        "swing/take/bunt offer",
+        "count",
+        "plate endpoint",
+        "conservative zone/chase state"
+      ],
+      "blocker": "Behavior can be predicted out of game, but the archive does not identify counterfactual value of the unchosen action."
+    },
+    "slapChargeChoice": {
+      "status": "provisional_behavior_only",
+      "blocker": "Choice is observed, but choice value is confounded with player, character, opponent, and pitch quality."
+    },
+    "contactExecutionRuns": {
+      "status": "not_publishable",
+      "blocker": "OOF contact and contact-quality checks exist, but the cohort is too small and crossed too sparsely for player-minus-character run attribution."
+    },
+    "powerChargeTimingRuns": {
+      "status": "not_publishable",
+      "blocker": "Charge duration/release timing comes from the same charge counter; no independent power/contact timing marker exists."
+    },
+    "starSwingDecisionRuns": {
+      "status": "not_publishable",
+      "blocker": "Star swings are observed, but star availability and shared-resource opportunity cost are not observed in these official games."
+    },
+    "automaticCharacterContribution": {
+      "status": "unidentified",
+      "blocker": "Character, automatic animation/route behavior, and player are not sufficiently crossed to separate reliably."
+    },
+    "residualOutcomeVariance": {
+      "status": "descriptive_only",
+      "observedWobaResidualVariance": 0.377897,
+      "blocker": "Residual mixes defense, park interactions, automatic behavior, model error, and luck."
+    },
+    "totalBattingUva": {
+      "status": "not_publishable",
+      "blocker": "Required component run values are not independently identified or adequately calibrated."
+    }
+  },
+  "unobservedInputs": [
+    "pitch charge input and duration",
+    "intended pitch aim before movement",
+    "runner and fielder shake effort",
+    "missed dive/jump/Buddy-action button attempts without animation/contact",
+    "independent batter power/contact timing beyond the charge counter",
+    "controller side in the official-game cohort",
+    "star resource availability before each official pitch"
+  ]
+}

@@ -1,4 +1,5 @@
 import { parseFielderChainFromNotation, parseErrorPositionsFromNotation } from './notation'
+import { outsFromInningsPitched, inningsPitchedFromOuts } from './inningsPitched.js'
 import { getHandedness } from './characterHandedness'
 import { getPlayerSkillProfile } from './teamIdentity'
 import { deriveTrackedHitFields } from './hitFieldDerivation'
@@ -6,6 +7,7 @@ import { computeDifficultySignal } from './fieldingRange'
 import { isCreditedHit, isCreditedHitType, isCreditedHomeRun } from './creditedHit'
 import { OUT_RESULTS, calculateOutsForPa } from './defensiveEfficiency'
 import { isOfficialAtBat } from './plateAppearanceRules'
+import { fielderCoversPa } from './fielderStints.js'
 import {
   dedupeStatRows,
   filterRunEventsForPlateAppearances,
@@ -26,31 +28,71 @@ const outResults = OUT_RESULTS
 export const battedBallResults = new Set(['1B', '2B', '3B', 'HR', 'IPHR', 'GO', 'FO', 'LO', 'DP', 'TP', 'SF', 'SH', 'FC', 'ROE'])
 const swingPitchResults = new Set(['swinging_miss', 'foul', 'in_play'])
 
+// Turn one recorded fielder chain into the official PO/A credits for the play.
+// On a multi-out play, the last N fielders record the N putouts while every
+// fielder before the final receiver records an assist. A pivot can therefore
+// receive both an assist and a putout on the same double play.
+export function buildFielderSequenceCredits(positions = [], outsOnPlay = 0) {
+  const sequence = positions
+    .map(Number)
+    .filter((position) => Number.isInteger(position) && position >= 1 && position <= 9)
+  const outs = Math.min(sequence.length, Math.max(0, Math.trunc(Number(outsOnPlay) || 0)))
+  if (!sequence.length || !outs) return []
+
+  const putoutStart = sequence.length - outs
+  const doublePlays = outs >= 2 ? 1 : 0
+  const byPosition = new Map()
+  sequence.forEach((position, index) => {
+    const credit = byPosition.get(position) || {
+      positionNumber: position,
+      putouts: 0,
+      assists: 0,
+      doublePlays,
+    }
+    if (index >= putoutStart) credit.putouts = 1
+    if (index < sequence.length - 1) credit.assists = 1
+    byPosition.set(position, credit)
+  })
+  return [...byPosition.values()].map((credit) => ({
+    ...credit,
+    chances: credit.putouts + credit.assists,
+  }))
+}
+
+export function buildFieldingAppearanceCredits(gameFielders = []) {
+  return gameFielders.map((fielder) => ({
+    playerId: fielder.player_id || fielder.team_id,
+    playerName: fielder.player_name,
+    characterName: fielder.character || 'Unknown',
+    gameId: String(fielder.game_id),
+    positionNumber: fielder.position,
+  }))
+}
+
+export function fieldingChanceCount(chance = {}) {
+  if (chance.isBuddyJump) return 0
+  const recorded = Number(chance.chanceCount)
+  return Number.isFinite(recorded) ? Math.max(0, recorded) : 1
+}
+
 function getHalfFromPa(pa = {}) {
   return pa.half || pa.pa_half || 'top'
 }
 
-export function outsFromInningsPitched(inningsPitched = 0) {
-  const innings = Number(inningsPitched || 0)
-  const whole = Math.trunc(innings)
-  const fraction = Number((innings - whole).toFixed(3))
-
-  if (Math.abs(fraction - 0.1) < 0.001) return whole * 3 + 1
-  if (Math.abs(fraction - 0.2) < 0.001) return whole * 3 + 2
-
-  const legacyOuts = Math.round(fraction * 3)
-  return whole * 3 + legacyOuts
-}
-
-export function inningsPitchedFromOuts(outs = 0) {
-  const safeOuts = Math.max(0, Number(outs || 0))
-  const wholeInnings = Math.floor(safeOuts / 3)
-  const remainingOuts = safeOuts % 3
-  return Number(`${wholeInnings}.${remainingOuts}`)
-}
+export { outsFromInningsPitched, inningsPitchedFromOuts }
 
 export function inningsAsDecimal(inningsPitched = 0) {
   return outsFromInningsPitched(inningsPitched) / 3
+}
+
+export function qualifiesPitchingRate(pitching = {}) {
+  const games = Number(pitching.games || 0)
+  return games > 0 && inningsAsDecimal(pitching.innings || 0) >= games
+}
+
+export function qualifiesPerGameSample(sampleSize = 0, gamesPlayed = 0) {
+  const games = Number(gamesPlayed || 0)
+  return games > 0 && Number(sampleSize || 0) >= games
 }
 
 function sumPitchingOuts(stints = []) {
@@ -651,8 +693,7 @@ export function summarizeFielding({ plateAppearances = [], gameFielders = [], pl
   const findFielderForPa = (pa) => gameFielders.find((fielder) => (
     String(fielder.game_id) === String(pa.game_id) &&
     Number(fielder.position) === Number(pa.hit_location || pa.error_position) &&
-    Number(fielder.inning_from || 1) <= Number(pa.inning || 1) &&
-    (fielder.inning_to == null || Number(fielder.inning_to) >= Number(pa.inning || 1)) &&
+    fielderCoversPa(fielder, pa) &&
     String(fielder.team_id) === String(pa.defensive_team_id)
   ))
 
@@ -1238,7 +1279,8 @@ export function computeFieldingLeagueConstants(allChances = []) {
   const realChances = allChances.filter((c) => !c.isBuddyJump)
   if (!realChances.length) return { lgFieldPct: 1 }
   const errors = realChances.filter((c) => c.isError).length
-  return { lgFieldPct: 1 - (errors / realChances.length) }
+  const totalChances = realChances.reduce((sum, chance) => sum + fieldingChanceCount(chance), 0)
+  return { lgFieldPct: totalChances ? 1 - (errors / totalChances) : 1 }
 }
 
 function matchFielderForPa(pa, gameFieldersByGameId, position) {
@@ -1248,8 +1290,7 @@ function matchFielderForPa(pa, gameFieldersByGameId, position) {
   if (!Number.isFinite(resolvedPosition)) return null
   return candidates.find((fielder) => (
     Number(fielder.position) === resolvedPosition &&
-    Number(fielder.inning_from || 1) <= Number(pa.inning || 1) &&
-    (fielder.inning_to == null || Number(fielder.inning_to) >= Number(pa.inning || 1)) &&
+    fielderCoversPa(fielder, pa) &&
     String(fielder.team_id) === String(pa.defensive_team_id)
   )) || null
 }
@@ -1296,19 +1337,25 @@ export function buildFieldingChances(plateAppearances = [], gameFielders = [], c
         ? [2]
         : ((pa.is_error || outsOnPlay > 0) && fallbackPosition != null ? [fallbackPosition] : [])
 
+    const sequenceCredits = new Map(buildFielderSequenceCredits(positions, creditOutsOnPlay ? outsOnPlay : 0)
+      .map((credit) => [credit.positionNumber, credit]))
+
     positions.forEach((position, index) => {
       const fielder = matchFielderForPa(pa, gameFieldersByGameId, position)
       if (!fielder) return
       const character = charactersByName[fielder.character]
       if (!character) return
+      const sequenceCredit = sequenceCredits.get(Number(position)) || { chances: 0, putouts: 0, assists: 0 }
+      const isError = Boolean(pa.is_error) && errorPositions.includes(String(position))
       chances.push({
         gameId: pa.game_id,
         characterId: character.id,
         playerId: resolveTeamPlayerId(fielder.team_id),
         position: Number(fielder.position ?? position),
-        isError: Boolean(pa.is_error) && errorPositions.includes(String(position)),
-        isPutout: creditOutsOnPlay && index === positions.length - 1,
-        isAssist: creditOutsOnPlay && index !== positions.length - 1,
+        isError,
+        isPutout: Boolean(sequenceCredit.putouts),
+        isAssist: Boolean(sequenceCredit.assists),
+        chanceCount: sequenceCredit.chances + (isError ? 1 : 0),
         isBuddyJump: false,
         // A nice/diving play only ever applies to the first fielder to touch
         // the ball on the play (see Scorebook's NICE PLAY toggle).
@@ -1378,7 +1425,8 @@ function buildPerGameFieldingEntries(chances = [], gameMetaById = {}, playerEven
     const realChances = gameChances.filter((c) => !c.isBuddyJump)
     if (!realChances.length) return null
     const errors = realChances.filter((c) => c.isError).length
-    const fieldPctPlus = ((1 - (errors / realChances.length)) / lgFieldPct) * 100
+    const totalChances = realChances.reduce((sum, chance) => sum + fieldingChanceCount(chance), 0)
+    const fieldPctPlus = ((1 - (errors / totalChances)) / lgFieldPct) * 100
     return perfScoreFromIndexPlus(fieldPctPlus)
   }
 
@@ -1396,7 +1444,8 @@ function buildPerGameFieldingEntries(chances = [], gameMetaById = {}, playerEven
     result[charId] = Object.entries(byGame).map(([gameId, gameChances]) => {
       const meta = gameMetaById[gameId] || gameMetaById[gameChances[0].gameId]
       const realGameChances = gameChances.filter((c) => !c.isBuddyJump)
-      const fieldPerfScore = realGameChances.length >= MIN_FIELDING_CHANCES_PER_GAME ? fieldPerfScoreForChances(gameChances) : null
+      const totalGameChances = realGameChances.reduce((sum, chance) => sum + fieldingChanceCount(chance), 0)
+      const fieldPerfScore = totalGameChances >= MIN_FIELDING_CHANCES_PER_GAME ? fieldPerfScoreForChances(gameChances) : null
       const playerId = gameChances[0].playerId ?? null
 
       let gameDelta = null
@@ -1419,7 +1468,7 @@ function buildPerGameFieldingEntries(chances = [], gameMetaById = {}, playerEven
         eventNumber: meta.eventNumber,
         eventSortKey: meta.eventSortKey,
         playerId,
-        chances: realGameChances.length,
+        chances: totalGameChances,
         errors: realGameChances.filter((c) => c.isError).length,
         putouts: realGameChances.filter((c) => c.isPutout).length,
         assists: realGameChances.filter((c) => c.isAssist).length,
@@ -1612,7 +1661,7 @@ export function aggregateFieldingHistoryByEventAndPosition(chances = [], gameFie
     const position = POSITION_LABELS[Number(chance.position)] || String(chance.position ?? '?')
     const r = ensureRow(meta, position)
     if (chance.isBuddyJump) { r.buddyJumps += 1; return }
-    r.chances += 1
+    r.chances += fieldingChanceCount(chance)
     if (chance.isPutout) r.putouts += 1
     if (chance.isAssist) r.assists += 1
     if (chance.isError) r.errors += 1
@@ -2256,7 +2305,7 @@ export function summarizeFieldingByPosition(gameFielderRows = [], chances = []) 
       chancesByPosition[label].buddyJumps += 1
       return
     }
-    chancesByPosition[label].chances += 1
+    chancesByPosition[label].chances += fieldingChanceCount(chance)
     if (chance.isPutout) chancesByPosition[label].putouts += 1
     if (chance.isAssist) chancesByPosition[label].assists += 1
     if (chance.isError) chancesByPosition[label].errors += 1
@@ -2295,7 +2344,7 @@ export function summarizeStarHitFieldingByPosition(chances = []) {
   starHitChances.forEach((chance) => {
     const label = POSITION_LABELS[Number(chance.position)] || String(chance.position ?? '?')
     if (!byPosition[label]) byPosition[label] = { chances: 0, errors: 0 }
-    byPosition[label].chances += 1
+    byPosition[label].chances += fieldingChanceCount(chance)
     if (chance.isError) byPosition[label].errors += 1
   })
   const positions = Object.entries(byPosition)

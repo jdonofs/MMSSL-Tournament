@@ -665,11 +665,14 @@ export function validateArtifact(artifact, { requireActive = true } = {}) {
   return { ok: errors.length === 0, errors }
 }
 
-export function loadFrozenCatchModel(path) {
+// `allowRejected` is for the stadium-runs ledger alone: a luck column labelled
+// experimental, repriced when a model activates. It never makes a rejected
+// artifact score OAA or WAR -- those callers keep the default.
+export function loadFrozenCatchModel(path, { allowRejected = false } = {}) {
   if (!path || !fs.existsSync(path)) return { artifact: null, reason: 'frozen_artifact_missing' }
   let artifact
   try { artifact = JSON.parse(fs.readFileSync(path, 'utf8')) } catch { return { artifact: null, reason: 'frozen_artifact_invalid_json' } }
-  const validation = validateArtifact(artifact)
+  const validation = validateArtifact(artifact, { requireActive: !allowRejected })
   return validation.ok ? { artifact, reason: null } : { artifact: null, reason: validation.errors.join(',') }
 }
 
@@ -702,8 +705,8 @@ function scoringRow(input) {
   } }, reason: null }
 }
 
-export function scoreCatchProbability(input, artifact) {
-  const validation = validateArtifact(artifact)
+export function scoreCatchProbability(input, artifact, { allowRejected = false } = {}) {
+  const validation = validateArtifact(artifact, { requireActive: !allowRejected })
   if (!validation.ok) return { probability: null, reason: validation.errors.join(',') }
   const built = scoringRow(input)
   if (!built.row) return { probability: null, reason: built.reason }
@@ -712,7 +715,7 @@ export function scoreCatchProbability(input, artifact) {
   const probability = artifact.model_type === 'empirical_binned'
     ? empiricalProbability(built.row, artifact)
     : logisticProbability(built.row, artifact)
-  return { probability, reason: null, model_version: artifact.model_version }
+  return { probability, reason: null, model_version: artifact.model_version, model_status: artifact.status }
 }
 
 export function opportunityOaa(actualCatch, expectedProbability) {

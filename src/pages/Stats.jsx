@@ -1,33 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import { X } from 'lucide-react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
-import { fetchSupersededTrackingPlayIds, onlyActiveTrackingFacts } from '../utils/activeTrackingVersions'
+import { createRefreshCoordinator } from '../utils/refreshCoordinator'
+import {
+  fetchSupersededTrackingPlayIds,
+  onlyActiveTrackingFacts,
+  onlyActiveTrackingPlays,
+} from '../utils/activeTrackingVersions'
 import { useSeason } from '../context/SeasonContext'
 import { useTournament } from '../context/TournamentContext'
 import {
-  abbreviateSeasonName,
   buildCharacterIntrinsics,
   buildCharacterHistory,
+  buildFieldingAppearanceCredits,
+  buildFielderSequenceCredits,
   buildStandings,
   calculateOutsForPa,
   calculateParkFactors,
   computeLeagueConstants,
   enrichPasWithPitchingContext,
-  filterRunEventsForCharacter,
   filterRunEventsForPlayer,
   groupBy,
   hasRispOpportunity,
   hasPitchingStatLine,
-  inningsAsDecimal,
+  qualifiesPerGameSample,
+  qualifiesPitchingRate,
   summarizeAdvancedBatting,
   summarizeAdvancedPitching,
   summarizeBatting,
   summarizeBattedBallProfile,
   summarizeBattedBallTypeProfile,
   summarizeDefensiveEfficiency,
-  summarizeFielding,
   summarizeHitLocations,
   summarizePitchMix,
   summarizePitching,
@@ -36,7 +40,6 @@ import {
   summarizeSprayProfile,
   summarizeStarHits,
   summarizeStarPitching,
-  MIN_PA_THRESHOLD,
 } from '../utils/statsCalculator'
 import {
   calculateHitPowerIndex,
@@ -48,6 +51,7 @@ import {
 import { buildExpectedOutcomeModel, summarizeExpectedBatting, summarizeExpectedPitching } from '../utils/expectedStats'
 import { computeDifficultySignal, computeRangeLeagueConstants, summarizeFieldingRange, MIN_RANGE_CHANCES } from '../utils/fieldingRange'
 import {
+  FEET_PER_SECOND_TO_MPH,
   summarizeAdvancedBaserunning,
   summarizeAdvancedFielding,
   summarizeMovementMetrics,
@@ -56,7 +60,7 @@ import { parseErrorPositionsFromNotation } from '../utils/notation'
 import { buildTournamentTeamIdentityMap, getTeamShortName } from '../utils/teamIdentity'
 import { buildStadiumKeyByGameId, getOrderedStadiums, getStadiumSpriteStyle, STADIUM_NAME_TO_KEY } from '../utils/stadiums'
 import { resolveSeasonPitchingDecisions, resolveTournamentPitchingDecisions, groupRunsByPaId } from '../utils/pitchingDecisions'
-import SprayChart from '../components/SprayChart'
+import VectorSprayChart from '../components/VectorSprayChart'
 import CharacterPortrait from '../components/CharacterPortrait'
 import MiddleClickLink from '../components/MiddleClickLink'
 import PlayerTag from '../components/PlayerTag'
@@ -64,8 +68,17 @@ import StatLabel from '../components/StatLabel'
 import StatFallbackLegend from '../components/StatFallbackLegend'
 import ExperimentalWarPanel from '../components/ExperimentalWarPanel'
 import { buildExperimentalWar } from '../utils/experimentalWar'
-import { getChemistry } from '../data/chemistry'
-import { formatSeasonLabel } from '../utils/season'
+import UserValuePanel from '../components/UserValuePanel'
+import { buildUserValueStats, USER_VALUE_VERSION } from '../utils/userValue'
+import { summarizeMechanics } from '../utils/playerMechanics'
+import {
+  DOUBLE_PLAY_OPPORTUNITY_COLUMNS,
+  FIELDING_OPPORTUNITY_COLUMNS,
+  MOVEMENT_METRIC_COLUMNS,
+  RUNNER_OPPORTUNITY_COLUMNS,
+  TRACKING_THROW_COLUMNS,
+  restoreQuality,
+} from '../utils/trackingColumns'
 import { shortenCharacterName } from '../utils/mii'
 import { matchesNameFilter, resolveEffectiveSort } from '../utils/statsTableView'
 import {
@@ -76,6 +89,9 @@ import {
   selectStatRowsForScope,
 } from '../utils/statReconciliation'
 import useIsCompactViewport from '../hooks/useIsCompactViewport'
+import { formatGimmickLuckRuns, formatGimmickLuckScore, summarizeGimmickLuck } from '../utils/gimmickLuck'
+import FinalStatEventsPanel from '../components/FinalStatEventsPanel'
+import { fielderCoversPa } from '../utils/fielderStints.js'
 import '../styles/stats-pages.css'
 
 function abbreviateScopeLabel(prefix, value) {
@@ -94,18 +110,6 @@ function ordinal(n) {
   }
 }
 
-const PLAYER_VIEWS = {
-  batting: 'batting',
-  pitching: 'pitching',
-  fielding: 'fielding',
-}
-
-const CHARACTER_VIEWS = {
-  batting: 'batting',
-  pitching: 'pitching',
-  fielding: 'fielding',
-}
-
 const POSITION_LABELS = {
   1: 'P',
   2: 'C',
@@ -120,9 +124,161 @@ const POSITION_LABELS = {
 
 const STATS_PLAYER_TAG_HEIGHT = 22
 const GROUP_HEADER_HEIGHT = 28
-const ADVANCED_BATTING_MIN_PA = 5
-const ADVANCED_PITCHING_MIN_IP = 9
 const ALL_TEAMS_SPRAY_FILTER = '__all_teams__'
+
+const DEFAULT_SORT = { key: 'name', direction: 'asc' }
+
+// The page is laid out as rail sections, each holding one or more stat sets shown as tabs. A set
+// with `table` renders SortableStatsTable from metricsBySet[`${section}.${set}`]; the rest have a
+// dedicated view. `rows` picks the population (ROW_FILTERS), `filterable` shows the name filter,
+// and `owner` appends the Owner column to the Characters table.
+const STATS_SECTIONS = [
+  { id: 'leaders', label: 'Leaders', sets: [] },
+  {
+    id: 'batting',
+    label: 'Batting',
+    sets: [
+      { id: 'standard', label: 'Standard', table: true, rows: 'batting', filterable: true, owner: true },
+      { id: 'advanced', label: 'Advanced', table: true, rows: 'batting', filterable: true, owner: true, legendNote: 'Batting rates need at least 1 PA per team game.' },
+      { id: 'batted_ball', label: 'Batted Ball', table: true, rows: 'battedBall', rateToggle: 'Trajectory & direction', defaultSort: { key: 'bip', direction: 'desc' } },
+      { id: 'contact', label: 'Contact Quality', table: true, rows: 'contact', defaultSort: { key: 'hitPowerIndex', direction: 'desc' } },
+      { id: 'expected', label: 'Expected', table: true, rows: 'expected', defaultSort: { key: 'xwOBA', direction: 'desc' } },
+      { id: 'discipline', label: 'Plate Discipline', table: true, rows: 'batting', defaultSort: { key: 'pitchesPerPa', direction: 'desc' } },
+      { id: 'stars', label: 'Star Hits', table: true, rows: 'starHits', defaultSort: { key: 'starHitUsed', direction: 'desc' } },
+      { id: 'spray', label: 'Spray & Location', table: true, view: 'spray', rows: 'spray', rateToggle: 'Hit locations', defaultSort: { key: 'bipLoc', direction: 'desc' } },
+    ],
+  },
+  {
+    id: 'pitching',
+    label: 'Pitching',
+    sets: [
+      { id: 'standard', label: 'Standard', table: true, rows: 'pitching', filterable: true, owner: true },
+      { id: 'advanced', label: 'Advanced', table: true, rows: 'pitching', filterable: true, owner: true, legendNote: 'Pitching rates need at least 1 IP per game pitched.' },
+      { id: 'batted_ball', label: 'Batted Ball Allowed', table: true, rows: 'battedBallAllowed', rateToggle: 'Trajectory, direction & location', defaultSort: { key: 'bip', direction: 'desc' } },
+      { id: 'expected', label: 'Expected Allowed', table: true, rows: 'expectedAllowed', defaultSort: { key: 'xwOBA', direction: 'desc' } },
+      { id: 'pitch_mix', label: 'Pitch Mix', table: true, rows: 'pitchMix', defaultSort: { key: 'pitchesPerBatter', direction: 'desc' } },
+      { id: 'stars', label: 'Star Pitches', table: true, rows: 'starPitches', defaultSort: { key: 'starPitchUsed', direction: 'desc' } },
+    ],
+  },
+  {
+    id: 'fielding',
+    label: 'Fielding',
+    sets: [
+      { id: 'standard', label: 'Standard', table: true, rows: 'fielding', filterable: true, owner: true },
+      { id: 'range', label: 'Range & OAA', table: true, rows: 'range', filterable: true, owner: true },
+      { id: 'arm', label: 'Arm & Double Plays', table: true, rows: 'arm', filterable: true, owner: true },
+      { id: 'jump', label: 'Jump & Positioning', table: true, rows: 'jump', filterable: true, owner: true },
+    ],
+  },
+  {
+    id: 'baserunning',
+    label: 'Baserunning',
+    sets: [
+      { id: 'extra', label: 'Extra Bases', table: true, rows: 'extraBases', filterable: true },
+      { id: 'speed', label: 'Speed', table: true, rows: 'speed', filterable: true },
+    ],
+  },
+  {
+    id: 'value',
+    label: 'Value',
+    sets: [
+      { id: 'war', label: 'Experimental WAR' },
+      { id: 'user', label: 'User Value' },
+    ],
+  },
+  { id: 'ballparks', label: 'Ballparks', sets: [{ id: 'parks', label: 'Ballparks' }] },
+  {
+    id: 'events',
+    label: 'Game Events',
+    sets: [
+      { id: 'stadium', label: 'Stadium Interactions' },
+      { id: 'mechanics', label: 'Mechanics' },
+      { id: 'gimmick', label: 'Gimmick Luck', table: true, rows: 'gimmick', defaultSort: { key: 'luckScore', direction: 'desc' }, emptyMessage: 'No confirmed gimmick interactions in this scope yet.' },
+    ],
+  },
+]
+
+// Desktop rail grouping; the compact viewport lists the same sections in one select.
+const RAIL_GROUPS = [['leaders'], ['batting', 'pitching', 'fielding', 'baserunning'], ['value', 'ballparks', 'events']]
+
+const EMPTY_CLOSE_PLAYS = Object.freeze({ closePlays: 0, closePlaysWon: 0, closePlaysLost: 0 })
+const EMPTY_RUNNER_CLOSE_PLAYS = Object.freeze({ closePlaysRun: 0, closePlaysRunWon: 0, closePlaysRunLost: 0 })
+
+// Only the close-play fields: the mechanics summary also carries Buddy counts
+// whose names would otherwise land on the fielding line beside the official BJ.
+function closePlayTotals(summary = {}) {
+  return Object.fromEntries(Object.entries(summary).map(([id, row]) => [id, {
+    closePlays: row.closePlays,
+    closePlaysWon: row.closePlaysWon,
+    closePlaysLost: row.closePlaysLost,
+  }]))
+}
+
+// The same contests from the other side, onto the baserunning line. Kept apart
+// from the fielding totals above because they are a different player: the
+// fielder's loss is the runner's win, and one row cannot hold both readings.
+function runnerClosePlayTotals(summary = {}) {
+  return Object.fromEntries(Object.entries(summary).map(([id, row]) => [id, {
+    closePlaysRun: row.closePlaysRun,
+    closePlaysRunWon: row.closePlaysRunWon,
+    closePlaysRunLost: row.closePlaysRunLost,
+  }]))
+}
+
+function findStatsSet(setKey) {
+  const [sectionId, setId] = String(setKey || '').split('.')
+  return STATS_SECTIONS.find((entry) => entry.id === sectionId)?.sets.find((entry) => entry.id === setId) || null
+}
+
+// Each Leaders card is the top five of an existing table column, so a leader always matches the
+// full table it links to. Rate stats only rank qualified rows; `positive` drops zero counts.
+const LEADER_CARDS = [
+  {
+    id: 'batting',
+    title: 'Batting',
+    stats: [
+      { set: 'batting.standard', key: 'avg', qualify: qualifiesAdvancedBatting },
+      { set: 'batting.standard', key: 'homeRuns', positive: true },
+      { set: 'batting.standard', key: 'rbi', positive: true },
+      { set: 'batting.standard', key: 'ops', qualify: qualifiesAdvancedBatting },
+      { set: 'batting.advanced', key: 'wrcPlus' },
+      { set: 'batting.contact', key: 'avgExitVelo', qualify: qualifiesTrackedContact },
+      { set: 'batting.contact', key: 'barrelRate', qualify: qualifiesTrackedContact },
+      { set: 'batting.contact', key: 'maxDist' },
+    ],
+  },
+  {
+    id: 'pitching',
+    title: 'Pitching',
+    stats: [
+      { set: 'pitching.standard', key: 'era', direction: 'asc', qualify: qualifiesAdvancedPitching },
+      { set: 'pitching.standard', key: 'whip', direction: 'asc', qualify: qualifiesAdvancedPitching },
+      { set: 'pitching.standard', key: 'strikeouts', positive: true },
+      { set: 'pitching.standard', key: 'wins', positive: true },
+      { set: 'pitching.advanced', key: 'fip', direction: 'asc' },
+    ],
+  },
+  {
+    id: 'fielding',
+    title: 'Fielding',
+    stats: [
+      { set: 'fielding.range', key: 'oaa' },
+      { set: 'fielding.range', key: 'frv', qualify: hasModeledFieldingOpportunity },
+      { set: 'fielding.arm', key: 'armStrength' },
+      { set: 'fielding.standard', key: 'nicePlays', positive: true },
+    ],
+  },
+  {
+    id: 'baserunning',
+    title: 'Baserunning',
+    stats: [
+      { set: 'baserunning.speed', key: 'sprintSpeed' },
+      { set: 'baserunning.extra', key: 'advances', positive: true },
+      { set: 'baserunning.extra', key: 'rbaser' },
+    ],
+  },
+  { id: 'value', title: 'Value', stats: [{ war: true }] },
+]
 
 function formatDecimal(value, digits = 3, fallback = '-') {
   return Number.isFinite(value) ? Number(value).toFixed(digits) : fallback
@@ -188,19 +344,6 @@ function getInverseMetricColor(value) {
   if (value <= 110) return '#EAB308'
   if (value <= 130) return '#F97316'
   return '#EF4444'
-}
-
-function getCharacterClassAccent(characterClass) {
-  switch (characterClass) {
-    case 'Power':
-      return { color: '#FCA5A5', border: 'rgba(239,68,68,0.45)', background: 'rgba(239,68,68,0.16)' }
-    case 'Speed':
-      return { color: '#86EFAC', border: 'rgba(34,197,94,0.45)', background: 'rgba(34,197,94,0.16)' }
-    case 'Technique':
-      return { color: '#D8B4FE', border: 'rgba(168,85,247,0.45)', background: 'rgba(168,85,247,0.16)' }
-    default:
-      return { color: '#FDE68A', border: 'rgba(234,179,8,0.45)', background: 'rgba(234,179,8,0.16)' }
-  }
 }
 
 function createEmptyFieldingRow(overrides = {}) {
@@ -367,16 +510,51 @@ function hasFieldingData(row) {
 }
 
 function qualifiesAdvancedBatting(row) {
-  return Number(row?.batting?.plateAppearances || 0) >= ADVANCED_BATTING_MIN_PA
+  return qualifiesPerGameSample(row?.batting?.plateAppearances, row?.teamGamesPlayed)
 }
 
 function qualifiesAdvancedPitching(row) {
-  const innings = Number(row?.pitchingThresholdIp || 0)
-  return innings >= 1 && innings >= ADVANCED_PITCHING_MIN_IP
+  return qualifiesPitchingRate(row?.pitching)
 }
 
 function qualifiesForPower(row) {
-  return Number(row?.distanceProfile?.sampleSize || 0) >= MIN_PA_THRESHOLD
+  return qualifiesPerGameSample(row?.distanceProfile?.sampleSize, row?.teamGamesPlayed)
+}
+
+function qualifiesTrackedContact(row) {
+  return qualifiesPerGameSample(getTrackedBipSample(row), row?.teamGamesPlayed)
+}
+
+// FRV reads 0 for a fielder with nothing modeled, which is not the same as an average fielder.
+function hasModeledFieldingOpportunity(row) {
+  return Number(row?.fielding?.fieldingOpportunities || 0) > 0
+    || Number(row?.fielding?.armOpportunities || 0) > 0
+    || Number(row?.fielding?.doublePlayOpportunities || 0) > 0
+}
+
+// The row population behind each table set (STATS_SECTIONS `rows`).
+// A row appears in a table only when it has something to show in that table.
+const ROW_FILTERS = {
+  batting: hasBattingData,
+  battedBall: (row) => row.battedBall.total > 0 || row.sprayProfile.total > 0,
+  contact: (row) => getTrackedBipSample(row) > 0 || row.sprayProfile.total > 0,
+  expected: (row) => row.expectedBatting.sampleSize > 0,
+  starHits: (row) => row.starHit.used > 0,
+  spray: (row) => row.hitLocations.total > 0,
+  pitching: hasPitchingData,
+  battedBallAllowed: (row) => row.pitchingBattedBall.total > 0 || row.pitchingSpray.total > 0
+    || row.pitchingHitLocations.total > 0 || row.pitchingExitVelo.sampleSize > 0,
+  expectedAllowed: (row) => row.expectedPitching.sampleSize > 0,
+  pitchMix: (row) => row.pitchMix.totalPitches > 0 || row.pitchMix.averageVelocityMph != null,
+  starPitches: (row) => row.starPitch.used > 0,
+  fielding: hasFieldingData,
+  range: (row) => row.fielding.rangeable >= MIN_RANGE_CHANCES || row.fielding.fieldingOpportunities > 0,
+  arm: (row) => row.fielding.throws > 0 || row.fielding.buddyThrows > 0 || row.fielding.armOpportunities > 0
+    || row.fielding.doublePlayOpportunities > 0 || row.fielding.doublePlays > 0,
+  jump: (row) => row.fielding.jumpSamples > 0 || row.fielding.positioningSamples > 0,
+  extraBases: (row) => row.baserunning.opportunities > 0 || row.baserunning.modeledOpportunities > 0 || row.batting.runs > 0,
+  speed: (row) => row.movement.speedSamples > 0 || row.movement.homeToFirstSamples > 0 || row.movement.ninetyFootSplitSamples > 0,
+  gimmick: (row) => row.gimmickLuck.totalEvents > 0 || row.gimmickLuck.pricedPlays > 0,
 }
 
 function getTrackedBipSample(row) {
@@ -392,29 +570,6 @@ function qualifiesForSprayChart(pa) {
   const hasTappedLocation = pa.hit_stadium_key && pa.hit_x != null && pa.hit_y != null
   const hasProjectedLocation = pa.hit_distance_ft != null && pa.hit_angle_deg != null
   return Boolean(hasTappedLocation || hasProjectedLocation)
-}
-
-function StatBar({ label, value, max = 100, accent = '#EAB308' }) {
-  const pct = Math.max(0, Math.min(100, (Number(value || 0) / max) * 100))
-  return (
-    <div style={{ display: 'grid', gap: 6 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
-        <span style={{ color: '#CBD5E1', fontWeight: 700 }}>{label}</span>
-        <span style={{ color: '#F8FAFC', fontWeight: 800 }}>{value}</span>
-      </div>
-      <div style={{ height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: accent, borderRadius: 999 }} />
-      </div>
-    </div>
-  )
-}
-
-function Badge({ children, color = '#F8FAFC', border = 'rgba(255,255,255,0.18)', background = 'rgba(255,255,255,0.06)' }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, border: `1px solid ${border}`, background, color, padding: '0.25rem 0.55rem', fontSize: 11, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase' }}>
-      {children}
-    </span>
-  )
 }
 
 function sortRows(rows, columns, sortState, fallbackKey = 'name') {
@@ -501,6 +656,7 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
         putouts: 0,
         assists: 0,
         errors: 0,
+        doublePlays: 0,
         starHitErrors: 0,
         buddyJumps: 0,
         nicePlays: 0,
@@ -513,8 +669,7 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
   const findFielder = (pa = {}, positionNumber = null) => gameFielders.find((fielder) => (
     String(fielder.game_id) === String(pa.game_id) &&
     Number(fielder.position) === Number(positionNumber) &&
-    Number(fielder.inning_from || 1) <= Number(pa.inning || 1) &&
-    (fielder.inning_to == null || Number(fielder.inning_to) >= Number(pa.inning || 1)) &&
+    fielderCoversPa(fielder, pa) &&
     String(fielder.team_id) === String(pa.defensive_team_id)
   ))
 
@@ -528,6 +683,8 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
     putouts = 0,
     assists = 0,
     errors = 0,
+    doublePlays = 0,
+    playerDoublePlays = 0,
     starHitErrors = 0,
     buddyJumps = 0,
     nicePlays = 0,
@@ -545,6 +702,11 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
     playerEntry.putouts += putouts
     playerEntry.assists += assists
     playerEntry.errors += errors
+    // A player row represents the whole defensive club, so a completed DP is
+    // counted once there. Character rows count participation for every fielder
+    // in the turn. Sequence callers choose the first matched fielder to carry
+    // the one club-level credit via playerDoublePlays.
+    playerEntry.doublePlays += playerDoublePlays
     playerEntry.starHitErrors += starHitErrors
     playerEntry.buddyJumps += buddyJumps
     playerEntry.nicePlays += nicePlays
@@ -558,6 +720,7 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
     characterEntry.putouts += putouts
     characterEntry.assists += assists
     characterEntry.errors += errors
+    characterEntry.doublePlays += doublePlays
     characterEntry.starHitErrors += starHitErrors
     characterEntry.buddyJumps += buddyJumps
     characterEntry.nicePlays += nicePlays
@@ -576,6 +739,15 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
     })
     return true
   }
+
+  // A defensive appearance counts even when no ball was hit to that fielder.
+  // Seed every recorded stint before applying the play-by-play credits.
+  buildFieldingAppearanceCredits(gameFielders).forEach((appearance) => {
+    applyCredit({
+      ...appearance,
+      playerName: appearance.playerName || playerNameById[String(appearance.playerId)] || 'Unknown',
+    })
+  })
 
   // Range Runs (see fieldingRange.js) only makes sense for the fielder who actually ranged to the
   // batted ball — the first fielder in the chain, mirroring buildFieldingChances' index===0 rule
@@ -665,21 +837,22 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
           putouts: 0,
           assists: 0,
           errors: 0,
+          doublePlays: 0,
           starHitErrors: 0,
         }
         if (counts.chances) next.chances = 1
         next.putouts = Math.max(next.putouts, counts.putouts || 0)
         next.assists = Math.max(next.assists, counts.assists || 0)
         next.errors = Math.max(next.errors, counts.errors || 0)
+        next.doublePlays = Math.max(next.doublePlays, counts.doublePlays || 0)
         next.starHitErrors = Math.max(next.starHitErrors, counts.starHitErrors || 0)
         countsByPosition.set(key, next)
       }
 
       if (creditOutsOnPlay && positions.length) {
-        new Set(positions.slice(0, -1)).forEach((positionNumber) => {
-          mergeCredit(positionNumber, { chances: 1, assists: 1 })
+        buildFielderSequenceCredits(positions, outsOnPlay).forEach(({ positionNumber, ...counts }) => {
+          mergeCredit(positionNumber, counts)
         })
-        mergeCredit(positions[positions.length - 1], { chances: 1, putouts: 1 })
       }
 
       // Every fielder actually charged with an error on the play (a relay
@@ -688,8 +861,15 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
         mergeCredit(positionNumber, { chances: 1, errors: 1, starHitErrors: isStarHitError ? 1 : 0 })
       })
       const matchedErrorPositions = new Set()
+      let playerDoublePlayCredited = false
       countsByPosition.forEach((counts) => {
-        if (applyCreditFromFielder(pa, counts.positionNumber, counts) && counts.errors) {
+        counts.chances = counts.putouts + counts.assists + counts.errors || counts.chances
+        const matched = applyCreditFromFielder(pa, counts.positionNumber, {
+          ...counts,
+          playerDoublePlays: counts.doublePlays && !playerDoublePlayCredited ? 1 : 0,
+        })
+        if (matched && counts.doublePlays) playerDoublePlayCredited = true
+        if (matched && counts.errors) {
           matchedErrorPositions.add(counts.positionNumber)
         }
       })
@@ -721,14 +901,14 @@ function buildFieldingRows({ plateAppearances = [], gameFielders = [], players =
       return
     }
 
-    // Everyone in the chain before the last fielder gets credit for an
-    // assist (capped at one per player, even if he touched the ball more
-    // than once on the play, e.g. a rundown). The last fielder in the chain
-    // is the one who recorded the putout.
-    new Set(positions.slice(0, -1)).forEach((positionNumber) => {
-      applyCreditFromFielder(pa, positionNumber, { chances: 1, assists: 1 })
+    let playerDoublePlayCredited = false
+    buildFielderSequenceCredits(positions, outsOnPlay).forEach(({ positionNumber, ...counts }) => {
+      const matched = applyCreditFromFielder(pa, positionNumber, {
+        ...counts,
+        playerDoublePlays: counts.doublePlays && !playerDoublePlayCredited ? 1 : 0,
+      })
+      if (matched && counts.doublePlays) playerDoublePlayCredited = true
     })
-    applyCreditFromFielder(pa, positions[positions.length - 1], { chances: 1, putouts: 1 })
   })
 
   // League-wide baseline for Range Runs, built from every player's rangeable chances (equivalent
@@ -1002,6 +1182,35 @@ function SortableStatsTable({
   )
 }
 
+function BaserunningEvidencePanel({ selection, opportunities, trackingPlays, onClose }) {
+  if (!selection) return null
+  const idKey = selection.identity === 'player' ? 'runner_player_id' : 'runner_character_id'
+  const matching = opportunities.filter((row) => {
+    if (String(row[idKey]) !== selection.id) return false
+    switch (selection.key) {
+      case 'holds': return row.outcome === 'hold'
+      case 'attempts': return Boolean(row.attempted)
+      case 'advances': return row.outcome === 'advance_safe'
+      case 'outs': return row.outcome === 'advance_out'
+      case 'modeledOpportunities': return row.runner_run_value != null
+      case 'opportunities': return true
+      default: return row.opportunity_type === selection.key
+    }
+  })
+  return <div className="panel" style={{ marginTop: 12, padding: 12 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><h3 style={{ marginTop: 0 }}>{selection.name}: {matching.length} {selection.key} records</h3><button type="button" onClick={onClose}>Close</button></div>
+    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+      {matching.map((row, index) => {
+        const play = trackingPlays.find((item) => item.competition_type === row.competition_type && String(item.game_id) === String(row.game_id) && String(item.pa_id) === String(row.pa_id))
+        const parkEvidence = play?.quality?.stadium_incidents?.[0]
+        return <p key={`${row.competition_type}:${row.game_id}:${row.pa_id}:${row.runner_id}:${index}`} style={{ margin: '0 0 8px' }}>
+          {row.competition_type || 'Unknown competition'} game {row.game_id}, PA {row.pa_id}, play {play?.play_ordinal ?? 'unknown'} · {parkEvidence?.park || 'Park unknown'} · {parkEvidence?.time_of_day || 'time unknown'} · runner {row.runner_character_id ?? 'unresolved'} · {row.opportunity_type?.replaceAll('_', ' ') || 'extra base'} · {row.origin_base} to {row.target_base}: {row.outcome?.replaceAll('_', ' ') || 'unknown'} · assignment recorded{row.runner_run_value == null ? ', run value not modeled' : ', run value modeled'}
+        </p>
+      })}
+    </div>
+  </div>
+}
+
 // The three states a stats page can be in before it has anything worth tabulating. Split out so
 // "still loading", "nothing recorded yet" and "the query failed" never render as the same
 // empty table.
@@ -1016,22 +1225,7 @@ function StatusPanel({ variant = 'loading', title, children, actions = null }) {
   )
 }
 
-function GlossaryPanel({ title, items = [] }) {
-  return (
-    <details style={{ marginTop: 12, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, background: 'rgba(255,255,255,0.03)' }}>
-      <summary style={{ cursor: 'pointer', listStyle: 'none', padding: '0.85rem 1rem', fontWeight: 700, color: '#F8FAFC' }}>{title}</summary>
-      <div style={{ padding: '0 1rem 1rem', display: 'grid', gap: 8 }}>
-        {items.map((item) => (
-          <div key={item.term} style={{ color: '#CBD5E1', fontSize: 13, lineHeight: 1.45 }}>
-            <strong style={{ color: '#F8FAFC' }}>{item.term}</strong>: {item.definition}
-          </div>
-        ))}
-      </div>
-    </details>
-  )
-}
-
-// Name filter for the two overview tables. Reports the match count so an over-narrow filter
+// Name filter for the tables split out of the old overview tables. Reports the match count so an over-narrow filter
 // reads as "0 of 51 match" rather than an empty table that looks like missing data.
 function OverviewFilterBar({ label, matches, onChange, total, value }) {
   const inputId = `overview-filter-${label.replace(/\s+/g, '-').toLowerCase()}`
@@ -1058,453 +1252,37 @@ function OverviewFilterBar({ label, matches, onChange, total, value }) {
   )
 }
 
-function StatPill({ label, value, accent = '#EAB308' }) {
+function LeadersPanel({ cards }) {
   return (
-    <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '0.75rem 0.9rem', background: 'rgba(255,255,255,0.03)' }}>
-      <div style={{ color: '#94A3B8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
-      <div style={{ color: accent, fontSize: 20, fontWeight: 800, marginTop: 4 }}>{value}</div>
-    </div>
-  )
-}
-
-function DetailStatGrid({ stats }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
-      {stats.map((stat) => (
-        <StatPill key={stat.label} label={stat.label} value={stat.value} accent={stat.accent} />
-      ))}
-    </div>
-  )
-}
-
-const RESULT_BREAKDOWN_COLORS = { '1B': '#3B82F6', '2B': '#22C55E', '3B': '#A855F7', HR: '#EAB308', K: '#EF4444', BB: '#38BDF8', Out: '#94A3B8', Error: '#F97316' }
-
-function ResultBreakdownBar({ breakdown }) {
-  const entries = Object.entries(breakdown || {}).filter(([, count]) => count > 0)
-  const total = entries.reduce((sum, [, count]) => sum + count, 0)
-  if (!total) return <span className="muted" style={{ fontSize: 12 }}>No results recorded yet</span>
-  const segments = entries.map(([key, count]) => ({
-    key,
-    pct: (count / total) * 100,
-    color: RESULT_BREAKDOWN_COLORS[key] || '#94A3B8',
-    label: `${key} ${count} (${((count / total) * 100).toFixed(0)}%)`,
-  }))
-  return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden' }}>
-        {segments.map(({ key, pct, color }) => <div key={key} style={{ width: `${pct}%`, background: color }} />)}
-      </div>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        {segments.map(({ key, color, label }) => (
-          <span key={key} style={{ fontSize: 11, color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
-            {label}
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function CharacterDetailModal({
-  character,
-  allCharactersById,
-  playersById,
-  identitiesByPlayerId,
-  currentTournamentBatting,
-  currentTournamentPitching,
-  allTimeBatting,
-  allTimePitching,
-  allPitches = [],
-  allFielding = null,
-  battingHistory = [],
-  pitchingHistory = [],
-  currentOwner,
-  totalDrafts,
-  tournamentsDrafted,
-  championshipsWon,
-  characterIntrinsics = null,
-  onClose,
-}) {
-  if (!character) return null
-
-  const chemistry = getChemistry(character.name)
-  const batterPitches = allPitches.filter((pitch) => pitch.batter_id === character.name)
-  const pitcherPitches = allPitches.filter((pitch) => pitch.pitcher_id === character.name)
-  const starHitStats = summarizeStarHits(currentTournamentBatting.rawPas || [])
-  const battingBattedBall = summarizeBattedBallProfile(currentTournamentBatting.rawPas || [])
-  const battingSpray = summarizeSprayProfile(currentTournamentBatting.rawPas || [])
-  const battingDiscipline = summarizePlateDiscipline(currentTournamentBatting.rawPas || [], batterPitches)
-  const pitchingStar = summarizeStarPitching(currentTournamentPitching.rawPas || [], pitcherPitches)
-  const pitchingMix = summarizePitchMix(currentTournamentPitching.rawPas || [], pitcherPitches)
-  const pitchingBattedBall = summarizeBattedBallProfile(currentTournamentPitching.rawPas || [])
-  const pitchingSpray = summarizeSprayProfile(currentTournamentPitching.rawPas || [])
-  const characterErrors = allFielding?.errorsByCharacter?.[character.name] || 0
-  const classAccent = getCharacterClassAccent(characterIntrinsics?.characterClass)
-  const portraitButtonStyle = {
-    background: 'none',
-    border: 'none',
-    padding: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    color: '#F8FAFC',
-  }
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" style={{ maxWidth: 960, maxHeight: '90vh', overflowY: 'auto' }} onClick={(event) => event.stopPropagation()}>
-        <div className="section-head" style={{ marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 72, height: 72, borderRadius: '50%', overflow: 'hidden', border: '2px solid #EAB308', flexShrink: 0 }}>
-              <CharacterPortrait name={character.name} size={72} />
-            </div>
-            <div>
-              <h2 style={{ margin: 0 }}>{character.name}</h2>
-              <div className="muted" style={{ marginTop: 4 }}>
-                {currentOwner
-                  ? <PlayerTag height={24} identitiesByPlayerId={identitiesByPlayerId} playerId={currentOwner.player_id} playersById={playersById} />
-                  : 'Undrafted in selected view'}
-              </div>
-            </div>
+    <div className="stats-leaders">
+      {cards.map((card) => (
+        <section aria-label={`${card.title} leaders`} className="stats-leaders-group" key={card.id}>
+          <h3 className="stats-leaders-group-title">{card.title}</h3>
+          <div className="stats-leaders-grid">
+            {card.stats.map((stat) => (
+              <article className="stats-leader-card" key={stat.id}>
+                <header className="stats-leader-card-head">
+                  <span className="stats-leader-card-label"><StatLabel label={stat.label} /></span>
+                  <button aria-label={`Full table sorted by ${stat.label}`} className="stats-leader-card-link" onClick={stat.onOpen} type="button">Full table →</button>
+                </header>
+                {stat.leaders.length ? (
+                  <ol className="stats-leader-list">
+                    {stat.leaders.map((leader, index) => (
+                      <li className={`stats-leader-row ${index === 0 ? 'stats-leader-row-first' : ''}`} key={leader.key}>
+                        <span className="stats-leader-rank">{index + 1}</span>
+                        <span className="stats-leader-identity">{leader.identity}</span>
+                        <span className="stats-leader-value">{leader.value}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="stats-leader-empty">No qualified leaders yet.</p>
+                )}
+              </article>
+            ))}
           </div>
-          <button onClick={onClose} type="button" style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer' }}>
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="page-stack">
-          <section className="panel" style={{ padding: '1rem' }}>
-            <div className="section-head" style={{ marginBottom: 10 }}>
-              <h3>Character Info</h3>
-              <div className="muted">All available data for this character</div>
-            </div>
-            <DetailStatGrid
-              stats={[
-                { label: 'Pitching', value: formatInteger(character.pitchingRating), accent: '#EF4444' },
-                { label: 'Batting', value: formatInteger(character.battingRating), accent: '#22C55E' },
-                { label: 'Fielding', value: formatInteger(character.fieldingRating), accent: '#3B82F6' },
-                { label: 'Speed', value: formatInteger(character.speedRating), accent: '#EAB308' },
-                { label: 'Drafted', value: formatInteger(totalDrafts), accent: '#F8FAFC' },
-                { label: 'Tournaments', value: formatInteger(tournamentsDrafted), accent: '#F8FAFC' },
-                { label: 'Titles', value: formatInteger(championshipsWon), accent: '#F8FAFC' },
-              ]}
-            />
-          </section>
-
-          <section className="panel" style={{ padding: '1rem' }}>
-            <div className="section-head" style={{ marginBottom: 10 }}>
-              <h3>Current Tournament</h3>
-              <div className="muted">Selected tournament view</div>
-            </div>
-            <div className="page-stack">
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Batting</div>
-                <DetailStatGrid
-                  stats={[
-                    { label: 'PA', value: formatInteger(currentTournamentBatting.plateAppearances) },
-                    { label: 'AB', value: formatInteger(currentTournamentBatting.atBats) },
-                    { label: 'H', value: formatInteger(currentTournamentBatting.hits) },
-                    { label: 'R', value: formatInteger(currentTournamentBatting.runs) },
-                    { label: 'RBI', value: formatInteger(currentTournamentBatting.rbi) },
-                    { label: 'HR', value: formatInteger(currentTournamentBatting.homeRuns) },
-                    { label: 'AVG', value: formatDecimal(currentTournamentBatting.avg) },
-                    { label: 'OPS', value: formatDecimal(currentTournamentBatting.ops) },
-                  ]}
-                />
-              </div>
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Pitching</div>
-                <DetailStatGrid
-                  stats={[
-                    { label: 'IP', value: formatDecimal(currentTournamentPitching.innings, 1) },
-                    { label: 'W', value: formatInteger(currentTournamentPitching.wins) },
-                    { label: 'L', value: formatInteger(currentTournamentPitching.losses) },
-                    { label: 'SV', value: formatInteger(currentTournamentPitching.saves) },
-                    { label: 'K', value: formatInteger(currentTournamentPitching.strikeouts) },
-                    { label: 'ERA/3', value: formatDecimal(currentTournamentPitching.era, 2) },
-                    { label: 'WHIP', value: formatDecimal(currentTournamentPitching.whip, 2) },
-                    { label: 'K/3', value: formatDecimal(currentTournamentPitching.kPer3, 2) },
-                  ]}
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="panel" style={{ padding: '1rem' }}>
-            <div className="section-head" style={{ marginBottom: 10 }}>
-              <h3>All-Time Performance</h3>
-              <div className="muted">Across all tournaments</div>
-            </div>
-            <div className="page-stack">
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Batting</div>
-                <DetailStatGrid
-                  stats={[
-                    { label: 'Games', value: formatInteger(allTimeBatting.games) },
-                    { label: 'PA', value: formatInteger(allTimeBatting.plateAppearances) },
-                    { label: 'AB', value: formatInteger(allTimeBatting.atBats) },
-                    { label: 'H', value: formatInteger(allTimeBatting.hits) },
-                    { label: '2B', value: formatInteger(allTimeBatting.doubles) },
-                    { label: '3B', value: formatInteger(allTimeBatting.triples) },
-                    { label: 'HR', value: formatInteger(allTimeBatting.homeRuns) },
-                    { label: 'BB', value: formatInteger(allTimeBatting.walks) },
-                    { label: 'HBP', value: formatInteger(allTimeBatting.hbp) },
-                    { label: 'SO', value: formatInteger(allTimeBatting.strikeouts) },
-                    { label: 'R', value: formatInteger(allTimeBatting.runs) },
-                    { label: 'RBI', value: formatInteger(allTimeBatting.rbi) },
-                    { label: 'TB', value: formatInteger(allTimeBatting.totalBases) },
-                    { label: 'AVG', value: formatDecimal(allTimeBatting.avg) },
-                    { label: 'OBP', value: formatDecimal(allTimeBatting.obp) },
-                    { label: 'SLG', value: formatDecimal(allTimeBatting.slg) },
-                    { label: 'OPS', value: formatDecimal(allTimeBatting.ops) },
-                  ]}
-                />
-              </div>
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Pitching</div>
-                <DetailStatGrid
-                  stats={[
-                    { label: 'Games', value: formatInteger(allTimePitching.games) },
-                    { label: 'IP', value: formatDecimal(allTimePitching.innings, 1) },
-                    { label: 'W', value: formatInteger(allTimePitching.wins) },
-                    { label: 'L', value: formatInteger(allTimePitching.losses) },
-                    { label: 'SV', value: formatInteger(allTimePitching.saves) },
-                    { label: 'CG', value: formatInteger(allTimePitching.completeGames) },
-                    { label: 'SHO', value: formatInteger(allTimePitching.shutouts) },
-                    { label: 'K', value: formatInteger(allTimePitching.strikeouts) },
-                    { label: 'H', value: formatInteger(allTimePitching.hitsAllowed) },
-                    { label: 'R', value: formatInteger(allTimePitching.runsAllowed) },
-                    { label: 'ER', value: formatInteger(allTimePitching.earnedRuns) },
-                    { label: 'BB', value: formatInteger(allTimePitching.walks) },
-                    { label: 'HR', value: formatInteger(allTimePitching.homeRunsAllowed) },
-                    { label: 'ERA/3', value: formatDecimal(allTimePitching.era, 2) },
-                    { label: 'WHIP', value: formatDecimal(allTimePitching.whip, 2) },
-                    { label: 'K/3', value: formatDecimal(allTimePitching.kPer3, 2) },
-                    { label: 'HR/3', value: formatDecimal(allTimePitching.hrPer3, 2) },
-                  ]}
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="panel" style={{ padding: '1rem' }}>
-            <div className="section-head" style={{ marginBottom: 10 }}>
-              <h3>Advanced Profile</h3>
-              <div className="muted">Star usage, contact profile, discipline, and fielding</div>
-            </div>
-            <div className="page-stack">
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Star Hit</div>
-                <DetailStatGrid
-                  stats={[
-                    { label: 'Used', value: formatInteger(starHitStats.used), accent: '#EAB308' },
-                    { label: 'Contact %', value: `${(starHitStats.contactRate * 100).toFixed(0)}%`, accent: '#22C55E' },
-                    { label: 'RBI/Use', value: formatDecimal(starHitStats.avgRbiPerUse, 2), accent: '#F8FAFC' },
-                  ]}
-                />
-                {starHitStats.used > 0 && (
-                  <div className="page-stack" style={{ marginTop: 10 }}>
-                    <div>
-                      <div className="muted" style={{ marginBottom: 6, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Result on Star Hit</div>
-                      <ResultBreakdownBar breakdown={starHitStats.resultBreakdown} />
-                    </div>
-                    <div>
-                      <div className="muted" style={{ marginBottom: 6, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Slash Line on Star Hit</div>
-                      <DetailStatGrid
-                        stats={[
-                          { label: 'AVG', value: formatDecimal(starHitStats.slashLine.avg), accent: '#3B82F6' },
-                          { label: 'OBP', value: formatDecimal(starHitStats.slashLine.obp), accent: '#22C55E' },
-                          { label: 'SLG', value: formatDecimal(starHitStats.slashLine.slg), accent: '#EAB308' },
-                          { label: 'OPS', value: formatDecimal(starHitStats.slashLine.ops), accent: '#F97316' },
-                        ]}
-                      />
-                    </div>
-                    <div>
-                      <div className="muted" style={{ marginBottom: 6, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Contact Quality on Star Hit</div>
-                      <DetailStatGrid
-                        stats={[
-                          { label: 'Avg Exit Velo', value: starHitStats.avgExitVelo != null ? `${starHitStats.avgExitVelo} mph` : '-', accent: '#3B82F6' },
-                          { label: 'Max Exit Velo', value: starHitStats.maxExitVelo != null ? `${starHitStats.maxExitVelo} mph` : '-', accent: '#EF4444' },
-                          { label: 'Avg Launch Angle', value: starHitStats.avgLaunchAngle != null ? `${starHitStats.avgLaunchAngle}°` : '-', accent: '#22C55E' },
-                          { label: 'Avg / Max Dist', value: starHitStats.avgDistance != null ? `${starHitStats.avgDistance} / ${starHitStats.maxDistance} ft` : '-', accent: '#EAB308' },
-                        ]}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Batted Ball</div>
-                <DetailStatGrid
-                  stats={[
-                    { label: 'LD%', value: `${(battingBattedBall.ldRate * 100).toFixed(0)}%`, accent: '#22C55E' },
-                    { label: 'GB%', value: `${(battingBattedBall.gbRate * 100).toFixed(0)}%`, accent: '#3B82F6' },
-                    { label: 'FB%', value: `${(battingBattedBall.fbRate * 100).toFixed(0)}%`, accent: '#EAB308' },
-                  ]}
-                />
-              </div>
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Spray & Discipline</div>
-                <DetailStatGrid
-                  stats={[
-                    { label: 'Pull%', value: `${(battingSpray.pullRate * 100).toFixed(0)}%`, accent: '#22C55E' },
-                    { label: 'Center%', value: `${(battingSpray.centerRate * 100).toFixed(0)}%`, accent: '#3B82F6' },
-                    { label: 'Oppo%', value: `${(battingSpray.oppoRate * 100).toFixed(0)}%`, accent: '#EAB308' },
-                    { label: 'P/PA', value: formatDecimal(battingDiscipline.pitchesPerPa, 2), accent: '#F8FAFC' },
-                    { label: 'Whiff%', value: `${(battingDiscipline.whiffRate * 100).toFixed(0)}%`, accent: '#EF4444' },
-                    { label: 'Foul%', value: `${(battingDiscipline.foulRate * 100).toFixed(0)}%`, accent: '#F8FAFC' },
-                    { label: 'KS%', value: `${(battingDiscipline.ksRate * 100).toFixed(0)}%`, accent: '#EF4444' },
-                    { label: 'KL%', value: `${(battingDiscipline.klRate * 100).toFixed(0)}%`, accent: '#F8FAFC' },
-                  ]}
-                />
-              </div>
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Pitching & Fielding</div>
-                <DetailStatGrid
-                  stats={[
-                    { label: 'Star Pitch %', value: `${(pitchingStar.successRate * 100).toFixed(0)}%`, accent: '#EAB308' },
-                    { label: 'Strike %', value: `${(pitchingMix.strikeRate * 100).toFixed(0)}%`, accent: '#22C55E' },
-                    { label: '1st Str %', value: `${(pitchingMix.firstPitchStrikeRate * 100).toFixed(0)}%`, accent: '#3B82F6' },
-                    { label: 'Whiff %', value: `${(pitchingMix.swingingMissRate * 100).toFixed(0)}%`, accent: '#EF4444' },
-                    { label: 'Allowed LD%', value: `${(pitchingBattedBall.ldRate * 100).toFixed(0)}%`, accent: '#F8FAFC' },
-                    { label: 'Allowed Pull%', value: `${(pitchingSpray.pullRate * 100).toFixed(0)}%`, accent: '#F8FAFC' },
-                    { label: 'Errors', value: formatInteger(characterErrors), accent: '#EF4444' },
-                    { label: 'Star Used', value: formatInteger(pitchingStar.used), accent: '#EAB308' },
-                  ]}
-                />
-                {pitchingStar.paUsed > 0 && (
-                  <div className="page-stack" style={{ marginTop: 10 }}>
-                    <div>
-                      <div className="muted" style={{ marginBottom: 6, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Result Allowed on Star Pitch</div>
-                      <ResultBreakdownBar breakdown={pitchingStar.resultBreakdown} />
-                    </div>
-                    <div>
-                      <div className="muted" style={{ marginBottom: 6, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Opponent Slash Line vs Star Pitch</div>
-                      <DetailStatGrid
-                        stats={[
-                          { label: 'AVG', value: formatDecimal(pitchingStar.oppSlashLine.avg), accent: '#3B82F6' },
-                          { label: 'OBP', value: formatDecimal(pitchingStar.oppSlashLine.obp), accent: '#22C55E' },
-                          { label: 'SLG', value: formatDecimal(pitchingStar.oppSlashLine.slg), accent: '#EAB308' },
-                          { label: 'OPS', value: formatDecimal(pitchingStar.oppSlashLine.ops), accent: '#F97316' },
-                        ]}
-                      />
-                    </div>
-                    <div>
-                      <div className="muted" style={{ marginBottom: 6, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Contact Quality Allowed on Star Pitch</div>
-                      <DetailStatGrid
-                        stats={[
-                          { label: 'Avg Exit Velo', value: pitchingStar.avgExitVeloAllowed != null ? `${pitchingStar.avgExitVeloAllowed} mph` : '-', accent: '#3B82F6' },
-                          { label: 'Avg Launch Angle', value: pitchingStar.avgLaunchAngleAllowed != null ? `${pitchingStar.avgLaunchAngleAllowed}°` : '-', accent: '#22C55E' },
-                          { label: 'Avg Distance', value: pitchingStar.avgDistanceAllowed != null ? `${pitchingStar.avgDistanceAllowed} ft` : '-', accent: '#EAB308' },
-                        ]}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-
-          <section className="panel" style={{ padding: '1rem' }}>
-            <div className="section-head" style={{ marginBottom: 10 }}>
-              <h3>Chemistry</h3>
-              <div className="muted">Roster chemistry relationships</div>
-            </div>
-            <div className="page-stack">
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Good</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-                  {chemistry.good.length ? chemistry.good.map((name) => (
-                    <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.45rem 0.6rem', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 }}>
-                      <CharacterPortrait name={name} size={32} />
-                      <span>{allCharactersById[name]?.name || name}</span>
-                    </div>
-                  )) : <span className="muted">None</span>}
-                </div>
-              </div>
-              <div>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Bad</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-                  {chemistry.bad.length ? chemistry.bad.map((name) => (
-                    <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.45rem 0.6rem', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 }}>
-                      <CharacterPortrait name={name} size={32} />
-                      <span>{allCharactersById[name]?.name || name}</span>
-                    </div>
-                  )) : <span className="muted">None</span>}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="panel" style={{ padding: '1rem' }}>
-            <div className="section-head" style={{ marginBottom: 10 }}>
-              <h3>Tournament History</h3>
-              <div className="muted">Per-tournament batting and pitching</div>
-            </div>
-            <div className="page-stack">
-              <div style={{ overflowX: 'auto' }}>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Batting</div>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Tournament</th>
-                      <th>PA</th>
-                      <th><StatLabel label="AVG" /></th>
-                      <th><StatLabel label="OPS" /></th>
-                      <th>HR</th>
-                      <th>RBI</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {battingHistory.length ? battingHistory.map((entry) => (
-                      <tr key={`bat-${entry.tournamentId}`}>
-                        <td>Tournament {entry.tournamentNumber}</td>
-                        <td>{entry.pa}</td>
-                        <td>{formatDecimal(entry.avg)}</td>
-                        <td>{formatDecimal(entry.ops)}</td>
-                        <td>{entry.hr}</td>
-                        <td>{entry.rbi}</td>
-                      </tr>
-                    )) : (
-                      <tr><td colSpan={6} className="muted">No batting history.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <div className="muted" style={{ marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Pitching</div>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Tournament</th>
-                      <th>IP</th>
-                      <th><StatLabel label="ERA/3" /></th>
-                      <th><StatLabel label="WHIP" /></th>
-                      <th>K</th>
-                      <th>W-L-SV</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pitchingHistory.length ? pitchingHistory.map((entry) => (
-                      <tr key={`pit-${entry.tournamentId}`}>
-                        <td>Tournament {entry.tournamentNumber}</td>
-                        <td>{formatDecimal(entry.innings, 1)}</td>
-                        <td>{formatDecimal(entry.era, 2)}</td>
-                        <td>{formatDecimal(entry.whip, 2)}</td>
-                        <td>{entry.strikeouts}</td>
-                        <td>{entry.wins}-{entry.losses}-{entry.saves}</td>
-                      </tr>
-                    )) : (
-                      <tr><td colSpan={6} className="muted">No pitching history.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
+        </section>
+      ))}
     </div>
   )
 }
@@ -1528,15 +1306,20 @@ export default function Stats() {
     stickyWidth: isCompact ? 132 : 160,
     sortValue: (row) => row.name,
   }
-  const [tab, setTab] = useState('players')
-  const [playerView, setPlayerView] = useState(PLAYER_VIEWS.batting)
-  const [characterView, setCharacterView] = useState(CHARACTER_VIEWS.batting)
-  const [playerSort, setPlayerSort] = useState({ key: 'name', direction: 'asc' })
-  const [characterSort, setCharacterSort] = useState({ key: 'name', direction: 'asc' })
-  const [statView, setStatView] = useState('overview')
-  const [statDiscipline, setStatDiscipline] = useState('batting')
-  const [bbSubView, setBbSubView] = useState('batting')
-  const [discSubView, setDiscSubView] = useState('batting')
+  // Identity, section and set live in the query string too (?view=&section=&set=), so a refresh
+  // or a Back from a player page reopens the same table.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [tab, setTab] = useState(() => (searchParams.get('view') === 'characters' ? 'characters' : 'players'))
+  // The open rail section, the tab last chosen inside each section, and one sort per identity and
+  // tab (`${tab}:${section}.${set}`), so sorting one table never reorders another.
+  const [section, setSection] = useState(() => searchParams.get('section') || 'leaders')
+  const [setBySection, setSetBySection] = useState(() => {
+    const urlSection = searchParams.get('section')
+    const urlSet = searchParams.get('set')
+    return urlSection && urlSet ? { [urlSection]: urlSet } : {}
+  })
+  const [sorts, setSorts] = useState({})
+  const [baseEvidence, setBaseEvidence] = useState(null)
   const [stadiums, setStadiums] = useState([])
   const [stadiumGameLog, setStadiumGameLog] = useState([])
   const [selectedStadiumKey, setSelectedStadiumKey] = useState(null)
@@ -1544,24 +1327,6 @@ export default function Stats() {
   const [ballparkTimeFilter, setBallparkTimeFilter] = useState('all')
   const [selectedSprayChartTeamId, setSelectedSprayChartTeamId] = useState(ALL_TEAMS_SPRAY_FILTER)
   const [locationDisplayMode, setLocationDisplayMode] = useState('pct')
-  const [bbPlayerSort, setBbPlayerSort] = useState({ key: 'bip', direction: 'desc' })
-  const [bbCharacterSort, setBbCharacterSort] = useState({ key: 'bip', direction: 'desc' })
-  const [powerPlayerSort, setPowerPlayerSort] = useState({ key: 'hitPowerIndex', direction: 'desc' })
-  const [powerCharacterSort, setPowerCharacterSort] = useState({ key: 'hitPowerIndex', direction: 'desc' })
-  const [exitVeloPlayerSort, setExitVeloPlayerSort] = useState({ key: 'avgExitVelo', direction: 'desc' })
-  const [exitVeloCharacterSort, setExitVeloCharacterSort] = useState({ key: 'avgExitVelo', direction: 'desc' })
-  const [contactQualityPlayerSort, setContactQualityPlayerSort] = useState({ key: 'barrelRate', direction: 'desc' })
-  const [contactQualityCharacterSort, setContactQualityCharacterSort] = useState({ key: 'barrelRate', direction: 'desc' })
-  const [expectedPlayerSort, setExpectedPlayerSort] = useState({ key: 'xwOBA', direction: 'desc' })
-  const [expectedCharacterSort, setExpectedCharacterSort] = useState({ key: 'xwOBA', direction: 'desc' })
-  const [discPlayerSort, setDiscPlayerSort] = useState({ key: 'pitchesPerPa', direction: 'desc' })
-  const [discCharacterSort, setDiscCharacterSort] = useState({ key: 'pitchesPerPa', direction: 'desc' })
-  const [mixPlayerSort, setMixPlayerSort] = useState({ key: 'pitchesPerBatter', direction: 'desc' })
-  const [mixCharacterSort, setMixCharacterSort] = useState({ key: 'pitchesPerBatter', direction: 'desc' })
-  const [starsBattingPlayerSort, setStarsBattingPlayerSort] = useState({ key: 'starHitUsed', direction: 'desc' })
-  const [starsBattingCharacterSort, setStarsBattingCharacterSort] = useState({ key: 'starHitUsed', direction: 'desc' })
-  const [starsPitchingPlayerSort, setStarsPitchingPlayerSort] = useState({ key: 'starPitchUsed', direction: 'desc' })
-  const [starsPitchingCharacterSort, setStarsPitchingCharacterSort] = useState({ key: 'starPitchUsed', direction: 'desc' })
   const [bpBattingPlayerSort, setBpBattingPlayerSort] = useState({ key: 'plateAppearances', direction: 'desc' })
   const [bpBattingCharacterSort, setBpBattingCharacterSort] = useState({ key: 'plateAppearances', direction: 'desc' })
   const [bpPitchingPlayerSort, setBpPitchingPlayerSort] = useState({ key: 'innings', direction: 'desc' })
@@ -1588,6 +1353,7 @@ export default function Stats() {
   const [seasonPitchingStints, setSeasonPitchingStints] = useState([])
   const [seasonPitches, setSeasonPitches] = useState([])
   const [seasonFielders, setSeasonFielders] = useState([])
+  const [trackingPlays, setTrackingPlays] = useState([])
   const [trackingThrows, setTrackingThrows] = useState([])
   const [runnerOpportunities, setRunnerOpportunities] = useState([])
   const [doublePlayOpportunities, setDoublePlayOpportunities] = useState([])
@@ -1625,44 +1391,74 @@ export default function Stats() {
 
   useEffect(() => {
     let disposed = false
+    const snapshotCache = new Map()
+    const snapshotVersions = new Map()
+    const allSnapshotKeys = [
+      'players', 'characters', 'games', 'draft_picks', 'plate_appearances', 'runs_scored',
+      'pitching_stints', 'pitches', 'game_fielders', 'tournaments', 'seasons', 'season_schedule',
+      'season_teams', 'season_roster', 'season_plate_appearances', 'season_runs_scored',
+      'season_pitching_stints', 'season_pitches', 'season_game_fielders', 'stadiums',
+      'stadium_game_log', 'tracking_plays', 'tracking_throws', 'runner_opportunities',
+      'double_play_opportunities', 'fielding_opportunities', 'movement_metrics', 'tracking_sessions',
+      'active_tracking_versions',
+    ]
+    const readSnapshot = async (key, loader) => {
+      if (snapshotCache.has(key)) return snapshotCache.get(key)
+      const version = snapshotVersions.get(key) || 0
+      const result = await loader()
+      if (!result?.error && version === (snapshotVersions.get(key) || 0)) snapshotCache.set(key, result)
+      return result
+    }
+    const invalidateSnapshots = (...keys) => {
+      keys.flat().forEach((key) => {
+        snapshotCache.delete(key)
+        snapshotVersions.set(key, (snapshotVersions.get(key) || 0) + 1)
+      })
+    }
 
     const loadStats = async (generation) => {
       const results = await Promise.all([
-        fetchAllRows(() => supabase.from('players').select('*')),
-        fetchAllRows(() => supabase
+        readSnapshot('players', () => fetchAllRows(() => supabase.from('players').select('*'))),
+        readSnapshot('characters', () => fetchAllRows(() => supabase
           .from('characters')
-          .select('id, name, pitching, batting, fielding, speed, slap_contact, charge_contact, slap_power, charge_power, bunting, run_speed, throwing_speed, fielding_stat, curveball_speed, fastball_speed, curve, stamina, star_boost_pct, hitting_trajectory, character_class, is_captain')),
-        fetchAllRows(() => supabase.from('games').select('*')),
-        fetchAllRows(() => supabase.from('draft_picks').select('*')),
-        fetchAllRows(() => supabase.from('plate_appearances').select('*')),
-        fetchAllRows(() => supabase.from('runs_scored').select('*')),
-        fetchAllRows(() => supabase.from('pitching_stints').select('*')),
-        fetchAllRows(() => supabase.from('pitches').select('*')),
-        fetchAllRows(() => supabase.from('game_fielders').select('*')),
-        fetchAllRows(() => supabase.from('tournaments').select('*').order('tournament_number', { ascending: false })),
-        fetchAllRows(() => supabase.from('seasons').select('*').order('created_at', { ascending: false })),
-        fetchAllRows(() => supabase.from('season_schedule').select('*')),
-        fetchAllRows(() => supabase.from('season_teams').select('*')),
-        fetchAllRows(() => supabase.from('season_roster').select('*')),
-        fetchAllRows(() => supabase.from('season_plate_appearances').select('*')),
-        fetchAllRows(() => supabase.from('season_runs_scored').select('*')),
-        fetchAllRows(() => supabase.from('season_pitching_stints').select('*')),
-        fetchAllRows(() => supabase.from('season_pitches').select('*')),
-        fetchAllRows(() => supabase.from('season_game_fielders').select('*')),
-        fetchAllRows(() => supabase.from('stadiums').select('*')),
-        fetchAllRows(() => supabase.from('stadium_game_log').select('game_id, stadium_id, is_night'), { orderColumn: 'game_id' }),
-        fetchAllRows(() => supabase.from('tracking_throws').select('*')),
-        fetchAllRows(() => supabase.from('runner_opportunities').select('*')),
-        fetchAllRows(() => supabase.from('double_play_opportunities').select('*')),
-        fetchAllRows(() => supabase.from('fielding_opportunities').select('*')),
-        fetchAllRows(() => supabase.from('movement_metrics').select('*')),
+          .select('id, name, pitching, batting, fielding, speed, slap_contact, charge_contact, slap_power, charge_power, bunting, run_speed, throwing_speed, fielding_stat, curveball_speed, fastball_speed, curve, stamina, star_boost_pct, hitting_trajectory, character_class, is_captain'))),
+        readSnapshot('games', () => fetchAllRows(() => supabase.from('games').select('*'))),
+        readSnapshot('draft_picks', () => fetchAllRows(() => supabase.from('draft_picks').select('*'))),
+        readSnapshot('plate_appearances', () => fetchAllRows(() => supabase.from('plate_appearances').select('*'))),
+        readSnapshot('runs_scored', () => fetchAllRows(() => supabase.from('runs_scored').select('*'))),
+        readSnapshot('pitching_stints', () => fetchAllRows(() => supabase.from('pitching_stints').select('*'))),
+        readSnapshot('pitches', () => fetchAllRows(() => supabase.from('pitches').select('*'))),
+        readSnapshot('game_fielders', () => fetchAllRows(() => supabase.from('game_fielders').select('*'))),
+        readSnapshot('tournaments', () => fetchAllRows(() => supabase.from('tournaments').select('*').order('tournament_number', { ascending: false }))),
+        readSnapshot('seasons', () => fetchAllRows(() => supabase.from('seasons').select('*').order('created_at', { ascending: false }))),
+        readSnapshot('season_schedule', () => fetchAllRows(() => supabase.from('season_schedule').select('*'))),
+        readSnapshot('season_teams', () => fetchAllRows(() => supabase.from('season_teams').select('*'))),
+        readSnapshot('season_roster', () => fetchAllRows(() => supabase.from('season_roster').select('*'))),
+        readSnapshot('season_plate_appearances', () => fetchAllRows(() => supabase.from('season_plate_appearances').select('*'))),
+        readSnapshot('season_runs_scored', () => fetchAllRows(() => supabase.from('season_runs_scored').select('*'))),
+        readSnapshot('season_pitching_stints', () => fetchAllRows(() => supabase.from('season_pitching_stints').select('*'))),
+        readSnapshot('season_pitches', () => fetchAllRows(() => supabase.from('season_pitches').select('*'))),
+        readSnapshot('season_game_fielders', () => fetchAllRows(() => supabase.from('season_game_fielders').select('*'))),
+        readSnapshot('stadiums', () => fetchAllRows(() => supabase.from('stadiums').select('*'))),
+        readSnapshot('stadium_game_log', () => fetchAllRows(() => supabase.from('stadium_game_log').select('game_id, stadium_id, is_night'), { orderColumn: 'game_id' })),
+        readSnapshot('tracking_plays', () => fetchAllRows(() => supabase.from('tracking_plays').select('id,tracking_session_id,competition_type,game_id,pa_id,play_ordinal,quality'))),
+        // Named columns rather than '*': these two are the widest tables in the
+        // database and this page reads them league-wide, so '*' was costing
+        // ~1.9 MB compressed a load on its own. src/utils/trackingColumns.js
+        // owns the lists and says what to do when a metric needs a new one.
+        readSnapshot('tracking_throws', () => fetchAllRows(() => supabase.from('tracking_throws').select(TRACKING_THROW_COLUMNS))),
+        readSnapshot('runner_opportunities', () => fetchAllRows(() => supabase.from('runner_opportunities').select(RUNNER_OPPORTUNITY_COLUMNS))),
+        readSnapshot('double_play_opportunities', () => fetchAllRows(() => supabase.from('double_play_opportunities').select(DOUBLE_PLAY_OPPORTUNITY_COLUMNS))),
+        readSnapshot('fielding_opportunities', () => fetchAllRows(() => supabase.from('fielding_opportunities').select(FIELDING_OPPORTUNITY_COLUMNS))),
+        readSnapshot('movement_metrics', () => fetchAllRows(() => supabase.from('movement_metrics').select(MOVEMENT_METRIC_COLUMNS))),
+        readSnapshot('tracking_sessions', () => fetchAllRows(() => supabase.from('tracking_sessions').select('id,stadium_key'))),
         // Which tracking plays are no longer the authoritative version of
         // themselves. Resolves to { data: Set, error } like every read above,
         // so the failed-result check below covers it: a page that cannot tell
         // an active version from a superseded one shows the error banner over
         // whatever it already had rather than a line with the same play in it
         // twice. See src/utils/activeTrackingVersions.js.
-        fetchSupersededTrackingPlayIds(supabase),
+        readSnapshot('active_tracking_versions', () => fetchSupersededTrackingPlayIds(supabase)),
       ])
 
       // fetchAllRows resolves with { data: null, error } rather than throwing, so without this
@@ -1693,11 +1489,13 @@ export default function Stats() {
         { data: seasonFieldersData },
         { data: stadiumsData },
         { data: stadiumLogData },
+        { data: trackingPlaysData },
         { data: trackingThrowsData },
         { data: runnerOpportunitiesData },
         { data: doublePlayOpportunitiesData },
         { data: fieldingOpportunitiesData },
         { data: movementMetricsData },
+        { data: trackingSessionsData },
         { data: supersededTrackingPlays },
       ] = results
 
@@ -1777,6 +1575,7 @@ export default function Stats() {
         pitches: pitchData || [],
         runs: runsScoredData || [],
         gameFielders: fieldersData || [],
+        includeActiveGames: true,
       })
       const officialSeason = reconcileStatSource({
         games: normalizedSeasonGames,
@@ -1785,8 +1584,9 @@ export default function Stats() {
         pitches: normalizedSeasonPitches,
         runs: normalizedSeasonRunsScored,
         gameFielders: normalizedSeasonFielders,
+        includeActiveGames: true,
       })
-      const completedGameKeys = new Set([
+      const visibleGameKeys = new Set([
         ...officialTournament.games.map(getStatGameKey),
         // Season games are namespaced for combined table aggregation, while persisted
         // advanced rows still carry the source schedule id. Match them on that source id.
@@ -1795,8 +1595,8 @@ export default function Stats() {
           id: game.source_game_id ?? game.id,
         })),
       ])
-      const selectCompletedAdvancedRows = (rows) => dedupeStatRows(rows || [])
-        .filter((row) => completedGameKeys.has(getStatGameKey(row)))
+      const selectVisibleAdvancedRows = (rows) => dedupeStatRows(rows || [])
+        .filter((row) => visibleGameKeys.has(getStatGameKey(row)))
 
       // Realtime refreshes can overlap. Only the newest complete snapshot may replace the
       // displayed tables; otherwise a slower response can roll the page back after a later edit.
@@ -1822,24 +1622,28 @@ export default function Stats() {
       setSeasonFielders(officialSeason.gameFielders)
       setStadiums(stadiumsData || [])
       setStadiumGameLog(stadiumLogData || [])
+      const parkBySession = new Map((trackingSessionsData || []).map((session) => [String(session.id), session.stadium_key]))
+      setTrackingPlays(selectVisibleAdvancedRows(
+        onlyActiveTrackingPlays(trackingPlaysData, supersededTrackingPlays))
+        .map((play) => ({ ...play, park: parkBySession.get(String(play.tracking_session_id)) || null })))
       // A superseded tracking version and an unfinished replacement both keep
       // their facts on disk, so the same play was entering a character's line
       // once per version. Only the active version's rows are counted.
-      setTrackingThrows(selectCompletedAdvancedRows(
-        onlyActiveTrackingFacts(trackingThrowsData, supersededTrackingPlays)))
-      setRunnerOpportunities(selectCompletedAdvancedRows(runnerOpportunitiesData))
-      setDoublePlayOpportunities(selectCompletedAdvancedRows(doublePlayOpportunitiesData))
-      setFieldingOpportunities(selectCompletedAdvancedRows(
-        onlyActiveTrackingFacts(fieldingOpportunitiesData, supersededTrackingPlays)))
-      setMovementMetrics(selectCompletedAdvancedRows(
-        onlyActiveTrackingFacts(movementMetricsData, supersededTrackingPlays)))
+      // restoreQuality puts the selected `quality->…` flags back inside
+      // `quality`, which is the shape every reader downstream expects.
+      setTrackingThrows(selectVisibleAdvancedRows(
+        onlyActiveTrackingFacts(restoreQuality(trackingThrowsData), supersededTrackingPlays)))
+      setRunnerOpportunities(selectVisibleAdvancedRows(restoreQuality(runnerOpportunitiesData)))
+      setDoublePlayOpportunities(selectVisibleAdvancedRows(restoreQuality(doublePlayOpportunitiesData)))
+      setFieldingOpportunities(selectVisibleAdvancedRows(
+        onlyActiveTrackingFacts(restoreQuality(fieldingOpportunitiesData), supersededTrackingPlays)))
+      setMovementMetrics(selectVisibleAdvancedRows(
+        onlyActiveTrackingFacts(restoreQuality(movementMetricsData), supersededTrackingPlays)))
       return true
     }
 
-    // Realtime callbacks re-run loadStats constantly; only the first load (and an explicit Retry)
-    // should be allowed to blank the page, so background refreshes keep the current tables on
-    // screen and report a failure without tearing the view down.
     const runLoad = async (isBackground) => {
+      if (disposed) return
       const generation = loadGenerationRef.current + 1
       loadGenerationRef.current = generation
       if (!isBackground) {
@@ -1861,37 +1665,77 @@ export default function Stats() {
       }
     }
 
-    runLoad(false)
-    const refresh = () => runLoad(true)
+    let initialLoad = true
+    const refreshCoordinator = createRefreshCoordinator({
+      run: async () => {
+        const background = !initialLoad
+        initialLoad = false
+        await runLoad(background)
+      },
+      delayMs: 750,
+      maxWaitMs: 2000,
+      isPaused: () => document.visibilityState === 'hidden',
+      onError: () => {}, // runLoad owns the visible error state.
+    })
+    const refresh = (...keys) => {
+      invalidateSnapshots(keys)
+      refreshCoordinator.request()
+    }
+    const refreshAll = () => {
+      invalidateSnapshots(allSnapshotKeys)
+      refreshCoordinator.request({ immediate: true })
+    }
+    refreshCoordinator.request({ immediate: true })
+    let hasSubscribed = false
     const channel = supabase
       .channel(`stats-live-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'characters' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitches' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'seasons' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_schedule' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitches' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracking_throws' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'runner_opportunities' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'double_play_opportunities' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'fielding_opportunities' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'movement_metrics' }, refresh)
-      .subscribe()
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => refresh('players'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'characters' }, () => refresh('characters'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => refresh('games'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks' }, () => refresh('draft_picks'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, () => refresh('plate_appearances'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'runs_scored' }, () => refresh('runs_scored'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, () => refresh('pitching_stints'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitches' }, () => refresh('pitches'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, () => refresh('game_fielders'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, () => refresh('tournaments'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'seasons' }, () => refresh('seasons'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_schedule' }, () => refresh('season_schedule'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams' }, () => refresh('season_teams'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_roster' }, () => refresh('season_roster'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances' }, () => refresh('season_plate_appearances'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_runs_scored' }, () => refresh('season_runs_scored'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, () => refresh('season_pitching_stints'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitches' }, () => refresh('season_pitches'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders' }, () => refresh('season_game_fielders'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stadiums' }, () => refresh('stadiums'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stadium_game_log' }, () => refresh('stadium_game_log'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracking_plays' }, () => refresh('tracking_plays', 'active_tracking_versions'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracking_throws' }, () => refresh('tracking_throws'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'runner_opportunities' }, () => refresh('runner_opportunities'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'double_play_opportunities' }, () => refresh('double_play_opportunities'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fielding_opportunities' }, () => refresh('fielding_opportunities'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movement_metrics' }, () => refresh('movement_metrics'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracking_sessions' }, () => refresh('tracking_sessions', 'active_tracking_versions'))
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (hasSubscribed) refreshAll()
+        hasSubscribed = true
+      })
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshAll()
+    }
+    const refreshWhenOnline = refreshAll
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    window.addEventListener('online', refreshWhenOnline)
 
     return () => {
       disposed = true
       loadGenerationRef.current += 1
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      window.removeEventListener('online', refreshWhenOnline)
+      refreshCoordinator.dispose()
       supabase.removeChannel(channel)
     }
   }, [reloadToken])
@@ -1928,19 +1772,10 @@ export default function Stats() {
     }
   }, [viewedTournament?.id, isSeasonRoute])
 
-  useEffect(() => {
-    if (statDiscipline === 'fielding' && statView === 'stars') {
-      setStatView('overview')
-      setPlayerView('fielding')
-      setCharacterView('fielding')
-    }
-  }, [statDiscipline, statView])
-
   const playersById = useMemo(() => Object.fromEntries(players.map((player) => [player.id, player])), [players])
   const charactersById = useMemo(() => Object.fromEntries(characters.map((character) => [character.id, character])), [characters])
   const charactersByName = useMemo(() => Object.fromEntries(characters.map((character) => [character.name, character])), [characters])
   const gameById = useMemo(() => Object.fromEntries([...games, ...seasonGames].map((game) => [game.id, game])), [games, seasonGames])
-  const tournamentById = useMemo(() => Object.fromEntries(tournaments.map((tournament) => [tournament.id, tournament])), [tournaments])
 
   const filteredGames = useMemo(() => {
     return selectStatRowsForScope({
@@ -2035,6 +1870,7 @@ export default function Stats() {
   const filteredAdvanced = useMemo(() => {
     if (isCombinedView) {
       return {
+        plays: trackingPlays,
         throws: trackingThrows,
         runners: runnerOpportunities,
         doublePlays: doublePlayOpportunities,
@@ -2054,13 +1890,23 @@ export default function Stats() {
         : sourceMode === 'tournaments' && tournamentGameIds.has(String(row.game_id))
     )
     return {
+      plays: trackingPlays.filter(include),
       throws: trackingThrows.filter(include),
       runners: runnerOpportunities.filter(include),
       doublePlays: doublePlayOpportunities.filter(include),
       fielding: fieldingOpportunities.filter(include),
       movement: movementMetrics.filter(include),
     }
-  }, [doublePlayOpportunities, fieldingOpportunities, filteredGames, isCombinedView, movementMetrics, runnerOpportunities, sourceMode, trackingThrows])
+  }, [doublePlayOpportunities, fieldingOpportunities, filteredGames, isCombinedView, movementMetrics, runnerOpportunities, sourceMode, trackingPlays, trackingThrows])
+
+  const gimmickLuckByPlayer = useMemo(
+    () => summarizeGimmickLuck(filteredAdvanced.plays, 'player'),
+    [filteredAdvanced],
+  )
+  const gimmickLuckByCharacter = useMemo(
+    () => summarizeGimmickLuck(filteredAdvanced.plays, 'character'),
+    [filteredAdvanced],
+  )
 
   const experimentalWar = useMemo(() => buildExperimentalWar({
     games: filteredGames,
@@ -2072,6 +1918,27 @@ export default function Stats() {
     fieldingOpportunities: filteredAdvanced.fielding,
     characters,
   }), [filteredGames, filteredPas, filteredPitching, filteredFielders, filteredAdvanced, characters])
+  const userValue = useMemo(() => ({
+    version: USER_VALUE_VERSION,
+    players: buildUserValueStats({
+      plateAppearances: filteredPas,
+      pitches: filteredPitches,
+      movementMetrics: filteredAdvanced.movement,
+      runnerOpportunities: filteredAdvanced.runners,
+      fieldingOpportunities: filteredAdvanced.fielding,
+      trackingPlays: filteredAdvanced.plays,
+      identity: 'player',
+    }),
+    characters: buildUserValueStats({
+      plateAppearances: filteredPas,
+      pitches: filteredPitches,
+      movementMetrics: filteredAdvanced.movement,
+      runnerOpportunities: filteredAdvanced.runners,
+      fieldingOpportunities: filteredAdvanced.fielding,
+      trackingPlays: filteredAdvanced.plays,
+      identity: 'character',
+    }),
+  }), [filteredAdvanced, filteredPas, filteredPitches])
   const advancedFieldingByPlayer = useMemo(() => summarizeAdvancedFielding({
     throws: filteredAdvanced.throws,
     runnerOpportunities: filteredAdvanced.runners,
@@ -2096,6 +1963,22 @@ export default function Stats() {
     () => summarizeAdvancedBaserunning(filteredAdvanced.runners, 'player'),
     [filteredAdvanced],
   )
+  // Close plays live on the tracking plays, not the plate appearances the rest
+  // of the fielding line is built from, so they are merged in here. Summarized
+  // once per identity and split two ways: the contest credits a fielder and a
+  // runner, and each of them reads it from their own side.
+  const mechanicsByPlayer = useMemo(
+    () => summarizeMechanics(filteredAdvanced.plays, 'player'),
+    [filteredAdvanced],
+  )
+  const mechanicsByCharacter = useMemo(
+    () => summarizeMechanics(filteredAdvanced.plays, 'character'),
+    [filteredAdvanced],
+  )
+  const closePlaysByPlayer = useMemo(() => closePlayTotals(mechanicsByPlayer), [mechanicsByPlayer])
+  const closePlaysByCharacter = useMemo(() => closePlayTotals(mechanicsByCharacter), [mechanicsByCharacter])
+  const runnerClosePlaysByPlayer = useMemo(() => runnerClosePlayTotals(mechanicsByPlayer), [mechanicsByPlayer])
+  const runnerClosePlaysByCharacter = useMemo(() => runnerClosePlayTotals(mechanicsByCharacter), [mechanicsByCharacter])
   const baserunningByCharacter = useMemo(
     () => summarizeAdvancedBaserunning(filteredAdvanced.runners, 'character'),
     [filteredAdvanced],
@@ -2132,6 +2015,10 @@ export default function Stats() {
   )
 
   const standings = useMemo(() => buildStandings(filteredGames, players), [filteredGames, players])
+  const gamesPlayedByPlayerId = useMemo(
+    () => Object.fromEntries(standings.map((standing) => [String(standing.playerId), standing.wins + standing.losses])),
+    [standings],
+  )
   const paByPlayer = useMemo(() => groupBy(filteredPasWithCharacterNames, 'player_id'), [filteredPasWithCharacterNames])
   const pitchingByPlayer = useMemo(() => groupBy(filteredPitching, 'player_id'), [filteredPitching])
   const allCharacterHistory = useMemo(
@@ -2147,139 +2034,35 @@ export default function Stats() {
     () => buildCharacterHistory(filteredPas, filteredPitching, filteredRunEvents, { allGameStints: filteredPitching }),
     [filteredPas, filteredPitching, filteredRunEvents],
   )
-  const fieldingSummary = useMemo(
-    () => summarizeFielding({ plateAppearances: filteredPas, gameFielders: filteredFielders, players }),
-    [filteredPas, filteredFielders, players],
-  )
   const fieldingRows = useMemo(
     () => {
       const base = buildFieldingRows({ plateAppearances: filteredPas, gameFielders: filteredFielders, players, charactersByName })
       return {
-        playerRows: base.playerRows.map((row) => ({
-          ...row,
-          ...(advancedFieldingByPlayer[String(row.playerId)] || {}),
-          ...(movementByPlayer[String(row.playerId)] || {}),
-        })),
-        characterRows: base.characterRows.map((row) => ({
-          ...row,
-          ...(advancedFieldingByCharacter[String(row.id)] || {}),
-          ...(movementByCharacter[String(row.id)] || {}),
-        })),
+        playerRows: base.playerRows.map((row) => {
+          const advanced = advancedFieldingByPlayer[String(row.playerId)] || {}
+          return {
+            ...row,
+            ...advanced,
+            ...(movementByPlayer[String(row.playerId)] || {}),
+            // Traditional DP participation includes every completed multi-out
+            // play. The advanced model intentionally covers only modeled DP
+            // opportunities, so it must not erase the broader official total.
+            doublePlays: Math.max(Number(row.doublePlays) || 0, Number(advanced.doublePlays) || 0),
+          }
+        }),
+        characterRows: base.characterRows.map((row) => {
+          const advanced = advancedFieldingByCharacter[String(row.id)] || {}
+          return {
+            ...row,
+            ...advanced,
+            ...(movementByCharacter[String(row.id)] || {}),
+            doublePlays: Math.max(Number(row.doublePlays) || 0, Number(advanced.doublePlays) || 0),
+          }
+        }),
       }
     },
     [advancedFieldingByCharacter, advancedFieldingByPlayer, charactersByName, filteredPas, filteredFielders, movementByCharacter, movementByPlayer, players],
   )
-
-  const historySourceMetaById = useMemo(() => {
-    const meta = {}
-
-    if (isCombinedView || sourceMode === 'tournaments') {
-      tournaments.forEach((tournament) => {
-        meta[`tournament-${tournament.id}`] = {
-          sourceId: `tournament-${tournament.id}`,
-          sourceLabel: `MST ${tournament.tournament_number}`,
-          sourceType: 'tournament',
-          sortGroup: 0,
-          sortValue: Number(tournament.tournament_number) || 0,
-        }
-      })
-    }
-
-    if (isCombinedView || sourceMode === 'seasons') {
-      seasons.forEach((season, index) => {
-        meta[`season-${season.id}`] = {
-          sourceId: `season-${season.id}`,
-          sourceLabel: abbreviateSeasonName(season.name) || `Season ${index + 1}`,
-          sourceType: 'season',
-          sortGroup: isCombinedView ? 1 : 0,
-          sortValue: new Date(season.created_at || 0).getTime() || Number(season.id) || 0,
-          seasonLabel: formatSeasonLabel(season.status || ''),
-        }
-      })
-    }
-
-    return meta
-  }, [isCombinedView, seasons, sourceMode, tournaments])
-
-  const sortHistoryEntries = (a, b) => {
-    if ((a.sortGroup || 0) !== (b.sortGroup || 0)) return (a.sortGroup || 0) - (b.sortGroup || 0)
-    return (b.sortValue || 0) - (a.sortValue || 0)
-  }
-
-  const battingHistoryByCharacter = useMemo(() => {
-    const byCharacterSource = {}
-
-    const collect = (appearances, type) => {
-      appearances.forEach((pa) => {
-        const game = gameById[pa.game_id]
-        if (!game || !pa.character_id) return
-        const sourceId = `${type}-${game.tournament_id}`
-        const meta = historySourceMetaById[sourceId]
-        if (!meta) return
-        if (!byCharacterSource[pa.character_id]) byCharacterSource[pa.character_id] = {}
-        if (!byCharacterSource[pa.character_id][sourceId]) byCharacterSource[pa.character_id][sourceId] = []
-        byCharacterSource[pa.character_id][sourceId].push(pa)
-      })
-    }
-
-    if (isCombinedView || sourceMode === 'tournaments') collect(plateAppearances, 'tournament')
-    if (isCombinedView || sourceMode === 'seasons') collect(seasonPlateAppearances, 'season')
-
-    return Object.fromEntries(
-      Object.entries(byCharacterSource).map(([characterId, bySource]) => [
-        characterId,
-        Object.entries(bySource)
-          .map(([sourceId, rawPas]) => {
-            const batting = summarizeBatting(rawPas)
-            batting.ops = batting.obp + batting.slg
-            return {
-              ...historySourceMetaById[sourceId],
-              games: batting.games,
-              pa: rawPas.length,
-              avg: batting.avg,
-              ops: batting.ops,
-              hr: batting.homeRuns,
-              rbi: batting.rbi,
-              rawPas,
-            }
-          })
-          .sort(sortHistoryEntries),
-      ]),
-    )
-  }, [gameById, historySourceMetaById, isCombinedView, plateAppearances, seasonPlateAppearances, sourceMode])
-
-  const pitchingHistoryByCharacter = useMemo(() => {
-    const byCharacterSource = {}
-
-    const collect = (stints, type) => {
-      stints.forEach((stint) => {
-        const game = gameById[stint.game_id]
-        if (!game || !stint.character_id) return
-        const sourceId = `${type}-${game.tournament_id}`
-        const meta = historySourceMetaById[sourceId]
-        if (!meta) return
-        if (!byCharacterSource[stint.character_id]) byCharacterSource[stint.character_id] = {}
-        if (!byCharacterSource[stint.character_id][sourceId]) byCharacterSource[stint.character_id][sourceId] = []
-        byCharacterSource[stint.character_id][sourceId].push(stint)
-      })
-    }
-
-    if (isCombinedView || sourceMode === 'tournaments') collect(pitchingStints, 'tournament')
-    if (isCombinedView || sourceMode === 'seasons') collect(seasonPitchingStints, 'season')
-
-    return Object.fromEntries(
-      Object.entries(byCharacterSource).map(([characterId, bySource]) => [
-        characterId,
-        Object.entries(bySource)
-          .map(([sourceId, rawStints]) => ({
-            ...historySourceMetaById[sourceId],
-            rawStints,
-            ...summarizePitching(rawStints),
-          }))
-          .sort(sortHistoryEntries),
-      ]),
-    )
-  }, [gameById, historySourceMetaById, isCombinedView, pitchingStints, seasonPitchingStints, sourceMode])
 
   const playerFieldingById = useMemo(
     () => Object.fromEntries(fieldingRows.playerRows.map((row) => [String(row.playerId), row])),
@@ -2318,22 +2101,30 @@ export default function Stats() {
     return {
       ...standing,
       gamesPlayed: standing.wins + standing.losses,
+      teamGamesPlayed: standing.wins + standing.losses,
       batting,
       advancedBatting,
       pitching,
       pitchingRisp,
       advancedPitching,
-      pitchingThresholdIp: inningsAsDecimal(pitching.innings || 0),
       starHit,
       starPitch,
       fielding: {
         ...(playerFieldingById[String(standing.playerId)] || createEmptyFieldingRow({ playerId: standing.playerId, name: standing.name })),
         ...(advancedFieldingByPlayer[String(standing.playerId)] || {}),
         ...(movementByPlayer[String(standing.playerId)] || {}),
+        ...(closePlaysByPlayer[String(standing.playerId)] || EMPTY_CLOSE_PLAYS),
+        doublePlays: Math.max(
+          Number(playerFieldingById[String(standing.playerId)]?.doublePlays) || 0,
+          Number(advancedFieldingByPlayer[String(standing.playerId)]?.doublePlays) || 0,
+        ),
         defensiveEfficiencyOpportunities: defensiveEfficiency.opportunities,
         defensiveEfficiency: defensiveEfficiency.defensiveEfficiency,
       },
-      baserunning: baserunningByPlayer[String(standing.playerId)] || { opportunities: 0, attempts: 0, holds: 0, advances: 0, outs: 0, attemptRate: null, successRate: null, baserunningRunValue: null },
+      baserunning: {
+        ...(baserunningByPlayer[String(standing.playerId)] || { opportunities: 0, attempts: 0, holds: 0, advances: 0, outs: 0, attemptRate: null, successRate: null, baserunningRunValue: null }),
+        ...(runnerClosePlaysByPlayer[String(standing.playerId)] || EMPTY_RUNNER_CLOSE_PLAYS),
+      },
       movement: movementByPlayer[String(standing.playerId)] || { speedSamples: 0, sprintSpeedFps: null, maxSprintSpeedFps: null, bolts: 0, homeToFirstSamples: 0, homeToFirstSeconds: null, ninetyFootSplitSeconds: null },
       battedBall: summarizeBattedBallProfile(battingPas),
       sprayProfile: summarizeSprayProfile(battingPas),
@@ -2345,6 +2136,11 @@ export default function Stats() {
       contactQuality,
       expectedBatting,
       expectedPitching,
+      gimmickLuck: gimmickLuckByPlayer[String(standing.playerId)] || {
+        luckScore: 0, luckyEvents: 0, unluckyEvents: 0,
+        totalEvents: 0, affectedPlays: 0, gimmickTypes: [],
+        luckRuns: 0, pricedPlays: 0,
+      },
       hitPowerIndex: calculateHitPowerIndex(distanceProfile),
       parkAdjustedDistance: calculateParkAdjustedDistance(battingPas, filteredPas),
       plateDiscipline: summarizePlateDiscipline(battingPas, batterPitches),
@@ -2356,7 +2152,7 @@ export default function Stats() {
       pitchingExitVelo: summarizeExitVelocity(pitchingPas),
       pitchingContactQuality: summarizeContactQuality(pitchingPas),
     }
-  }), [advancedFieldingByPlayer, baserunningByPlayer, expectedOutcomeModel, filteredPas, filteredPasWithCharacterNames, filteredPitches, leagueConstants, movementByPlayer, paByPlayer, pitchingByPlayer, playerFieldingById, standings])
+  }), [advancedFieldingByPlayer, baserunningByPlayer, closePlaysByPlayer, runnerClosePlaysByPlayer, expectedOutcomeModel, filteredPas, filteredPasWithCharacterNames, filteredPitches, gimmickLuckByPlayer, leagueConstants, movementByPlayer, paByPlayer, pitchingByPlayer, playerFieldingById, standings])
 
   const characterRows = useMemo(() => characters.map((character) => {
     const battingPas = filteredPasWithCharacterNames.filter((pa) => pa.character_id === character.id)
@@ -2378,6 +2174,7 @@ export default function Stats() {
     allTimePitching.rawStints = [...pitchingStints, ...seasonPitchingStints].filter((stint) => stint.character_id === character.id)
     const allPicks = draftPicks.filter((pick) => pick.character_id === character.id)
     const currentOwner = ownerDraftPicks.find((pick) => pick.character_id === character.id) || allPicks.at(-1) || null
+    const teamGamesPlayed = gamesPlayedByPlayerId[String(currentOwner?.player_id)] || 0
     const tournamentIdsDrafted = [...new Set(allPicks.map((pick) => String(pick.tournament_id)))]
     const championshipsWon = tournamentIdsDrafted.filter((tournamentId) =>
       tournaments.some(
@@ -2403,6 +2200,7 @@ export default function Stats() {
       pitchingRating: character.pitching,
       fieldingRating: character.fielding,
       speedRating: character.speed,
+      teamGamesPlayed,
       batting,
       pitching,
       pitchingRisp,
@@ -2410,15 +2208,22 @@ export default function Stats() {
       allTimePitching,
       advancedBatting: sanitizeMetrics(summarizeAdvancedBatting(battingPas, leagueConstants)),
       advancedPitching: sanitizeMetrics(summarizeAdvancedPitching(characterStints, leagueConstants, { plateAppearances: pitchingPas })),
-      pitchingThresholdIp: inningsAsDecimal(pitching.innings || 0),
       starHit: summarizeStarHits(battingPas),
       starPitch: summarizeStarPitching(pitchingPas, charPitcherPitches),
       fielding: {
         ...(characterFieldingByName[character.name] || createEmptyFieldingRow({ id: character.id, name: character.name })),
         ...(advancedFieldingByCharacter[String(character.id)] || {}),
         ...(movementByCharacter[String(character.id)] || {}),
+        ...(closePlaysByCharacter[String(character.id)] || EMPTY_CLOSE_PLAYS),
+        doublePlays: Math.max(
+          Number(characterFieldingByName[character.name]?.doublePlays) || 0,
+          Number(advancedFieldingByCharacter[String(character.id)]?.doublePlays) || 0,
+        ),
       },
-      baserunning: baserunningByCharacter[String(character.id)] || { opportunities: 0, attempts: 0, holds: 0, advances: 0, outs: 0, attemptRate: null, successRate: null, baserunningRunValue: null },
+      baserunning: {
+        ...(baserunningByCharacter[String(character.id)] || { opportunities: 0, attempts: 0, holds: 0, advances: 0, outs: 0, attemptRate: null, successRate: null, baserunningRunValue: null }),
+        ...(runnerClosePlaysByCharacter[String(character.id)] || EMPTY_RUNNER_CLOSE_PLAYS),
+      },
       movement: movementByCharacter[String(character.id)] || { speedSamples: 0, sprintSpeedFps: null, maxSprintSpeedFps: null, bolts: 0, homeToFirstSamples: 0, homeToFirstSeconds: null, ninetyFootSplitSeconds: null },
       currentOwner,
       ownerName: getTeamShortName(identitiesByPlayerId[currentOwner?.player_id]) || playersById[currentOwner?.player_id]?.name || 'Undrafted',
@@ -2436,6 +2241,11 @@ export default function Stats() {
       contactQuality,
       expectedBatting,
       expectedPitching,
+      gimmickLuck: gimmickLuckByCharacter[String(character.id)] || {
+        luckScore: 0, luckyEvents: 0, unluckyEvents: 0,
+        totalEvents: 0, affectedPlays: 0, gimmickTypes: [],
+        luckRuns: 0, pricedPlays: 0,
+      },
       hitPowerIndex: calculateHitPowerIndex(distanceProfile),
       parkAdjustedDistance: calculateParkAdjustedDistance(battingPas, filteredPas),
       plateDiscipline: summarizePlateDiscipline(battingPas, charBatterPitches),
@@ -2447,7 +2257,7 @@ export default function Stats() {
       pitchingExitVelo: summarizeExitVelocity(pitchingPas),
       pitchingContactQuality: summarizeContactQuality(pitchingPas),
     }
-  }), [advancedFieldingByCharacter, allCharacterHistory, allPasWithCharacterNames, baserunningByCharacter, characters, characterFieldingByName, draftPicks, expectedOutcomeModel, filteredCharacterHistory, filteredPas, filteredPasWithCharacterNames, filteredPitching, filteredPitches, identitiesByPlayerId, leagueConstants, movementByCharacter, ownerDraftPicks, pitchingStints, playersById, seasonPitchingStints, tournaments])
+  }), [advancedFieldingByCharacter, allCharacterHistory, allPasWithCharacterNames, baserunningByCharacter, characters, closePlaysByCharacter, runnerClosePlaysByCharacter, characterFieldingByName, draftPicks, expectedOutcomeModel, filteredCharacterHistory, filteredPas, filteredPasWithCharacterNames, filteredPitching, filteredPitches, gamesPlayedByPlayerId, gimmickLuckByCharacter, identitiesByPlayerId, leagueConstants, movementByCharacter, ownerDraftPicks, pitchingStints, playersById, seasonPitchingStints, tournaments])
 
   const characterPathFor = useCallback((characterId) => (
     sourceMode === 'seasons' && selectedSeasonValue
@@ -2497,27 +2307,6 @@ export default function Stats() {
     else if (sourceMode === 'tournaments' && selectedTournamentValue) navigate(`/teams/${playerId}/tournament/${selectedTournamentValue}`, state)
     else navigate(`/teams/${playerId}/career`, state)
   }, [navigate, sourceMode, selectedSeasonValue, selectedTournamentValue])
-
-  const leaguePitchingSummary = useMemo(
-    () => sanitizeMetrics(summarizeAdvancedPitching(filteredPitching, leagueConstants, { plateAppearances: filteredPas })),
-    [filteredPas, filteredPitching, leagueConstants],
-  )
-
-  const leagueBattingRow = useMemo(() => ({
-    playerId: 'league-batting',
-    name: 'League Avg',
-    isLeagueRow: true,
-    batting: { plateAppearances: filteredPas.length },
-    advancedBatting: { babip: null, iso: null, woba: leagueConstants.lgwOBA, wrcPlus: 100, opsPlus: 100, kPct: null, bbPct: null, bbkRatio: null, xbh: null, xbhPct: null, hrPerPa: null, rc3: null },
-  }), [filteredPas.length, leagueConstants])
-
-  const leaguePitchingRow = useMemo(() => ({
-    playerId: 'league-pitching',
-    name: 'League Avg',
-    isLeagueRow: true,
-    pitching: { innings: filteredPitching.reduce((sum, stint) => sum + Number(stint.innings_pitched || 0), 0) },
-    advancedPitching: leaguePitchingSummary,
-  }), [filteredPitching, leaguePitchingSummary])
 
   const orderedStadiums = useMemo(() => getOrderedStadiums(stadiums), [stadiums])
 
@@ -2831,542 +2620,9 @@ export default function Stats() {
   const positiveMetric = (value) => <ValueBadge color={getPositiveMetricColor(value)} value={Number.isFinite(value) ? value : '-'} />
   const inverseMetric = (value) => <ValueBadge color={getInverseMetricColor(value)} value={Number.isFinite(value) ? value : '-'} />
 
-  const playerColumns = useMemo(() => ({
-    batting: [
-      { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
-      { key: 'gamesPlayed', group: 'Record', label: 'G', sortValue: (row) => row.gamesPlayed, value: (row) => row.gamesPlayed },
-      { key: 'plateAppearances', group: 'Batting', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
-      { key: 'atBats', group: 'Batting', label: 'AB', sortValue: (row) => row.batting.atBats, value: (row) => row.batting.atBats },
-      { key: 'hits', group: 'Batting', label: 'H', sortValue: (row) => row.batting.hits, value: (row) => row.batting.hits },
-      { key: 'singles', group: 'Batting', label: '1B', sortValue: (row) => row.batting.singles, value: (row) => row.batting.singles },
-      { key: 'doubles', group: 'Batting', label: '2B', sortValue: (row) => row.batting.doubles, value: (row) => row.batting.doubles },
-      { key: 'triples', group: 'Batting', label: '3B', sortValue: (row) => row.batting.triples, value: (row) => row.batting.triples },
-      { key: 'homeRuns', group: 'Batting', label: 'HR', sortValue: (row) => row.batting.homeRuns, value: (row) => row.batting.homeRuns },
-      { key: 'runs', group: 'Batting', label: 'R', sortValue: (row) => row.batting.runs, value: (row) => row.batting.runs },
-      { key: 'rbi', group: 'Batting', label: 'RBI', sortValue: (row) => row.batting.rbi, value: (row) => row.batting.rbi },
-      { key: 'walks', group: 'Discipline', label: 'BB', sortValue: (row) => row.batting.walks, value: (row) => row.batting.walks },
-      { key: 'hbp', group: 'Discipline', label: 'HBP', sortValue: (row) => row.batting.hbp, value: (row) => row.batting.hbp },
-      { key: 'strikeouts', group: 'Discipline', label: 'SO', sortValue: (row) => row.batting.strikeouts, value: (row) => row.batting.strikeouts },
-      { key: 'sacrificeFlies', group: 'Situational', label: 'SF', sortValue: (row) => row.batting.sacrificeFlies, value: (row) => row.batting.sacrificeFlies },
-      { key: 'sacrificeHits', group: 'Situational', label: 'SH', sortValue: (row) => row.batting.sacrificeHits, value: (row) => row.batting.sacrificeHits },
-      { key: 'totalBases', group: 'Situational', label: 'TB', sortValue: (row) => row.batting.totalBases, value: (row) => row.batting.totalBases },
-      { key: 'rispAvg', group: 'Situational', label: 'RISP AVG', sortValue: (row) => row.batting.rispAtBats ? row.batting.rispAvg : null, value: (row) => formatOptionalRate(row.batting.rispAtBats ? row.batting.rispAvg : null) },
-      { key: 'avg', group: 'Rates', label: 'AVG', sortValue: (row) => row.batting.avg, value: (row) => formatDecimal(row.batting.avg) },
-      { key: 'obp', group: 'Rates', label: 'OBP', sortValue: (row) => row.batting.obp, value: (row) => formatDecimal(row.batting.obp) },
-      { key: 'slg', group: 'Rates', label: 'SLG', sortValue: (row) => row.batting.slg, value: (row) => formatDecimal(row.batting.slg) },
-      { key: 'ops', group: 'Rates', label: 'OPS', sortValue: (row) => row.batting.ops, value: (row) => formatDecimal(row.batting.ops) },
-      { key: 'babip', group: 'Advanced', label: 'BABIP', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.babip : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.babip) : '--' },
-      { key: 'iso', group: 'Advanced', label: 'ISO', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.iso : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.iso) : '--' },
-      { key: 'woba', group: 'Advanced', label: 'wOBA', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.woba : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.woba) : '--' },
-      { key: 'wrcPlus', group: 'Advanced', label: 'wRC+', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.wrcPlus : null, render: (row) => qualifiesAdvancedBatting(row) ? positiveMetric(row.advancedBatting.wrcPlus) : '--' },
-      { key: 'opsPlus', group: 'Advanced', label: 'OPS+', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.opsPlus : null, render: (row) => qualifiesAdvancedBatting(row) ? positiveMetric(row.advancedBatting.opsPlus) : '--' },
-      { key: 'kPct', group: 'Advanced', label: 'K%', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.kPct : null, value: (row) => qualifiesAdvancedBatting(row) ? formatPercent(row.advancedBatting.kPct, 1) : '--' },
-      { key: 'bbPct', group: 'Advanced', label: 'BB%', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.bbPct : null, value: (row) => qualifiesAdvancedBatting(row) ? formatPercent(row.advancedBatting.bbPct, 1) : '--' },
-      { key: 'bbkRatio', group: 'Advanced', label: 'BB/K', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.bbkRatio : null, value: (row) => qualifiesAdvancedBatting(row) ? formatDecimal(row.advancedBatting.bbkRatio, 2) : '--' },
-      { key: 'xbh', group: 'Advanced', label: 'XBH', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.xbh : null, value: (row) => qualifiesAdvancedBatting(row) ? formatInteger(row.advancedBatting.xbh) : '--' },
-      { key: 'xbhPct', group: 'Advanced', label: 'XBH%', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.xbhPct : null, value: (row) => qualifiesAdvancedBatting(row) ? formatPercent(row.advancedBatting.xbhPct, 1) : '--' },
-      { key: 'hrPerPa', group: 'Advanced', label: 'HR/PA', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.hrPerPa : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.hrPerPa) : '--' },
-      { key: 'rc3', group: 'Advanced', label: 'RC/3', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.rc3 : null, render: (row) => qualifiesAdvancedBatting(row) ? <span title="Runs Created per 3-inning game">{formatTooltipNumber(row.advancedBatting.rc3, 1)}</span> : '--' },
-      { key: 'sprintSpeed', group: 'Baserunning', label: 'Sprint Speed', sortValue: (row) => row.movement.speedSamples ? row.movement.sprintSpeedFps : null, value: (row) => row.movement.speedSamples ? `${formatDecimal(row.movement.sprintSpeedFps, 1)} ft/s` : '--' },
-      { key: 'bolts', group: 'Baserunning', label: 'Bolts', sortValue: (row) => row.movement.bolts, value: (row) => row.movement.speedSamples ? row.movement.bolts : '--' },
-      { key: 'homeToFirst', group: 'Baserunning', label: 'Home-to-First', sortValue: (row) => row.movement.homeToFirstSeconds == null ? null : -row.movement.homeToFirstSeconds, value: (row) => row.movement.homeToFirstSeconds != null ? `${formatDecimal(row.movement.homeToFirstSeconds, 2)} s` : '--' },
-      { key: 'ninetyFootSplit', group: 'Baserunning', label: '90-ft Split', sortValue: (row) => row.movement.ninetyFootSplitSeconds == null ? null : -row.movement.ninetyFootSplitSeconds, value: (row) => row.movement.ninetyFootSplitSeconds != null ? `${formatDecimal(row.movement.ninetyFootSplitSeconds, 2)} s` : '--' },
-      { key: 'xbtOpps', group: 'Baserunning', label: 'XBT Opp', sortValue: (row) => row.baserunning.opportunities, value: (row) => row.baserunning.opportunities || 0 },
-      { key: 'xbtAttemptRate', group: 'Baserunning', label: 'XBT%', sortValue: (row) => row.baserunning.attemptRate, value: (row) => row.baserunning.attemptRate != null ? formatPercent(row.baserunning.attemptRate, 1) : '--' },
-      { key: 'xbtSuccessRate', group: 'Baserunning', label: 'XBT Safe%', sortValue: (row) => row.baserunning.successRate, value: (row) => row.baserunning.successRate != null ? formatPercent(row.baserunning.successRate, 1) : '--' },
-      { key: 'xbtOuts', group: 'Baserunning', label: 'XBT Outs', sortValue: (row) => row.baserunning.outs, value: (row) => row.baserunning.opportunities ? row.baserunning.outs : 0 },
-      { key: 'rbaser', group: 'Baserunning', label: 'Rbaser', sortValue: (row) => row.baserunning.opportunities ? row.baserunning.baserunningRunValue : null, value: (row) => row.baserunning.opportunities ? formatSignedAverageStyle(row.baserunning.baserunningRunValue, 2) : '--' },
-    ],
-    pitching: [
-      { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
-      { key: 'games', group: 'Usage', label: 'G', sortValue: (row) => row.pitching.games, value: (row) => row.pitching.games },
-      { key: 'innings', group: 'Usage', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
-      { key: 'wins', group: 'Decisions', label: 'W', sortValue: (row) => row.pitching.wins, value: (row) => row.pitching.wins },
-      { key: 'losses', group: 'Decisions', label: 'L', sortValue: (row) => row.pitching.losses, value: (row) => row.pitching.losses },
-      { key: 'saves', group: 'Decisions', label: 'SV', sortValue: (row) => row.pitching.saves, value: (row) => row.pitching.saves },
-      { key: 'completeGames', group: 'Decisions', label: 'CG', sortValue: (row) => row.pitching.completeGames, value: (row) => row.pitching.completeGames },
-      { key: 'shutouts', group: 'Decisions', label: 'SHO', sortValue: (row) => row.pitching.shutouts, value: (row) => row.pitching.shutouts },
-      { key: 'strikeouts', group: 'Line', label: 'K', sortValue: (row) => row.pitching.strikeouts, value: (row) => row.pitching.strikeouts },
-      { key: 'hitsAllowed', group: 'Line', label: 'H', sortValue: (row) => row.pitching.hitsAllowed, value: (row) => row.pitching.hitsAllowed },
-      { key: 'runsAllowed', group: 'Line', label: 'R', sortValue: (row) => row.pitching.runsAllowed, value: (row) => row.pitching.runsAllowed },
-      { key: 'earnedRuns', group: 'Line', label: 'ER', sortValue: (row) => row.pitching.earnedRuns, value: (row) => row.pitching.earnedRuns },
-      { key: 'walks', group: 'Line', label: 'BB', sortValue: (row) => row.pitching.walks, value: (row) => row.pitching.walks },
-      { key: 'homeRunsAllowed', group: 'Line', label: 'HR', sortValue: (row) => row.pitching.homeRunsAllowed, value: (row) => row.pitching.homeRunsAllowed },
-      { key: 'oppRispAvg', group: 'Situational', label: 'Opp RISP AVG', sortValue: (row) => row.pitchingRisp.atBats ? row.pitchingRisp.avg : null, value: (row) => formatOptionalRate(row.pitchingRisp.atBats ? row.pitchingRisp.avg : null) },
-      { key: 'era', group: 'Rates', label: 'ERA/3', sortValue: (row) => row.pitching.era, value: (row) => formatDecimal(row.pitching.era, 2) },
-      { key: 'whip', group: 'Rates', label: 'WHIP', sortValue: (row) => row.pitching.whip, value: (row) => formatDecimal(row.pitching.whip, 2) },
-      { key: 'fip', group: 'Rates', label: 'FIP', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.fip : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.fip, 2) : '--' },
-      { key: 'fipMinus', group: 'Rates', label: 'FIP-', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.fipMinus : null, render: (row) => qualifiesAdvancedPitching(row) ? inverseMetric(row.advancedPitching.fipMinus) : '--' },
-      { key: 'eraMinus', group: 'Rates', label: 'ERA-', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.eraMinus : null, render: (row) => qualifiesAdvancedPitching(row) ? inverseMetric(row.advancedPitching.eraMinus) : '--' },
-      { key: 'kPer3', group: 'Rates', label: 'K/3', sortValue: (row) => row.pitching.kPer3, value: (row) => formatDecimal(row.pitching.kPer3, 2) },
-      { key: 'bb3', group: 'Rates', label: 'BB/3', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.bb3 : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.bb3, 2) : '--' },
-      { key: 'h3', group: 'Rates', label: 'H/3', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.h3 : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.h3, 2) : '--' },
-      { key: 'hrPer3', group: 'Rates', label: 'HR/3', sortValue: (row) => row.pitching.hrPer3, value: (row) => formatDecimal(row.pitching.hrPer3, 2) },
-      { key: 'kPct', group: 'Rates', label: 'K%', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.kPct : null, value: (row) => qualifiesAdvancedPitching(row) ? formatPercent(row.advancedPitching.kPct, 1) : '--' },
-      { key: 'bbPct', group: 'Rates', label: 'BB%', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.bbPct : null, value: (row) => qualifiesAdvancedPitching(row) ? formatPercent(row.advancedPitching.bbPct, 1) : '--' },
-      { key: 'kBB', group: 'Rates', label: 'K/BB', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.kBB : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.kBB, 2) : '--' },
-      { key: 'babipAllowed', group: 'Rates', label: 'BABIP Allowed', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.babipAllowed : null, value: (row) => qualifiesAdvancedPitching(row) ? formatAverageStyle(row.advancedPitching.babipAllowed) : '--' },
-    ],
-    fielding: [
-      { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
-      { key: 'games', group: 'Fielding', label: 'G', sortValue: (row) => row.fielding.games, value: (row) => row.fielding.games },
-      { key: 'chances', group: 'Fielding', label: 'Chances', sortValue: (row) => row.fielding.chances, value: (row) => row.fielding.chances },
-      { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
-      { key: 'assists', group: 'Fielding', label: 'A', sortValue: (row) => row.fielding.assists, value: (row) => row.fielding.assists },
-      { key: 'errors', group: 'Fielding', label: 'Errors', sortValue: (row) => row.fielding.errors, value: (row) => row.fielding.errors },
-      { key: 'fieldingPct', group: 'Fielding', label: 'Fielding %', sortValue: (row) => row.fielding.fieldingPct, value: (row) => formatAverageStyle(row.fielding.fieldingPct) },
-      { key: 'rangeFactor', group: 'Fielding', label: 'Range Factor', sortValue: (row) => row.fielding.rangeFactor, value: (row) => formatDecimal(row.fielding.rangeFactor, 2) },
-      { key: 'der', group: 'Fielding', label: 'DER', sortValue: (row) => row.fielding.defensiveEfficiency, value: (row) => row.fielding.defensiveEfficiency != null ? formatAverageStyle(row.fielding.defensiveEfficiency) : '—' },
-      { key: 'buddyJumps', group: 'Fielding', label: 'BJ', sortValue: (row) => row.fielding.buddyJumps, value: (row) => row.fielding.buddyJumps },
-      { key: 'nicePlays', group: 'Fielding', label: 'Nice Plays', sortValue: (row) => row.fielding.nicePlays, value: (row) => row.fielding.nicePlays },
-      { key: 'nicePlayRate', group: 'Fielding', label: 'Nice Play %', sortValue: (row) => row.fielding.nicePlayRate, value: (row) => formatPercent(row.fielding.nicePlayRate, 1) },
-      {
-        key: 'rangeRuns',
-        group: 'Fielding',
-        label: 'Range Runs',
-        sortValue: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES ? row.fielding.rangeRuns : null),
-        value: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES && row.fielding.rangeRuns != null
-          ? (row.fielding.rangeRuns > 0 ? `+${row.fielding.rangeRuns}` : row.fielding.rangeRuns)
-          : '—'),
-      },
-      {
-        key: 'rangeFactorPlus',
-        group: 'Fielding',
-        label: 'Range+',
-        sortValue: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES ? row.fielding.rangeFactorPlus : null),
-        value: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES && row.fielding.rangeFactorPlus != null ? row.fielding.rangeFactorPlus : '—'),
-      },
-      {
-        key: 'rangeConfidence',
-        group: 'Fielding',
-        label: 'Rng Conf',
-        sortValue: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES ? row.fielding.rangeConfidence : null),
-        value: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES && row.fielding.rangeConfidence != null ? `${row.fielding.rangeConfidence}%` : '—'),
-      },
-      { key: 'oaa', group: 'Tracking', label: 'OAA', sortValue: (row) => row.fielding.fieldingOpportunities ? row.fielding.outsAboveAverage : null, value: (row) => row.fielding.fieldingOpportunities ? formatSignedAverageStyle(row.fielding.outsAboveAverage, 2) : '—' },
-      { key: 'frv', group: 'Tracking', label: 'FRV', sortValue: (row) => row.fielding.fieldingRunValue, value: (row) => row.fielding.fieldingRunValue != null ? formatSignedAverageStyle(row.fielding.fieldingRunValue, 2) : '—' },
-      { key: 'armStrength', group: 'Arm', label: 'Arm Strength', sortValue: (row) => row.fielding.armStrengthMph, value: (row) => row.fielding.armStrengthMph != null ? `${formatDecimal(row.fielding.armStrengthMph, 1)} mph` : '—' },
-      { key: 'maxThrow', group: 'Arm', label: 'Max Throw', sortValue: (row) => row.fielding.hardestThrowMph, value: (row) => row.fielding.hardestThrowMph != null ? `${formatDecimal(row.fielding.hardestThrowMph, 1)} mph` : '—' },
-      { key: 'maxBuddyThrow', group: 'Arm', label: 'Max Buddy', sortValue: (row) => row.fielding.hardestBuddyThrowMph, value: (row) => row.fielding.hardestBuddyThrowMph != null ? `${formatDecimal(row.fielding.hardestBuddyThrowMph, 1)} mph` : '—' },
-      { key: 'armValue', group: 'Arm', label: 'Arm Value', sortValue: (row) => row.fielding.armOpportunities ? row.fielding.armValue : null, value: (row) => row.fielding.armOpportunities ? formatSignedAverageStyle(row.fielding.armValue, 2) : '—' },
-      { key: 'armHolds', group: 'Arm', label: 'Holds', sortValue: (row) => row.fielding.armHolds, value: (row) => row.fielding.armHolds || 0 },
-      { key: 'armKills', group: 'Arm', label: 'Runner Outs', sortValue: (row) => row.fielding.armKills, value: (row) => row.fielding.armKills || 0 },
-      { key: 'dpOpps', group: 'Double Plays', label: 'DP Opp', sortValue: (row) => row.fielding.doublePlayOpportunities, value: (row) => row.fielding.doublePlayOpportunities || 0 },
-      { key: 'doublePlays', group: 'Double Plays', label: 'DP', sortValue: (row) => row.fielding.doublePlays, value: (row) => row.fielding.doublePlays || 0 },
-      { key: 'dpAdded', group: 'Double Plays', label: 'DP Added', sortValue: (row) => row.fielding.doublePlayOpportunities ? row.fielding.doublePlaysAdded : null, value: (row) => row.fielding.doublePlayOpportunities ? formatSignedAverageStyle(row.fielding.doublePlaysAdded, 2) : '—' },
-      { key: 'jump', group: 'Movement', label: 'Jump', sortValue: (row) => row.fielding.jumpDistanceFeet, value: (row) => row.fielding.jumpDistanceFeet != null ? `${formatDecimal(row.fielding.jumpDistanceFeet, 1)} ft` : '—' },
-      { key: 'positionDepth', group: 'Positioning', label: 'Depth', sortValue: (row) => row.fielding.averagePositionDepthFeet, value: (row) => row.fielding.averagePositionDepthFeet != null ? `${formatDecimal(row.fielding.averagePositionDepthFeet, 1)} ft` : '—' },
-      { key: 'positionAngle', group: 'Positioning', label: 'Angle', sortValue: (row) => row.fielding.averagePositionAngleDeg, value: (row) => row.fielding.averagePositionAngleDeg != null ? `${formatDecimal(row.fielding.averagePositionAngleDeg, 1)}°` : '—' },
-      { key: 'oaaBackLeft', group: 'Directional OAA', label: 'Back-L OAA', sortValue: (row) => row.fielding.directionalOpportunities?.back_left ? row.fielding.directionalOaa?.back_left : null, value: (row) => row.fielding.directionalOpportunities?.back_left ? formatSignedAverageStyle(row.fielding.directionalOaa.back_left, 2) : '—' },
-      { key: 'oaaBack', group: 'Directional OAA', label: 'Back OAA', sortValue: (row) => row.fielding.directionalOpportunities?.back ? row.fielding.directionalOaa?.back : null, value: (row) => row.fielding.directionalOpportunities?.back ? formatSignedAverageStyle(row.fielding.directionalOaa.back, 2) : '—' },
-      { key: 'oaaBackRight', group: 'Directional OAA', label: 'Back-R OAA', sortValue: (row) => row.fielding.directionalOpportunities?.back_right ? row.fielding.directionalOaa?.back_right : null, value: (row) => row.fielding.directionalOpportunities?.back_right ? formatSignedAverageStyle(row.fielding.directionalOaa.back_right, 2) : '—' },
-      { key: 'oaaInLeft', group: 'Directional OAA', label: 'In-L OAA', sortValue: (row) => row.fielding.directionalOpportunities?.in_left ? row.fielding.directionalOaa?.in_left : null, value: (row) => row.fielding.directionalOpportunities?.in_left ? formatSignedAverageStyle(row.fielding.directionalOaa.in_left, 2) : '—' },
-      { key: 'oaaIn', group: 'Directional OAA', label: 'In OAA', sortValue: (row) => row.fielding.directionalOpportunities?.in ? row.fielding.directionalOaa?.in : null, value: (row) => row.fielding.directionalOpportunities?.in ? formatSignedAverageStyle(row.fielding.directionalOaa.in, 2) : '—' },
-      { key: 'oaaInRight', group: 'Directional OAA', label: 'In-R OAA', sortValue: (row) => row.fielding.directionalOpportunities?.in_right ? row.fielding.directionalOaa?.in_right : null, value: (row) => row.fielding.directionalOpportunities?.in_right ? formatSignedAverageStyle(row.fielding.directionalOaa.in_right, 2) : '—' },
-      { key: 'starHitErrors', group: 'Stars', label: <><StarIcon />Errors</>, sortValue: (row) => row.fielding.starHitErrors, value: (row) => row.fielding.starHitErrors },
-      { key: 'adjustedFieldingPct', group: 'Stars', label: <><StarIcon />Adj Fielding %</>, sortValue: (row) => row.fielding.adjustedFieldingPct, value: (row) => formatAverageStyle(row.fielding.adjustedFieldingPct) },
-    ],
-  }), [identitiesByPlayerId, playersById])
-
-  const characterColumns = useMemo(() => ({
-    batting: [
-      { ...charIdentityColBase, render: (row) => <CharacterCell name={row.name} to={characterPathFor(row.id)} /> },
-      { key: 'gamesPlayed', group: 'Record', label: 'G', sortValue: (row) => row.batting.games, value: (row) => row.batting.games },
-      { key: 'plateAppearances', group: 'Batting', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
-      { key: 'atBats', group: 'Batting', label: 'AB', sortValue: (row) => row.batting.atBats, value: (row) => row.batting.atBats },
-      { key: 'hits', group: 'Batting', label: 'H', sortValue: (row) => row.batting.hits, value: (row) => row.batting.hits },
-      { key: 'singles', group: 'Batting', label: '1B', sortValue: (row) => row.batting.singles, value: (row) => row.batting.singles },
-      { key: 'doubles', group: 'Batting', label: '2B', sortValue: (row) => row.batting.doubles, value: (row) => row.batting.doubles },
-      { key: 'triples', group: 'Batting', label: '3B', sortValue: (row) => row.batting.triples, value: (row) => row.batting.triples },
-      { key: 'homeRuns', group: 'Batting', label: 'HR', sortValue: (row) => row.batting.homeRuns, value: (row) => row.batting.homeRuns },
-      { key: 'runs', group: 'Batting', label: 'R', sortValue: (row) => row.batting.runs, value: (row) => row.batting.runs },
-      { key: 'rbi', group: 'Batting', label: 'RBI', sortValue: (row) => row.batting.rbi, value: (row) => row.batting.rbi },
-      { key: 'walks', group: 'Discipline', label: 'BB', sortValue: (row) => row.batting.walks, value: (row) => row.batting.walks },
-      { key: 'hbp', group: 'Discipline', label: 'HBP', sortValue: (row) => row.batting.hbp, value: (row) => row.batting.hbp },
-      { key: 'strikeouts', group: 'Discipline', label: 'SO', sortValue: (row) => row.batting.strikeouts, value: (row) => row.batting.strikeouts },
-      { key: 'sacrificeFlies', group: 'Situational', label: 'SF', sortValue: (row) => row.batting.sacrificeFlies, value: (row) => row.batting.sacrificeFlies },
-      { key: 'sacrificeHits', group: 'Situational', label: 'SH', sortValue: (row) => row.batting.sacrificeHits, value: (row) => row.batting.sacrificeHits },
-      { key: 'totalBases', group: 'Situational', label: 'TB', sortValue: (row) => row.batting.totalBases, value: (row) => row.batting.totalBases },
-      { key: 'rispAvg', group: 'Situational', label: 'RISP AVG', sortValue: (row) => row.batting.rispAtBats ? row.batting.rispAvg : null, value: (row) => formatOptionalRate(row.batting.rispAtBats ? row.batting.rispAvg : null) },
-      { key: 'avg', group: 'Rates', label: 'AVG', sortValue: (row) => row.batting.avg, value: (row) => formatDecimal(row.batting.avg) },
-      { key: 'obp', group: 'Rates', label: 'OBP', sortValue: (row) => row.batting.obp, value: (row) => formatDecimal(row.batting.obp) },
-      { key: 'slg', group: 'Rates', label: 'SLG', sortValue: (row) => row.batting.slg, value: (row) => formatDecimal(row.batting.slg) },
-      { key: 'ops', group: 'Rates', label: 'OPS', sortValue: (row) => row.batting.ops, value: (row) => formatDecimal(row.batting.ops) },
-      { key: 'babip', group: 'Advanced', label: 'BABIP', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.babip : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.babip) : '--' },
-      { key: 'iso', group: 'Advanced', label: 'ISO', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.iso : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.iso) : '--' },
-      { key: 'woba', group: 'Advanced', label: 'wOBA', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.woba : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.woba) : '--' },
-      { key: 'wrcPlus', group: 'Advanced', label: 'wRC+', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.wrcPlus : null, render: (row) => qualifiesAdvancedBatting(row) ? positiveMetric(row.advancedBatting.wrcPlus) : '--' },
-      { key: 'opsPlus', group: 'Advanced', label: 'OPS+', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.opsPlus : null, render: (row) => qualifiesAdvancedBatting(row) ? positiveMetric(row.advancedBatting.opsPlus) : '--' },
-      { key: 'kPct', group: 'Advanced', label: 'K%', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.kPct : null, value: (row) => qualifiesAdvancedBatting(row) ? formatPercent(row.advancedBatting.kPct, 1) : '--' },
-      { key: 'bbPct', group: 'Advanced', label: 'BB%', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.bbPct : null, value: (row) => qualifiesAdvancedBatting(row) ? formatPercent(row.advancedBatting.bbPct, 1) : '--' },
-      { key: 'bbkRatio', group: 'Advanced', label: 'BB/K', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.bbkRatio : null, value: (row) => qualifiesAdvancedBatting(row) ? formatDecimal(row.advancedBatting.bbkRatio, 2) : '--' },
-      { key: 'xbh', group: 'Advanced', label: 'XBH', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.xbh : null, value: (row) => qualifiesAdvancedBatting(row) ? formatInteger(row.advancedBatting.xbh) : '--' },
-      { key: 'xbhPct', group: 'Advanced', label: 'XBH%', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.xbhPct : null, value: (row) => qualifiesAdvancedBatting(row) ? formatPercent(row.advancedBatting.xbhPct, 1) : '--' },
-      { key: 'hrPerPa', group: 'Advanced', label: 'HR/PA', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.hrPerPa : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.hrPerPa) : '--' },
-      { key: 'rc3', group: 'Advanced', label: 'RC/3', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.rc3 : null, render: (row) => qualifiesAdvancedBatting(row) ? <span title="Runs Created per 3-inning game">{formatTooltipNumber(row.advancedBatting.rc3, 1)}</span> : '--' },
-      { key: 'sprintSpeed', group: 'Baserunning', label: 'Sprint Speed', sortValue: (row) => row.movement.speedSamples ? row.movement.sprintSpeedFps : null, value: (row) => row.movement.speedSamples ? `${formatDecimal(row.movement.sprintSpeedFps, 1)} ft/s` : '--' },
-      { key: 'bolts', group: 'Baserunning', label: 'Bolts', sortValue: (row) => row.movement.bolts, value: (row) => row.movement.speedSamples ? row.movement.bolts : '--' },
-      { key: 'homeToFirst', group: 'Baserunning', label: 'Home-to-First', sortValue: (row) => row.movement.homeToFirstSeconds == null ? null : -row.movement.homeToFirstSeconds, value: (row) => row.movement.homeToFirstSeconds != null ? `${formatDecimal(row.movement.homeToFirstSeconds, 2)} s` : '--' },
-      { key: 'ninetyFootSplit', group: 'Baserunning', label: '90-ft Split', sortValue: (row) => row.movement.ninetyFootSplitSeconds == null ? null : -row.movement.ninetyFootSplitSeconds, value: (row) => row.movement.ninetyFootSplitSeconds != null ? `${formatDecimal(row.movement.ninetyFootSplitSeconds, 2)} s` : '--' },
-      { key: 'xbtOpps', group: 'Baserunning', label: 'XBT Opp', sortValue: (row) => row.baserunning.opportunities, value: (row) => row.baserunning.opportunities || 0 },
-      { key: 'xbtAttemptRate', group: 'Baserunning', label: 'XBT%', sortValue: (row) => row.baserunning.attemptRate, value: (row) => row.baserunning.attemptRate != null ? formatPercent(row.baserunning.attemptRate, 1) : '--' },
-      { key: 'xbtSuccessRate', group: 'Baserunning', label: 'XBT Safe%', sortValue: (row) => row.baserunning.successRate, value: (row) => row.baserunning.successRate != null ? formatPercent(row.baserunning.successRate, 1) : '--' },
-      { key: 'xbtOuts', group: 'Baserunning', label: 'XBT Outs', sortValue: (row) => row.baserunning.outs, value: (row) => row.baserunning.opportunities ? row.baserunning.outs : 0 },
-      { key: 'rbaser', group: 'Baserunning', label: 'Rbaser', sortValue: (row) => row.baserunning.opportunities ? row.baserunning.baserunningRunValue : null, value: (row) => row.baserunning.opportunities ? formatSignedAverageStyle(row.baserunning.baserunningRunValue, 2) : '--' },
-      { key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName },
-    ],
-    pitching: [
-      { ...charIdentityColBase, render: (row) => <CharacterCell name={row.name} to={characterPathFor(row.id)} /> },
-      { key: 'games', group: 'Usage', label: 'G', sortValue: (row) => row.pitching.games, value: (row) => row.pitching.games },
-      { key: 'innings', group: 'Usage', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
-      { key: 'wins', group: 'Decisions', label: 'W', sortValue: (row) => row.pitching.wins, value: (row) => row.pitching.wins },
-      { key: 'losses', group: 'Decisions', label: 'L', sortValue: (row) => row.pitching.losses, value: (row) => row.pitching.losses },
-      { key: 'saves', group: 'Decisions', label: 'SV', sortValue: (row) => row.pitching.saves, value: (row) => row.pitching.saves },
-      { key: 'completeGames', group: 'Decisions', label: 'CG', sortValue: (row) => row.pitching.completeGames, value: (row) => row.pitching.completeGames },
-      { key: 'shutouts', group: 'Decisions', label: 'SHO', sortValue: (row) => row.pitching.shutouts, value: (row) => row.pitching.shutouts },
-      { key: 'strikeouts', group: 'Line', label: 'K', sortValue: (row) => row.pitching.strikeouts, value: (row) => row.pitching.strikeouts },
-      { key: 'hitsAllowed', group: 'Line', label: 'H', sortValue: (row) => row.pitching.hitsAllowed, value: (row) => row.pitching.hitsAllowed },
-      { key: 'runsAllowed', group: 'Line', label: 'R', sortValue: (row) => row.pitching.runsAllowed, value: (row) => row.pitching.runsAllowed },
-      { key: 'earnedRuns', group: 'Line', label: 'ER', sortValue: (row) => row.pitching.earnedRuns, value: (row) => row.pitching.earnedRuns },
-      { key: 'walks', group: 'Line', label: 'BB', sortValue: (row) => row.pitching.walks, value: (row) => row.pitching.walks },
-      { key: 'homeRunsAllowed', group: 'Line', label: 'HR', sortValue: (row) => row.pitching.homeRunsAllowed, value: (row) => row.pitching.homeRunsAllowed },
-      { key: 'oppRispAvg', group: 'Situational', label: 'Opp RISP AVG', sortValue: (row) => row.pitchingRisp.atBats ? row.pitchingRisp.avg : null, value: (row) => formatOptionalRate(row.pitchingRisp.atBats ? row.pitchingRisp.avg : null) },
-      { key: 'era', group: 'Rates', label: 'ERA/3', sortValue: (row) => row.pitching.era, value: (row) => formatDecimal(row.pitching.era, 2) },
-      { key: 'whip', group: 'Rates', label: 'WHIP', sortValue: (row) => row.pitching.whip, value: (row) => formatDecimal(row.pitching.whip, 2) },
-      { key: 'fip', group: 'Rates', label: 'FIP', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.fip : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.fip, 2) : '--' },
-      { key: 'fipMinus', group: 'Rates', label: 'FIP-', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.fipMinus : null, render: (row) => qualifiesAdvancedPitching(row) ? inverseMetric(row.advancedPitching.fipMinus) : '--' },
-      { key: 'eraMinus', group: 'Rates', label: 'ERA-', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.eraMinus : null, render: (row) => qualifiesAdvancedPitching(row) ? inverseMetric(row.advancedPitching.eraMinus) : '--' },
-      { key: 'kPer3', group: 'Rates', label: 'K/3', sortValue: (row) => row.pitching.kPer3, value: (row) => formatDecimal(row.pitching.kPer3, 2) },
-      { key: 'bb3', group: 'Rates', label: 'BB/3', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.bb3 : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.bb3, 2) : '--' },
-      { key: 'h3', group: 'Rates', label: 'H/3', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.h3 : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.h3, 2) : '--' },
-      { key: 'hrPer3', group: 'Rates', label: 'HR/3', sortValue: (row) => row.pitching.hrPer3, value: (row) => formatDecimal(row.pitching.hrPer3, 2) },
-      { key: 'kPct', group: 'Rates', label: 'K%', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.kPct : null, value: (row) => qualifiesAdvancedPitching(row) ? formatPercent(row.advancedPitching.kPct, 1) : '--' },
-      { key: 'bbPct', group: 'Rates', label: 'BB%', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.bbPct : null, value: (row) => qualifiesAdvancedPitching(row) ? formatPercent(row.advancedPitching.bbPct, 1) : '--' },
-      { key: 'kBB', group: 'Rates', label: 'K/BB', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.kBB : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.kBB, 2) : '--' },
-      { key: 'babipAllowed', group: 'Rates', label: 'BABIP Allowed', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.babipAllowed : null, value: (row) => qualifiesAdvancedPitching(row) ? formatAverageStyle(row.advancedPitching.babipAllowed) : '--' },
-      { key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName },
-    ],
-    fielding: [
-      { ...charIdentityColBase, render: (row) => <CharacterCell name={row.name} to={characterPathFor(row.id)} /> },
-      { key: 'games', group: 'Fielding', label: 'G', sortValue: (row) => row.fielding.games, value: (row) => row.fielding.games },
-      { key: 'chances', group: 'Fielding', label: 'Chances', sortValue: (row) => row.fielding.chances, value: (row) => row.fielding.chances },
-      { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
-      { key: 'assists', group: 'Fielding', label: 'A', sortValue: (row) => row.fielding.assists, value: (row) => row.fielding.assists },
-      { key: 'errors', group: 'Fielding', label: 'Errors', sortValue: (row) => row.fielding.errors, value: (row) => row.fielding.errors },
-      { key: 'fieldingPct', group: 'Fielding', label: 'Fielding %', sortValue: (row) => row.fielding.fieldingPct, value: (row) => formatAverageStyle(row.fielding.fieldingPct) },
-      { key: 'rangeFactor', group: 'Fielding', label: 'Range Factor', sortValue: (row) => row.fielding.rangeFactor, value: (row) => formatDecimal(row.fielding.rangeFactor, 2) },
-      { key: 'buddyJumps', group: 'Fielding', label: 'BJ', sortValue: (row) => row.fielding.buddyJumps, value: (row) => row.fielding.buddyJumps },
-      { key: 'nicePlays', group: 'Fielding', label: 'Nice Plays', sortValue: (row) => row.fielding.nicePlays, value: (row) => row.fielding.nicePlays },
-      { key: 'nicePlayRate', group: 'Fielding', label: 'Nice Play %', sortValue: (row) => row.fielding.nicePlayRate, value: (row) => formatPercent(row.fielding.nicePlayRate, 1) },
-      {
-        key: 'rangeRuns',
-        group: 'Fielding',
-        label: 'Range Runs',
-        sortValue: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES ? row.fielding.rangeRuns : null),
-        value: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES && row.fielding.rangeRuns != null
-          ? (row.fielding.rangeRuns > 0 ? `+${row.fielding.rangeRuns}` : row.fielding.rangeRuns)
-          : '—'),
-      },
-      {
-        key: 'rangeFactorPlus',
-        group: 'Fielding',
-        label: 'Range+',
-        sortValue: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES ? row.fielding.rangeFactorPlus : null),
-        value: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES && row.fielding.rangeFactorPlus != null ? row.fielding.rangeFactorPlus : '—'),
-      },
-      {
-        key: 'rangeConfidence',
-        group: 'Fielding',
-        label: 'Rng Conf',
-        sortValue: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES ? row.fielding.rangeConfidence : null),
-        value: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES && row.fielding.rangeConfidence != null ? `${row.fielding.rangeConfidence}%` : '—'),
-      },
-      { key: 'oaa', group: 'Tracking', label: 'OAA', sortValue: (row) => row.fielding.fieldingOpportunities ? row.fielding.outsAboveAverage : null, value: (row) => row.fielding.fieldingOpportunities ? formatSignedAverageStyle(row.fielding.outsAboveAverage, 2) : '—' },
-      { key: 'frv', group: 'Tracking', label: 'FRV', sortValue: (row) => row.fielding.fieldingRunValue, value: (row) => row.fielding.fieldingRunValue != null ? formatSignedAverageStyle(row.fielding.fieldingRunValue, 2) : '—' },
-      { key: 'armStrength', group: 'Arm', label: 'Arm Strength', sortValue: (row) => row.fielding.armStrengthMph, value: (row) => row.fielding.armStrengthMph != null ? `${formatDecimal(row.fielding.armStrengthMph, 1)} mph` : '—' },
-      { key: 'maxThrow', group: 'Arm', label: 'Max Throw', sortValue: (row) => row.fielding.hardestThrowMph, value: (row) => row.fielding.hardestThrowMph != null ? `${formatDecimal(row.fielding.hardestThrowMph, 1)} mph` : '—' },
-      { key: 'maxBuddyThrow', group: 'Arm', label: 'Max Buddy', sortValue: (row) => row.fielding.hardestBuddyThrowMph, value: (row) => row.fielding.hardestBuddyThrowMph != null ? `${formatDecimal(row.fielding.hardestBuddyThrowMph, 1)} mph` : '—' },
-      { key: 'armValue', group: 'Arm', label: 'Arm Value', sortValue: (row) => row.fielding.armOpportunities ? row.fielding.armValue : null, value: (row) => row.fielding.armOpportunities ? formatSignedAverageStyle(row.fielding.armValue, 2) : '—' },
-      { key: 'armHolds', group: 'Arm', label: 'Holds', sortValue: (row) => row.fielding.armHolds, value: (row) => row.fielding.armHolds || 0 },
-      { key: 'armKills', group: 'Arm', label: 'Runner Outs', sortValue: (row) => row.fielding.armKills, value: (row) => row.fielding.armKills || 0 },
-      { key: 'dpOpps', group: 'Double Plays', label: 'DP Opp', sortValue: (row) => row.fielding.doublePlayOpportunities, value: (row) => row.fielding.doublePlayOpportunities || 0 },
-      { key: 'doublePlays', group: 'Double Plays', label: 'DP', sortValue: (row) => row.fielding.doublePlays, value: (row) => row.fielding.doublePlays || 0 },
-      { key: 'dpAdded', group: 'Double Plays', label: 'DP Added', sortValue: (row) => row.fielding.doublePlayOpportunities ? row.fielding.doublePlaysAdded : null, value: (row) => row.fielding.doublePlayOpportunities ? formatSignedAverageStyle(row.fielding.doublePlaysAdded, 2) : '—' },
-      { key: 'jump', group: 'Movement', label: 'Jump', sortValue: (row) => row.fielding.jumpDistanceFeet, value: (row) => row.fielding.jumpDistanceFeet != null ? `${formatDecimal(row.fielding.jumpDistanceFeet, 1)} ft` : '—' },
-      { key: 'positionDepth', group: 'Positioning', label: 'Depth', sortValue: (row) => row.fielding.averagePositionDepthFeet, value: (row) => row.fielding.averagePositionDepthFeet != null ? `${formatDecimal(row.fielding.averagePositionDepthFeet, 1)} ft` : '—' },
-      { key: 'positionAngle', group: 'Positioning', label: 'Angle', sortValue: (row) => row.fielding.averagePositionAngleDeg, value: (row) => row.fielding.averagePositionAngleDeg != null ? `${formatDecimal(row.fielding.averagePositionAngleDeg, 1)}°` : '—' },
-      { key: 'oaaBackLeft', group: 'Directional OAA', label: 'Back-L OAA', sortValue: (row) => row.fielding.directionalOpportunities?.back_left ? row.fielding.directionalOaa?.back_left : null, value: (row) => row.fielding.directionalOpportunities?.back_left ? formatSignedAverageStyle(row.fielding.directionalOaa.back_left, 2) : '—' },
-      { key: 'oaaBack', group: 'Directional OAA', label: 'Back OAA', sortValue: (row) => row.fielding.directionalOpportunities?.back ? row.fielding.directionalOaa?.back : null, value: (row) => row.fielding.directionalOpportunities?.back ? formatSignedAverageStyle(row.fielding.directionalOaa.back, 2) : '—' },
-      { key: 'oaaBackRight', group: 'Directional OAA', label: 'Back-R OAA', sortValue: (row) => row.fielding.directionalOpportunities?.back_right ? row.fielding.directionalOaa?.back_right : null, value: (row) => row.fielding.directionalOpportunities?.back_right ? formatSignedAverageStyle(row.fielding.directionalOaa.back_right, 2) : '—' },
-      { key: 'oaaInLeft', group: 'Directional OAA', label: 'In-L OAA', sortValue: (row) => row.fielding.directionalOpportunities?.in_left ? row.fielding.directionalOaa?.in_left : null, value: (row) => row.fielding.directionalOpportunities?.in_left ? formatSignedAverageStyle(row.fielding.directionalOaa.in_left, 2) : '—' },
-      { key: 'oaaIn', group: 'Directional OAA', label: 'In OAA', sortValue: (row) => row.fielding.directionalOpportunities?.in ? row.fielding.directionalOaa?.in : null, value: (row) => row.fielding.directionalOpportunities?.in ? formatSignedAverageStyle(row.fielding.directionalOaa.in, 2) : '—' },
-      { key: 'oaaInRight', group: 'Directional OAA', label: 'In-R OAA', sortValue: (row) => row.fielding.directionalOpportunities?.in_right ? row.fielding.directionalOaa?.in_right : null, value: (row) => row.fielding.directionalOpportunities?.in_right ? formatSignedAverageStyle(row.fielding.directionalOaa.in_right, 2) : '—' },
-      { key: 'starHitErrors', group: 'Stars', label: <><StarIcon />Errors</>, sortValue: (row) => row.fielding.starHitErrors, value: (row) => row.fielding.starHitErrors },
-      { key: 'adjustedFieldingPct', group: 'Stars', label: <><StarIcon />Adj Fielding %</>, sortValue: (row) => row.fielding.adjustedFieldingPct, value: (row) => formatAverageStyle(row.fielding.adjustedFieldingPct) },
-      { key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName },
-    ],
-  }), [identitiesByPlayerId, playersById, characterPathFor])
-
-  // Dedicated Stars rail sections exist for batting and pitching only.
-  // Fielding's star-hit metrics live directly in Overview.
-  const starsBattingPlayerCols = useMemo(() => ([
-    { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
-    { key: 'starHitUsed', group: 'Stars', label: <><StarIcon />HA</>, sortValue: (row) => row.starHit.used, value: (row) => row.starHit.used },
-    { key: 'starHitConnected', group: 'Stars', label: <><StarIcon />HC</>, sortValue: (row) => row.starHit.connected, value: (row) => row.starHit.connected },
-    { key: 'starHitContactRate', group: 'Stars', label: <><StarIcon />Contact%</>, sortValue: (row) => row.starHit.contactRate, value: (row) => formatPercent(row.starHit.contactRate, 1) },
-    { key: 'starHitSuccessful', group: 'Stars', label: <><StarIcon />HH</>, sortValue: (row) => row.starHit.successful, value: (row) => row.starHit.successful },
-    { key: 'starHitRbi', group: 'Stars', label: <><StarIcon />HRBI</>, sortValue: (row) => row.starHit.totalRbi, value: (row) => row.starHit.totalRbi },
-    { key: 'starHitRbiPerUse', group: 'Stars', label: <><StarIcon />RBI/Use</>, sortValue: (row) => row.starHit.avgRbiPerUse, value: (row) => formatDecimal(row.starHit.avgRbiPerUse, 2) },
-    { key: 'starHitAvg', group: 'Stars', label: <><StarIcon />AVG</>, sortValue: (row) => row.starHit.slashLine.avg, value: (row) => formatDecimal(row.starHit.slashLine.avg) },
-    { key: 'starHitObp', group: 'Stars', label: <><StarIcon />OBP</>, sortValue: (row) => row.starHit.slashLine.obp, value: (row) => formatDecimal(row.starHit.slashLine.obp) },
-    { key: 'starHitSlg', group: 'Stars', label: <><StarIcon />SLG</>, sortValue: (row) => row.starHit.slashLine.slg, value: (row) => formatDecimal(row.starHit.slashLine.slg) },
-    { key: 'starHitOps', group: 'Stars', label: <><StarIcon />OPS</>, sortValue: (row) => row.starHit.slashLine.ops, value: (row) => formatDecimal(row.starHit.slashLine.ops) },
-    { key: 'starHitAvgExitVelo', group: 'Stars', label: <><StarIcon />Avg EV</>, sortValue: (row) => row.starHit.avgExitVelo ?? -1, value: (row) => row.starHit.avgExitVelo != null ? `${row.starHit.avgExitVelo} mph` : '-' },
-    { key: 'starHitMaxExitVelo', group: 'Stars', label: <><StarIcon />Max EV</>, sortValue: (row) => row.starHit.maxExitVelo ?? -1, value: (row) => row.starHit.maxExitVelo != null ? `${row.starHit.maxExitVelo} mph` : '-' },
-    { key: 'starHitAvgLaunchAngle', group: 'Stars', label: <><StarIcon />Avg LA</>, sortValue: (row) => row.starHit.avgLaunchAngle ?? -999, value: (row) => row.starHit.avgLaunchAngle != null ? `${row.starHit.avgLaunchAngle}°` : '-' },
-    { key: 'starHitAvgDistance', group: 'Stars', label: <><StarIcon />Avg Dist</>, sortValue: (row) => row.starHit.avgDistance ?? -1, value: (row) => row.starHit.avgDistance != null ? `${row.starHit.avgDistance} ft` : '-' },
-    { key: 'starHitMaxDistance', group: 'Stars', label: <><StarIcon />Max Dist</>, sortValue: (row) => row.starHit.maxDistance ?? -1, value: (row) => row.starHit.maxDistance != null ? `${row.starHit.maxDistance} ft` : '-' },
-  ]), [identitiesByPlayerId, playersById])
-  const starsPitchingPlayerCols = useMemo(() => ([
-    { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> },
-    { key: 'starPitchUsed', group: 'Stars', label: <><StarIcon />PA</>, sortValue: (row) => row.starPitch.used, value: (row) => row.starPitch.used },
-    { key: 'starPitchPaUsed', group: 'Stars', label: <><StarIcon />PPA</>, sortValue: (row) => row.starPitch.paUsed, value: (row) => row.starPitch.paUsed },
-    { key: 'starPitchOuts', group: 'Stars', label: <><StarIcon />PO</>, sortValue: (row) => row.starPitch.outsOnStarPitch, value: (row) => row.starPitch.outsOnStarPitch },
-    { key: 'starPitchHits', group: 'Stars', label: <><StarIcon />PH</>, sortValue: (row) => row.starPitch.hitsAllowedOnStarPitch, value: (row) => row.starPitch.hitsAllowedOnStarPitch },
-    { key: 'starPitchSuccessRate', group: 'Stars', label: <><StarIcon />P%</>, sortValue: (row) => row.starPitch.successRate, value: (row) => formatPercent(row.starPitch.successRate, 1) },
-    { key: 'starPitchOppAvg', group: 'Stars', label: <><StarIcon />OppAVG</>, sortValue: (row) => row.starPitch.oppSlashLine.avg, value: (row) => formatDecimal(row.starPitch.oppSlashLine.avg) },
-    { key: 'starPitchOppObp', group: 'Stars', label: <><StarIcon />OppOBP</>, sortValue: (row) => row.starPitch.oppSlashLine.obp, value: (row) => formatDecimal(row.starPitch.oppSlashLine.obp) },
-    { key: 'starPitchOppSlg', group: 'Stars', label: <><StarIcon />OppSLG</>, sortValue: (row) => row.starPitch.oppSlashLine.slg, value: (row) => formatDecimal(row.starPitch.oppSlashLine.slg) },
-    { key: 'starPitchOppOps', group: 'Stars', label: <><StarIcon />OppOPS</>, sortValue: (row) => row.starPitch.oppSlashLine.ops, value: (row) => formatDecimal(row.starPitch.oppSlashLine.ops) },
-    { key: 'starPitchAvgExitVeloAllowed', group: 'Stars', label: <><StarIcon />Avg EV</>, sortValue: (row) => row.starPitch.avgExitVeloAllowed ?? -1, value: (row) => row.starPitch.avgExitVeloAllowed != null ? `${row.starPitch.avgExitVeloAllowed} mph` : '-' },
-    { key: 'starPitchAvgLaunchAngleAllowed', group: 'Stars', label: <><StarIcon />Avg LA</>, sortValue: (row) => row.starPitch.avgLaunchAngleAllowed ?? -999, value: (row) => row.starPitch.avgLaunchAngleAllowed != null ? `${row.starPitch.avgLaunchAngleAllowed}°` : '-' },
-    { key: 'starPitchAvgDistanceAllowed', group: 'Stars', label: <><StarIcon />Avg Dist</>, sortValue: (row) => row.starPitch.avgDistanceAllowed ?? -1, value: (row) => row.starPitch.avgDistanceAllowed != null ? `${row.starPitch.avgDistanceAllowed} ft` : '-' },
-  ]), [identitiesByPlayerId, playersById])
-  const starsBattingCharCols = useMemo(() => ([
-    { ...charIdentityColBase, render: (row) => <CharacterCell name={row.name} to={characterPathFor(row.id)} /> },
-    { key: 'starHitUsed', group: 'Stars', label: <><StarIcon />HA</>, sortValue: (row) => row.starHit.used, value: (row) => row.starHit.used },
-    { key: 'starHitConnected', group: 'Stars', label: <><StarIcon />HC</>, sortValue: (row) => row.starHit.connected, value: (row) => row.starHit.connected },
-    { key: 'starHitContactRate', group: 'Stars', label: <><StarIcon />Contact%</>, sortValue: (row) => row.starHit.contactRate, value: (row) => formatPercent(row.starHit.contactRate, 1) },
-    { key: 'starHitSuccessful', group: 'Stars', label: <><StarIcon />HH</>, sortValue: (row) => row.starHit.successful, value: (row) => row.starHit.successful },
-    { key: 'starHitRbi', group: 'Stars', label: <><StarIcon />HRBI</>, sortValue: (row) => row.starHit.totalRbi, value: (row) => row.starHit.totalRbi },
-    { key: 'starHitRbiPerUse', group: 'Stars', label: <><StarIcon />RBI/Use</>, sortValue: (row) => row.starHit.avgRbiPerUse, value: (row) => formatDecimal(row.starHit.avgRbiPerUse, 2) },
-    { key: 'starHitAvg', group: 'Stars', label: <><StarIcon />AVG</>, sortValue: (row) => row.starHit.slashLine.avg, value: (row) => formatDecimal(row.starHit.slashLine.avg) },
-    { key: 'starHitObp', group: 'Stars', label: <><StarIcon />OBP</>, sortValue: (row) => row.starHit.slashLine.obp, value: (row) => formatDecimal(row.starHit.slashLine.obp) },
-    { key: 'starHitSlg', group: 'Stars', label: <><StarIcon />SLG</>, sortValue: (row) => row.starHit.slashLine.slg, value: (row) => formatDecimal(row.starHit.slashLine.slg) },
-    { key: 'starHitOps', group: 'Stars', label: <><StarIcon />OPS</>, sortValue: (row) => row.starHit.slashLine.ops, value: (row) => formatDecimal(row.starHit.slashLine.ops) },
-    { key: 'starHitAvgExitVelo', group: 'Stars', label: <><StarIcon />Avg EV</>, sortValue: (row) => row.starHit.avgExitVelo ?? -1, value: (row) => row.starHit.avgExitVelo != null ? `${row.starHit.avgExitVelo} mph` : '-' },
-    { key: 'starHitMaxExitVelo', group: 'Stars', label: <><StarIcon />Max EV</>, sortValue: (row) => row.starHit.maxExitVelo ?? -1, value: (row) => row.starHit.maxExitVelo != null ? `${row.starHit.maxExitVelo} mph` : '-' },
-    { key: 'starHitAvgLaunchAngle', group: 'Stars', label: <><StarIcon />Avg LA</>, sortValue: (row) => row.starHit.avgLaunchAngle ?? -999, value: (row) => row.starHit.avgLaunchAngle != null ? `${row.starHit.avgLaunchAngle}°` : '-' },
-    { key: 'starHitAvgDistance', group: 'Stars', label: <><StarIcon />Avg Dist</>, sortValue: (row) => row.starHit.avgDistance ?? -1, value: (row) => row.starHit.avgDistance != null ? `${row.starHit.avgDistance} ft` : '-' },
-    { key: 'starHitMaxDistance', group: 'Stars', label: <><StarIcon />Max Dist</>, sortValue: (row) => row.starHit.maxDistance ?? -1, value: (row) => row.starHit.maxDistance != null ? `${row.starHit.maxDistance} ft` : '-' },
-  ]), [characterPathFor])
-  const starsPitchingCharCols = useMemo(() => ([
-    { ...charIdentityColBase, render: (row) => <CharacterCell name={row.name} to={characterPathFor(row.id)} /> },
-    { key: 'starPitchUsed', group: 'Stars', label: <><StarIcon />PA</>, sortValue: (row) => row.starPitch.used, value: (row) => row.starPitch.used },
-    { key: 'starPitchPaUsed', group: 'Stars', label: <><StarIcon />PPA</>, sortValue: (row) => row.starPitch.paUsed, value: (row) => row.starPitch.paUsed },
-    { key: 'starPitchOuts', group: 'Stars', label: <><StarIcon />PO</>, sortValue: (row) => row.starPitch.outsOnStarPitch, value: (row) => row.starPitch.outsOnStarPitch },
-    { key: 'starPitchHits', group: 'Stars', label: <><StarIcon />PH</>, sortValue: (row) => row.starPitch.hitsAllowedOnStarPitch, value: (row) => row.starPitch.hitsAllowedOnStarPitch },
-    { key: 'starPitchSuccessRate', group: 'Stars', label: <><StarIcon />P%</>, sortValue: (row) => row.starPitch.successRate, value: (row) => formatPercent(row.starPitch.successRate, 1) },
-    { key: 'starPitchOppAvg', group: 'Stars', label: <><StarIcon />OppAVG</>, sortValue: (row) => row.starPitch.oppSlashLine.avg, value: (row) => formatDecimal(row.starPitch.oppSlashLine.avg) },
-    { key: 'starPitchOppObp', group: 'Stars', label: <><StarIcon />OppOBP</>, sortValue: (row) => row.starPitch.oppSlashLine.obp, value: (row) => formatDecimal(row.starPitch.oppSlashLine.obp) },
-    { key: 'starPitchOppSlg', group: 'Stars', label: <><StarIcon />OppSLG</>, sortValue: (row) => row.starPitch.oppSlashLine.slg, value: (row) => formatDecimal(row.starPitch.oppSlashLine.slg) },
-    { key: 'starPitchOppOps', group: 'Stars', label: <><StarIcon />OppOPS</>, sortValue: (row) => row.starPitch.oppSlashLine.ops, value: (row) => formatDecimal(row.starPitch.oppSlashLine.ops) },
-    { key: 'starPitchAvgExitVeloAllowed', group: 'Stars', label: <><StarIcon />Avg EV</>, sortValue: (row) => row.starPitch.avgExitVeloAllowed ?? -1, value: (row) => row.starPitch.avgExitVeloAllowed != null ? `${row.starPitch.avgExitVeloAllowed} mph` : '-' },
-    { key: 'starPitchAvgLaunchAngleAllowed', group: 'Stars', label: <><StarIcon />Avg LA</>, sortValue: (row) => row.starPitch.avgLaunchAngleAllowed ?? -999, value: (row) => row.starPitch.avgLaunchAngleAllowed != null ? `${row.starPitch.avgLaunchAngleAllowed}°` : '-' },
-    { key: 'starPitchAvgDistanceAllowed', group: 'Stars', label: <><StarIcon />Avg Dist</>, sortValue: (row) => row.starPitch.avgDistanceAllowed ?? -1, value: (row) => row.starPitch.avgDistanceAllowed != null ? `${row.starPitch.avgDistanceAllowed} ft` : '-' },
-  ]), [characterPathFor])
-
-  const sortedStarsBattingPlayer = useMemo(() => sortRows(playerRows.filter(hasBattingData), starsBattingPlayerCols, starsBattingPlayerSort, 'name'), [playerRows, starsBattingPlayerCols, starsBattingPlayerSort])
-  const sortedStarsPitchingPlayer = useMemo(() => sortRows(playerRows.filter(hasPitchingData), starsPitchingPlayerCols, starsPitchingPlayerSort, 'name'), [playerRows, starsPitchingPlayerCols, starsPitchingPlayerSort])
-  const sortedStarsBattingChar = useMemo(() => sortRows(characterRows, starsBattingCharCols, starsBattingCharacterSort, 'name'), [characterRows, starsBattingCharCols, starsBattingCharacterSort])
-  const sortedStarsPitchingChar = useMemo(() => sortRows(characterRows, starsPitchingCharCols, starsPitchingCharacterSort, 'name'), [characterRows, starsPitchingCharCols, starsPitchingCharacterSort])
-
-  const playerIdentityCol = { key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> }
-  const charIdentityCol = { ...charIdentityColBase, render: (row) => <CharacterCell name={row.name} to={characterPathFor(row.id)} /> }
-
-  const buildLocCols = (getLocations) => [
-    { key: 'bipLoc', group: 'Location', label: 'BIP', sortValue: (row) => getLocations(row).total, value: (row) => getLocations(row).total },
-    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((pos) => ({
-      key: `loc${pos}`,
-      group: 'Location',
-      label: POSITION_LABELS[pos],
-      sortValue: (row) => locationDisplayMode === 'pct' ? getLocations(row).rates[pos] : getLocations(row).counts[pos],
-      value: (row) => locationDisplayMode === 'pct' ? formatPercent(getLocations(row).rates[pos]) : formatInteger(getLocations(row).counts[pos]),
-    })),
-  ]
-
-  // Pull/Center/Oppo exit velocity + slugging-on-contact — same direction buckets as the Pull/Ctr/
-  // Oppo count columns above, cross-tabbed with contact quality (e.g. "pull-side slugging").
-  const buildSprayContactCols = (getSprayContact) => [
-    { key: 'pullEv', group: 'Direction EV', label: 'Pull EV', sortValue: (row) => getSprayContact(row).pull.avgExitVelocity, value: (row) => getSprayContact(row).pull.avgExitVelocity != null ? `${getSprayContact(row).pull.avgExitVelocity} mph` : '-' },
-    { key: 'centerEv', group: 'Direction EV', label: 'Ctr EV', sortValue: (row) => getSprayContact(row).center.avgExitVelocity, value: (row) => getSprayContact(row).center.avgExitVelocity != null ? `${getSprayContact(row).center.avgExitVelocity} mph` : '-' },
-    { key: 'oppoEv', group: 'Direction EV', label: 'Oppo EV', sortValue: (row) => getSprayContact(row).oppo.avgExitVelocity, value: (row) => getSprayContact(row).oppo.avgExitVelocity != null ? `${getSprayContact(row).oppo.avgExitVelocity} mph` : '-' },
-    { key: 'pullSlg', group: 'Direction EV', label: 'Pull SLG', sortValue: (row) => getSprayContact(row).pull.slgOnContact, value: (row) => getSprayContact(row).pull.slgOnContact != null ? formatAverageStyle(getSprayContact(row).pull.slgOnContact) : '-' },
-    { key: 'oppoSlg', group: 'Direction EV', label: 'Oppo SLG', sortValue: (row) => getSprayContact(row).oppo.slgOnContact, value: (row) => getSprayContact(row).oppo.slgOnContact != null ? formatAverageStyle(getSprayContact(row).oppo.slgOnContact) : '-' },
-  ]
-
-  // BABIP/wOBA-on-contact broken out by batted-ball trajectory (GB/FB/LD) — same buckets as the
-  // Trajectory count columns above, cross-tabbed with outcome quality.
-  const buildBattedTypeCols = (getBattedByType) => [
-    { key: 'gbBabip', group: 'By Trajectory', label: 'GB BABIP', sortValue: (row) => getBattedByType(row).groundBall.babip, value: (row) => getBattedByType(row).groundBall.babip != null ? formatAverageStyle(getBattedByType(row).groundBall.babip) : '-' },
-    { key: 'ldBabip', group: 'By Trajectory', label: 'LD BABIP', sortValue: (row) => getBattedByType(row).lineDrive.babip, value: (row) => getBattedByType(row).lineDrive.babip != null ? formatAverageStyle(getBattedByType(row).lineDrive.babip) : '-' },
-    { key: 'fbBabip', group: 'By Trajectory', label: 'FB BABIP', sortValue: (row) => getBattedByType(row).flyBall.babip, value: (row) => getBattedByType(row).flyBall.babip != null ? formatAverageStyle(getBattedByType(row).flyBall.babip) : '-' },
-    { key: 'ldWoba', group: 'By Trajectory', label: 'LD wOBA', sortValue: (row) => getBattedByType(row).lineDrive.wobaOnContact, value: (row) => getBattedByType(row).lineDrive.wobaOnContact != null ? formatAverageStyle(getBattedByType(row).lineDrive.wobaOnContact) : '-' },
-    { key: 'fbWoba', group: 'By Trajectory', label: 'FB wOBA', sortValue: (row) => getBattedByType(row).flyBall.wobaOnContact, value: (row) => getBattedByType(row).flyBall.wobaOnContact != null ? formatAverageStyle(getBattedByType(row).flyBall.wobaOnContact) : '-' },
-  ]
-
-  // Contact quality allowed / exit velocity allowed — the same summarizeContactQuality/
-  // summarizeExitVelocity primitives used for a batter's own authority, run over the pitcher's
-  // full allowed-PA line instead of just the star-pitch subset summarizeStarPitching covers.
-  const buildContactAllowedCols = (getExitVeloAllowed, getContactAllowed) => [
-    { key: 'avgEvAllowed', group: 'Contact Allowed', label: 'Avg EV Allowed', sortValue: (row) => getExitVeloAllowed(row).avgExitVelocity, value: (row) => getExitVeloAllowed(row).avgExitVelocity != null ? `${getExitVeloAllowed(row).avgExitVelocity} mph` : '-' },
-    { key: 'barrelRateAllowed', group: 'Contact Allowed', label: 'Barrel% Allowed', sortValue: (row) => getContactAllowed(row).barrelRate, value: (row) => getContactAllowed(row).barrelRate != null ? formatPercent(getContactAllowed(row).barrelRate) : '-' },
-    { key: 'hardHitRateAllowed', group: 'Contact Allowed', label: 'Hard-Hit% Allowed', sortValue: (row) => getContactAllowed(row).hardHitRate, value: (row) => getContactAllowed(row).hardHitRate != null ? formatPercent(getContactAllowed(row).hardHitRate) : '-' },
-  ]
-
-  const bbBattingCols = useMemo(() => [
-    playerIdentityCol,
-    { key: 'bip', group: 'Profile', label: 'BIP', sortValue: (row) => row.battedBall.total, value: (row) => row.battedBall.total },
-    { key: 'ld', group: 'Trajectory', label: 'LD', sortValue: (row) => row.battedBall.lineDrives, value: (row) => row.battedBall.lineDrives },
-    { key: 'gb', group: 'Trajectory', label: 'GB', sortValue: (row) => row.battedBall.groundBalls, value: (row) => row.battedBall.groundBalls },
-    { key: 'fb', group: 'Trajectory', label: 'FB', sortValue: (row) => row.battedBall.flyBalls, value: (row) => row.battedBall.flyBalls },
-    { key: 'ldPct', group: 'Trajectory', label: 'LD%', sortValue: (row) => row.battedBall.ldRate, value: (row) => formatPercent(row.battedBall.ldRate) },
-    { key: 'gbPct', group: 'Trajectory', label: 'GB%', sortValue: (row) => row.battedBall.gbRate, value: (row) => formatPercent(row.battedBall.gbRate) },
-    { key: 'fbPct', group: 'Trajectory', label: 'FB%', sortValue: (row) => row.battedBall.fbRate, value: (row) => formatPercent(row.battedBall.fbRate) },
-    { key: 'pull', group: 'Direction', label: 'Pull', sortValue: (row) => row.sprayProfile.pull, value: (row) => row.sprayProfile.pull },
-    { key: 'ctr', group: 'Direction', label: 'Ctr', sortValue: (row) => row.sprayProfile.center, value: (row) => row.sprayProfile.center },
-    { key: 'oppo', group: 'Direction', label: 'Oppo', sortValue: (row) => row.sprayProfile.oppo, value: (row) => row.sprayProfile.oppo },
-    { key: 'pullPct', group: 'Direction', label: 'Pull%', sortValue: (row) => row.sprayProfile.pullRate, value: (row) => formatPercent(row.sprayProfile.pullRate) },
-    { key: 'ctrPct', group: 'Direction', label: 'Ctr%', sortValue: (row) => row.sprayProfile.centerRate, value: (row) => formatPercent(row.sprayProfile.centerRate) },
-    { key: 'oppoPct', group: 'Direction', label: 'Oppo%', sortValue: (row) => row.sprayProfile.oppoRate, value: (row) => formatPercent(row.sprayProfile.oppoRate) },
-    ...buildSprayContactCols((row) => row.sprayContact),
-    ...buildBattedTypeCols((row) => row.battedByType),
-    ...buildLocCols((row) => row.hitLocations),
-  ], [identitiesByPlayerId, playersById, locationDisplayMode])
-
-  const bbPitchingCols = useMemo(() => [
-    playerIdentityCol,
-    { key: 'bip', group: 'Profile', label: 'BIP Allowed', sortValue: (row) => row.pitchingBattedBall.total, value: (row) => row.pitchingBattedBall.total },
-    { key: 'ld', group: 'Trajectory', label: 'LD', sortValue: (row) => row.pitchingBattedBall.lineDrives, value: (row) => row.pitchingBattedBall.lineDrives },
-    { key: 'gb', group: 'Trajectory', label: 'GB', sortValue: (row) => row.pitchingBattedBall.groundBalls, value: (row) => row.pitchingBattedBall.groundBalls },
-    { key: 'fb', group: 'Trajectory', label: 'FB', sortValue: (row) => row.pitchingBattedBall.flyBalls, value: (row) => row.pitchingBattedBall.flyBalls },
-    { key: 'ldPct', group: 'Trajectory', label: 'LD%', sortValue: (row) => row.pitchingBattedBall.ldRate, value: (row) => formatPercent(row.pitchingBattedBall.ldRate) },
-    { key: 'gbPct', group: 'Trajectory', label: 'GB%', sortValue: (row) => row.pitchingBattedBall.gbRate, value: (row) => formatPercent(row.pitchingBattedBall.gbRate) },
-    { key: 'fbPct', group: 'Trajectory', label: 'FB%', sortValue: (row) => row.pitchingBattedBall.fbRate, value: (row) => formatPercent(row.pitchingBattedBall.fbRate) },
-    { key: 'pull', group: 'Direction', label: 'Pull', sortValue: (row) => row.pitchingSpray.pull, value: (row) => row.pitchingSpray.pull },
-    { key: 'ctr', group: 'Direction', label: 'Ctr', sortValue: (row) => row.pitchingSpray.center, value: (row) => row.pitchingSpray.center },
-    { key: 'oppo', group: 'Direction', label: 'Oppo', sortValue: (row) => row.pitchingSpray.oppo, value: (row) => row.pitchingSpray.oppo },
-    { key: 'pullPct', group: 'Direction', label: 'Pull%', sortValue: (row) => row.pitchingSpray.pullRate, value: (row) => formatPercent(row.pitchingSpray.pullRate) },
-    { key: 'ctrPct', group: 'Direction', label: 'Ctr%', sortValue: (row) => row.pitchingSpray.centerRate, value: (row) => formatPercent(row.pitchingSpray.centerRate) },
-    { key: 'oppoPct', group: 'Direction', label: 'Oppo%', sortValue: (row) => row.pitchingSpray.oppoRate, value: (row) => formatPercent(row.pitchingSpray.oppoRate) },
-    ...buildContactAllowedCols((row) => row.pitchingExitVelo, (row) => row.pitchingContactQuality),
-    ...buildLocCols((row) => row.pitchingHitLocations),
-  ], [identitiesByPlayerId, playersById, locationDisplayMode])
-
-  const bbBattingCharCols = useMemo(() => [
-    charIdentityCol,
-    { key: 'bip', group: 'Profile', label: 'BIP', sortValue: (row) => row.battedBall.total, value: (row) => row.battedBall.total },
-    { key: 'ld', group: 'Trajectory', label: 'LD', sortValue: (row) => row.battedBall.lineDrives, value: (row) => row.battedBall.lineDrives },
-    { key: 'gb', group: 'Trajectory', label: 'GB', sortValue: (row) => row.battedBall.groundBalls, value: (row) => row.battedBall.groundBalls },
-    { key: 'fb', group: 'Trajectory', label: 'FB', sortValue: (row) => row.battedBall.flyBalls, value: (row) => row.battedBall.flyBalls },
-    { key: 'ldPct', group: 'Trajectory', label: 'LD%', sortValue: (row) => row.battedBall.ldRate, value: (row) => formatPercent(row.battedBall.ldRate) },
-    { key: 'gbPct', group: 'Trajectory', label: 'GB%', sortValue: (row) => row.battedBall.gbRate, value: (row) => formatPercent(row.battedBall.gbRate) },
-    { key: 'fbPct', group: 'Trajectory', label: 'FB%', sortValue: (row) => row.battedBall.fbRate, value: (row) => formatPercent(row.battedBall.fbRate) },
-    { key: 'pull', group: 'Direction', label: 'Pull', sortValue: (row) => row.sprayProfile.pull, value: (row) => row.sprayProfile.pull },
-    { key: 'ctr', group: 'Direction', label: 'Ctr', sortValue: (row) => row.sprayProfile.center, value: (row) => row.sprayProfile.center },
-    { key: 'oppo', group: 'Direction', label: 'Oppo', sortValue: (row) => row.sprayProfile.oppo, value: (row) => row.sprayProfile.oppo },
-    { key: 'pullPct', group: 'Direction', label: 'Pull%', sortValue: (row) => row.sprayProfile.pullRate, value: (row) => formatPercent(row.sprayProfile.pullRate) },
-    { key: 'ctrPct', group: 'Direction', label: 'Ctr%', sortValue: (row) => row.sprayProfile.centerRate, value: (row) => formatPercent(row.sprayProfile.centerRate) },
-    { key: 'oppoPct', group: 'Direction', label: 'Oppo%', sortValue: (row) => row.sprayProfile.oppoRate, value: (row) => formatPercent(row.sprayProfile.oppoRate) },
-    ...buildSprayContactCols((row) => row.sprayContact),
-    ...buildBattedTypeCols((row) => row.battedByType),
-    ...buildLocCols((row) => row.hitLocations),
-  ], [locationDisplayMode])
-
-  const bbPitchingCharCols = useMemo(() => [
-    charIdentityCol,
-    { key: 'bip', group: 'Profile', label: 'BIP Allowed', sortValue: (row) => row.pitchingBattedBall.total, value: (row) => row.pitchingBattedBall.total },
-    { key: 'ld', group: 'Trajectory', label: 'LD', sortValue: (row) => row.pitchingBattedBall.lineDrives, value: (row) => row.pitchingBattedBall.lineDrives },
-    { key: 'gb', group: 'Trajectory', label: 'GB', sortValue: (row) => row.pitchingBattedBall.groundBalls, value: (row) => row.pitchingBattedBall.groundBalls },
-    { key: 'fb', group: 'Trajectory', label: 'FB', sortValue: (row) => row.pitchingBattedBall.flyBalls, value: (row) => row.pitchingBattedBall.flyBalls },
-    { key: 'ldPct', group: 'Trajectory', label: 'LD%', sortValue: (row) => row.pitchingBattedBall.ldRate, value: (row) => formatPercent(row.pitchingBattedBall.ldRate) },
-    { key: 'gbPct', group: 'Trajectory', label: 'GB%', sortValue: (row) => row.pitchingBattedBall.gbRate, value: (row) => formatPercent(row.pitchingBattedBall.gbRate) },
-    { key: 'fbPct', group: 'Trajectory', label: 'FB%', sortValue: (row) => row.pitchingBattedBall.fbRate, value: (row) => formatPercent(row.pitchingBattedBall.fbRate) },
-    { key: 'pull', group: 'Direction', label: 'Pull', sortValue: (row) => row.pitchingSpray.pull, value: (row) => row.pitchingSpray.pull },
-    { key: 'ctr', group: 'Direction', label: 'Ctr', sortValue: (row) => row.pitchingSpray.center, value: (row) => row.pitchingSpray.center },
-    { key: 'oppo', group: 'Direction', label: 'Oppo', sortValue: (row) => row.pitchingSpray.oppo, value: (row) => row.pitchingSpray.oppo },
-    { key: 'pullPct', group: 'Direction', label: 'Pull%', sortValue: (row) => row.pitchingSpray.pullRate, value: (row) => formatPercent(row.pitchingSpray.pullRate) },
-    { key: 'ctrPct', group: 'Direction', label: 'Ctr%', sortValue: (row) => row.pitchingSpray.centerRate, value: (row) => formatPercent(row.pitchingSpray.centerRate) },
-    { key: 'oppoPct', group: 'Direction', label: 'Oppo%', sortValue: (row) => row.pitchingSpray.oppoRate, value: (row) => formatPercent(row.pitchingSpray.oppoRate) },
-    ...buildContactAllowedCols((row) => row.pitchingExitVelo, (row) => row.pitchingContactQuality),
-    ...buildLocCols((row) => row.pitchingHitLocations),
-  ], [locationDisplayMode])
-
-  const powerBattingCols = useMemo(() => [
-    playerIdentityCol,
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: getTrackedBipSample, value: (row) => getTrackedBipSample(row) || '-' },
-    { key: 'avgExitVelo', group: 'Exit Velo', label: 'Avg EV', sortValue: (row) => row.exitVeloProfile.avgExitVelocity, value: (row) => row.exitVeloProfile.avgExitVelocity != null ? `${row.exitVeloProfile.avgExitVelocity} mph` : '-' },
-    { key: 'maxExitVelo', group: 'Exit Velo', label: 'Max EV', sortValue: (row) => row.exitVeloProfile.maxExitVelocity, value: (row) => row.exitVeloProfile.maxExitVelocity != null ? `${row.exitVeloProfile.maxExitVelocity} mph` : '-' },
-    { key: 'avgLaunchAngle', group: 'Exit Velo', label: 'Avg Launch', sortValue: (row) => row.exitVeloProfile.avgLaunchAngle, value: (row) => row.exitVeloProfile.avgLaunchAngle != null ? `${row.exitVeloProfile.avgLaunchAngle}°` : '-' },
-    { key: 'avgDist', group: 'Distance', label: 'Avg Dist', sortValue: (row) => qualifiesForPower(row) ? row.distanceProfile.avgDistance : null, value: (row) => qualifiesForPower(row) ? `${row.distanceProfile.avgDistance} ft` : '-' },
-    { key: 'maxDist', group: 'Distance', label: 'Longest', sortValue: (row) => qualifiesForPower(row) ? row.distanceProfile.maxDistance : null, value: (row) => qualifiesForPower(row) ? `${row.distanceProfile.maxDistance} ft` : '-' },
-    { key: 'hardHitRateDist', group: 'Distance', label: 'Hard-Hit% (Dist)', sortValue: (row) => qualifiesForPower(row) ? row.distanceProfile.hardHitRate : null, value: (row) => qualifiesForPower(row) ? formatPercent(row.distanceProfile.hardHitRate) : '-' },
-    { key: 'parkAdjustedDistance', group: 'Distance', label: 'Park-Adj Dist', sortValue: (row) => qualifiesForPower(row) ? row.parkAdjustedDistance : null, value: (row) => qualifiesForPower(row) ? `${row.parkAdjustedDistance} ft` : '-' },
-    { key: 'hitPowerIndex', group: 'Authority', label: 'Power Index', sortValue: (row) => qualifiesForPower(row) ? row.hitPowerIndex : null, value: (row) => qualifiesForPower(row) ? row.hitPowerIndex : '-' },
-    { key: 'avgSprayAngle', group: 'Authority', label: 'Spray Angle', sortValue: (row) => row.sprayProfile.avgSprayAngle, value: (row) => row.sprayProfile.avgSprayAngle != null ? `${row.sprayProfile.avgSprayAngle}°` : '-' },
-    { key: 'barrelRate', group: 'Authority', label: 'Barrel%', sortValue: (row) => row.contactQuality.barrelRate, value: (row) => row.contactQuality.barrelRate != null ? formatPercent(row.contactQuality.barrelRate) : '-' },
-    { key: 'hardHitRateEv', group: 'Authority', label: 'Hard-Hit% (EV)', sortValue: (row) => row.contactQuality.hardHitRate, value: (row) => row.contactQuality.hardHitRate != null ? formatPercent(row.contactQuality.hardHitRate) : '-' },
-    { key: 'sweetSpotRate', group: 'Authority', label: 'Sweet-Spot%', sortValue: (row) => row.contactQuality.sweetSpotRate, value: (row) => row.contactQuality.sweetSpotRate != null ? formatPercent(row.contactQuality.sweetSpotRate) : '-' },
-  ], [identitiesByPlayerId, playersById])
-
-  const powerBattingCharCols = useMemo(() => [
-    charIdentityCol,
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: getTrackedBipSample, value: (row) => getTrackedBipSample(row) || '-' },
-    { key: 'avgExitVelo', group: 'Exit Velo', label: 'Avg EV', sortValue: (row) => row.exitVeloProfile.avgExitVelocity, value: (row) => row.exitVeloProfile.avgExitVelocity != null ? `${row.exitVeloProfile.avgExitVelocity} mph` : '-' },
-    { key: 'maxExitVelo', group: 'Exit Velo', label: 'Max EV', sortValue: (row) => row.exitVeloProfile.maxExitVelocity, value: (row) => row.exitVeloProfile.maxExitVelocity != null ? `${row.exitVeloProfile.maxExitVelocity} mph` : '-' },
-    { key: 'avgLaunchAngle', group: 'Exit Velo', label: 'Avg Launch', sortValue: (row) => row.exitVeloProfile.avgLaunchAngle, value: (row) => row.exitVeloProfile.avgLaunchAngle != null ? `${row.exitVeloProfile.avgLaunchAngle}°` : '-' },
-    { key: 'avgDist', group: 'Distance', label: 'Avg Dist', sortValue: (row) => qualifiesForPower(row) ? row.distanceProfile.avgDistance : null, value: (row) => qualifiesForPower(row) ? `${row.distanceProfile.avgDistance} ft` : '-' },
-    { key: 'maxDist', group: 'Distance', label: 'Longest', sortValue: (row) => qualifiesForPower(row) ? row.distanceProfile.maxDistance : null, value: (row) => qualifiesForPower(row) ? `${row.distanceProfile.maxDistance} ft` : '-' },
-    { key: 'hardHitRateDist', group: 'Distance', label: 'Hard-Hit% (Dist)', sortValue: (row) => qualifiesForPower(row) ? row.distanceProfile.hardHitRate : null, value: (row) => qualifiesForPower(row) ? formatPercent(row.distanceProfile.hardHitRate) : '-' },
-    { key: 'parkAdjustedDistance', group: 'Distance', label: 'Park-Adj Dist', sortValue: (row) => qualifiesForPower(row) ? row.parkAdjustedDistance : null, value: (row) => qualifiesForPower(row) ? `${row.parkAdjustedDistance} ft` : '-' },
-    { key: 'hitPowerIndex', group: 'Authority', label: 'Power Index', sortValue: (row) => qualifiesForPower(row) ? row.hitPowerIndex : null, value: (row) => qualifiesForPower(row) ? row.hitPowerIndex : '-' },
-    { key: 'avgSprayAngle', group: 'Authority', label: 'Spray Angle', sortValue: (row) => row.sprayProfile.avgSprayAngle, value: (row) => row.sprayProfile.avgSprayAngle != null ? `${row.sprayProfile.avgSprayAngle}°` : '-' },
-    { key: 'barrelRate', group: 'Authority', label: 'Barrel%', sortValue: (row) => row.contactQuality.barrelRate, value: (row) => row.contactQuality.barrelRate != null ? formatPercent(row.contactQuality.barrelRate) : '-' },
-    { key: 'hardHitRateEv', group: 'Authority', label: 'Hard-Hit% (EV)', sortValue: (row) => row.contactQuality.hardHitRate, value: (row) => row.contactQuality.hardHitRate != null ? formatPercent(row.contactQuality.hardHitRate) : '-' },
-    { key: 'sweetSpotRate', group: 'Authority', label: 'Sweet-Spot%', sortValue: (row) => row.contactQuality.sweetSpotRate, value: (row) => row.contactQuality.sweetSpotRate != null ? formatPercent(row.contactQuality.sweetSpotRate) : '-' },
-  ], [])
-
-  const exitVeloCols = useMemo(() => [
-    playerIdentityCol,
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.distanceProfile.sampleSize, value: (row) => row.distanceProfile.sampleSize ?? '-' },
-    { key: 'avgExitVelo', group: 'Exit Velo', label: 'Avg EV', sortValue: (row) => row.exitVeloProfile.avgExitVelocity, value: (row) => row.exitVeloProfile.avgExitVelocity != null ? `${row.exitVeloProfile.avgExitVelocity} mph` : '-' },
-    { key: 'maxExitVelo', group: 'Exit Velo', label: 'Max EV', sortValue: (row) => row.exitVeloProfile.maxExitVelocity, value: (row) => row.exitVeloProfile.maxExitVelocity != null ? `${row.exitVeloProfile.maxExitVelocity} mph` : '-' },
-    { key: 'avgLaunchAngle', group: 'Exit Velo', label: 'Avg Launch', sortValue: (row) => row.exitVeloProfile.avgLaunchAngle, value: (row) => row.exitVeloProfile.avgLaunchAngle != null ? `${row.exitVeloProfile.avgLaunchAngle}°` : '-' },
-  ], [identitiesByPlayerId, playersById])
-
-  const exitVeloCharCols = useMemo(() => [
-    charIdentityCol,
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.distanceProfile.sampleSize, value: (row) => row.distanceProfile.sampleSize ?? '-' },
-    { key: 'avgExitVelo', group: 'Exit Velo', label: 'Avg EV', sortValue: (row) => row.exitVeloProfile.avgExitVelocity, value: (row) => row.exitVeloProfile.avgExitVelocity != null ? `${row.exitVeloProfile.avgExitVelocity} mph` : '-' },
-    { key: 'maxExitVelo', group: 'Exit Velo', label: 'Max EV', sortValue: (row) => row.exitVeloProfile.maxExitVelocity, value: (row) => row.exitVeloProfile.maxExitVelocity != null ? `${row.exitVeloProfile.maxExitVelocity} mph` : '-' },
-    { key: 'avgLaunchAngle', group: 'Exit Velo', label: 'Avg Launch', sortValue: (row) => row.exitVeloProfile.avgLaunchAngle, value: (row) => row.exitVeloProfile.avgLaunchAngle != null ? `${row.exitVeloProfile.avgLaunchAngle}°` : '-' },
-  ], [])
-
-  const contactQualityCols = useMemo(() => [
-    playerIdentityCol,
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.distanceProfile.sampleSize, value: (row) => row.distanceProfile.sampleSize ?? '-' },
-    { key: 'barrelRate', group: 'Contact Quality', label: 'Barrel%', sortValue: (row) => row.contactQuality.barrelRate, value: (row) => row.contactQuality.barrelRate != null ? formatPercent(row.contactQuality.barrelRate) : '-' },
-    { key: 'hardHitVeloRate', group: 'Contact Quality', label: 'Hard-Hit% (EV)', sortValue: (row) => row.contactQuality.hardHitRate, value: (row) => row.contactQuality.hardHitRate != null ? formatPercent(row.contactQuality.hardHitRate) : '-' },
-    { key: 'sweetSpotRate', group: 'Contact Quality', label: 'Sweet-Spot%', sortValue: (row) => row.contactQuality.sweetSpotRate, value: (row) => row.contactQuality.sweetSpotRate != null ? formatPercent(row.contactQuality.sweetSpotRate) : '-' },
-  ], [identitiesByPlayerId, playersById])
-
-  const contactQualityCharCols = useMemo(() => [
-    charIdentityCol,
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.distanceProfile.sampleSize, value: (row) => row.distanceProfile.sampleSize ?? '-' },
-    { key: 'barrelRate', group: 'Contact Quality', label: 'Barrel%', sortValue: (row) => row.contactQuality.barrelRate, value: (row) => row.contactQuality.barrelRate != null ? formatPercent(row.contactQuality.barrelRate) : '-' },
-    { key: 'hardHitVeloRate', group: 'Contact Quality', label: 'Hard-Hit% (EV)', sortValue: (row) => row.contactQuality.hardHitRate, value: (row) => row.contactQuality.hardHitRate != null ? formatPercent(row.contactQuality.hardHitRate) : '-' },
-    { key: 'sweetSpotRate', group: 'Contact Quality', label: 'Sweet-Spot%', sortValue: (row) => row.contactQuality.sweetSpotRate, value: (row) => row.contactQuality.sweetSpotRate != null ? formatPercent(row.contactQuality.sweetSpotRate) : '-' },
-  ], [])
+  const playerIdentityCol = useMemo(() => ({ key: 'name', group: 'Player', label: 'Player', type: 'string', sticky: true, stickyLeft: 0, stickyWidth: 160, sortValue: (row) => row.name, render: (row) => <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.playerId} playersById={playersById} responsiveAbbreviation /> }), [identitiesByPlayerId, playersById])
+  const charIdentityCol = useMemo(() => ({ ...charIdentityColBase, render: (row) => <CharacterCell name={row.name} to={characterPathFor(row.id)} /> }), [isCompact, characterPathFor])
+  const ownerCol = useMemo(() => ({ key: 'owner', group: 'Identity', label: 'Owner', type: 'string', sortValue: (row) => row.ownerName, render: (row) => row.currentOwner ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.currentOwner.player_id} playersById={playersById} /> : row.ownerName }), [identitiesByPlayerId, playersById])
 
   // Luck = actual minus expected: positive means the player/character has
   // out-hit what their contact quality says they should have (fortunate),
@@ -3376,103 +2632,364 @@ export default function Stats() {
   const slgDiff = (row) => qualifiesAdvancedBatting(row) && row.expectedBatting.xSLG != null ? row.batting.slg - row.expectedBatting.xSLG : null
   const wobaDiff = (row) => qualifiesAdvancedBatting(row) && row.expectedBatting.xwOBA != null ? row.advancedBatting.woba - row.expectedBatting.xwOBA : null
 
-  const expectedCols = useMemo(() => [
-    playerIdentityCol,
-    { key: 'pa', group: 'Sample', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.expectedBatting.sampleSize, value: (row) => row.expectedBatting.sampleSize },
-    { key: 'xBA', group: 'Expected', label: 'xBA', sortValue: (row) => row.expectedBatting.xBA, value: (row) => row.expectedBatting.xBA != null ? formatAverageStyle(row.expectedBatting.xBA) : '-' },
-    { key: 'xSLG', group: 'Expected', label: 'xSLG', sortValue: (row) => row.expectedBatting.xSLG, value: (row) => row.expectedBatting.xSLG != null ? formatAverageStyle(row.expectedBatting.xSLG) : '-' },
-    { key: 'xwOBA', group: 'Expected', label: 'xwOBA', sortValue: (row) => row.expectedBatting.xwOBA, value: (row) => row.expectedBatting.xwOBA != null ? formatAverageStyle(row.expectedBatting.xwOBA) : '-' },
-    { key: 'baDiff', group: 'Luck', label: 'AVG -xBA', sortValue: baDiff, render: (row) => <ValueBadge color={getLuckColor(baDiff(row))} value={formatSignedAverageStyle(baDiff(row))} /> },
-    { key: 'slgDiff', group: 'Luck', label: 'SLG -xSLG', sortValue: slgDiff, render: (row) => <ValueBadge color={getLuckColor(slgDiff(row))} value={formatSignedAverageStyle(slgDiff(row))} /> },
-    { key: 'wobaDiff', group: 'Luck', label: 'wOBA -xwOBA', sortValue: wobaDiff, render: (row) => <ValueBadge color={getLuckColor(wobaDiff(row))} value={formatSignedAverageStyle(wobaDiff(row))} /> },
-  ], [identitiesByPlayerId, playersById])
+  // The metric columns of every table tab, keyed `section.set` (see STATS_SECTIONS). Written once
+  // and shared by the Players and Characters tables: `only` keeps a column to one identity, and
+  // columnsForSet adds the identity column (plus Owner for Characters where the set asks for it).
+  const metricsBySet = useMemo(() => {
+    const showRates = locationDisplayMode === 'pct'
+    // One column that reads as a share or a count, following the %/# toggle.
+    const countOrRate = (key, group, label, getCount, getRate) => ({
+      key,
+      group,
+      label: showRates ? `${label}%` : label,
+      sortValue: (row) => (showRates ? getRate(row) : getCount(row)),
+      value: (row) => (showRates ? formatPercent(getRate(row)) : getCount(row)),
+    })
+    const locationCols = (getLocations) => [
+      { key: 'bipLoc', group: 'Location', label: 'BIP', sortValue: (row) => getLocations(row).total, value: (row) => getLocations(row).total },
+      ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((pos) => ({
+        key: `loc${pos}`,
+        group: 'Location',
+        label: POSITION_LABELS[pos],
+        sortValue: (row) => showRates ? getLocations(row).rates[pos] : getLocations(row).counts[pos],
+        value: (row) => showRates ? formatPercent(getLocations(row).rates[pos]) : formatInteger(getLocations(row).counts[pos]),
+      })),
+    ]
+    // Pull/Center/Oppo exit velocity + slugging-on-contact — the same direction buckets as the
+    // Batted Ball direction columns, cross-tabbed with contact quality (e.g. "pull-side slugging").
+    const sprayContactCols = (getSprayContact) => [
+      { key: 'pullEv', group: 'By Direction', label: 'Pull EV', sortValue: (row) => getSprayContact(row).pull.avgExitVelocity, value: (row) => getSprayContact(row).pull.avgExitVelocity != null ? `${getSprayContact(row).pull.avgExitVelocity} mph` : '-' },
+      { key: 'centerEv', group: 'By Direction', label: 'Ctr EV', sortValue: (row) => getSprayContact(row).center.avgExitVelocity, value: (row) => getSprayContact(row).center.avgExitVelocity != null ? `${getSprayContact(row).center.avgExitVelocity} mph` : '-' },
+      { key: 'oppoEv', group: 'By Direction', label: 'Oppo EV', sortValue: (row) => getSprayContact(row).oppo.avgExitVelocity, value: (row) => getSprayContact(row).oppo.avgExitVelocity != null ? `${getSprayContact(row).oppo.avgExitVelocity} mph` : '-' },
+      { key: 'pullSlg', group: 'By Direction', label: 'Pull SLG', sortValue: (row) => getSprayContact(row).pull.slgOnContact, value: (row) => getSprayContact(row).pull.slgOnContact != null ? formatAverageStyle(getSprayContact(row).pull.slgOnContact) : '-' },
+      { key: 'oppoSlg', group: 'By Direction', label: 'Oppo SLG', sortValue: (row) => getSprayContact(row).oppo.slgOnContact, value: (row) => getSprayContact(row).oppo.slgOnContact != null ? formatAverageStyle(getSprayContact(row).oppo.slgOnContact) : '-' },
+    ]
+    // BABIP/wOBA-on-contact broken out by batted-ball trajectory (GB/FB/LD) — the same buckets as
+    // the Trajectory columns, cross-tabbed with outcome quality.
+    const battedTypeCols = (getBattedByType) => [
+      { key: 'gbBabip', group: 'By Trajectory', label: 'GB BABIP', sortValue: (row) => getBattedByType(row).groundBall.babip, value: (row) => getBattedByType(row).groundBall.babip != null ? formatAverageStyle(getBattedByType(row).groundBall.babip) : '-' },
+      { key: 'ldBabip', group: 'By Trajectory', label: 'LD BABIP', sortValue: (row) => getBattedByType(row).lineDrive.babip, value: (row) => getBattedByType(row).lineDrive.babip != null ? formatAverageStyle(getBattedByType(row).lineDrive.babip) : '-' },
+      { key: 'fbBabip', group: 'By Trajectory', label: 'FB BABIP', sortValue: (row) => getBattedByType(row).flyBall.babip, value: (row) => getBattedByType(row).flyBall.babip != null ? formatAverageStyle(getBattedByType(row).flyBall.babip) : '-' },
+      { key: 'ldWoba', group: 'By Trajectory', label: 'LD wOBA', sortValue: (row) => getBattedByType(row).lineDrive.wobaOnContact, value: (row) => getBattedByType(row).lineDrive.wobaOnContact != null ? formatAverageStyle(getBattedByType(row).lineDrive.wobaOnContact) : '-' },
+      { key: 'fbWoba', group: 'By Trajectory', label: 'FB wOBA', sortValue: (row) => getBattedByType(row).flyBall.wobaOnContact, value: (row) => getBattedByType(row).flyBall.wobaOnContact != null ? formatAverageStyle(getBattedByType(row).flyBall.wobaOnContact) : '-' },
+    ]
+    // Contact quality allowed / exit velocity allowed — the same summarizeContactQuality/
+    // summarizeExitVelocity primitives used for a batter's own contact, run over the pitcher's
+    // full allowed-PA line instead of just the star-pitch subset summarizeStarPitching covers.
+    const contactAllowedCols = (getExitVeloAllowed, getContactAllowed) => [
+      { key: 'avgEvAllowed', group: 'Contact Allowed', label: 'Avg EV Allowed', sortValue: (row) => getExitVeloAllowed(row).avgExitVelocity, value: (row) => getExitVeloAllowed(row).avgExitVelocity != null ? `${getExitVeloAllowed(row).avgExitVelocity} mph` : '-' },
+      { key: 'barrelRateAllowed', group: 'Contact Allowed', label: 'Barrel% Allowed', sortValue: (row) => getContactAllowed(row).barrelRate, value: (row) => getContactAllowed(row).barrelRate != null ? formatPercent(getContactAllowed(row).barrelRate) : '-' },
+      { key: 'hardHitRateAllowed', group: 'Contact Allowed', label: 'Hard-Hit% Allowed', sortValue: (row) => getContactAllowed(row).hardHitRate, value: (row) => getContactAllowed(row).hardHitRate != null ? formatPercent(getContactAllowed(row).hardHitRate) : '-' },
+    ]
+    const evidenceButton = (row, key, number) => number ? <button type="button" aria-label={`Show ${number} ${key} opportunities for ${row.name}`} onClick={(event) => { event.stopPropagation(); setBaseEvidence({ id: String(row.playerId ?? row.id), identity: row.playerId != null ? 'player' : 'character', key, name: row.name }) }}>{number}</button> : 0
+    const xbtCount = (key, label) => ({ key, group: 'Extra Bases', label, sortValue: (row) => row.baserunning[key], render: (row) => evidenceButton(row, key, row.baserunning[key] || 0) })
+    const xbtRate = (key, label) => ({ key, group: 'Rates', label, sortValue: (row) => row.baserunning[key], value: (row) => row.baserunning[key] == null ? '—' : formatPercent(row.baserunning[key], 1) })
+    const xbtSplit = (type, label) => ({
+      key: type, group: 'Opportunity Type', label,
+      sortValue: (row) => row.baserunning.byType?.[type]?.opportunities || 0,
+      render: (row) => {
+        const item = row.baserunning.byType?.[type]
+        return item ? <span>{evidenceButton(row, type, item.opportunities)}/{item.holds}/{item.attempts}/{item.advances}/{item.outs}</span> : '—'
+      },
+    })
+    const directionalOaa = (key, direction, label) => ({ key, group: 'Directional OAA', label, sortValue: (row) => row.fielding.directionalOpportunities?.[direction] ? row.fielding.directionalOaa?.[direction] : null, value: (row) => row.fielding.directionalOpportunities?.[direction] ? formatSignedAverageStyle(row.fielding.directionalOaa[direction], 2) : '—' })
 
-  const expectedCharCols = useMemo(() => [
-    charIdentityCol,
-    { key: 'pa', group: 'Sample', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.expectedBatting.sampleSize, value: (row) => row.expectedBatting.sampleSize },
-    { key: 'xBA', group: 'Expected', label: 'xBA', sortValue: (row) => row.expectedBatting.xBA, value: (row) => row.expectedBatting.xBA != null ? formatAverageStyle(row.expectedBatting.xBA) : '-' },
-    { key: 'xSLG', group: 'Expected', label: 'xSLG', sortValue: (row) => row.expectedBatting.xSLG, value: (row) => row.expectedBatting.xSLG != null ? formatAverageStyle(row.expectedBatting.xSLG) : '-' },
-    { key: 'xwOBA', group: 'Expected', label: 'xwOBA', sortValue: (row) => row.expectedBatting.xwOBA, value: (row) => row.expectedBatting.xwOBA != null ? formatAverageStyle(row.expectedBatting.xwOBA) : '-' },
-    { key: 'baDiff', group: 'Luck', label: 'AVG -xBA', sortValue: baDiff, render: (row) => <ValueBadge color={getLuckColor(baDiff(row))} value={formatSignedAverageStyle(baDiff(row))} /> },
-    { key: 'slgDiff', group: 'Luck', label: 'SLG -xSLG', sortValue: slgDiff, render: (row) => <ValueBadge color={getLuckColor(slgDiff(row))} value={formatSignedAverageStyle(slgDiff(row))} /> },
-    { key: 'wobaDiff', group: 'Luck', label: 'wOBA -xwOBA', sortValue: wobaDiff, render: (row) => <ValueBadge color={getLuckColor(wobaDiff(row))} value={formatSignedAverageStyle(wobaDiff(row))} /> },
-  ], [])
+    return {
+      'batting.standard': [
+        { key: 'gamesPlayed', only: 'players', group: 'Batting', label: 'G', sortValue: (row) => row.gamesPlayed, value: (row) => row.gamesPlayed },
+        { key: 'gamesPlayed', only: 'characters', group: 'Batting', label: 'G', sortValue: (row) => row.batting.games, value: (row) => row.batting.games },
+        { key: 'plateAppearances', group: 'Batting', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
+        { key: 'atBats', group: 'Batting', label: 'AB', sortValue: (row) => row.batting.atBats, value: (row) => row.batting.atBats },
+        { key: 'hits', group: 'Batting', label: 'H', sortValue: (row) => row.batting.hits, value: (row) => row.batting.hits },
+        { key: 'singles', group: 'Batting', label: '1B', sortValue: (row) => row.batting.singles, value: (row) => row.batting.singles },
+        { key: 'doubles', group: 'Batting', label: '2B', sortValue: (row) => row.batting.doubles, value: (row) => row.batting.doubles },
+        { key: 'triples', group: 'Batting', label: '3B', sortValue: (row) => row.batting.triples, value: (row) => row.batting.triples },
+        { key: 'homeRuns', group: 'Batting', label: 'HR', sortValue: (row) => row.batting.homeRuns, value: (row) => row.batting.homeRuns },
+        { key: 'runs', group: 'Batting', label: 'R', sortValue: (row) => row.batting.runs, value: (row) => row.batting.runs },
+        { key: 'rbi', group: 'Batting', label: 'RBI', sortValue: (row) => row.batting.rbi, value: (row) => row.batting.rbi },
+        { key: 'walks', group: 'Discipline', label: 'BB', sortValue: (row) => row.batting.walks, value: (row) => row.batting.walks },
+        { key: 'hbp', group: 'Discipline', label: 'HBP', sortValue: (row) => row.batting.hbp, value: (row) => row.batting.hbp },
+        { key: 'strikeouts', group: 'Discipline', label: 'SO', sortValue: (row) => row.batting.strikeouts, value: (row) => row.batting.strikeouts },
+        { key: 'sacrificeFlies', group: 'Situational', label: 'SF', sortValue: (row) => row.batting.sacrificeFlies, value: (row) => row.batting.sacrificeFlies },
+        { key: 'sacrificeHits', group: 'Situational', label: 'SH', sortValue: (row) => row.batting.sacrificeHits, value: (row) => row.batting.sacrificeHits },
+        { key: 'totalBases', group: 'Situational', label: 'TB', sortValue: (row) => row.batting.totalBases, value: (row) => row.batting.totalBases },
+        { key: 'avg', group: 'Rates', label: 'AVG', sortValue: (row) => row.batting.avg, value: (row) => formatDecimal(row.batting.avg) },
+        { key: 'obp', group: 'Rates', label: 'OBP', sortValue: (row) => row.batting.obp, value: (row) => formatDecimal(row.batting.obp) },
+        { key: 'slg', group: 'Rates', label: 'SLG', sortValue: (row) => row.batting.slg, value: (row) => formatDecimal(row.batting.slg) },
+        { key: 'ops', group: 'Rates', label: 'OPS', sortValue: (row) => row.batting.ops, value: (row) => formatDecimal(row.batting.ops) },
+      ],
+      'batting.advanced': [
+        { key: 'plateAppearances', group: 'Sample', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
+        { key: 'woba', group: 'Run Value', label: 'wOBA', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.woba : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.woba) : '--' },
+        { key: 'wrcPlus', group: 'Run Value', label: 'wRC+', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.wrcPlus : null, render: (row) => qualifiesAdvancedBatting(row) ? positiveMetric(row.advancedBatting.wrcPlus) : '--' },
+        { key: 'opsPlus', group: 'Run Value', label: 'OPS+', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.opsPlus : null, render: (row) => qualifiesAdvancedBatting(row) ? positiveMetric(row.advancedBatting.opsPlus) : '--' },
+        { key: 'rc3', group: 'Run Value', label: 'RC/3', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.rc3 : null, render: (row) => qualifiesAdvancedBatting(row) ? <span title="Runs Created per 3-inning game">{formatTooltipNumber(row.advancedBatting.rc3, 1)}</span> : '--' },
+        { key: 'babip', group: 'Power & Contact', label: 'BABIP', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.babip : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.babip) : '--' },
+        { key: 'iso', group: 'Power & Contact', label: 'ISO', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.iso : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.iso) : '--' },
+        { key: 'xbh', group: 'Power & Contact', label: 'XBH', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.xbh : null, value: (row) => qualifiesAdvancedBatting(row) ? formatInteger(row.advancedBatting.xbh) : '--' },
+        { key: 'xbhPct', group: 'Power & Contact', label: 'XBH%', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.xbhPct : null, value: (row) => qualifiesAdvancedBatting(row) ? formatPercent(row.advancedBatting.xbhPct, 1) : '--' },
+        { key: 'hrPerPa', group: 'Power & Contact', label: 'HR/PA', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.hrPerPa : null, value: (row) => qualifiesAdvancedBatting(row) ? formatAverageStyle(row.advancedBatting.hrPerPa) : '--' },
+        { key: 'kPct', group: 'Discipline', label: 'K%', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.kPct : null, value: (row) => qualifiesAdvancedBatting(row) ? formatPercent(row.advancedBatting.kPct, 1) : '--' },
+        { key: 'bbPct', group: 'Discipline', label: 'BB%', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.bbPct : null, value: (row) => qualifiesAdvancedBatting(row) ? formatPercent(row.advancedBatting.bbPct, 1) : '--' },
+        { key: 'bbkRatio', group: 'Discipline', label: 'BB/K', sortValue: (row) => qualifiesAdvancedBatting(row) ? row.advancedBatting.bbkRatio : null, value: (row) => qualifiesAdvancedBatting(row) ? formatDecimal(row.advancedBatting.bbkRatio, 2) : '--' },
+        { key: 'rispAvg', group: 'Situational', label: 'RISP AVG', sortValue: (row) => row.batting.rispAtBats ? row.batting.rispAvg : null, value: (row) => formatOptionalRate(row.batting.rispAtBats ? row.batting.rispAvg : null) },
+      ],
+      'batting.batted_ball': [
+        { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.battedBall.total, value: (row) => row.battedBall.total },
+        countOrRate('ld', 'Trajectory', 'LD', (row) => row.battedBall.lineDrives, (row) => row.battedBall.ldRate),
+        countOrRate('gb', 'Trajectory', 'GB', (row) => row.battedBall.groundBalls, (row) => row.battedBall.gbRate),
+        countOrRate('fb', 'Trajectory', 'FB', (row) => row.battedBall.flyBalls, (row) => row.battedBall.fbRate),
+        countOrRate('pull', 'Direction', 'Pull', (row) => row.sprayProfile.pull, (row) => row.sprayProfile.pullRate),
+        countOrRate('ctr', 'Direction', 'Ctr', (row) => row.sprayProfile.center, (row) => row.sprayProfile.centerRate),
+        countOrRate('oppo', 'Direction', 'Oppo', (row) => row.sprayProfile.oppo, (row) => row.sprayProfile.oppoRate),
+        ...battedTypeCols((row) => row.battedByType),
+      ],
+      'batting.contact': [
+        { key: 'bip', group: 'Sample', label: 'BIP', sortValue: getTrackedBipSample, value: (row) => getTrackedBipSample(row) || '-' },
+        { key: 'avgExitVelo', group: 'Exit Velo', label: 'Avg EV', sortValue: (row) => row.exitVeloProfile.avgExitVelocity, value: (row) => row.exitVeloProfile.avgExitVelocity != null ? `${row.exitVeloProfile.avgExitVelocity} mph` : '-' },
+        { key: 'maxExitVelo', group: 'Exit Velo', label: 'Max EV', sortValue: (row) => row.exitVeloProfile.maxExitVelocity, value: (row) => row.exitVeloProfile.maxExitVelocity != null ? `${row.exitVeloProfile.maxExitVelocity} mph` : '-' },
+        { key: 'avgLaunchAngle', group: 'Exit Velo', label: 'Avg Launch', sortValue: (row) => row.exitVeloProfile.avgLaunchAngle, value: (row) => row.exitVeloProfile.avgLaunchAngle != null ? `${row.exitVeloProfile.avgLaunchAngle}°` : '-' },
+        { key: 'avgDist', group: 'Distance', label: 'Avg Dist', sortValue: (row) => qualifiesForPower(row) ? row.distanceProfile.avgDistance : null, value: (row) => qualifiesForPower(row) ? `${row.distanceProfile.avgDistance} ft` : '-' },
+        { key: 'maxDist', group: 'Distance', label: 'Longest', sortValue: (row) => qualifiesForPower(row) ? row.distanceProfile.maxDistance : null, value: (row) => qualifiesForPower(row) ? `${row.distanceProfile.maxDistance} ft` : '-' },
+        { key: 'hardHitRateDist', group: 'Distance', label: 'Hard-Hit% (Dist)', sortValue: (row) => qualifiesForPower(row) ? row.distanceProfile.hardHitRate : null, value: (row) => qualifiesForPower(row) ? formatPercent(row.distanceProfile.hardHitRate) : '-' },
+        { key: 'parkAdjustedDistance', group: 'Distance', label: 'Park-Adj Dist', sortValue: (row) => qualifiesForPower(row) ? row.parkAdjustedDistance : null, value: (row) => qualifiesForPower(row) ? `${row.parkAdjustedDistance} ft` : '-' },
+        { key: 'hitPowerIndex', group: 'Quality', label: 'Power Index', sortValue: (row) => qualifiesForPower(row) ? row.hitPowerIndex : null, value: (row) => qualifiesForPower(row) ? row.hitPowerIndex : '-' },
+        { key: 'barrelRate', group: 'Quality', label: 'Barrel%', sortValue: (row) => row.contactQuality.barrelRate, value: (row) => row.contactQuality.barrelRate != null ? formatPercent(row.contactQuality.barrelRate) : '-' },
+        { key: 'hardHitRateEv', group: 'Quality', label: 'Hard-Hit% (EV)', sortValue: (row) => row.contactQuality.hardHitRate, value: (row) => row.contactQuality.hardHitRate != null ? formatPercent(row.contactQuality.hardHitRate) : '-' },
+        { key: 'sweetSpotRate', group: 'Quality', label: 'Sweet-Spot%', sortValue: (row) => row.contactQuality.sweetSpotRate, value: (row) => row.contactQuality.sweetSpotRate != null ? formatPercent(row.contactQuality.sweetSpotRate) : '-' },
+        { key: 'avgSprayAngle', group: 'By Direction', label: 'Spray Angle', sortValue: (row) => row.sprayProfile.avgSprayAngle, value: (row) => row.sprayProfile.avgSprayAngle != null ? `${row.sprayProfile.avgSprayAngle}°` : '-' },
+        ...sprayContactCols((row) => row.sprayContact),
+      ],
+      'batting.expected': [
+        { key: 'pa', group: 'Sample', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
+        { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.expectedBatting.sampleSize, value: (row) => row.expectedBatting.sampleSize },
+        { key: 'xBA', group: 'Expected', label: 'xBA', sortValue: (row) => row.expectedBatting.xBA, value: (row) => row.expectedBatting.xBA != null ? formatAverageStyle(row.expectedBatting.xBA) : '-' },
+        { key: 'xSLG', group: 'Expected', label: 'xSLG', sortValue: (row) => row.expectedBatting.xSLG, value: (row) => row.expectedBatting.xSLG != null ? formatAverageStyle(row.expectedBatting.xSLG) : '-' },
+        { key: 'xwOBA', group: 'Expected', label: 'xwOBA', sortValue: (row) => row.expectedBatting.xwOBA, value: (row) => row.expectedBatting.xwOBA != null ? formatAverageStyle(row.expectedBatting.xwOBA) : '-' },
+        { key: 'baDiff', group: 'Luck', label: 'AVG -xBA', sortValue: baDiff, render: (row) => <ValueBadge color={getLuckColor(baDiff(row))} value={formatSignedAverageStyle(baDiff(row))} /> },
+        { key: 'slgDiff', group: 'Luck', label: 'SLG -xSLG', sortValue: slgDiff, render: (row) => <ValueBadge color={getLuckColor(slgDiff(row))} value={formatSignedAverageStyle(slgDiff(row))} /> },
+        { key: 'wobaDiff', group: 'Luck', label: 'wOBA -xwOBA', sortValue: wobaDiff, render: (row) => <ValueBadge color={getLuckColor(wobaDiff(row))} value={formatSignedAverageStyle(wobaDiff(row))} /> },
+      ],
+      'batting.discipline': [
+        { key: 'pa', group: 'Usage', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
+        { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.plateDiscipline.totalPitches, value: (row) => row.plateDiscipline.totalPitches },
+        { key: 'pitchesPerPa', group: 'Usage', label: 'P/PA', sortValue: (row) => row.plateDiscipline.pitchesPerPa, value: (row) => formatDecimal(row.plateDiscipline.pitchesPerPa, 2) },
+        { key: 'whiffRate', group: 'Contact', label: 'Whiff%', sortValue: (row) => row.plateDiscipline.whiffRate, value: (row) => formatPercent(row.plateDiscipline.whiffRate) },
+        { key: 'foulRate', group: 'Contact', label: 'Foul%', sortValue: (row) => row.plateDiscipline.foulRate, value: (row) => formatPercent(row.plateDiscipline.foulRate) },
+        { key: 'kRate', group: 'Outcomes', label: 'K%', sortValue: (row) => row.plateDiscipline.kRate, value: (row) => formatPercent(row.plateDiscipline.kRate) },
+        { key: 'ksRate', group: 'Outcomes', label: 'KS%', sortValue: (row) => row.plateDiscipline.ksRate, value: (row) => formatPercent(row.plateDiscipline.ksRate) },
+        { key: 'klRate', group: 'Outcomes', label: 'KL%', sortValue: (row) => row.plateDiscipline.klRate, value: (row) => formatPercent(row.plateDiscipline.klRate) },
+        { key: 'bbRate', group: 'Outcomes', label: 'BB%', sortValue: (row) => row.plateDiscipline.bbRate, value: (row) => formatPercent(row.plateDiscipline.bbRate) },
+      ],
+      'batting.stars': [
+        { key: 'starHitUsed', group: 'Star Hits', label: <><StarIcon />HA</>, sortValue: (row) => row.starHit.used, value: (row) => row.starHit.used },
+        { key: 'starHitConnected', group: 'Star Hits', label: <><StarIcon />HC</>, sortValue: (row) => row.starHit.connected, value: (row) => row.starHit.connected },
+        { key: 'starHitContactRate', group: 'Star Hits', label: <><StarIcon />Contact%</>, sortValue: (row) => row.starHit.contactRate, value: (row) => formatPercent(row.starHit.contactRate, 1) },
+        { key: 'starHitSuccessful', group: 'Star Hits', label: <><StarIcon />HH</>, sortValue: (row) => row.starHit.successful, value: (row) => row.starHit.successful },
+        { key: 'starHitRbi', group: 'Star Hits', label: <><StarIcon />HRBI</>, sortValue: (row) => row.starHit.totalRbi, value: (row) => row.starHit.totalRbi },
+        { key: 'starHitRbiPerUse', group: 'Star Hits', label: <><StarIcon />RBI/Use</>, sortValue: (row) => row.starHit.avgRbiPerUse, value: (row) => formatDecimal(row.starHit.avgRbiPerUse, 2) },
+        { key: 'starHitAvg', group: 'Star Hits', label: <><StarIcon />AVG</>, sortValue: (row) => row.starHit.slashLine.avg, value: (row) => formatDecimal(row.starHit.slashLine.avg) },
+        { key: 'starHitObp', group: 'Star Hits', label: <><StarIcon />OBP</>, sortValue: (row) => row.starHit.slashLine.obp, value: (row) => formatDecimal(row.starHit.slashLine.obp) },
+        { key: 'starHitSlg', group: 'Star Hits', label: <><StarIcon />SLG</>, sortValue: (row) => row.starHit.slashLine.slg, value: (row) => formatDecimal(row.starHit.slashLine.slg) },
+        { key: 'starHitOps', group: 'Star Hits', label: <><StarIcon />OPS</>, sortValue: (row) => row.starHit.slashLine.ops, value: (row) => formatDecimal(row.starHit.slashLine.ops) },
+        { key: 'starHitAvgExitVelo', group: 'Star Hits', label: <><StarIcon />Avg EV</>, sortValue: (row) => row.starHit.avgExitVelo ?? -1, value: (row) => row.starHit.avgExitVelo != null ? `${row.starHit.avgExitVelo} mph` : '-' },
+        { key: 'starHitMaxExitVelo', group: 'Star Hits', label: <><StarIcon />Max EV</>, sortValue: (row) => row.starHit.maxExitVelo ?? -1, value: (row) => row.starHit.maxExitVelo != null ? `${row.starHit.maxExitVelo} mph` : '-' },
+        { key: 'starHitAvgLaunchAngle', group: 'Star Hits', label: <><StarIcon />Avg LA</>, sortValue: (row) => row.starHit.avgLaunchAngle ?? -999, value: (row) => row.starHit.avgLaunchAngle != null ? `${row.starHit.avgLaunchAngle}°` : '-' },
+        { key: 'starHitAvgDistance', group: 'Star Hits', label: <><StarIcon />Avg Dist</>, sortValue: (row) => row.starHit.avgDistance ?? -1, value: (row) => row.starHit.avgDistance != null ? `${row.starHit.avgDistance} ft` : '-' },
+        { key: 'starHitMaxDistance', group: 'Star Hits', label: <><StarIcon />Max Dist</>, sortValue: (row) => row.starHit.maxDistance ?? -1, value: (row) => row.starHit.maxDistance != null ? `${row.starHit.maxDistance} ft` : '-' },
+      ],
+      'batting.spray': locationCols((row) => row.hitLocations),
+      'pitching.standard': [
+        { key: 'games', group: 'Usage', label: 'G', sortValue: (row) => row.pitching.games, value: (row) => row.pitching.games },
+        { key: 'innings', group: 'Usage', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
+        { key: 'wins', group: 'Decisions', label: 'W', sortValue: (row) => row.pitching.wins, value: (row) => row.pitching.wins },
+        { key: 'losses', group: 'Decisions', label: 'L', sortValue: (row) => row.pitching.losses, value: (row) => row.pitching.losses },
+        { key: 'saves', group: 'Decisions', label: 'SV', sortValue: (row) => row.pitching.saves, value: (row) => row.pitching.saves },
+        { key: 'completeGames', group: 'Decisions', label: 'CG', sortValue: (row) => row.pitching.completeGames, value: (row) => row.pitching.completeGames },
+        { key: 'shutouts', group: 'Decisions', label: 'SHO', sortValue: (row) => row.pitching.shutouts, value: (row) => row.pitching.shutouts },
+        { key: 'strikeouts', group: 'Line', label: 'K', sortValue: (row) => row.pitching.strikeouts, value: (row) => row.pitching.strikeouts },
+        { key: 'hitsAllowed', group: 'Line', label: 'H', sortValue: (row) => row.pitching.hitsAllowed, value: (row) => row.pitching.hitsAllowed },
+        { key: 'runsAllowed', group: 'Line', label: 'R', sortValue: (row) => row.pitching.runsAllowed, value: (row) => row.pitching.runsAllowed },
+        { key: 'earnedRuns', group: 'Line', label: 'ER', sortValue: (row) => row.pitching.earnedRuns, value: (row) => row.pitching.earnedRuns },
+        { key: 'walks', group: 'Line', label: 'BB', sortValue: (row) => row.pitching.walks, value: (row) => row.pitching.walks },
+        { key: 'homeRunsAllowed', group: 'Line', label: 'HR', sortValue: (row) => row.pitching.homeRunsAllowed, value: (row) => row.pitching.homeRunsAllowed },
+        { key: 'era', group: 'Rates', label: 'ERA/3', sortValue: (row) => row.pitching.era, value: (row) => formatDecimal(row.pitching.era, 2) },
+        { key: 'whip', group: 'Rates', label: 'WHIP', sortValue: (row) => row.pitching.whip, value: (row) => formatDecimal(row.pitching.whip, 2) },
+        { key: 'kPer3', group: 'Rates', label: 'K/3', sortValue: (row) => row.pitching.kPer3, value: (row) => formatDecimal(row.pitching.kPer3, 2) },
+      ],
+      'pitching.advanced': [
+        { key: 'innings', group: 'Sample', label: 'IP', sortValue: (row) => row.pitching.innings, value: (row) => formatDecimal(row.pitching.innings, 1) },
+        { key: 'fip', group: 'Run Prevention', label: 'FIP', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.fip : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.fip, 2) : '--' },
+        { key: 'fipMinus', group: 'Run Prevention', label: 'FIP-', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.fipMinus : null, render: (row) => qualifiesAdvancedPitching(row) ? inverseMetric(row.advancedPitching.fipMinus) : '--' },
+        { key: 'eraMinus', group: 'Run Prevention', label: 'ERA-', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.eraMinus : null, render: (row) => qualifiesAdvancedPitching(row) ? inverseMetric(row.advancedPitching.eraMinus) : '--' },
+        { key: 'bb3', group: 'Per 3 Innings', label: 'BB/3', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.bb3 : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.bb3, 2) : '--' },
+        { key: 'h3', group: 'Per 3 Innings', label: 'H/3', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.h3 : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.h3, 2) : '--' },
+        { key: 'hrPer3', group: 'Per 3 Innings', label: 'HR/3', sortValue: (row) => row.pitching.hrPer3, value: (row) => formatDecimal(row.pitching.hrPer3, 2) },
+        { key: 'kPct', group: 'Strikeouts & Walks', label: 'K%', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.kPct : null, value: (row) => qualifiesAdvancedPitching(row) ? formatPercent(row.advancedPitching.kPct, 1) : '--' },
+        { key: 'bbPct', group: 'Strikeouts & Walks', label: 'BB%', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.bbPct : null, value: (row) => qualifiesAdvancedPitching(row) ? formatPercent(row.advancedPitching.bbPct, 1) : '--' },
+        { key: 'kBB', group: 'Strikeouts & Walks', label: 'K/BB', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.kBB : null, value: (row) => qualifiesAdvancedPitching(row) ? formatDecimal(row.advancedPitching.kBB, 2) : '--' },
+        { key: 'babipAllowed', group: 'Contact', label: 'BABIP Allowed', sortValue: (row) => qualifiesAdvancedPitching(row) ? row.advancedPitching.babipAllowed : null, value: (row) => qualifiesAdvancedPitching(row) ? formatAverageStyle(row.advancedPitching.babipAllowed) : '--' },
+        { key: 'oppRispAvg', group: 'Contact', label: 'Opp RISP AVG', sortValue: (row) => row.pitchingRisp.atBats ? row.pitchingRisp.avg : null, value: (row) => formatOptionalRate(row.pitchingRisp.atBats ? row.pitchingRisp.avg : null) },
+      ],
+      'pitching.batted_ball': [
+        { key: 'bip', group: 'Sample', label: 'BIP Allowed', sortValue: (row) => row.pitchingBattedBall.total, value: (row) => row.pitchingBattedBall.total },
+        countOrRate('ld', 'Trajectory', 'LD', (row) => row.pitchingBattedBall.lineDrives, (row) => row.pitchingBattedBall.ldRate),
+        countOrRate('gb', 'Trajectory', 'GB', (row) => row.pitchingBattedBall.groundBalls, (row) => row.pitchingBattedBall.gbRate),
+        countOrRate('fb', 'Trajectory', 'FB', (row) => row.pitchingBattedBall.flyBalls, (row) => row.pitchingBattedBall.fbRate),
+        countOrRate('pull', 'Direction', 'Pull', (row) => row.pitchingSpray.pull, (row) => row.pitchingSpray.pullRate),
+        countOrRate('ctr', 'Direction', 'Ctr', (row) => row.pitchingSpray.center, (row) => row.pitchingSpray.centerRate),
+        countOrRate('oppo', 'Direction', 'Oppo', (row) => row.pitchingSpray.oppo, (row) => row.pitchingSpray.oppoRate),
+        ...contactAllowedCols((row) => row.pitchingExitVelo, (row) => row.pitchingContactQuality),
+        ...locationCols((row) => row.pitchingHitLocations),
+      ],
+      'pitching.expected': [
+        { key: 'pa', group: 'Sample', label: 'BF', sortValue: (row) => row.pitchingBf, value: (row) => row.pitchingBf },
+        { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.expectedPitching.sampleSize, value: (row) => row.expectedPitching.sampleSize },
+        { key: 'xBA', group: 'Expected Allowed', label: 'xBAA', sortValue: (row) => row.expectedPitching.xBAAllowed, value: (row) => row.expectedPitching.xBAAllowed != null ? formatAverageStyle(row.expectedPitching.xBAAllowed) : '-' },
+        { key: 'xSLG', group: 'Expected Allowed', label: 'xSLGA', sortValue: (row) => row.expectedPitching.xSLGAllowed, value: (row) => row.expectedPitching.xSLGAllowed != null ? formatAverageStyle(row.expectedPitching.xSLGAllowed) : '-' },
+        { key: 'xwOBA', group: 'Expected Allowed', label: 'xwOBAA', sortValue: (row) => row.expectedPitching.xwOBAAllowed, value: (row) => row.expectedPitching.xwOBAAllowed != null ? formatAverageStyle(row.expectedPitching.xwOBAAllowed) : '-' },
+      ],
+      'pitching.pitch_mix': [
+        { key: 'bf', group: 'Usage', label: 'BF', sortValue: (row) => row.pitchingBf, value: (row) => row.pitchingBf },
+        { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.pitchMix.totalPitches, value: (row) => row.pitchMix.totalPitches },
+        { key: 'pitchesPerBatter', group: 'Usage', label: 'P/BF', sortValue: (row) => row.pitchMix.pitchesPerBatter, value: (row) => formatDecimal(row.pitchMix.pitchesPerBatter, 2) },
+        { key: 'avgVelo', group: 'Velocity', label: 'Avg Velo', sortValue: (row) => row.pitchMix.averageVelocityMph, value: (row) => row.pitchMix.averageVelocityMph != null ? `${formatDecimal(row.pitchMix.averageVelocityMph, 1)} mph` : '-' },
+        { key: 'maxVelo', group: 'Velocity', label: 'Max Velo', sortValue: (row) => row.pitchMix.maxVelocityMph, value: (row) => row.pitchMix.maxVelocityMph != null ? `${formatDecimal(row.pitchMix.maxVelocityMph, 1)} mph` : '-' },
+        { key: 'trackedPct', group: 'Velocity', label: 'Tracked %', sortValue: (row) => row.pitchMix.trackingCoverage, value: (row) => row.pitchMix.trackingCoverage != null ? formatPercent(row.pitchMix.trackingCoverage) : '-' },
+        { key: 'strikeRate', group: 'Zone', label: 'Strike%', sortValue: (row) => row.pitchMix.strikeRate, value: (row) => formatPercent(row.pitchMix.strikeRate) },
+        { key: 'ballRate', group: 'Zone', label: 'Ball%', sortValue: (row) => row.pitchMix.ballRate, value: (row) => formatPercent(row.pitchMix.ballRate) },
+        { key: 'firstPitchStrikeRate', group: 'Zone', label: '1stStr%', sortValue: (row) => row.pitchMix.firstPitchStrikeRate, value: (row) => formatPercent(row.pitchMix.firstPitchStrikeRate) },
+        { key: 'swingingMissRate', group: 'Miss', label: 'Whiff%', sortValue: (row) => row.pitchMix.swingingMissRate, value: (row) => formatPercent(row.pitchMix.swingingMissRate) },
+        { key: 'foulRate', group: 'Miss', label: 'Foul%', sortValue: (row) => row.pitchMix.foulRate, value: (row) => formatPercent(row.pitchMix.foulRate) },
+      ],
+      'pitching.stars': [
+        { key: 'starPitchUsed', group: 'Star Pitches', label: <><StarIcon />PA</>, sortValue: (row) => row.starPitch.used, value: (row) => row.starPitch.used },
+        { key: 'starPitchPaUsed', group: 'Star Pitches', label: <><StarIcon />PPA</>, sortValue: (row) => row.starPitch.paUsed, value: (row) => row.starPitch.paUsed },
+        { key: 'starPitchOuts', group: 'Star Pitches', label: <><StarIcon />PO</>, sortValue: (row) => row.starPitch.outsOnStarPitch, value: (row) => row.starPitch.outsOnStarPitch },
+        { key: 'starPitchHits', group: 'Star Pitches', label: <><StarIcon />PH</>, sortValue: (row) => row.starPitch.hitsAllowedOnStarPitch, value: (row) => row.starPitch.hitsAllowedOnStarPitch },
+        { key: 'starPitchSuccessRate', group: 'Star Pitches', label: <><StarIcon />P%</>, sortValue: (row) => row.starPitch.successRate, value: (row) => formatPercent(row.starPitch.successRate, 1) },
+        { key: 'starPitchOppAvg', group: 'Star Pitches', label: <><StarIcon />OppAVG</>, sortValue: (row) => row.starPitch.oppSlashLine.avg, value: (row) => formatDecimal(row.starPitch.oppSlashLine.avg) },
+        { key: 'starPitchOppObp', group: 'Star Pitches', label: <><StarIcon />OppOBP</>, sortValue: (row) => row.starPitch.oppSlashLine.obp, value: (row) => formatDecimal(row.starPitch.oppSlashLine.obp) },
+        { key: 'starPitchOppSlg', group: 'Star Pitches', label: <><StarIcon />OppSLG</>, sortValue: (row) => row.starPitch.oppSlashLine.slg, value: (row) => formatDecimal(row.starPitch.oppSlashLine.slg) },
+        { key: 'starPitchOppOps', group: 'Star Pitches', label: <><StarIcon />OppOPS</>, sortValue: (row) => row.starPitch.oppSlashLine.ops, value: (row) => formatDecimal(row.starPitch.oppSlashLine.ops) },
+        { key: 'starPitchAvgExitVeloAllowed', group: 'Star Pitches', label: <><StarIcon />Avg EV</>, sortValue: (row) => row.starPitch.avgExitVeloAllowed ?? -1, value: (row) => row.starPitch.avgExitVeloAllowed != null ? `${row.starPitch.avgExitVeloAllowed} mph` : '-' },
+        { key: 'starPitchAvgLaunchAngleAllowed', group: 'Star Pitches', label: <><StarIcon />Avg LA</>, sortValue: (row) => row.starPitch.avgLaunchAngleAllowed ?? -999, value: (row) => row.starPitch.avgLaunchAngleAllowed != null ? `${row.starPitch.avgLaunchAngleAllowed}°` : '-' },
+        { key: 'starPitchAvgDistanceAllowed', group: 'Star Pitches', label: <><StarIcon />Avg Dist</>, sortValue: (row) => row.starPitch.avgDistanceAllowed ?? -1, value: (row) => row.starPitch.avgDistanceAllowed != null ? `${row.starPitch.avgDistanceAllowed} ft` : '-' },
+      ],
+      'fielding.standard': [
+        { key: 'games', group: 'Fielding', label: 'G', sortValue: (row) => row.fielding.games, value: (row) => row.fielding.games },
+        { key: 'chances', group: 'Fielding', label: 'Chances', sortValue: (row) => row.fielding.chances, value: (row) => row.fielding.chances },
+        { key: 'putouts', group: 'Fielding', label: 'PO', sortValue: (row) => row.fielding.putouts, value: (row) => row.fielding.putouts },
+        { key: 'assists', group: 'Fielding', label: 'A', sortValue: (row) => row.fielding.assists, value: (row) => row.fielding.assists },
+        { key: 'errors', group: 'Fielding', label: 'E', sortValue: (row) => row.fielding.errors, value: (row) => row.fielding.errors },
+        { key: 'fieldingPct', group: 'Fielding', label: 'FLD%', sortValue: (row) => row.fielding.fieldingPct, value: (row) => formatAverageStyle(row.fielding.fieldingPct) },
+        { key: 'rangeFactor', group: 'Efficiency', label: 'Range Factor', sortValue: (row) => row.fielding.rangeFactor, value: (row) => formatDecimal(row.fielding.rangeFactor, 2) },
+        { key: 'der', only: 'players', group: 'Efficiency', label: 'DER', sortValue: (row) => row.fielding.defensiveEfficiency, value: (row) => row.fielding.defensiveEfficiency != null ? formatAverageStyle(row.fielding.defensiveEfficiency) : '—' },
+        { key: 'buddyJumps', group: 'Highlights', label: 'BJ', sortValue: (row) => row.fielding.buddyJumps, value: (row) => row.fielding.buddyJumps },
+        { key: 'nicePlays', group: 'Highlights', label: 'Nice Plays', sortValue: (row) => row.fielding.nicePlays, value: (row) => row.fielding.nicePlays },
+        { key: 'nicePlayRate', group: 'Highlights', label: 'Nice Play %', sortValue: (row) => row.fielding.nicePlayRate, value: (row) => formatPercent(row.fielding.nicePlayRate, 1) },
+        { key: 'closePlays', group: 'Highlights', label: 'Close Plays', sortValue: (row) => row.fielding.closePlays, value: (row) => row.fielding.closePlays },
+        { key: 'closePlaysWon', group: 'Highlights', label: 'CP Won', sortValue: (row) => row.fielding.closePlaysWon, value: (row) => row.fielding.closePlaysWon },
+        { key: 'closePlaysLost', group: 'Highlights', label: 'CP Lost', sortValue: (row) => row.fielding.closePlaysLost, value: (row) => row.fielding.closePlaysLost },
+        { key: 'starHitErrors', group: 'Star Hits', label: <><StarIcon />E</>, sortValue: (row) => row.fielding.starHitErrors, value: (row) => row.fielding.starHitErrors },
+        { key: 'adjustedFieldingPct', group: 'Star Hits', label: <><StarIcon />Adj FLD%</>, sortValue: (row) => row.fielding.adjustedFieldingPct, value: (row) => formatAverageStyle(row.fielding.adjustedFieldingPct) },
+      ],
+      'fielding.range': [
+        { key: 'rangeRuns', group: 'Range', label: 'Range Runs', sortValue: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES ? row.fielding.rangeRuns : null), value: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES && row.fielding.rangeRuns != null ? (row.fielding.rangeRuns > 0 ? `+${row.fielding.rangeRuns}` : row.fielding.rangeRuns) : '—') },
+        { key: 'rangeFactorPlus', group: 'Range', label: 'Range+', sortValue: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES ? row.fielding.rangeFactorPlus : null), value: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES && row.fielding.rangeFactorPlus != null ? row.fielding.rangeFactorPlus : '—') },
+        { key: 'rangeConfidence', group: 'Range', label: 'Rng Conf', sortValue: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES ? row.fielding.rangeConfidence : null), value: (row) => (row.fielding.rangeable >= MIN_RANGE_CHANCES && row.fielding.rangeConfidence != null ? `${row.fielding.rangeConfidence}%` : '—') },
+        { key: 'oaaSamples', group: 'Outs Above Average', label: 'OAA Opp', sortValue: (row) => row.fielding.fieldingOpportunities, value: (row) => row.fielding.fieldingOpportunities ?? '—' },
+        { key: 'actualOuts', group: 'Outs Above Average', label: 'Actual Outs', sortValue: (row) => row.fielding.actualOuts, value: (row) => row.fielding.fieldingOpportunities ? row.fielding.actualOuts : '—' },
+        { key: 'expectedOuts', group: 'Outs Above Average', label: 'Expected Outs', sortValue: (row) => row.fielding.fieldingOpportunities ? row.fielding.expectedOuts : null, value: (row) => row.fielding.fieldingOpportunities ? formatDecimal(row.fielding.expectedOuts, 2) : '—' },
+        { key: 'oaa', group: 'Outs Above Average', label: 'OAA', sortValue: (row) => row.fielding.fieldingOpportunities ? row.fielding.outsAboveAverage : null, value: (row) => row.fielding.fieldingOpportunities ? formatSignedAverageStyle(row.fielding.outsAboveAverage, 2) : '—' },
+        { key: 'frv', group: 'Outs Above Average', label: 'FRV', sortValue: (row) => row.fielding.fieldingRunValue, value: (row) => row.fielding.fieldingRunValue != null ? formatSignedAverageStyle(row.fielding.fieldingRunValue, 2) : '—' },
+        directionalOaa('oaaBackLeft', 'back_left', 'Back-L OAA'),
+        directionalOaa('oaaBack', 'back', 'Back OAA'),
+        directionalOaa('oaaBackRight', 'back_right', 'Back-R OAA'),
+        directionalOaa('oaaInLeft', 'in_left', 'In-L OAA'),
+        directionalOaa('oaaIn', 'in', 'In OAA'),
+        directionalOaa('oaaInRight', 'in_right', 'In-R OAA'),
+      ],
+      'fielding.arm': [
+        { key: 'trackedThrows', group: 'Throws', label: 'Throws', sortValue: (row) => row.fielding.throws, value: (row) => row.fielding.throws ?? '—' },
+        { key: 'armStrength', group: 'Throws', label: 'Arm Strength', sortValue: (row) => row.fielding.armStrengthMph, value: (row) => row.fielding.armStrengthMph != null ? `${formatDecimal(row.fielding.armStrengthMph, 1)} mph` : '—' },
+        { key: 'maxThrow', group: 'Throws', label: 'Max Throw', sortValue: (row) => row.fielding.hardestThrowMph, value: (row) => row.fielding.hardestThrowMph != null ? `${formatDecimal(row.fielding.hardestThrowMph, 1)} mph` : '—' },
+        { key: 'buddyThrows', group: 'Buddy Throws', label: 'Buddy Throws', sortValue: (row) => row.fielding.buddyThrows, value: (row) => row.fielding.buddyThrows ?? '—' },
+        { key: 'maxBuddyThrow', group: 'Buddy Throws', label: 'Max Buddy', sortValue: (row) => row.fielding.hardestBuddyThrowMph, value: (row) => row.fielding.hardestBuddyThrowMph != null ? `${formatDecimal(row.fielding.hardestBuddyThrowMph, 1)} mph` : '—' },
+        { key: 'armOpportunities', group: 'Runners', label: 'Arm Opp', sortValue: (row) => row.fielding.armOpportunities, value: (row) => row.fielding.armOpportunities ?? '—' },
+        { key: 'armHolds', group: 'Runners', label: 'Holds', sortValue: (row) => row.fielding.armHolds, value: (row) => row.fielding.armHolds || 0 },
+        { key: 'armKills', group: 'Runners', label: 'Runner Outs', sortValue: (row) => row.fielding.armKills, value: (row) => row.fielding.armKills || 0 },
+        { key: 'armAdvances', group: 'Runners', label: 'Adv Allowed', sortValue: (row) => row.fielding.armAdvances, value: (row) => row.fielding.armAdvances ?? '—' },
+        { key: 'armValue', group: 'Runners', label: 'Arm Value', sortValue: (row) => row.fielding.armOpportunities ? row.fielding.armValue : null, value: (row) => row.fielding.armOpportunities ? formatSignedAverageStyle(row.fielding.armValue, 2) : '—' },
+        { key: 'dpOpps', group: 'Double Plays', label: 'DP Opp', sortValue: (row) => row.fielding.doublePlayOpportunities, value: (row) => row.fielding.doublePlayOpportunities || 0 },
+        { key: 'doublePlays', group: 'Double Plays', label: 'DP', sortValue: (row) => row.fielding.doublePlays, value: (row) => row.fielding.doublePlays || 0 },
+        { key: 'dpAdded', group: 'Double Plays', label: 'DP Added', sortValue: (row) => row.fielding.doublePlayOpportunities ? row.fielding.doublePlaysAdded : null, value: (row) => row.fielding.doublePlayOpportunities ? formatSignedAverageStyle(row.fielding.doublePlaysAdded, 2) : '—' },
+        { key: 'dpRuns', group: 'Double Plays', label: 'DP Runs', sortValue: (row) => row.fielding.doublePlayOpportunities ? row.fielding.doublePlayRuns : null, value: (row) => row.fielding.doublePlayOpportunities ? formatSignedAverageStyle(row.fielding.doublePlayRuns, 2) : '—' },
+      ],
+      'fielding.jump': [
+        { key: 'jumpSamples', group: 'Jump', label: 'Jump Samples', sortValue: (row) => row.fielding.jumpSamples, value: (row) => row.fielding.jumpSamples ?? '—' },
+        { key: 'jump', group: 'Jump', label: 'Jump', sortValue: (row) => row.fielding.jumpDistanceFeet, value: (row) => row.fielding.jumpDistanceFeet != null ? `${formatDecimal(row.fielding.jumpDistanceFeet, 1)} ft` : '—' },
+        { key: 'jumpReaction', group: 'Jump', label: 'Reaction', sortValue: (row) => row.fielding.jumpReactionFeet, value: (row) => row.fielding.jumpReactionFeet == null ? '—' : `${formatDecimal(row.fielding.jumpReactionFeet, 1)} ft` },
+        { key: 'jumpBurst', group: 'Jump', label: 'Burst', sortValue: (row) => row.fielding.jumpBurstFeet, value: (row) => row.fielding.jumpBurstFeet == null ? '—' : `${formatDecimal(row.fielding.jumpBurstFeet, 1)} ft` },
+        { key: 'jumpRoute', group: 'Jump', label: 'Route Eff.', sortValue: (row) => row.fielding.jumpRouteEfficiency, value: (row) => row.fielding.jumpRouteEfficiency == null ? '—' : formatDecimal(row.fielding.jumpRouteEfficiency, 2) },
+        { key: 'positionSamples', group: 'Positioning', label: 'Position Samples', sortValue: (row) => row.fielding.positioningSamples, value: (row) => row.fielding.positioningSamples ?? '—' },
+        { key: 'positionDepth', group: 'Positioning', label: 'Depth', sortValue: (row) => row.fielding.averagePositionDepthFeet, value: (row) => row.fielding.averagePositionDepthFeet != null ? `${formatDecimal(row.fielding.averagePositionDepthFeet, 1)} ft` : '—' },
+        { key: 'positionAngle', group: 'Positioning', label: 'Angle', sortValue: (row) => row.fielding.averagePositionAngleDeg, value: (row) => row.fielding.averagePositionAngleDeg != null ? `${formatDecimal(row.fielding.averagePositionAngleDeg, 1)}°` : '—' },
+      ],
+      'baserunning.extra': [
+        { key: 'runs', group: 'Results', label: 'R', sortValue: (row) => row.batting.runs, value: (row) => row.batting.runs || 0 },
+        xbtCount('opportunities', 'XBT Opp'), xbtCount('holds', 'XBT Holds'), xbtCount('attempts', 'XBT Att'), xbtCount('advances', 'XBT Safe'), xbtCount('outs', 'XBT Outs'),
+        xbtRate('attemptRate', 'XBT Attempt %'), xbtRate('successRate', 'XBT Safe/Att'), xbtRate('safeRate', 'XBT Safe/Opp'),
+        ...[
+          ['first_to_third_on_single', '1st→3rd 1B'], ['second_to_home_on_single', '2nd→H 1B'],
+          ['first_to_home_on_double', '1st→H 2B'], ['tag_first_to_second', 'Tag 1st→2nd'],
+          ['tag_second_to_third', 'Tag 2nd→3rd'], ['tag_third_to_home', 'Tag 3rd→H'],
+        ].map(([type, label]) => xbtSplit(type, label)),
+        { key: 'modeled', group: 'Model', label: 'Modeled Opp', sortValue: (row) => row.baserunning.modeledOpportunities || 0, render: (row) => evidenceButton(row, 'modeledOpportunities', row.baserunning.modeledOpportunities || 0) },
+        { key: 'modelCoverage', group: 'Model', label: 'Modeled %', sortValue: (row) => row.baserunning.modeledCoverage, value: (row) => row.baserunning.modeledCoverage == null ? '—' : formatPercent(row.baserunning.modeledCoverage, 1) },
+        { key: 'rbaser', group: 'Model', label: 'Exp. Rbaser', sortValue: (row) => row.baserunning.baserunningRunValue, value: (row) => row.baserunning.baserunningRunValue == null ? '—' : formatSignedAverageStyle(row.baserunning.baserunningRunValue, 2) },
+        // The runner's half of a close play. CP Won here is the ball knocked
+        // loose, which is the same event as the fielder's CP Lost on the
+        // Fielding line -- read from the other end.
+        { key: 'closePlaysRun', group: 'Close Plays', label: 'CP', sortValue: (row) => row.baserunning.closePlaysRun, value: (row) => row.baserunning.closePlaysRun || 0 },
+        { key: 'closePlaysRunWon', group: 'Close Plays', label: 'CP Won', sortValue: (row) => row.baserunning.closePlaysRunWon, value: (row) => row.baserunning.closePlaysRunWon || 0 },
+        { key: 'closePlaysRunLost', group: 'Close Plays', label: 'CP Lost', sortValue: (row) => row.baserunning.closePlaysRunLost, value: (row) => row.baserunning.closePlaysRunLost || 0 },
+      ],
+      'baserunning.speed': [
+        { key: 'speedSamples', group: 'Sprint', label: 'Speed Runs', sortValue: (row) => row.movement.speedSamples, value: (row) => row.movement.speedSamples || 0 },
+        { key: 'sprintSpeed', group: 'Sprint', label: 'Sprint Speed', sortValue: (row) => row.movement.sprintSpeedFps, value: (row) => row.movement.sprintSpeedFps == null ? '—' : `${formatDecimal(row.movement.sprintSpeedFps * FEET_PER_SECOND_TO_MPH, 1)} mph` },
+        { key: 'maxSprintSpeed', group: 'Sprint', label: 'Max Speed', sortValue: (row) => row.movement.maxSprintSpeedFps, value: (row) => row.movement.maxSprintSpeedFps == null ? '—' : `${formatDecimal(row.movement.maxSprintSpeedFps * FEET_PER_SECOND_TO_MPH, 1)} mph` },
+        { key: 'bolts', group: 'Sprint', label: 'Bolts', sortValue: (row) => row.movement.speedSamples ? row.movement.bolts : null, value: (row) => row.movement.speedSamples ? row.movement.bolts : '—' },
+        { key: 'homeToFirstSamples', group: 'Home to First', label: 'H→1 Samples', sortValue: (row) => row.movement.homeToFirstSamples, value: (row) => row.movement.homeToFirstSamples || 0 },
+        { key: 'homeToFirst', group: 'Home to First', label: 'Home-to-First', sortValue: (row) => row.movement.homeToFirstSeconds == null ? null : -row.movement.homeToFirstSeconds, value: (row) => row.movement.homeToFirstSeconds == null ? '—' : `${formatDecimal(row.movement.homeToFirstSeconds, 2)} s` },
+        { key: 'ninetySamples', group: '90 Feet', label: '90-ft Samples', sortValue: (row) => row.movement.ninetyFootSplitSamples, value: (row) => row.movement.ninetyFootSplitSamples || 0 },
+        { key: 'ninetySplit', group: '90 Feet', label: '90-ft Split', sortValue: (row) => row.movement.ninetyFootSplitSeconds == null ? null : -row.movement.ninetyFootSplitSeconds, value: (row) => row.movement.ninetyFootSplitSeconds == null ? '—' : `${formatDecimal(row.movement.ninetyFootSplitSeconds, 2)} s` },
+      ],
+      'events.gimmick': [
+        { key: 'luckScore', group: 'Gimmick Luck', label: 'Net', sortValue: (row) => row.gimmickLuck.luckScore, render: (row) => <ValueBadge color={getLuckColor(row.gimmickLuck.luckScore)} value={formatGimmickLuckScore(row.gimmickLuck.luckScore)} /> },
+        { key: 'luckyEvents', group: 'Gimmick Luck', label: 'Lucky', sortValue: (row) => row.gimmickLuck.luckyEvents, value: (row) => row.gimmickLuck.luckyEvents },
+        { key: 'unluckyEvents', group: 'Gimmick Luck', label: 'Unlucky', sortValue: (row) => row.gimmickLuck.unluckyEvents, value: (row) => row.gimmickLuck.unluckyEvents },
+        { key: 'luckRuns', group: 'Stadium Runs', label: 'Runs', sortValue: (row) => (row.gimmickLuck.pricedPlays ? row.gimmickLuck.luckRuns : null), render: (row) => <ValueBadge color={getLuckColor(row.gimmickLuck.luckRuns)} value={formatGimmickLuckRuns(row.gimmickLuck.luckRuns, row.gimmickLuck.pricedPlays)} /> },
+        { key: 'pricedPlays', group: 'Stadium Runs', label: 'Priced', sortValue: (row) => row.gimmickLuck.pricedPlays, value: (row) => row.gimmickLuck.pricedPlays },
+        { key: 'totalEvents', group: 'Exposure', label: 'Touches', sortValue: (row) => row.gimmickLuck.totalEvents, value: (row) => row.gimmickLuck.totalEvents },
+        { key: 'affectedPlays', group: 'Exposure', label: 'Plays', sortValue: (row) => row.gimmickLuck.affectedPlays, value: (row) => row.gimmickLuck.affectedPlays },
+        { key: 'gimmickTypes', group: 'Evidence', label: 'Detected gimmicks', sortValue: (row) => row.gimmickLuck.gimmickTypes.length, value: (row) => row.gimmickLuck.gimmickTypes.join(', ') || '-' },
+      ],
+    }
+  }, [locationDisplayMode])
 
-  const expectedPitchingCols = useMemo(() => [
-    playerIdentityCol,
-    { key: 'pa', group: 'Sample', label: 'BF', sortValue: (row) => row.pitchingBf, value: (row) => row.pitchingBf },
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.expectedPitching.sampleSize, value: (row) => row.expectedPitching.sampleSize },
-    { key: 'xBA', group: 'Expected Allowed', label: 'xBAA', sortValue: (row) => row.expectedPitching.xBAAllowed, value: (row) => row.expectedPitching.xBAAllowed != null ? formatAverageStyle(row.expectedPitching.xBAAllowed) : '-' },
-    { key: 'xSLG', group: 'Expected Allowed', label: 'xSLGA', sortValue: (row) => row.expectedPitching.xSLGAllowed, value: (row) => row.expectedPitching.xSLGAllowed != null ? formatAverageStyle(row.expectedPitching.xSLGAllowed) : '-' },
-    { key: 'xwOBA', group: 'Expected Allowed', label: 'xwOBAA', sortValue: (row) => row.expectedPitching.xwOBAAllowed, value: (row) => row.expectedPitching.xwOBAAllowed != null ? formatAverageStyle(row.expectedPitching.xwOBAAllowed) : '-' },
-  ], [identitiesByPlayerId, playersById])
+  const columnsForSet = useCallback((setKey, identity) => {
+    const metrics = (metricsBySet[setKey] || []).filter((column) => !column.only || column.only === identity)
+    if (identity === 'players') return [playerIdentityCol, ...metrics]
+    return [charIdentityCol, ...metrics, ...(findStatsSet(setKey)?.owner ? [ownerCol] : [])]
+  }, [charIdentityCol, metricsBySet, ownerCol, playerIdentityCol])
 
-  const expectedPitchingCharCols = useMemo(() => [
-    charIdentityCol,
-    { key: 'pa', group: 'Sample', label: 'BF', sortValue: (row) => row.pitchingBf, value: (row) => row.pitchingBf },
-    { key: 'bip', group: 'Sample', label: 'BIP', sortValue: (row) => row.expectedPitching.sampleSize, value: (row) => row.expectedPitching.sampleSize },
-    { key: 'xBA', group: 'Expected Allowed', label: 'xBAA', sortValue: (row) => row.expectedPitching.xBAAllowed, value: (row) => row.expectedPitching.xBAAllowed != null ? formatAverageStyle(row.expectedPitching.xBAAllowed) : '-' },
-    { key: 'xSLG', group: 'Expected Allowed', label: 'xSLGA', sortValue: (row) => row.expectedPitching.xSLGAllowed, value: (row) => row.expectedPitching.xSLGAllowed != null ? formatAverageStyle(row.expectedPitching.xSLGAllowed) : '-' },
-    { key: 'xwOBA', group: 'Expected Allowed', label: 'xwOBAA', sortValue: (row) => row.expectedPitching.xwOBAAllowed, value: (row) => row.expectedPitching.xwOBAAllowed != null ? formatAverageStyle(row.expectedPitching.xwOBAAllowed) : '-' },
-  ], [])
-
-  const discBattingPlayerCols = useMemo(() => [
-    playerIdentityCol,
-    { key: 'pa', group: 'Usage', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
-    { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.plateDiscipline.totalPitches, value: (row) => row.plateDiscipline.totalPitches },
-    { key: 'pitchesPerPa', group: 'Usage', label: 'P/PA', sortValue: (row) => row.plateDiscipline.pitchesPerPa, value: (row) => formatDecimal(row.plateDiscipline.pitchesPerPa, 2) },
-    { key: 'whiffRate', group: 'Contact', label: 'Whiff%', sortValue: (row) => row.plateDiscipline.whiffRate, value: (row) => formatPercent(row.plateDiscipline.whiffRate) },
-    { key: 'foulRate', group: 'Contact', label: 'Foul%', sortValue: (row) => row.plateDiscipline.foulRate, value: (row) => formatPercent(row.plateDiscipline.foulRate) },
-    { key: 'kRate', group: 'Strikeouts', label: 'K%', sortValue: (row) => row.plateDiscipline.kRate, value: (row) => formatPercent(row.plateDiscipline.kRate) },
-    { key: 'ksRate', group: 'Strikeouts', label: 'KS%', sortValue: (row) => row.plateDiscipline.ksRate, value: (row) => formatPercent(row.plateDiscipline.ksRate) },
-    { key: 'klRate', group: 'Strikeouts', label: 'KL%', sortValue: (row) => row.plateDiscipline.klRate, value: (row) => formatPercent(row.plateDiscipline.klRate) },
-    { key: 'bbRate', group: 'Walks', label: 'BB%', sortValue: (row) => row.plateDiscipline.bbRate, value: (row) => formatPercent(row.plateDiscipline.bbRate) },
-  ], [identitiesByPlayerId, playersById])
-
-  const discPitchingPlayerCols = useMemo(() => [
-    playerIdentityCol,
-    { key: 'bf', group: 'Usage', label: 'BF', sortValue: (row) => row.pitchingBf, value: (row) => row.pitchingBf },
-    { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.pitchMix.totalPitches, value: (row) => row.pitchMix.totalPitches },
-    { key: 'avgVelo', group: 'Tracking', label: 'Avg Velo', sortValue: (row) => row.pitchMix.averageVelocityMph, value: (row) => row.pitchMix.averageVelocityMph != null ? `${formatDecimal(row.pitchMix.averageVelocityMph, 1)} mph` : '-' },
-    { key: 'maxVelo', group: 'Tracking', label: 'Max Velo', sortValue: (row) => row.pitchMix.maxVelocityMph, value: (row) => row.pitchMix.maxVelocityMph != null ? `${formatDecimal(row.pitchMix.maxVelocityMph, 1)} mph` : '-' },
-    { key: 'trackedPct', group: 'Tracking', label: 'Tracked %', sortValue: (row) => row.pitchMix.trackingCoverage, value: (row) => row.pitchMix.trackingCoverage != null ? formatPercent(row.pitchMix.trackingCoverage) : '-' },
-    { key: 'pitchesPerBatter', group: 'Usage', label: 'P/BF', sortValue: (row) => row.pitchMix.pitchesPerBatter, value: (row) => formatDecimal(row.pitchMix.pitchesPerBatter, 2) },
-    { key: 'strikeRate', group: 'Zone', label: 'Strike%', sortValue: (row) => row.pitchMix.strikeRate, value: (row) => formatPercent(row.pitchMix.strikeRate) },
-    { key: 'ballRate', group: 'Zone', label: 'Ball%', sortValue: (row) => row.pitchMix.ballRate, value: (row) => formatPercent(row.pitchMix.ballRate) },
-    { key: 'firstPitchStrikeRate', group: 'Zone', label: '1stStr%', sortValue: (row) => row.pitchMix.firstPitchStrikeRate, value: (row) => formatPercent(row.pitchMix.firstPitchStrikeRate) },
-    { key: 'swingingMissRate', group: 'Miss', label: 'Whiff%', sortValue: (row) => row.pitchMix.swingingMissRate, value: (row) => formatPercent(row.pitchMix.swingingMissRate) },
-    { key: 'foulRate', group: 'Miss', label: 'Foul%', sortValue: (row) => row.pitchMix.foulRate, value: (row) => formatPercent(row.pitchMix.foulRate) },
-  ], [identitiesByPlayerId, playersById])
-
-  const discBattingCharCols = useMemo(() => [
-    charIdentityCol,
-    { key: 'pa', group: 'Usage', label: 'PA', sortValue: (row) => row.batting.plateAppearances, value: (row) => row.batting.plateAppearances },
-    { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.plateDiscipline.totalPitches, value: (row) => row.plateDiscipline.totalPitches },
-    { key: 'pitchesPerPa', group: 'Usage', label: 'P/PA', sortValue: (row) => row.plateDiscipline.pitchesPerPa, value: (row) => formatDecimal(row.plateDiscipline.pitchesPerPa, 2) },
-    { key: 'whiffRate', group: 'Contact', label: 'Whiff%', sortValue: (row) => row.plateDiscipline.whiffRate, value: (row) => formatPercent(row.plateDiscipline.whiffRate) },
-    { key: 'foulRate', group: 'Contact', label: 'Foul%', sortValue: (row) => row.plateDiscipline.foulRate, value: (row) => formatPercent(row.plateDiscipline.foulRate) },
-    { key: 'kRate', group: 'Strikeouts', label: 'K%', sortValue: (row) => row.plateDiscipline.kRate, value: (row) => formatPercent(row.plateDiscipline.kRate) },
-    { key: 'ksRate', group: 'Strikeouts', label: 'KS%', sortValue: (row) => row.plateDiscipline.ksRate, value: (row) => formatPercent(row.plateDiscipline.ksRate) },
-    { key: 'klRate', group: 'Strikeouts', label: 'KL%', sortValue: (row) => row.plateDiscipline.klRate, value: (row) => formatPercent(row.plateDiscipline.klRate) },
-    { key: 'bbRate', group: 'Walks', label: 'BB%', sortValue: (row) => row.plateDiscipline.bbRate, value: (row) => formatPercent(row.plateDiscipline.bbRate) },
-  ], [])
-
-  const discPitchingCharCols = useMemo(() => [
-    charIdentityCol,
-    { key: 'bf', group: 'Usage', label: 'BF', sortValue: (row) => row.pitchingBf, value: (row) => row.pitchingBf },
-    { key: 'pitches', group: 'Usage', label: 'Pitches', sortValue: (row) => row.pitchMix.totalPitches, value: (row) => row.pitchMix.totalPitches },
-    { key: 'avgVelo', group: 'Tracking', label: 'Avg Velo', sortValue: (row) => row.pitchMix.averageVelocityMph, value: (row) => row.pitchMix.averageVelocityMph != null ? `${formatDecimal(row.pitchMix.averageVelocityMph, 1)} mph` : '-' },
-    { key: 'maxVelo', group: 'Tracking', label: 'Max Velo', sortValue: (row) => row.pitchMix.maxVelocityMph, value: (row) => row.pitchMix.maxVelocityMph != null ? `${formatDecimal(row.pitchMix.maxVelocityMph, 1)} mph` : '-' },
-    { key: 'trackedPct', group: 'Tracking', label: 'Tracked %', sortValue: (row) => row.pitchMix.trackingCoverage, value: (row) => row.pitchMix.trackingCoverage != null ? formatPercent(row.pitchMix.trackingCoverage) : '-' },
-    { key: 'pitchesPerBatter', group: 'Usage', label: 'P/BF', sortValue: (row) => row.pitchMix.pitchesPerBatter, value: (row) => formatDecimal(row.pitchMix.pitchesPerBatter, 2) },
-    { key: 'strikeRate', group: 'Zone', label: 'Strike%', sortValue: (row) => row.pitchMix.strikeRate, value: (row) => formatPercent(row.pitchMix.strikeRate) },
-    { key: 'ballRate', group: 'Zone', label: 'Ball%', sortValue: (row) => row.pitchMix.ballRate, value: (row) => formatPercent(row.pitchMix.ballRate) },
-    { key: 'firstPitchStrikeRate', group: 'Zone', label: '1stStr%', sortValue: (row) => row.pitchMix.firstPitchStrikeRate, value: (row) => formatPercent(row.pitchMix.firstPitchStrikeRate) },
-    { key: 'swingingMissRate', group: 'Miss', label: 'Whiff%', sortValue: (row) => row.pitchMix.swingingMissRate, value: (row) => formatPercent(row.pitchMix.swingingMissRate) },
-    { key: 'foulRate', group: 'Miss', label: 'Foul%', sortValue: (row) => row.pitchMix.foulRate, value: (row) => formatPercent(row.pitchMix.foulRate) },
-  ], [])
+  const rowsForSet = useCallback((setKey, identity) => {
+    const set = findStatsSet(setKey)
+    const rows = identity === 'players' ? playerRows : characterRows
+    const include = ROW_FILTERS[set?.rows]
+    return include ? rows.filter(include) : rows
+  }, [characterRows, playerRows])
 
   const bpBattingPlayerCols = useMemo(() => [
     playerIdentityCol,
@@ -3594,19 +3111,7 @@ export default function Stats() {
     { key: 'whipDiff', group: 'Delta', label: 'WHIP Δ', defaultDirection: 'asc', sortValue: (row) => row.whipDiff, render: (row) => row.whipDiff != null ? renderDelta(-row.whipDiff, 2) : '-' },
   ], [])
 
-  const visiblePlayerRows = useMemo(() => {
-    if (playerView === PLAYER_VIEWS.batting) return playerRows.filter(hasBattingData)
-    if (playerView === PLAYER_VIEWS.pitching) return playerRows.filter(hasPitchingData)
-    return playerRows.filter(hasFieldingData)
-  }, [playerRows, playerView])
-
-  const visibleCharacterRows = useMemo(() => {
-    if (characterView === CHARACTER_VIEWS.batting) return characterRows.filter(hasBattingData)
-    if (characterView === CHARACTER_VIEWS.pitching) return characterRows.filter(hasPitchingData)
-    return characterRows.filter(hasFieldingData)
-  }, [characterRows, characterView])
-
-  // Finding one of ~50 characters (or one team) in a 40-column table meant scrolling the whole
+  // Finding one of ~50 characters (or one team) in a wide table meant scrolling the whole
   // thing. Matching is on the full name and on the abbreviated form the identity cell shows, so
   // typing what you can see works.
   const matchesOverviewFilter = useCallback(
@@ -3614,33 +3119,117 @@ export default function Stats() {
     [overviewFilter],
   )
 
-  const filteredPlayerRows = useMemo(
-    () => visiblePlayerRows.filter((row) => matchesOverviewFilter(teamRowLabel(row.playerId) || row.name)),
-    [visiblePlayerRows, matchesOverviewFilter, teamRowLabel],
+  const activeSection = STATS_SECTIONS.find((entry) => entry.id === section) || STATS_SECTIONS[0]
+  const activeSet = activeSection.sets.find((entry) => entry.id === setBySection[activeSection.id]) || activeSection.sets[0] || null
+  const activeSetKey = activeSet ? `${activeSection.id}.${activeSet.id}` : null
+  const activeSortKey = `${tab}:${activeSetKey}`
+  const activeSort = sorts[activeSortKey] || activeSet?.defaultSort || DEFAULT_SORT
+  const activeColumns = useMemo(
+    () => (activeSet?.table ? columnsForSet(activeSetKey, tab) : []),
+    [activeSet, activeSetKey, columnsForSet, tab],
   )
-  const filteredCharacterRows = useMemo(
-    () => visibleCharacterRows.filter((row) => matchesOverviewFilter(row.name)),
-    [visibleCharacterRows, matchesOverviewFilter],
+  const activeRows = useMemo(
+    () => (activeSet?.table ? rowsForSet(activeSetKey, tab) : []),
+    [activeSet, activeSetKey, rowsForSet, tab],
+  )
+  const filteredActiveRows = useMemo(() => (
+    activeSet?.filterable
+      ? activeRows.filter((row) => matchesOverviewFilter(tab === 'players' ? (teamRowLabel(row.playerId) || row.name) : row.name))
+      : activeRows
+  ), [activeRows, activeSet, matchesOverviewFilter, tab, teamRowLabel])
+  const sortedActiveRows = useMemo(
+    () => sortRows(filteredActiveRows, activeColumns, activeSort),
+    [filteredActiveRows, activeColumns, activeSort],
   )
 
-  // Names the minimum that produced the "--" cells in whichever overview table is on screen, so
-  // the reader can tell an unqualified rate from one that was never measured.
-  const overviewThresholdNote = useMemo(() => {
-    const discipline = tab === 'players' ? playerView : characterView
-    if (discipline === PLAYER_VIEWS.batting) return `Advanced rates need at least ${ADVANCED_BATTING_MIN_PA} PA.`
-    if (discipline === PLAYER_VIEWS.pitching) return `Advanced rates need at least ${ADVANCED_PITCHING_MIN_IP} IP.`
-    return null
-  }, [tab, playerView, characterView])
+  // On a phone the tab strip scrolls sideways, and a remembered tab can sit off-screen with
+  // nothing showing which table is open.
+  const setTabsRef = useRef(null)
+  useEffect(() => {
+    setTabsRef.current?.querySelector('.stats-set-tab-active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeSetKey])
 
-  const activePlayerColumns = useMemo(() => playerColumns[playerView], [playerColumns, playerView])
-  const activePlayerSort = playerSort
-  const sortedPlayerRows = useMemo(() => sortRows(filteredPlayerRows, activePlayerColumns, activePlayerSort), [filteredPlayerRows, activePlayerColumns, activePlayerSort])
-  const sortedCharacterRows = useMemo(() => sortRows(filteredCharacterRows, characterColumns[characterView], characterSort), [filteredCharacterRows, characterColumns, characterView, characterSort])
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams)
+    next.set('view', tab)
+    next.set('section', activeSection.id)
+    if (activeSet) next.set('set', activeSet.id)
+    else next.delete('set')
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
+  }, [activeSection.id, activeSet, searchParams, setSearchParams, tab])
+
+  const selectSet = useCallback((sectionId, setId) => {
+    setSetBySection((current) => ({ ...current, [sectionId]: setId }))
+  }, [])
+
+  const toggleActiveSort = (column) => {
+    setSorts((current) => {
+      const now = current[activeSortKey] || activeSet?.defaultSort || DEFAULT_SORT
+      const next = now.key === column.key
+        ? { key: column.key, direction: now.direction === 'asc' ? 'desc' : 'asc' }
+        : { key: column.key, direction: column.type === 'string' ? 'asc' : (column.defaultDirection || 'desc') }
+      return { ...current, [activeSortKey]: next }
+    })
+  }
+
+  const openLeaderTable = useCallback((setKey, sort) => {
+    const [sectionId, setId] = setKey.split('.')
+    setSection(sectionId)
+    selectSet(sectionId, setId)
+    if (sort) setSorts((current) => ({ ...current, [`${tab}:${setKey}`]: sort }))
+    window.scrollTo({ top: 0 })
+  }, [selectSet, tab])
+
+  const leaderCards = useMemo(() => {
+    if (section !== 'leaders') return []
+    const identityCol = tab === 'players' ? playerIdentityCol : charIdentityCol
+    return LEADER_CARDS.map((card) => ({
+      ...card,
+      stats: card.stats.map((stat) => {
+        if (stat.war) {
+          const warRows = (experimentalWar[tab] || [])
+            .filter((row) => Number.isFinite(row.war))
+            .sort((a, b) => b.war - a.war)
+            .slice(0, 5)
+          return {
+            id: 'war',
+            label: 'Exp. WAR',
+            onOpen: () => openLeaderTable('value.war'),
+            leaders: warRows.map((row) => ({
+              key: row.id,
+              identity: tab === 'players'
+                ? <PlayerTag height={STATS_PLAYER_TAG_HEIGHT} identitiesByPlayerId={identitiesByPlayerId} playerId={row.id} playersById={playersById} responsiveAbbreviation />
+                : <CharacterCell name={charactersById[row.id]?.name || row.id} to={characterPathFor(row.id)} />,
+              value: row.war.toFixed(2),
+            })),
+          }
+        }
+        const columns = columnsForSet(stat.set, tab)
+        const column = columns.find((entry) => entry.key === stat.key)
+        const sort = { key: stat.key, direction: stat.direction || 'desc' }
+        const leaders = sortRows(rowsForSet(stat.set, tab), columns, sort)
+          .filter((row) => {
+            const value = column.sortValue(row)
+            if (value == null || !Number.isFinite(Number(value))) return false
+            if (stat.positive && !(value > 0)) return false
+            return stat.qualify ? stat.qualify(row) : true
+          })
+          .slice(0, 5)
+        return {
+          id: `${stat.set}.${stat.key}`,
+          label: column.label,
+          onOpen: () => openLeaderTable(stat.set, sort),
+          leaders: leaders.map((row) => ({
+            key: tab === 'players' ? row.playerId : row.id,
+            identity: identityCol.render(row),
+            value: column.render ? column.render(row) : column.value(row),
+          })),
+        }
+      }),
+    }))
+  }, [section, tab, playerIdentityCol, charIdentityCol, experimentalWar, openLeaderTable, identitiesByPlayerId, playersById, charactersById, characterPathFor, columnsForSet, rowsForSet])
 
   const playerRowsWithBatting = useMemo(() => playerRows.filter(hasBattingData), [playerRows])
-  const playerRowsWithPitching = useMemo(() => playerRows.filter(hasPitchingData), [playerRows])
-  const characterRowsWithBatting = useMemo(() => characterRows.filter(hasBattingData), [characterRows])
-  const characterRowsWithPitching = useMemo(() => characterRows.filter(hasPitchingData), [characterRows])
   const sprayChartCountsByTeam = useMemo(() => {
     const counts = new Map()
     filteredPasWithCharacterNames.forEach((pa) => {
@@ -3677,30 +3266,6 @@ export default function Stats() {
     [activeSprayChartTeamId, filteredPasWithCharacterNames],
   )
 
-  const sortedBbBattingPlayer = useMemo(() => sortRows(playerRowsWithBatting, bbBattingCols, bbPlayerSort, 'name'), [playerRowsWithBatting, bbBattingCols, bbPlayerSort])
-  const sortedBbPitchingPlayer = useMemo(() => sortRows(playerRowsWithPitching, bbPitchingCols, bbPlayerSort, 'name'), [playerRowsWithPitching, bbPitchingCols, bbPlayerSort])
-  const sortedBbBattingChar = useMemo(() => sortRows(characterRowsWithBatting, bbBattingCharCols, bbCharacterSort, 'name'), [characterRowsWithBatting, bbBattingCharCols, bbCharacterSort])
-  const sortedBbPitchingChar = useMemo(() => sortRows(characterRowsWithPitching, bbPitchingCharCols, bbCharacterSort, 'name'), [characterRowsWithPitching, bbPitchingCharCols, bbCharacterSort])
-
-  const sortedPowerBattingPlayer = useMemo(() => sortRows(playerRowsWithBatting, powerBattingCols, powerPlayerSort, 'name'), [playerRowsWithBatting, powerBattingCols, powerPlayerSort])
-  const sortedPowerBattingChar = useMemo(() => sortRows(characterRowsWithBatting, powerBattingCharCols, powerCharacterSort, 'name'), [characterRowsWithBatting, powerBattingCharCols, powerCharacterSort])
-
-  const sortedExitVeloPlayer = useMemo(() => sortRows(playerRowsWithBatting, exitVeloCols, exitVeloPlayerSort, 'name'), [playerRowsWithBatting, exitVeloCols, exitVeloPlayerSort])
-  const sortedExitVeloChar = useMemo(() => sortRows(characterRowsWithBatting, exitVeloCharCols, exitVeloCharacterSort, 'name'), [characterRowsWithBatting, exitVeloCharCols, exitVeloCharacterSort])
-
-  const sortedContactQualityPlayer = useMemo(() => sortRows(playerRowsWithBatting, contactQualityCols, contactQualityPlayerSort, 'name'), [playerRowsWithBatting, contactQualityCols, contactQualityPlayerSort])
-  const sortedContactQualityChar = useMemo(() => sortRows(characterRowsWithBatting, contactQualityCharCols, contactQualityCharacterSort, 'name'), [characterRowsWithBatting, contactQualityCharCols, contactQualityCharacterSort])
-
-  const sortedExpectedPlayer = useMemo(() => sortRows(playerRowsWithBatting, expectedCols, expectedPlayerSort, 'name'), [playerRowsWithBatting, expectedCols, expectedPlayerSort])
-  const sortedExpectedChar = useMemo(() => sortRows(characterRowsWithBatting, expectedCharCols, expectedCharacterSort, 'name'), [characterRowsWithBatting, expectedCharCols, expectedCharacterSort])
-  const sortedExpectedPitchingPlayer = useMemo(() => sortRows(playerRowsWithPitching, expectedPitchingCols, expectedPlayerSort, 'name'), [playerRowsWithPitching, expectedPitchingCols, expectedPlayerSort])
-  const sortedExpectedPitchingChar = useMemo(() => sortRows(characterRowsWithPitching, expectedPitchingCharCols, expectedCharacterSort, 'name'), [characterRowsWithPitching, expectedPitchingCharCols, expectedCharacterSort])
-
-  const sortedDiscBattingPlayer = useMemo(() => sortRows(playerRowsWithBatting, discBattingPlayerCols, discPlayerSort, 'name'), [playerRowsWithBatting, discBattingPlayerCols, discPlayerSort])
-  const sortedDiscPitchingPlayer = useMemo(() => sortRows(playerRowsWithPitching, discPitchingPlayerCols, mixPlayerSort, 'name'), [playerRowsWithPitching, discPitchingPlayerCols, mixPlayerSort])
-  const sortedDiscBattingChar = useMemo(() => sortRows(characterRowsWithBatting, discBattingCharCols, discCharacterSort, 'name'), [characterRowsWithBatting, discBattingCharCols, discCharacterSort])
-  const sortedDiscPitchingChar = useMemo(() => sortRows(characterRowsWithPitching, discPitchingCharCols, mixCharacterSort, 'name'), [characterRowsWithPitching, discPitchingCharCols, mixCharacterSort])
-
   const sortedBpBattingPlayer = useMemo(() => sortRows(ballparkPlayerBattingRows, bpBattingPlayerCols, bpBattingPlayerSort, 'name'), [ballparkPlayerBattingRows, bpBattingPlayerCols, bpBattingPlayerSort])
   const sortedBpBattingChar = useMemo(() => sortRows(ballparkCharacterBattingRows, bpBattingCharCols, bpBattingCharacterSort, 'name'), [ballparkCharacterBattingRows, bpBattingCharCols, bpBattingCharacterSort])
   const sortedBpPitchingPlayer = useMemo(() => sortRows(ballparkPlayerPitchingRows, bpPitchingPlayerCols, bpPitchingPlayerSort, 'name'), [ballparkPlayerPitchingRows, bpPitchingPlayerCols, bpPitchingPlayerSort])
@@ -3709,52 +3274,6 @@ export default function Stats() {
   const sortedBpFactorsChar = useMemo(() => sortRows(charParkFactorRows, bpFactorsCharCols, bpFactorsCharSort, 'name'), [charParkFactorRows, bpFactorsCharCols, bpFactorsCharSort])
   const sortedBpFactorsPitTeam = useMemo(() => sortRows(teamParkFactorRows.filter((r) => r.parkIp > 0), bpFactorsPitTeamCols, bpFactorsPitTeamSort, 'name'), [teamParkFactorRows, bpFactorsPitTeamCols, bpFactorsPitTeamSort])
   const sortedBpFactorsPitChar = useMemo(() => sortRows(charParkFactorRows.filter((r) => r.parkIp > 0), bpFactorsPitCharCols, bpFactorsPitCharSort, 'name'), [charParkFactorRows, bpFactorsPitCharCols, bpFactorsPitCharSort])
-
-  const battingGlossary = [
-    { term: 'BABIP', definition: 'Batting average on balls in play, excluding strikeouts and home runs.' },
-    { term: 'ISO', definition: 'Isolated power, or slugging minus batting average.' },
-    { term: 'wOBA', definition: 'Weighted on-base average using linear weights for each offensive event.' },
-    { term: 'wRC+', definition: 'Run creation index relative to league average, where 100 is average.' },
-    { term: 'OPS+', definition: 'On-base plus slugging adjusted to league average, where 100 is average.' },
-    { term: 'K%', definition: 'Strikeouts divided by plate appearances.' },
-    { term: 'BB%', definition: 'Walks divided by plate appearances.' },
-    { term: 'BB/K', definition: 'Walk-to-strikeout ratio.' },
-    { term: 'XBH%', definition: 'Extra-base hit rate.' },
-    { term: 'HR/PA', definition: 'Home runs divided by plate appearances.' },
-    { term: 'RC/3', definition: 'Runs Created per 3-inning game (9 outs).' },
-  ]
-
-  const pitchingGlossary = [
-    { term: 'ERA/3', definition: 'Earned Run Average per 3-inning game (9 outs).' },
-    { term: 'FIP', definition: 'Fielding Independent Pitching scaled to the 3-inning environment.' },
-    { term: 'FIP-', definition: 'FIP relative to league average, where lower than 100 is better.' },
-    { term: 'ERA-', definition: 'ERA/3 relative to league average, where lower than 100 is better.' },
-    { term: 'WHIP', definition: 'Walks plus hits allowed per inning pitched.' },
-    { term: 'K/3', definition: 'Strikeouts per 3-inning game (9 outs).' },
-    { term: 'BB/3', definition: 'Walks per 3-inning game (9 outs).' },
-    { term: 'H/3', definition: 'Hits allowed per 3-inning game (9 outs).' },
-    { term: 'HR/3', definition: 'Home runs allowed per 3-inning game (9 outs).' },
-    { term: 'BABIP Allowed', definition: 'Approximate batting average on balls in play allowed.' },
-  ]
-
-  // The rail groups categories by discipline. The discipline header itself is
-  // the Overview action, while the child items jump straight into the
-  // discipline-specific subviews.
-  function selectStatsSection(discipline, view) {
-    const resolvedView = discipline === 'fielding' && view === 'stars' ? 'overview' : view
-    setStatDiscipline(discipline)
-    setStatView(resolvedView)
-    if (resolvedView === 'overview') {
-      setPlayerView(discipline)
-      setCharacterView(discipline)
-    } else if (resolvedView === 'batted_ball') {
-      setBbSubView(discipline)
-    } else if (resolvedView === 'discipline') {
-      setDiscSubView(discipline)
-    } else if (resolvedView === 'ballparks') {
-      setBallparkSubView(discipline)
-    }
-  }
 
   // Nothing has arrived yet: show the load/error state on its own rather than a rail wrapped
   // around 40 columns of "no stats found".
@@ -3833,334 +3352,182 @@ export default function Stats() {
             <button className={`stats-rail-toggle-btn ${tab === 'players' ? 'stats-rail-toggle-btn-active' : ''}`} onClick={() => setTab('players')} type="button">Players</button>
             <button className={`stats-rail-toggle-btn ${tab === 'characters' ? 'stats-rail-toggle-btn-active' : ''}`} onClick={() => setTab('characters')} type="button">Characters</button>
           </div>
-          <button className={`stats-rail-item ${statView === 'war' ? 'stats-rail-item-active' : ''}`} onClick={() => setStatView('war')} type="button">Experimental WAR</button>
           {isCompact ? (
             <div className="stats-rail-mobile-controls">
               <select
+                aria-label="Stats section"
                 className="stats-rail-scope-select"
-                value={statDiscipline}
-                onChange={(event) => selectStatsSection(event.target.value, 'overview')}
+                onChange={(event) => setSection(event.target.value)}
+                value={activeSection.id}
               >
-                <option value="batting">Batting</option>
-                <option value="pitching">Pitching</option>
-                <option value="fielding">Fielding</option>
+                {STATS_SECTIONS.map((entry) => (
+                  <option key={entry.id} value={entry.id}>{entry.label}</option>
+                ))}
               </select>
-              {statDiscipline !== 'fielding' ? (
-                <select
-                  className="stats-rail-scope-select"
-                  value={statView}
-                  onChange={(event) => selectStatsSection(statDiscipline, event.target.value)}
-                >
-                  <option value="overview">Overview</option>
-                  <option value="war">Experimental WAR</option>
-                  {statDiscipline === 'batting' ? (
-                    <>
-                      <option value="batted_ball">Batted Ball</option>
-                      <option value="discipline">Plate Discipline</option>
-                      <option value="power">Contact Authority</option>
-                      <option value="spray_charts">Spray Charts</option>
-                      <option value="expected">Expected Stats</option>
-                      <option value="stars">Stars</option>
-                      <option value="ballparks">Ballparks</option>
-                    </>
-                  ) : null}
-                  {statDiscipline === 'pitching' ? (
-                    <>
-                      <option value="batted_ball">Batted Ball Allowed</option>
-                      <option value="discipline">Pitch Mix</option>
-                      <option value="expected">Expected Stats Allowed</option>
-                      <option value="stars">Stars</option>
-                      <option value="ballparks">Ballparks</option>
-                    </>
-                  ) : null}
-                </select>
-              ) : null}
             </div>
           ) : (
-            <>
-              <div className="stats-rail-group">
-                <button
-                  className={`stats-rail-label stats-rail-label-btn ${statDiscipline === 'batting' ? 'stats-rail-label-btn-active' : ''}`}
-                  onClick={() => selectStatsSection('batting', 'overview')}
-                  type="button"
-                >
-                  Batting
-                </button>
-                <button className={`stats-rail-item ${statDiscipline === 'batting' && statView === 'batted_ball' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('batting', 'batted_ball')} type="button">Batted Ball</button>
-                <button className={`stats-rail-item ${statDiscipline === 'batting' && statView === 'discipline' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('batting', 'discipline')} type="button">Plate Discipline</button>
-                <button className={`stats-rail-item ${statDiscipline === 'batting' && statView === 'power' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('batting', 'power')} type="button">Contact Authority</button>
-                <button className={`stats-rail-item ${statDiscipline === 'batting' && statView === 'spray_charts' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('batting', 'spray_charts')} type="button">Spray Charts</button>
-                <button className={`stats-rail-item ${statDiscipline === 'batting' && statView === 'expected' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('batting', 'expected')} type="button">Expected Stats</button>
-                <button className={`stats-rail-item ${statDiscipline === 'batting' && statView === 'stars' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('batting', 'stars')} type="button">Stars</button>
-                <button className={`stats-rail-item ${statDiscipline === 'batting' && statView === 'ballparks' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('batting', 'ballparks')} type="button">Ballparks</button>
+            RAIL_GROUPS.map((sectionIds) => (
+              <div className="stats-rail-group" key={sectionIds[0]}>
+                {sectionIds.map((sectionId) => {
+                  const entry = STATS_SECTIONS.find((candidate) => candidate.id === sectionId)
+                  const isActive = activeSection.id === sectionId
+                  return (
+                    <button
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`stats-rail-item ${isActive ? 'stats-rail-item-active' : ''}`}
+                      key={sectionId}
+                      onClick={() => setSection(sectionId)}
+                      type="button"
+                    >
+                      {entry.label}
+                    </button>
+                  )
+                })}
               </div>
-
-              <div className="stats-rail-group">
-                <button
-                  className={`stats-rail-label stats-rail-label-btn ${statDiscipline === 'pitching' ? 'stats-rail-label-btn-active' : ''}`}
-                  onClick={() => selectStatsSection('pitching', 'overview')}
-                  type="button"
-                >
-                  Pitching
-                </button>
-                <button className={`stats-rail-item ${statDiscipline === 'pitching' && statView === 'batted_ball' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('pitching', 'batted_ball')} type="button">Batted Ball Allowed</button>
-                <button className={`stats-rail-item ${statDiscipline === 'pitching' && statView === 'discipline' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('pitching', 'discipline')} type="button">Pitch Mix</button>
-                <button className={`stats-rail-item ${statDiscipline === 'pitching' && statView === 'expected' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('pitching', 'expected')} type="button">Expected Stats Allowed</button>
-                <button className={`stats-rail-item ${statDiscipline === 'pitching' && statView === 'stars' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('pitching', 'stars')} type="button">Stars</button>
-                <button className={`stats-rail-item ${statDiscipline === 'pitching' && statView === 'ballparks' ? 'stats-rail-item-active' : ''}`} onClick={() => selectStatsSection('pitching', 'ballparks')} type="button">Ballparks</button>
-              </div>
-
-              <div className="stats-rail-group">
-                <button
-                  className={`stats-rail-label stats-rail-label-btn ${statDiscipline === 'fielding' ? 'stats-rail-label-btn-active' : ''}`}
-                  onClick={() => selectStatsSection('fielding', 'overview')}
-                  type="button"
-                >
-                  Fielding
-                </button>
-              </div>
-            </>
+            ))
           )}
         </nav>
 
         <div className="stats-main">
-      {statView === 'war' ? <ExperimentalWarPanel model={experimentalWar} identity={tab} players={players} characters={characters} /> : null}
-      {statView === 'overview' && tab === 'players' ? (
-        <section className="table-card">
-          <OverviewFilterBar
-            label="Filter teams"
-            matches={sortedPlayerRows.length}
-            onChange={setOverviewFilter}
-            total={visiblePlayerRows.length}
-            value={overviewFilter}
-          />
-          <SortableStatsTable
-            columns={activePlayerColumns}
-            emptyMessage={overviewFilter.trim() ? `No teams match "${overviewFilter.trim()}".` : "No player stats found for this view."}
-            onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)}
-            onSort={(column) => toggleSort(setPlayerSort, column)}
-            rowKey={(row) => row.playerId}
-            rows={sortedPlayerRows}
-            sortState={activePlayerSort}
-          />
-          {sortedPlayerRows.length > 0 ? <StatFallbackLegend note={overviewThresholdNote} /> : null}
-        </section>
-      ) : null}
-
-      {statView === 'overview' && tab === 'characters' ? (
-        <section className="table-card">
-          <OverviewFilterBar
-            label="Filter characters"
-            matches={sortedCharacterRows.length}
-            onChange={setOverviewFilter}
-            total={visibleCharacterRows.length}
-            value={overviewFilter}
-          />
-          <SortableStatsTable columns={characterColumns[characterView]} emptyMessage={overviewFilter.trim() ? `No characters match "${overviewFilter.trim()}".` : "No character stats found for this view."} onRowClick={(row) => openCharacterPage(row.id)} onSort={(column) => toggleSort(setCharacterSort, column)} rowKey={(row) => row.id} rowLabel={(row) => row.name} rows={sortedCharacterRows} sortState={characterSort} />
-          {sortedCharacterRows.length > 0 ? <StatFallbackLegend note={overviewThresholdNote} /> : null}
-        </section>
-      ) : null}
-
-      {statView === 'batted_ball' ? (
-        <section className="table-card">
-          {bbSubView === 'batting' ? (
-            <div className="page-stack" style={{ minWidth: 0 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Trajectory &amp; Direction</div>
-                  <div style={{ display: 'flex', gap: 4 }}>
+          <header className="stats-section-head">
+            <h2 className="stats-section-title">{activeSection.label}</h2>
+            {activeSection.sets.length > 1 ? (
+              <div className="stats-set-tabs" ref={setTabsRef}>
+                {activeSection.sets.map((entry) => {
+                  const isActive = entry.id === activeSet?.id
+                  return (
                     <button
+                      aria-label={entry.label}
+                      aria-pressed={isActive}
+                      className={`stats-set-tab ${isActive ? 'stats-set-tab-active' : ''}`}
+                      key={entry.id}
+                      onClick={() => selectSet(activeSection.id, entry.id)}
                       type="button"
-                      onClick={() => setLocationDisplayMode('pct')}
-                      style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.18)', background: locationDisplayMode === 'pct' ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)', color: locationDisplayMode === 'pct' ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                    >%</button>
+                    >
+                      {entry.label}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+          </header>
+
+      {section === 'leaders' ? <LeadersPanel cards={leaderCards} /> : null}
+      {activeSetKey === 'value.war' ? <ExperimentalWarPanel model={experimentalWar} identity={tab} players={players} characters={characters} /> : null}
+      {activeSetKey === 'value.user' ? <UserValuePanel model={userValue} identity={tab} players={players} characters={characters} /> : null}
+      {activeSetKey === 'events.stadium' || activeSetKey === 'events.mechanics' ? (
+        <FinalStatEventsPanel
+          charactersById={charactersById}
+          identity={tab === 'players' ? 'player' : 'character'}
+          key={activeSetKey}
+          kind={activeSetKey === 'events.mechanics' ? 'mechanics' : 'stadium'}
+          plays={filteredAdvanced.plays}
+          playersById={playersById}
+        />
+      ) : null}
+
+      {activeSet?.table ? (
+        <section className="table-card">
+          {activeSet.view === 'spray' ? (
+            <div style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSprayChartTeamId(ALL_TEAMS_SPRAY_FILTER)}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(255,255,255,0.18)',
+                    background: activeSprayChartTeamId === ALL_TEAMS_SPRAY_FILTER ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)',
+                    color: activeSprayChartTeamId === ALL_TEAMS_SPRAY_FILTER ? '#FDE68A' : '#94A3B8',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  All Teams ({totalSprayChartCount})
+                </button>
+                {sprayChartTeamOptions.map((team) => {
+                  const isActive = activeSprayChartTeamId === team.playerId
+                  return (
                     <button
+                      key={team.playerId}
                       type="button"
-                      onClick={() => setLocationDisplayMode('count')}
-                      style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.18)', background: locationDisplayMode === 'count' ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)', color: locationDisplayMode === 'count' ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                    >#</button>
-                  </div>
-                </div>
-                {tab === 'players' ? (
-                  <SortableStatsTable columns={bbBattingCols} emptyMessage="No batted ball data." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setBbPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedBbBattingPlayer} sortState={bbPlayerSort} />
-                ) : (
-                  <SortableStatsTable columns={bbBattingCharCols} emptyMessage="No batted ball data." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setBbCharacterSort, col)} rowKey={(row) => row.id} rows={sortedBbBattingChar} sortState={bbCharacterSort} />
-                )}
+                      onClick={() => setSelectedSprayChartTeamId(team.playerId)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '5px 12px',
+                        borderRadius: 999,
+                        border: '1px solid rgba(255,255,255,0.18)',
+                        background: isActive ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)',
+                        color: isActive ? '#FDE68A' : '#CBD5E1',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      <PlayerTag
+                        height={20}
+                        identitiesByPlayerId={identitiesByPlayerId}
+                        playerId={team.playerId}
+                        playersById={playersById}
+                        textStyle={{ fontSize: 12, fontWeight: 700 }}
+                      />
+                      <span style={{ color: isActive ? '#FDE68A' : '#94A3B8' }}>({team.chartCount})</span>
+                    </button>
+                  )
+                })}
               </div>
+              <VectorSprayChart plateAppearances={filteredSprayChartPas} showCharacterName />
             </div>
-          ) : (
-            <div className="page-stack" style={{ minWidth: 0 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>Trajectory &amp; Direction Allowed</div>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <button type="button" onClick={() => setLocationDisplayMode('pct')} style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.18)', background: locationDisplayMode === 'pct' ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)', color: locationDisplayMode === 'pct' ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>%</button>
-                    <button type="button" onClick={() => setLocationDisplayMode('count')} style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.18)', background: locationDisplayMode === 'count' ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)', color: locationDisplayMode === 'count' ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>#</button>
-                  </div>
-                </div>
-                {tab === 'players' ? (
-                  <SortableStatsTable columns={bbPitchingCols} emptyMessage="No batted ball data." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setBbPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedBbPitchingPlayer} sortState={bbPlayerSort} />
-                ) : (
-                  <SortableStatsTable columns={bbPitchingCharCols} emptyMessage="No batted ball data." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setBbCharacterSort, col)} rowKey={(row) => row.id} rows={sortedBbPitchingChar} sortState={bbCharacterSort} />
-                )}
-              </div>
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      {statView === 'power' ? (
-        <section className="table-card">
-          <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, marginBottom: 8 }}>
-            Contact Authority
-          </div>
-          {tab === 'players' ? (
-            <SortableStatsTable columns={powerBattingCols} emptyMessage="No contact authority data tracked yet." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setPowerPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedPowerBattingPlayer} sortState={powerPlayerSort} />
-          ) : (
-            <SortableStatsTable columns={powerBattingCharCols} emptyMessage="No contact authority data tracked yet." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setPowerCharacterSort, col)} rowKey={(row) => row.id} rows={sortedPowerBattingChar} sortState={powerCharacterSort} />
-          )}
-        </section>
-      ) : null}
-
-      {statView === 'spray_charts' ? (
-        <section className="table-card">
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => setSelectedSprayChartTeamId(ALL_TEAMS_SPRAY_FILTER)}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(255,255,255,0.18)',
-                  background: activeSprayChartTeamId === ALL_TEAMS_SPRAY_FILTER ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)',
-                  color: activeSprayChartTeamId === ALL_TEAMS_SPRAY_FILTER ? '#FDE68A' : '#94A3B8',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                All Teams ({totalSprayChartCount})
-              </button>
-              {sprayChartTeamOptions.map((team) => {
-                const isActive = activeSprayChartTeamId === team.playerId
-                return (
+          ) : null}
+          {activeSet.rateToggle ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>{activeSet.rateToggle}</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[['pct', '%'], ['count', '#']].map(([mode, symbol]) => (
                   <button
-                    key={team.playerId}
+                    aria-pressed={locationDisplayMode === mode}
+                    key={mode}
+                    onClick={() => setLocationDisplayMode(mode)}
+                    style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.18)', background: locationDisplayMode === mode ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)', color: locationDisplayMode === mode ? '#FDE68A' : '#94A3B8', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
                     type="button"
-                    onClick={() => setSelectedSprayChartTeamId(team.playerId)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '5px 12px',
-                      borderRadius: 999,
-                      border: '1px solid rgba(255,255,255,0.18)',
-                      background: isActive ? 'rgba(234,179,8,0.18)' : 'rgba(255,255,255,0.04)',
-                      color: isActive ? '#FDE68A' : '#CBD5E1',
-                      cursor: 'pointer',
-                      fontSize: 12,
-                      fontWeight: 700,
-                    }}
-                  >
-                    <PlayerTag
-                      height={20}
-                      identitiesByPlayerId={identitiesByPlayerId}
-                      playerId={team.playerId}
-                      playersById={playersById}
-                      textStyle={{ fontSize: 12, fontWeight: 700 }}
-                    />
-                    <span style={{ color: isActive ? '#FDE68A' : '#94A3B8' }}>({team.chartCount})</span>
-                  </button>
-                )
-              })}
+                  >{symbol}</button>
+                ))}
+              </div>
             </div>
-            <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11 }}>
-              Spray Charts
-            </div>
-            <SprayChart plateAppearances={filteredSprayChartPas} showCharacterName />
-          </div>
+          ) : null}
+          {activeSet.filterable ? (
+            <OverviewFilterBar
+              label={tab === 'players' ? 'Filter teams' : 'Filter characters'}
+              matches={sortedActiveRows.length}
+              onChange={setOverviewFilter}
+              total={activeRows.length}
+              value={overviewFilter}
+            />
+          ) : null}
+          <SortableStatsTable
+            columns={activeColumns}
+            emptyMessage={activeSet.filterable && overviewFilter.trim()
+              ? `No ${tab === 'players' ? 'teams' : 'characters'} match "${overviewFilter.trim()}".`
+              : (activeSet.emptyMessage || 'No stats recorded for this table in this scope yet.')}
+            onRowClick={tab === 'players' ? (row) => openTeamPage(row.playerId) : (row) => openCharacterPage(row.id)}
+            onSort={toggleActiveSort}
+            rowKey={tab === 'players' ? (row) => row.playerId : (row) => row.id}
+            rowLabel={tab === 'players' ? (row) => teamRowLabel(row.playerId) : (row) => row.name}
+            rows={sortedActiveRows}
+            sortState={activeSort}
+          />
+          {activeSetKey === 'baserunning.extra' && baseEvidence?.identity === (tab === 'players' ? 'player' : 'character') ? (
+            <BaserunningEvidencePanel selection={baseEvidence} opportunities={filteredAdvanced.runners} trackingPlays={filteredAdvanced.plays} onClose={() => setBaseEvidence(null)} />
+          ) : null}
+          {activeSet.filterable && sortedActiveRows.length > 0 ? <StatFallbackLegend note={activeSet.legendNote || null} /> : null}
         </section>
       ) : null}
 
-      {statView === 'exit_velocity' ? (
-        <section className="table-card">
-          <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, marginBottom: 8 }}>
-            Exit Velocity ({MIN_PA_THRESHOLD}+ tracked BIP to qualify)
-          </div>
-          {tab === 'players' ? (
-            <SortableStatsTable columns={exitVeloCols} emptyMessage="No exit velocity data tracked yet." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setExitVeloPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedExitVeloPlayer} sortState={exitVeloPlayerSort} />
-          ) : (
-            <SortableStatsTable columns={exitVeloCharCols} emptyMessage="No exit velocity data tracked yet." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setExitVeloCharacterSort, col)} rowKey={(row) => row.id} rows={sortedExitVeloChar} sortState={exitVeloCharacterSort} />
-          )}
-        </section>
-      ) : null}
-
-      {statView === 'contact_quality' ? (
-        <section className="table-card">
-          <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, marginBottom: 8 }}>
-            Contact Quality ({MIN_PA_THRESHOLD}+ tracked BIP to qualify)
-          </div>
-          {tab === 'players' ? (
-            <SortableStatsTable columns={contactQualityCols} emptyMessage="No contact quality data tracked yet." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setContactQualityPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedContactQualityPlayer} sortState={contactQualityPlayerSort} />
-          ) : (
-            <SortableStatsTable columns={contactQualityCharCols} emptyMessage="No contact quality data tracked yet." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setContactQualityCharacterSort, col)} rowKey={(row) => row.id} rows={sortedContactQualityChar} sortState={contactQualityCharacterSort} />
-          )}
-        </section>
-      ) : null}
-
-      {statView === 'expected' ? (
-        <section className="table-card">
-          <div className="muted" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 11, marginBottom: 8 }}>
-            {statDiscipline === 'pitching'
-              ? 'Expected Stats Allowed (the same contact model, grouped by pitcher)'
-              : 'Expected Stats (modeled from contact quality, independent of actual outcome)'}
-          </div>
-          {tab === 'players' ? (
-            <SortableStatsTable columns={statDiscipline === 'pitching' ? expectedPitchingCols : expectedCols} emptyMessage="No expected stats tracked yet." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setExpectedPlayerSort, col)} rowKey={(row) => row.playerId} rows={statDiscipline === 'pitching' ? sortedExpectedPitchingPlayer : sortedExpectedPlayer} sortState={expectedPlayerSort} />
-          ) : (
-            <SortableStatsTable columns={statDiscipline === 'pitching' ? expectedPitchingCharCols : expectedCharCols} emptyMessage="No expected stats tracked yet." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setExpectedCharacterSort, col)} rowKey={(row) => row.id} rows={statDiscipline === 'pitching' ? sortedExpectedPitchingChar : sortedExpectedChar} sortState={expectedCharacterSort} />
-          )}
-        </section>
-      ) : null}
-
-      {statView === 'discipline' ? (
-        <section className="table-card">
-          {discSubView === 'batting' ? (
-            tab === 'players' ? (
-              <SortableStatsTable columns={discBattingPlayerCols} emptyMessage="No plate discipline data." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setDiscPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedDiscBattingPlayer} sortState={discPlayerSort} />
-            ) : (
-              <SortableStatsTable columns={discBattingCharCols} emptyMessage="No plate discipline data." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setDiscCharacterSort, col)} rowKey={(row) => row.id} rows={sortedDiscBattingChar} sortState={discCharacterSort} />
-            )
-          ) : (
-            tab === 'players' ? (
-              <SortableStatsTable columns={discPitchingPlayerCols} emptyMessage="No pitch mix data." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setMixPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedDiscPitchingPlayer} sortState={mixPlayerSort} />
-            ) : (
-              <SortableStatsTable columns={discPitchingCharCols} emptyMessage="No pitch mix data." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setMixCharacterSort, col)} rowKey={(row) => row.id} rows={sortedDiscPitchingChar} sortState={mixCharacterSort} />
-            )
-          )}
-        </section>
-      ) : null}
-
-      {statView === 'stars' ? (
-        <section className="table-card">
-          {statDiscipline === 'batting' ? (
-            tab === 'players' ? (
-              <SortableStatsTable columns={starsBattingPlayerCols} emptyMessage="No star hit data." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setStarsBattingPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedStarsBattingPlayer} sortState={starsBattingPlayerSort} />
-            ) : (
-              <SortableStatsTable columns={starsBattingCharCols} emptyMessage="No star hit data." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setStarsBattingCharacterSort, col)} rowKey={(row) => row.id} rows={sortedStarsBattingChar} sortState={starsBattingCharacterSort} />
-            )
-          ) : (
-            tab === 'players' ? (
-              <SortableStatsTable columns={starsPitchingPlayerCols} emptyMessage="No star pitch data." onRowClick={(row) => openTeamPage(row.playerId)} rowLabel={(row) => teamRowLabel(row.playerId)} onSort={(col) => toggleSort(setStarsPitchingPlayerSort, col)} rowKey={(row) => row.playerId} rows={sortedStarsPitchingPlayer} sortState={starsPitchingPlayerSort} />
-            ) : (
-              <SortableStatsTable columns={starsPitchingCharCols} emptyMessage="No star pitch data." onRowClick={(row) => openCharacterPage(row.id)} onSort={(col) => toggleSort(setStarsPitchingCharacterSort, col)} rowKey={(row) => row.id} rows={sortedStarsPitchingChar} sortState={starsPitchingCharacterSort} />
-            )
-          )}
-        </section>
-      ) : null}
-
-      {statView === 'ballparks' ? (
+      {section === 'ballparks' ? (
         <div className="page-stack">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <button
@@ -4236,8 +3603,8 @@ export default function Stats() {
             <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className={`tab-button ${ballparkSubView === 'batting' ? 'tab-button-active' : ''}`} onClick={() => { setBallparkSubView('batting'); setStatDiscipline('batting') }} type="button">Batting</button>
-                  <button className={`tab-button ${ballparkSubView === 'pitching' ? 'tab-button-active' : ''}`} onClick={() => { setBallparkSubView('pitching'); setStatDiscipline('pitching') }} type="button">Pitching</button>
+                  <button className={`tab-button ${ballparkSubView === 'batting' ? 'tab-button-active' : ''}`} onClick={() => setBallparkSubView('batting')} type="button">Batting</button>
+                  <button className={`tab-button ${ballparkSubView === 'pitching' ? 'tab-button-active' : ''}`} onClick={() => setBallparkSubView('pitching')} type="button">Pitching</button>
                   <button className={`tab-button ${ballparkSubView === 'spray_charts' ? 'tab-button-active' : ''}`} onClick={() => setBallparkSubView('spray_charts')} type="button">Spray Charts</button>
                   <button className={`tab-button ${ballparkSubView === 'factors' ? 'tab-button-active' : ''}`} onClick={() => setBallparkSubView('factors')} type="button">Park Factors</button>
                 </div>
@@ -4288,7 +3655,7 @@ export default function Stats() {
               selectedStadiumKey && !STADIUM_NAME_TO_KEY[selectedStadiumKey] ? (
                 <p className="muted" style={{ padding: '1rem 0' }}>Select a stadium above to see its spray chart.</p>
               ) : (
-                <SprayChart
+                <VectorSprayChart
                   key={selectedStadiumKey ? STADIUM_NAME_TO_KEY[selectedStadiumKey] : 'all-stadiums'}
                   plateAppearances={selectedStadiumSprayChartPas}
                   initialStadiumKey={selectedStadiumKey ? STADIUM_NAME_TO_KEY[selectedStadiumKey] : null}

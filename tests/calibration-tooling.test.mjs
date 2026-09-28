@@ -343,13 +343,109 @@ test('a structured label counts, and a labelled event with no control says so', 
 
 test('an event with no detector says the object has to be found first', () => {
   const review = reviewStadiumEvents({ trackingDir: tempDirLess(), park: 'bowser_castle' })
-  for (const event of review.parks.bowser_castle.events) {
-    assert.equal(event.detector, null)
+  // THE PARK IS NO LONGER ALL-OR-NOTHING, which is why this is split. Bowser
+  // Castle's burned byte now separates the statue's fire from falling lava by
+  // the fielder's distance to a surveyed centre-field front, and the knockdown
+  // flag's phase shape names King Bob-omb's bomb -- 12 fires and 14 bombs in the
+  // archive, both checked against the operator's annotations by
+  // verify_player_metrics.py. The registry claimed none of that, and the claim
+  // was what was stale; the rule below is what this test was always about.
+  const undetected = review.parks.bowser_castle.events.filter((event) => !event.detector)
+  const detected = review.parks.bowser_castle.events.filter((event) => event.detector)
+  assert.ok(undetected.length, 'the rule needs a row with no detector to be about')
+  for (const event of undetected) {
     assert.match(event.needs, /not in the captured region/)
   }
-  // The catalogue is the document's, not the detectors': a park with nothing
-  // captured still lists every event it would need.
+  // ...and the other half of the same rule, which went untested before: a row
+  // that HAS a detector must ask for labelled plays instead, never for the
+  // object to be located. Getting these two backwards is how a park with a
+  // working detector ends up looking unreachable.
+  for (const event of detected) {
+    assert.doesNotMatch(event.needs, /not in the captured region/)
+    assert.match(event.needs, /labelled/)
+  }
+  // The catalogue is the document's, not the detectors': a park still lists
+  // every event it would need a record for, detector or no detector.
   assert.equal(PARK_EVENTS.bowser_castle.length, 5)
+})
+
+test('Yoshi Park is checked off only after every catalogued event has a detector', () => {
+  assert.ok(PARK_EVENTS.yoshi_park.length > 0)
+  assert.ok(PARK_EVENTS.yoshi_park.every((event) => event.detector && event.complete))
+})
+
+test('every objective an operator is asked to type is countable by its id', () => {
+  // The two files drifted: next_calibration_game.mjs printed
+  // `directional_arrow_redirect` and `manhole_water` on screen while this
+  // catalogue counted `arrow_redirect` and `manhole_knockdown` and had no
+  // near-miss row at all, so a correctly labelled Wario City play could not be
+  // counted by anything. Read the ids out of the planner's own source rather
+  // than importing it -- that module runs its whole report on import.
+  const planner = fs.readFileSync(
+    new URL('../scripts/next_calibration_game.mjs', import.meta.url), 'utf8')
+  const table = planner.slice(planner.indexOf('STADIUM_TEST_OBJECTIVES'))
+  const parks = {
+    wario_city: "'Wario City'",
+    mario_stadium: "'Mario Stadium'",
+    peach_ice_garden: "'Peach Ice Garden'",
+    daisy_cruiser: "'Daisy Cruiser'",
+    yoshi_park: "'Yoshi Park'",
+    dk_jungle: "'DK Jungle'",
+  }
+  const start = table.indexOf(parks.wario_city)
+  const end = table.indexOf(parks.peach_ice_garden)
+  assert.ok(start > 0 && end > start)
+  const asked = [...table.slice(start, end).matchAll(/\['([a-z0-9_]+)',/g)]
+    .map((match) => match[1])
+  assert.deepEqual(asked, [
+    'directional_arrow_redirect', 'manhole_water', 'hazard_near_miss_control'])
+  // Every one of them is a row here, under that exact spelling.
+  const known = new Set(PARK_EVENTS.wario_city.map((event) => event.id))
+  for (const id of asked) assert.ok(known.has(id), `${id} is not a wario_city row`)
+})
+
+test('every broad advanced-stat calibration consumer honors gimmick exclusions', () => {
+  const sources = [
+    '../scripts/next_calibration_game.mjs',
+    '../scripts/calibrate_catch_probability.mjs',
+    '../scripts/export_catch_preoutcome_features.py',
+    '../scripts/verify_speed_against_attributes.mjs',
+  ]
+  for (const source of sources) {
+    const body = fs.readFileSync(new URL(source, import.meta.url), 'utf8')
+    assert.match(body, /calibration_excluded/, `${source} lost the exclusion fence`)
+  }
+  const launcher = fs.readFileSync(
+    new URL('../scripts/next_calibration_game.mjs', import.meta.url), 'utf8')
+  assert.match(launcher, /tracker:preview -- --calibration-excluded/)
+})
+
+test('an id this catalogue used to use still counts under the canonical row', () => {
+  // Reconciling the spellings must not require rewriting an annotation
+  // somebody already wrote. `arrow_redirect` was this file's own id; a note
+  // carrying it counts as a directional_arrow_redirect and nothing is lost.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'calibration-alias-'))
+  fs.writeFileSync(path.join(dir, 'wario_city-20260101T000000Z.json'),
+    JSON.stringify({ park: 'wario_city', is_night: true }))
+  fs.writeFileSync(path.join(dir, 'wario_city-20260101T000000Z.annotations.jsonl'),
+    `${JSON.stringify({
+      pa_number: 3, categories: ['stadium_event'],
+      note: 'stadium_event=arrow_redirect; outcome=turned 90 degrees; control=no',
+    })}
+${JSON.stringify({
+      pa_number: 4, categories: ['stadium_event'],
+      note: 'stadium_event=hazard_near_miss_control; outcome=rolled past; control=yes',
+    })}
+`)
+  const review = reviewStadiumEvents({ trackingDir: dir, park: 'wario_city' })
+  const rows = Object.fromEntries(
+    review.parks.wario_city.events.map((event) => [event.id, event]))
+  assert.equal(rows.directional_arrow_redirect.labelled, 1)
+  assert.equal(rows.directional_arrow_redirect.by_time_of_day.night, 1)
+  // A control row is its own negative; it must not ask for a control of a control.
+  assert.equal(rows.hazard_near_miss_control.labelled, 1)
+  assert.equal(rows.hazard_near_miss_control.controls, 1)
+  assert.equal(rows.hazard_near_miss_control.needs, null)
 })
 
 // A directory that exists and holds nothing, for the catalogue-only checks.

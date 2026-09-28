@@ -43,8 +43,9 @@ apply_formation() identifies the blocks by their contents before writing, and
 Before running anything
 -----------------------
 
-Dolphin needs four Gecko codes enabled. Three are upstream's prerequisite,
-documented only in main.py's GUI panel:
+Dolphin needs two Gecko code entries enabled in the game's Properties, with
+cheats enabled globally. The first entry has three lines from upstream's
+prerequisite, documented only in main.py's GUI panel:
 
     040802b4 60000000
     040802b8 60000000
@@ -55,8 +56,9 @@ instructions at 0x800802B4/B8, which is what stops the game overwriting a
 roster written from outside. The third is now understood rather than assumed:
 it branches over eight `stb r6, N(r3)` instructions at 0x8006AEDC that blank
 the fielding position of slots 1..8, so it is what keeps the positions written
-here from being wiped. All three are still required. The fourth code is
-mss_input.py's suppression pair; see SUPPRESS_FLAG there.
+here from being wiped. All three lines are still required. The second entry is
+mss_input.py's six-line suppression pair; see SUPPRESS_FLAG there. Restart the
+game after enabling the codes before running the launcher.
 
 Where to start
 --------------
@@ -191,7 +193,8 @@ MENU_GAP_MS = 100.0
 WAIT_SECONDS = 0.5
 # Between one confirm screen and the next. Nothing reports that the next
 # screen has arrived, so this is a guess with margin rather than a measurement.
-START_SCREEN_GAP = 2.0
+START_SCREEN_GAP = 2.5
+START_SCREEN_SETTLE = 1.2
 
 # Main menu to the batting order screen, in the two-port script syntax: "N:"
 # selects a port and sticks, "w" waits, "n" is the ready chord.
@@ -1752,13 +1755,20 @@ class Formation:
         back that says the next screen has arrived; confirming into a screen
         that has not finished animating is a press thrown away.
         """
+        # formation_blocks() can find the batting-order task before its input
+        # is accepted. The Mii drag has its own settle, but games without a
+        # Mii reach this first ready chord with no such wait at all.
+        time.sleep(START_SCREEN_SETTLE)
         for screen in range(self.start_screens):
-            label = "batting order" if screen == 0 else f"screen {screen + 1}"
+            label = ("batting order" if screen == 0 else
+                     "rules" if screen == 1 else f"screen {screen + 1}")
             print(f"  confirming {label} on port(s) "
                   f"{', '.join(str(d.pad.port) for d in self.drivers())}...")
             for driver in self.drivers():
                 driver.start_game()
-            time.sleep(START_SCREEN_GAP)
+            if screen + 1 < self.start_screens:
+                print(f"  waiting {START_SCREEN_GAP:.1f}s for the next confirmation screen...")
+                time.sleep(START_SCREEN_GAP)
 
     # -- the whole run ------------------------------------------------------
 
@@ -2008,6 +2018,39 @@ def describe(payload):
             print(f"  {objective['id']} [{objective.get('annotationCategory', 'missing_event')}]: "
                   f"{objective['instruction']}")
         print(f"  note format: {stadium_test.get('annotationNoteFormat', '')}")
+    swing_test = game.get("calibration", {}).get("swingTest")
+    if swing_test:
+        print("\nSwing plan (slap/charge calibration):")
+        print(f"  {swing_test.get('defaultLabelRule', '')}")
+        # The half-inning grid, two innings to a line. The plan IS the label for
+        # every swing nobody flags, so it is printed in full rather than
+        # summarised -- an operator who mis-remembers one half-inning
+        # mislabels every swing in it.
+        blocks = swing_test.get("blocks", [])
+        for index in range(0, len(blocks), 4):
+            print("   " + "   ".join(
+                f"{b['inning']}{'T' if b['half'] == 'top' else 'B'} {b['mode']:<6}"
+                for b in blocks[index:index + 4]))
+        for objective in swing_test.get("objectives", []):
+            print(f"  {objective['id']} [{objective.get('annotationCategory', 'swing_mode')}]: "
+                  f"{objective['instruction']}")
+        print(f"  note format: {swing_test.get('annotationNoteFormat', '')}")
+        print(f"  target: {swing_test.get('perModeTarget')} clean swings per mode")
+    input_test = game.get("calibration", {}).get("inputTest")
+    if input_test:
+        print("\nInput plan (pitch input, fielding actions, runner shake):")
+        print(f"  {input_test.get('defaultLabelRule', '')}")
+        # Printed one half-inning per line rather than gridded like the swing
+        # plan, because each block carries an instruction and a truncated
+        # instruction is how an operator ends up labelling a half-inning wrong.
+        for block in input_test.get("blocks", []):
+            half = "T" if block["half"] == "top" else "B"
+            print(f"   {block['inning']}{half} {block['pitching']:<5} "
+                  f"{block['mode']:<18} {block.get('instruction', '')}")
+        for objective in input_test.get("objectives", []):
+            print(f"  {objective['id']} (x{objective.get('repeatTarget', 1)}): "
+                  f"{objective['instruction']}")
+        print(f"  note format: {input_test.get('annotationNoteFormat', '')}")
     print()
 
 
@@ -2106,6 +2149,10 @@ def main() -> int:
     describe(payload)
     if args.dry_run:
         return 0
+
+    print(f"Navigation preset: {'custom' if args.nav else args.nav_preset}; "
+          f"confirmation waits: {START_SCREEN_SETTLE:.1f}s settle, "
+          f"{START_SCREEN_GAP:.1f}s between screens")
 
     dme = hook()
     pad = WiimoteInput(dme, port=args.port, field="held",

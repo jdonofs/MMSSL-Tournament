@@ -120,30 +120,45 @@ export function DraftExperience({ mode = 'tournament' }) {
   const latestPendingPickRef = useRef(null)
 
   const hasLoadedRef = useRef(false)
+  const historyLoadRef = useRef(null)
   useEffect(() => {
+    let cancelled = false
     const load = async () => {
       if (!hasLoadedRef.current) setLoading(true)
-      const [
-        { data: pData }, { data: cData }, { data: dData }, { data: paData }, { data: gData }, { data: pitchData }, { data: seasonPaData },
-        { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData }, { data: seasonTeamsData },
-        { data: gamePitchesData }, { data: seasonGamePitchesData },
-      ] = await Promise.all([
-        fetchAllRows(() => supabase.from('players').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('characters').select('*').order('name')),
+      if (!historyLoadRef.current) {
+        historyLoadRef.current = Promise.all([
+          fetchAllRows(() => supabase.from('players').select('*').order('created_at')),
+          fetchAllRows(() => supabase.from('characters').select('*').order('name')),
+          fetchAllRows(() => supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning')),
+          fetchAllRows(() => supabase.from('games').select('id,tournament_id')),
+          fetchAllRows(() => supabase.from('pitching_stints').select('*')),
+          fetchAllRows(() => supabase.from('season_plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,season_id,is_error,error_character,error_position,hit_location,defensive_team_id,inning')),
+          fetchAllRows(() => supabase.from('season_pitching_stints').select('*')),
+          fetchAllRows(() => supabase.from('game_fielders').select('*')),
+          fetchAllRows(() => supabase.from('season_game_fielders').select('*')),
+          fetchAllRows(() => supabase.from('season_teams').select('id,player_id')),
+          fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id')),
+          fetchAllRows(() => supabase.from('season_pitches').select('game_id,pitcher_id')),
+        ]).then((results) => {
+          if (results.some((result) => result.error)) historyLoadRef.current = null
+          return results
+        }, (error) => {
+          historyLoadRef.current = null
+          throw error
+        })
+      }
+      const [{ data: dData }, historyResults] = await Promise.all([
         isSeasonMode
           ? fetchAllRows(() => supabase.from('season_roster').select('*').eq('season_id', activeDraftContext?.id || -1).order('created_at'))
-          : fetchAllRows(() => supabase.from('draft_picks').select('*').order('pick_number')),
-        fetchAllRows(() => supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning')),
-        fetchAllRows(() => supabase.from('games').select('id,tournament_id')),
-        fetchAllRows(() => supabase.from('pitching_stints').select('*')),
-        fetchAllRows(() => supabase.from('season_plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,season_id,is_error,error_character,error_position,hit_location,defensive_team_id,inning')),
-        fetchAllRows(() => supabase.from('season_pitching_stints').select('*')),
-        fetchAllRows(() => supabase.from('game_fielders').select('*')),
-        fetchAllRows(() => supabase.from('season_game_fielders').select('*')),
-        fetchAllRows(() => supabase.from('season_teams').select('id,player_id')),
-        fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id')),
-        fetchAllRows(() => supabase.from('season_pitches').select('game_id,pitcher_id')),
+          : fetchAllRows(() => supabase.from('draft_picks').select('*').eq('tournament_id', activeDraftContext?.id || -1).order('pick_number')),
+        historyLoadRef.current,
       ])
+      if (cancelled) return
+      const [
+        { data: pData }, { data: cData }, { data: paData }, { data: gData }, { data: pitchData }, { data: seasonPaData },
+        { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData }, { data: seasonTeamsData },
+        { data: gamePitchesData }, { data: seasonGamePitchesData },
+      ] = historyResults
       // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
       // mound-assignment bookkeeping), before they've necessarily thrown a pitch — if pulled again
       // without facing a batter, that stint sits at 0 IP forever but would still count as a "game"
@@ -185,6 +200,7 @@ export function DraftExperience({ mode = 'tournament' }) {
       hasLoadedRef.current = true
     }
     load()
+    return () => { cancelled = true }
   }, [isSeasonMode, activeDraftContext?.id, activeDraftContext?.draft_order, activeDraftContext?.player_ids, seasonTeams])
 
   const refreshSeasonDraftPicks = useCallback(async () => {
