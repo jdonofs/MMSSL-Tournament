@@ -1779,23 +1779,54 @@ async function finalizeTrackerGame() {
       await updateRowsVerified(supabase, TARGET_GAMES_TABLE, { id: TARGET_GAME_ID }, completion)
     }
 
-    await settleCompletedTrackerGame({
-      supabase,
-      sourceType: trackerSourceType(),
-      sourceId: TARGET_SOURCE_ID,
-      gameId: TARGET_GAME_ID,
-      teamARuns: scoreState.a,
-      teamBRuns: scoreState.b,
-      teamBPlayerId: TARGET_TEAM_B_PLAYER_ID,
-      winnerPlayerId,
-    })
-    const oddsTable = isSeasonGame() ? 'season_game_odds' : 'game_odds'
-    const { error: oddsLockError } = await supabase.from(oddsTable)
-      .update({ is_locked: true, updated_at: new Date().toISOString() })
-      .eq('game_id', TARGET_GAME_ID)
-    if (oddsLockError) throw oddsLockError
-    await completeTrackerGameLifecycle({ winnerPlayerId })
-    log(`game finalized automatically: ${scoreState.a}-${scoreState.b}; bets settled and markets locked`)
+    // Everything after the final row is follow-up work, and one failing must
+    // not stop the others: a failed settlement used to skip the W/L/S, stadium
+    // log and standings entirely. Each failure is collected and the whole
+    // finalization then REJECTS, so the promise below is cleared rather than
+    // cached as a success, and the next call (shutdown makes one) runs every
+    // step again. All of them are safe to repeat.
+    const failures = []
+    let settled = false
+    try {
+      await settleCompletedTrackerGame({
+        supabase,
+        sourceType: trackerSourceType(),
+        sourceId: TARGET_SOURCE_ID,
+        gameId: TARGET_GAME_ID,
+        teamARuns: scoreState.a,
+        teamBRuns: scoreState.b,
+        teamBPlayerId: TARGET_TEAM_B_PLAYER_ID,
+        winnerPlayerId,
+      })
+      settled = true
+    } catch (error) {
+      failures.push(`bet settlement: ${error.message}`)
+      log(`game completion: bet settlement failed: ${error.message}`)
+    }
+    try {
+      const oddsTable = isSeasonGame() ? 'season_game_odds' : 'game_odds'
+      const { error: oddsLockError } = await supabase.from(oddsTable)
+        .update({ is_locked: true, updated_at: new Date().toISOString() })
+        .eq('game_id', TARGET_GAME_ID)
+      if (oddsLockError) throw oddsLockError
+    } catch (error) {
+      failures.push(`market lock: ${error.message}`)
+      log(`game completion: market lock failed: ${error.message}`)
+    }
+    try {
+      await completeTrackerGameLifecycle({ winnerPlayerId, settled })
+    } catch (error) {
+      failures.push(...(error.failures || [error.message]))
+    }
+    if (failures.length) {
+      const error = new Error(
+        `game ${TARGET_GAME_ID} is final (${scoreState.a}-${scoreState.b}) but ${failures.length} follow-up step(s) `
+        + `did not finish: ${failures.join('; ')}. Finalization will run them again; after this bridge exits, `
+        + 'open the game in the scorebook and use "Finish completion steps" (safe to repeat).')
+      error.failures = failures
+      throw error
+    }
+    log(`game finalized automatically: ${scoreState.a}-${scoreState.b}; bets settled, markets locked, W/L/S, stadium log and ${isSeasonGame() ? 'standings' : 'bracket'} updated`)
   })().catch((err) => {
     finalizationPromise = null
     throw err
@@ -1807,21 +1838,35 @@ async function finalizeTrackerGame() {
 // too. Without it a game the tracker finished had no W/L/S stamped on its
 // stints, no stadium log row for the park factors, and -- in a season --
 // standings that did not move until some other game was finished by hand. The
-// final row and the bets are already written by now, so a failing step is
-// logged and the rest still run, exactly as End Game toasts and carries on;
-// every step is safe to run again.
-async function completeTrackerGameLifecycle({ winnerPlayerId }) {
+// final row is already written by now, so a failing step is logged and the
+// rest still run; every step is safe to run again. Failures are then thrown
+// together -- logging them and returning used to let finalization cache a
+// success with the work undone. Standings break ties on betting winnings, so
+// they wait for a settlement that succeeded.
+async function completeTrackerGameLifecycle({ winnerPlayerId, settled = true }) {
   const steps = [
     ['pitching decisions', assignTrackerPitchingDecisions],
     ['stadium game log', recordTrackerStadiumGameLog],
-    [isSeasonGame() ? 'season standings' : 'tournament bracket', advanceTrackerCompetition],
+    [isSeasonGame() ? 'season standings' : 'tournament bracket', advanceTrackerCompetition, { needsSettlement: true }],
   ]
-  for (const [what, step] of steps) {
+  const failures = []
+  for (const [what, step, { needsSettlement = false } = {}] of steps) {
+    if (needsSettlement && !settled) {
+      failures.push(`${what}: waiting for bet settlement`)
+      log(`game completion: ${what} skipped until bet settlement succeeds`)
+      continue
+    }
     try {
       await step({ winnerPlayerId })
     } catch (error) {
+      failures.push(`${what}: ${error.message}`)
       log(`game completion: ${what} failed: ${error.message}`)
     }
+  }
+  if (failures.length) {
+    const error = new Error(`game completion: ${failures.join('; ')}`)
+    error.failures = failures
+    throw error
   }
 }
 
@@ -1860,7 +1905,8 @@ async function recordTrackerStadiumGameLog() {
     : { game_id: TARGET_GAME_ID, stadium_id: game.stadium_id, is_night: Boolean(game.is_night),
         total_runs: totalRuns, confidence: 1.0 }
   const { error } = await supabase.from(table).insert(row)
-  if (error) throw error
+  // 23505: the scorebook (or an earlier pass whose response was lost) wrote it.
+  if (error && error.code !== '23505') throw error
 }
 
 async function advanceTrackerCompetition({ winnerPlayerId }) {
@@ -1868,8 +1914,10 @@ async function advanceTrackerCompetition({ winnerPlayerId }) {
     const { data: season, error } = await supabase.from('seasons')
       .select('*').eq('id', TARGET_SEASON_ID).single()
     if (error) throw error
+    // The final row was written above under the lease; standings are built
+    // from that persisted row, and a game reopened since is left alone.
     await completeSeasonGameLifecycle({
-      supabase, season, selectedGame: TARGET_GAME_ROW, scores: { a: scoreState.a, b: scoreState.b },
+      supabase, season, selectedGame: TARGET_GAME_ROW, requirePersistedCompletion: true,
     })
     return
   }
@@ -2288,6 +2336,51 @@ function ensureContactPitch(buf) {
   if (buf.contactRecorded) return
   pushPitch(buf, 'in_play')
   buf.contactRecorded = true
+  bumpLivePitchCount(buf, true)
+}
+
+// The game can call one contact both ways: "Fair ball!" the instant the bat
+// meets the ball, then "Foul ball!" for the SAME contact once it flips near
+// the line. Keeping the fair call left an in_play record at 0-0 -> 0-0 beside
+// the foul's count change, and contactRecorded then suppressed the pitch that
+// really was put in play. Mirrors tracker_preview_state.mjs's
+// retractPrematureFairBall: only a contact pitch not yet closed by a count is
+// retracted, and its measurement goes back to the foul the count will push.
+function retractPrematureFairBall(buf) {
+  if (!buf.contactRecorded || buf.result) return
+  const last = buf.pitches.at(-1)
+  if (!last || last.type !== 'in_play') return
+  if (last.before.balls !== last.after.balls || last.before.strikes !== last.after.strikes) return
+  buf.pitches.pop()
+  if (last.pitchTelemetry) buf.pendingPitchTelemetry.unshift(last.pitchTelemetry)
+  buf.pendingStarSwing = buf.pendingStarSwing || Boolean(last.isStarSwing)
+  buf.pendingStarPitch = buf.pendingStarPitch
+    || Boolean(last.isStarPitch && !last.pitchTelemetry?.isStarPitch)
+  buf.contactRecorded = false
+  buf.advancedBattedBall = null
+  buf.battedBallTrajectory = null
+  // The fair call already ticked the live count; the foul's count line will
+  // tick it again. The next bump writes the corrected total.
+  const stint = buf.pitcherStint
+  if (stint) {
+    stint.pitches_thrown = Math.max(0, (stint.pitches_thrown || 0) - 1)
+    stint.strikes_thrown = Math.max(0, (stint.strikes_thrown || 0) - 1)
+  }
+}
+
+// "Strike 3." is followed by the strikeout line, never by "Count: x-3", so the
+// count handler never pushes the pitch that ended the at-bat. Mirrors
+// tracker_preview_state.mjs's ensureStrikeoutPitch.
+function ensureStrikeoutPitch(buf) {
+  if (buf.pendingPitchType !== 'strike') return
+  const telemetry = buf.pendingPitchTelemetry[0] || null
+  const after = telemetry?.countAfter || {
+    balls: buf.lastCount.balls,
+    strikes: buf.lastCount.strikes + 1,
+  }
+  pushPitch(buf, 'strike_unknown', buf.lastCount, after)
+  buf.pendingPitchType = null
+  buf.lastCount = after
   bumpLivePitchCount(buf, true)
 }
 
@@ -3091,7 +3184,11 @@ async function processPlayEvent(message, previewPaNumber = null) {
     if (markPendingTrackerStarPitch(buf, message)) return
     if (isTrackerReplayMessage(message)) return
     if (/^Strike\s+\d+\.$/i.test(message)) { buf.pendingPitchType = 'strike'; return }
-    if (/^Foul ball!$/i.test(message)) { buf.pendingPitchType = 'foul'; return }
+    if (/^Foul ball!$/i.test(message)) {
+      retractPrematureFairBall(buf)
+      buf.pendingPitchType = 'foul'
+      return
+    }
     if (/^Fair ball!$/i.test(message)) {
       pushPitch(buf, 'in_play')
       buf.contactRecorded = true
@@ -3251,7 +3348,12 @@ async function processPlayEvent(message, previewPaNumber = null) {
       // an unrecognized result (no HR credit, no run, no stats).
       if ((m = message.match(/^(.+?)\s+recorded an? (?:star )?inside the park home run!$/i)) && m[1].trim() === buf.batterName) { announce('IPHR'); return }
       if ((m = message.match(/^(.+?)\s+hits an?\s+.*(?:homer|home run).*off of\s+.+!$/i)) && m[1].trim() === buf.batterName) { announce('HR'); return }
-      if ((m = message.match(/^.+?\s+struck out\s+(.+?)!$/i)) && m[1].trim() === buf.batterName) { buf.result = 'K'; buf.resultInferredFromPutout = false; return }
+      if ((m = message.match(/^.+?\s+struck out\s+(.+?)!$/i)) && m[1].trim() === buf.batterName) {
+        ensureStrikeoutPitch(buf)
+        buf.result = 'K'
+        buf.resultInferredFromPutout = false
+        return
+      }
     }
 
     if (markTrackerStarSwing(buf, message)) return

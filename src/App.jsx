@@ -44,12 +44,13 @@ import { getModeStorageValue } from './utils/season'
 
 const INTERACTIVE_TAP_SELECTOR = 'button, a, [role="button"], input[type="button"], input[type="submit"], input[type="reset"]'
 
-function AppLoadingScreen() {
+function AppLoadingScreen({ message = 'Loading…', onRetry }) {
   return (
     <div className="app-shell">
       <main className="page-shell">
         <section className="panel">
-          <p className="muted" style={{ margin: 0 }}>Loading…</p>
+          <p className="muted" style={{ margin: 0 }}>{message}</p>
+          {onRetry && <button type="button" onClick={onRetry}>Retry</button>}
         </section>
       </main>
     </div>
@@ -58,11 +59,21 @@ function AppLoadingScreen() {
 
 function AppLayout() {
   const { loading: authLoading } = useAuth()
-  const { loading: seasonLoading } = useSeason()
-  const { loading: tournamentLoading } = useTournament()
+  const { loading: seasonLoading, error: seasonError, available: seasonAvailable, refreshSeasons } = useSeason()
+  const { loading: tournamentLoading, error: tournamentError, available: tournamentAvailable, refreshTournaments } = useTournament()
 
   if (authLoading || seasonLoading || tournamentLoading) {
     return <AppLoadingScreen />
+  }
+
+  if ((seasonError && !seasonAvailable) || (tournamentError && !tournamentAvailable)) {
+    return <AppLoadingScreen
+      message={`Data unavailable: ${seasonError && !seasonAvailable ? seasonError : tournamentError}`}
+      onRetry={() => {
+        if (seasonError && !seasonAvailable) refreshSeasons().catch(() => {})
+        if (tournamentError && !tournamentAvailable) refreshTournaments().catch(() => {})
+      }}
+    />
   }
 
   return (
@@ -70,6 +81,15 @@ function AppLayout() {
       <div className="app-shell">
         <Navbar />
         <main className="page-shell">
+          {(seasonError || tournamentError) && (
+            <section className="panel" role="alert">
+              <p>{seasonError || tournamentError}</p>
+              <button type="button" onClick={() => {
+                if (seasonError) refreshSeasons().catch(() => {})
+                if (tournamentError) refreshTournaments().catch(() => {})
+              }}>Retry data refresh</button>
+            </section>
+          )}
           <Suspense fallback={<p className="muted" style={{ margin: 0 }}>Loading…</p>}>
             <Outlet />
           </Suspense>

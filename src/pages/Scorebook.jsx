@@ -25,6 +25,7 @@ import useLiveGamePersistence from '../features/scorebook/hooks/useLiveGamePersi
 import useActivePaPersistence from '../features/scorebook/hooks/useActivePaPersistence'
 import useLineupEditor from '../features/scorebook/hooks/useLineupEditor'
 import useGameCompletion from '../features/scorebook/hooks/useGameCompletion'
+import GameLifecycleRecoveryBanner from '../features/scorebook/components/GameLifecycleRecoveryBanner'
 import { assembleErrorNotation, assembleNotation, parseFielderChainFromNotation } from '../utils/notation'
 import { buildBettingEntityLabel, estimateLiveWinProbability, generateGameOdds, mergeOddsWithExistingRows, recalculateOdds } from '../utils/oddsEngine'
 import { buildOddsGenerationContext as buildSharedOddsGenerationContext } from '../utils/oddsContext'
@@ -1980,7 +1981,6 @@ export default function Scorebook() {
   const backLabel = isSeasonGame
     ? (selectedGame?.stage ? 'Back to Season Playoffs' : 'Back to Season Schedule')
     : 'Back to Tournament Bracket'
-  const scorebookToolbar = null
 
   // ── Game-end check ─────────────────────────────────────────────────────────
   const checkGameEnd = useCallback(({
@@ -4206,6 +4206,7 @@ export default function Scorebook() {
 
 
   const {
+    lifecycleRecovery,
     markGameComplete,
     reopenCompletedGame,
     resetGameForTesting,
@@ -4216,29 +4217,29 @@ export default function Scorebook() {
     showResetGameConfirm,
   } = useGameCompletion({
     betResolutionConfig,
+    canManageLifecycle: isScorekeeper,
     charactersById,
     currentInning,
-    gamePAs,
-    gamePitching,
-    gameRuns,
-    games,
     gameSession,
     isCommissioner,
     isGameComplete,
     isSeasonGame,
     playersById,
     pushToast,
+    refreshGameData: fetchGameData,
     regulationInnings,
     scorebookTables,
     scores,
     selectedGame,
-    selectedStadium,
     setGameEndBanner,
     setGames,
-    setPitchingStints,
     setShowOutsBanner,
-    tournament,
   })
+  // Shown above every scorebook view, including the tracker box score that
+  // tracker-fed games use, so it is there whichever view the game opens in.
+  const scorebookToolbar = isScorekeeper
+    ? <GameLifecycleRecoveryBanner recovery={lifecycleRecovery} />
+    : null
 
 
   // ── Swap home / away teams ────────────────────────────────────────────────

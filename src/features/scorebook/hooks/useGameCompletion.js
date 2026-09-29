@@ -1,12 +1,4 @@
-import { useCallback, useState } from 'react'
-import { isCreditedHit } from '../../../utils/statsCalculator'
-import { buildBettingEntityLabel } from '../../../utils/oddsEngine'
-import {
-  getBettingWinningSide,
-  reopenGameBets,
-  resolveGameBets,
-} from '../../../utils/betResolution'
-import { decideGamePitchingFlags } from '../../../utils/pitchingDecisions'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getPersistedLiveStateValue } from '../domain/liveState'
 import {
   buildGameCompletionPatch,
@@ -15,45 +7,38 @@ import {
   resolveGameCompletionDetails,
 } from '../domain/gameLifecycle'
 import {
-  clearPitchingStintDecisions,
-  clearTournamentCompletion,
   countGameScopedRows,
   deleteGameScopedRows,
-  deleteStadiumGameLog,
-  insertStadiumGameLog,
   updateGameRecord,
-  updatePitchingStint,
 } from '../services/gameService'
 import {
-  advanceTournamentBracket,
-  reopenTournamentBracket,
-} from '../services/bracketService'
+  auditGameFollowUps,
+  finishCompletedGame,
+  finishReopenedGame,
+  writeCompletedGameStatus,
+  writeReopenedGameStatus,
+} from '../services/lifecycleService'
 import { stopLocalTrackerForGame } from '../services/localTrackerControl'
 
 export default function useGameCompletion({
   betResolutionConfig,
+  canManageLifecycle,
   charactersById,
   currentInning,
-  gamePAs,
-  gamePitching,
-  gameRuns,
-  games,
   gameSession,
   isCommissioner,
   isGameComplete,
   isSeasonGame,
   playersById,
   pushToast,
+  refreshGameData,
   regulationInnings,
   scorebookTables,
   scores,
   selectedGame,
-  selectedStadium,
   setGameEndBanner,
   setGames,
-  setPitchingStints,
   setShowOutsBanner,
-  tournament,
 }) {
   const [showReopenGameConfirm, setShowReopenGameConfirm] = useState(false)
   const [showResetGameConfirm, setShowResetGameConfirm] = useState(false)
@@ -176,8 +161,141 @@ export default function useGameCompletion({
     }
   }, [selectedGame, isCommissioner, scorebookTables, isSeasonGame, pushToast])
 
+  // ── Completion and reopen follow-ups ───────────────────────────────────────
+  // The status write and what follows it are separate on purpose. The write is
+  // a compare-and-set on the row; everything after it (stadium log, bets, W/L/S,
+  // standings/bracket) is done by utils/gameCompletionLifecycle from the rows in
+  // the database, and is safe to run again. What is still owed is worked out
+  // from those same rows, so the recovery banner comes back after a reload or
+  // on another device -- it does not depend on this page remembering that
+  // something failed.
+  const lifecycleOptions = useCallback(() => ({
+    sourceType: isSeasonGame ? 'season' : 'tournament',
+    tables: scorebookTables,
+    gameId: selectedGame?.id,
+    betConfig: betResolutionConfig,
+    charactersById,
+    playersById,
+  }), [isSeasonGame, scorebookTables, selectedGame?.id, betResolutionConfig, charactersById, playersById])
+
+  const lifecycleBusyRef = useRef(false)
+  const [lifecycleRunning, setLifecycleRunning] = useState(false)
+  const [lifecycleAudit, setLifecycleAudit] = useState(null)
+  const auditRequestRef = useRef(0)
+
+  const auditLifecycle = useCallback(async () => {
+    if (!selectedGame?.id || !canManageLifecycle) return null
+    const request = ++auditRequestRef.current
+    const gameId = selectedGame.id
+    try {
+      const result = await auditGameFollowUps(lifecycleOptions())
+      if (request === auditRequestRef.current) setLifecycleAudit({ gameId, ...result, error: null })
+      return result
+    } catch (error) {
+      if (request === auditRequestRef.current) setLifecycleAudit({ gameId, kind: null, owed: [], error })
+      return null
+    }
+  }, [selectedGame?.id, canManageLifecycle, lifecycleOptions])
+
+  // Re-checked whenever the persisted status changes (here, by realtime from
+  // another device, or by the tracker bridge), and every 15 s while something
+  // is still owed, so work another writer finishes clears the banner.
+  // Keyed on the game and its status only; the latest callback is read through
+  // a ref so a re-created prop object cannot turn this into a request loop.
+  const auditOwedCount = lifecycleAudit?.gameId === selectedGame?.id ? (lifecycleAudit?.owed?.length || 0) : 0
+  const auditLifecycleRef = useRef(auditLifecycle)
+  auditLifecycleRef.current = auditLifecycle
+  useEffect(() => {
+    if (!selectedGame?.id || !canManageLifecycle) return undefined
+    auditLifecycleRef.current()
+    return () => { auditRequestRef.current += 1 }
+  }, [selectedGame?.id, selectedGame?.status, canManageLifecycle])
+  useEffect(() => {
+    if (!auditOwedCount || lifecycleRunning) return undefined
+    const timer = setInterval(() => { auditLifecycleRef.current() }, 15000)
+    return () => clearInterval(timer)
+  }, [auditOwedCount, lifecycleRunning])
+
+  const applyChangedGames = useCallback((changedGames = []) => {
+    if (!changedGames.length) return
+    setGames((current) => {
+      const existingById = new Map(current.map((game) => [game.id, game]))
+      changedGames.forEach((game) => existingById.set(game.id, { ...(existingById.get(game.id) || {}), ...game }))
+      return Array.from(existingById.values())
+    })
+  }, [setGames])
+
+  const reportFollowUps = useCallback((result, { doneTitle, stepsName, retryLabel }) => {
+    if (result.outcome === 'done') {
+      pushToast({ title: doneTitle, type: 'success' })
+      return
+    }
+    if (result.outcome === 'superseded' || result.outcome === 'not_complete') {
+      pushToast({
+        title: 'Game status changed',
+        message: `The game is now ${result.game?.status || 'in a different state'}, so its ${stepsName} were stopped. The banner above the scorebook shows anything left to do.`,
+        type: 'error',
+      })
+      return
+    }
+    const failed = result.failed.map((step) => `${step.label}: ${step.message}`).join('; ')
+    pushToast({
+      title: `${doneTitle}, but ${result.failed.length} ${stepsName} did not finish`,
+      message: `${failed}. Use "${retryLabel}" to retry; steps that already finished are left alone.`,
+      type: 'error',
+    })
+  }, [pushToast])
+
+  const settleLocalState = useCallback(async (result) => {
+    applyChangedGames(result.changedGames)
+    await Promise.resolve(refreshGameData?.()).catch(() => {})
+    await Promise.resolve(gameSession?.onLifecycleSettled?.()).catch(() => {})
+  }, [applyChangedGames, refreshGameData, gameSession])
+
+  const runCompletionFollowUps = useCallback(async ({ doneTitle = 'Game complete' } = {}) => {
+    let result
+    try {
+      result = await finishCompletedGame(lifecycleOptions())
+    } catch (error) {
+      pushToast({ title: 'Completion steps could not start', message: `${error.message}. Use "Finish completion steps" to retry.`, type: 'error' })
+      return null
+    }
+    await settleLocalState(result)
+    reportFollowUps(result, { doneTitle, stepsName: 'completion step(s)', retryLabel: 'Finish completion steps' })
+    return result
+  }, [lifecycleOptions, settleLocalState, reportFollowUps, pushToast])
+
+  const runReopenFollowUps = useCallback(async ({ doneTitle = 'Game reopened' } = {}) => {
+    let result
+    try {
+      result = await finishReopenedGame(lifecycleOptions())
+    } catch (error) {
+      pushToast({ title: 'Reopen steps could not start', message: `${error.message}. Use "Finish reopening" to retry.`, type: 'error' })
+      return null
+    }
+    await settleLocalState(result)
+    reportFollowUps(result, { doneTitle, stepsName: 'reopen step(s)', retryLabel: 'Finish reopening' })
+    return result
+  }, [lifecycleOptions, settleLocalState, reportFollowUps, pushToast])
+
+  // One lifecycle action at a time from this page. This stops a double click;
+  // it does not coordinate two devices -- the status compare-and-set and the
+  // idempotent follow-ups are what make overlapping clients converge.
+  const withLifecycleLock = useCallback(async (work) => {
+    if (lifecycleBusyRef.current) return null
+    lifecycleBusyRef.current = true
+    setLifecycleRunning(true)
+    try {
+      return await work()
+    } finally {
+      lifecycleBusyRef.current = false
+      setLifecycleRunning(false)
+      auditLifecycle()
+    }
+  }, [auditLifecycle])
+
   // ── Mark game complete ─────────────────────────────────────────────────────
-  const markGameComplete = useCallback(async (winnerId, finalInning, isExtra) => {
+  const markGameComplete = useCallback((winnerId, finalInning, isExtra) => withLifecycleLock(async () => {
     if (!selectedGame) return
     const {
       resolvedWinnerId: resolved,
@@ -206,151 +324,53 @@ export default function useGameCompletion({
       teamIdByPlayerId: gameSession.teamIdByPlayerId,
       clearedLiveState,
     })
-    const { error } = await updateGameRecord({ tables: scorebookTables, gameId: selectedGame.id, patch: completionUpdate })
-    if (error) { pushToast({ title: 'Error', message: error.message, type: 'error' }); return }
-    const completedGame = {
-      ...selectedGame,
-      status: 'complete',
-      winner_player_id: resolved,
-      team_a_runs: scores.a,
-      team_b_runs: scores.b,
-      final_inning: resolvedFinalInning,
-      is_extra_innings: resolvedIsExtra,
-      live_state: clearedLiveState,
-    }
+    const write = await writeCompletedGameStatus({
+      sourceType: isSeasonGame ? 'season' : 'tournament',
+      tables: scorebookTables,
+      gameId: selectedGame.id,
+      patch: completionUpdate,
+    })
+    if (write.error) { pushToast({ title: 'Error', message: write.error.message, type: 'error' }); return }
+    // Written here, or already final (another device, the tracker, or this
+    // write whose response was lost). The row in the database is the result
+    // either way, and the follow-ups read it rather than this page's score.
+    const completedGame = write.applied
+      ? {
+          ...selectedGame,
+          status: 'complete',
+          winner_player_id: resolved,
+          team_a_runs: scores.a,
+          team_b_runs: scores.b,
+          final_inning: resolvedFinalInning,
+          is_extra_innings: resolvedIsExtra,
+          live_state: clearedLiveState,
+        }
+      : { ...selectedGame, status: 'complete' }
     setGames(cur => cur.map(g => g.id === selectedGame.id ? completedGame : g))
     setGameEndBanner(null)
-    if (selectedGame.stadium_id || selectedGame.stadium) {
-      const stadiumLogPayload = isSeasonGame
-        ? {
-            game_id: selectedGame.id,
-            season_id: gameSession?.sourceId,
-            stadium: selectedStadium?.name || selectedGame.stadium || null,
-            is_night: Boolean(selectedGame.is_night),
-            total_runs: scores.a + scores.b,
-            confidence: 1.0,
-          }
-        : {
-            game_id: selectedGame.id,
-            stadium_id: selectedGame.stadium_id,
-            is_night: Boolean(selectedGame.is_night),
-            total_runs: scores.a + scores.b,
-            confidence: 1.0,
-          }
-      const { error: stadiumLogError } = await insertStadiumGameLog({ tables: scorebookTables, row: stadiumLogPayload })
-      if (stadiumLogError) {
-        pushToast({ title: 'Stadium log failed', message: stadiumLogError.message, type: 'error' })
-      }
+    if (write.alreadyComplete) {
+      pushToast({ title: 'Already final', message: 'This game had already been completed, so only its follow-up steps were checked.', type: 'info' })
     }
-    try {
-      const pitcherKTotals = {}
-      gamePitching.forEach((stint) => {
-        const key = buildBettingEntityLabel(charactersById[stint.character_id], playersById[stint.player_id])
-        pitcherKTotals[key] = Number(pitcherKTotals[key] || 0) + Number(stint.strikeouts || 0)
-      })
-      const hrTotals = {}
-      const hitTotals = {}
-      gamePAs.forEach((pa) => {
-        const key = buildBettingEntityLabel(charactersById[pa.character_id], playersById[pa.player_id])
-        if (isCreditedHit(pa) && (pa.result === 'HR' || pa.result === 'IPHR')) hrTotals[key] = Number(hrTotals[key] || 0) + 1
-        if (isCreditedHit(pa)) hitTotals[key] = Number(hitTotals[key] || 0) + 1
-      })
-      await resolveGameBets(
-        selectedGame.id,
-        getBettingWinningSide(resolved, selectedGame.team_b_player_id),
-        scores.a + scores.b,
-        pitcherKTotals,
-        Math.abs(scores.a - scores.b),
-        betResolutionConfig,
-        hrTotals,
-        hitTotals,
-      )
-    } catch (bettingError) {
-      pushToast({ title: 'Bet resolution failed', message: bettingError.message, type: 'error' })
-    }
-    // Assign W/L/S to the correct pitching stints — reuses the same play-by-play
-    // reconstruction (derivePitchingDecisions) that Stats/CharacterPage recompute
-    // from historical data, instead of the old "whoever finished the game for the
-    // winning side gets the win" shortcut. That shortcut had no concept of *when*
-    // the lead changed hands, so a reliever who mopped up the last inning (with
-    // nothing left to decide) got credited over the pitcher who was actually on
-    // the mound when the team took the lead for good — and never awarded a save
-    // at all. There's no innings-pitched requirement for a win here (that's an
-    // MLB starter-specific rule, not applicable to these short games); the only
-    // innings-based check is the save's own "3 full innings" qualifying clause.
-    // decideGamePitchingFlags ignores flags already on the stints: this is the authoritative
-    // moment they get decided, including a re-completion after a reopen. The tracker bridge
-    // calls the same function when it completes a game.
-    try {
-      const { winStintId, lossStintId, saveStintId, updates } = decideGamePitchingFlags({
-        stints: gamePitching,
-        pas: gamePAs,
-        runs: gameRuns,
-        teamAPlayerId: selectedGame.team_a_player_id,
-        teamBPlayerId: selectedGame.team_b_player_id,
-        winnerPlayerId: resolved,
-      })
-      await Promise.all(updates.map(({ id, patch }) => updatePitchingStint({
-        tables: scorebookTables,
-        stintId: id,
-        patch,
-      })))
-      if (updates.length) {
-        setPitchingStints((cur) => cur.map((s) => (
-          String(s.game_id) === String(selectedGame.id)
-            ? { ...s, win: winStintId === s.id, loss: lossStintId === s.id, save: saveStintId === s.id }
-            : s
-        )))
-      }
-    } catch (wlError) {
-      pushToast({ title: 'W/L assignment failed', message: wlError.message, type: 'error' })
-    }
-    try {
-      if (isSeasonGame) {
-        await gameSession.onGameComplete({ selectedGame: completedGame, scores })
-      } else {
-        const createdGames = await advanceTournamentBracket({
-          tournament,
-          games: games.map((game) => (game.id === selectedGame.id ? completedGame : game)),
-          completedGame,
-        })
-        if (createdGames.length) {
-          setGames((current) => {
-            const existingById = new Map(current.map((game) => [game.id, game]))
-            createdGames.forEach((game) => existingById.set(game.id, game))
-            return Array.from(existingById.values())
-          })
-        }
-      }
-    } catch (bracketError) {
-      pushToast({ title: isSeasonGame ? 'Season update failed' : 'Bracket update failed', message: bracketError.message, type: 'error' })
-    }
-    pushToast({ title: 'Game complete', type: 'success' })
-  }, [selectedGame, scores, currentInning, regulationInnings, pushToast, gamePitching, charactersById, playersById, tournament, games, isSeasonGame, gameSession, scorebookTables.games, scorebookTables.stadiumGameLog, scorebookTables.pitchingStints, selectedStadium, betResolutionConfig])
-  
-  const reopenCompletedGame = useCallback(async () => {
+    await runCompletionFollowUps()
+  }), [withLifecycleLock, selectedGame, scores, currentInning, regulationInnings, isSeasonGame, gameSession, scorebookTables, pushToast, setGames, setGameEndBanner, runCompletionFollowUps])
+
+  const reopenCompletedGame = useCallback(() => withLifecycleLock(async () => {
     if (!selectedGame || !isGameComplete) return
-  
+
     const clearedLiveState = getPersistedLiveStateValue(null, true)
     const reopenUpdate = buildGameReopenPatch({ isSeasonGame, scores, clearedLiveState })
-  
-    const { error } = await updateGameRecord({ tables: scorebookTables, gameId: selectedGame.id, patch: reopenUpdate })
-    if (error) {
-      pushToast({ title: 'Reopen failed', message: error.message, type: 'error' })
-      return
-    }
 
-    // Bets are reversed before anything else treats the game as reopened. The
-    // row is already off `complete`, so the betting tab's recovery pass will not
-    // re-settle it underneath this. A failure stops here with the confirm still
-    // open, and confirming again repeats both writes, which reopenGameBets makes
-    // safe whichever of its own writes committed. Carrying on used to announce a
-    // reopen that left tickets credited, and built season standings from a ledger
-    // still holding the old payout.
-    try {
-      await reopenGameBets(selectedGame.id, betResolutionConfig)
-    } catch (bettingError) {
-      pushToast({ title: 'Bet reopen failed', message: `${bettingError.message} Confirm reopen again to retry.`, type: 'error' })
+    // The status moves first so the betting tab's recovery pass (which
+    // settles complete games with open bets) cannot re-settle a game this is
+    // reversing. A failure here leaves the confirm open to try again.
+    const write = await writeReopenedGameStatus({
+      sourceType: isSeasonGame ? 'season' : 'tournament',
+      tables: scorebookTables,
+      gameId: selectedGame.id,
+      patch: reopenUpdate,
+    })
+    if (write.error) {
+      pushToast({ title: 'Reopen failed', message: write.error.message, type: 'error' })
       return
     }
 
@@ -364,68 +384,32 @@ export default function useGameCompletion({
       is_extra_innings: false,
       live_state: clearedLiveState,
     }
-  
     setGames((current) => current.map((game) => (game.id === selectedGame.id ? reopenedGame : game)))
     setShowReopenGameConfirm(false)
     setGameEndBanner(null)
     setShowOutsBanner(false)
-  
-    try {
-      const { error: stadiumLogError } = await deleteStadiumGameLog({ tables: scorebookTables, gameId: selectedGame.id })
-      if (stadiumLogError) throw stadiumLogError
-    } catch (stadiumError) {
-      pushToast({ title: 'History cleanup failed', message: stadiumError.message, type: 'error' })
-    }
-  
-    // Clear W/L on all stints for this game.
-    try {
-      const stintIds = gamePitching.filter((s) => s.win || s.loss).map((s) => s.id)
-      if (stintIds.length) {
-        await clearPitchingStintDecisions({ tables: scorebookTables, stintIds })
-        setPitchingStints((cur) => cur.map((s) => stintIds.includes(s.id) ? { ...s, win: false, loss: false } : s))
-      }
-    } catch (wlError) {
-      pushToast({ title: 'W/L reset failed', message: wlError.message, type: 'error' })
-    }
-  
-    try {
-      await reopenGameBets(selectedGame.id, betResolutionConfig)
-    } catch (bettingError) {
-      pushToast({ title: 'Bet reopen failed', message: bettingError.message, type: 'error' })
-    }
-  
-    try {
-      if (isSeasonGame) {
-        await gameSession.onGameReopen?.({ selectedGame: reopenedGame })
-      } else {
-        if (tournament && (tournament.status === 'complete' || tournament.champion_player_id != null)) {
-          const { error: tournamentError } = await clearTournamentCompletion({ tournamentId: tournament.id })
-          if (tournamentError) throw tournamentError
-        }
-  
-        const syncedGames = await reopenTournamentBracket({
-          tournament,
-          games: games.map((game) => (game.id === selectedGame.id ? reopenedGame : game)),
-          reopenedGame,
-        })
-  
-        if (syncedGames.length) {
-          setGames((current) => {
-            const existingById = new Map(current.map((game) => [game.id, game]))
-            syncedGames.forEach((game) => existingById.set(game.id, game))
-            return Array.from(existingById.values())
-          })
-        }
-      }
-    } catch (syncError) {
-      pushToast({ title: isSeasonGame ? 'Season reopen failed' : 'Bracket reopen failed', message: syncError.message, type: 'error' })
-    }
-  
-    pushToast({ title: 'Game reopened', type: 'success' })
-  }, [selectedGame, isGameComplete, isSeasonGame, scores.a, scores.b, scorebookTables.games, scorebookTables.stadiumGameLog, pushToast, betResolutionConfig, gameSession, tournament, games])
-  
+    await runReopenFollowUps()
+  }), [withLifecycleLock, selectedGame, isGameComplete, isSeasonGame, scores, scorebookTables, pushToast, setGames, setGameEndBanner, setShowOutsBanner, runReopenFollowUps])
+
+  // The recovery control: finish whatever the game's persisted status still
+  // owes. It is offered whenever the audit finds owed work, which does not
+  // depend on the status having just been changed from this page.
+  const finishLifecycleFollowUps = useCallback(() => withLifecycleLock(async () => {
+    const audit = await auditLifecycle()
+    if (audit?.kind === 'completion') return runCompletionFollowUps({ doneTitle: 'Completion steps finished' })
+    if (audit?.kind === 'reopen') return runReopenFollowUps({ doneTitle: 'Reopen finished' })
+    return null
+  }), [withLifecycleLock, auditLifecycle, runCompletionFollowUps, runReopenFollowUps])
+
+  const currentAudit = lifecycleAudit?.gameId === selectedGame?.id ? lifecycleAudit : null
 
   return {
+    lifecycleRecovery: {
+      audit: currentAudit,
+      running: lifecycleRunning,
+      finish: finishLifecycleFollowUps,
+      recheck: auditLifecycle,
+    },
     markGameComplete,
     reopenCompletedGame,
     resetGameForTesting,

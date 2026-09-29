@@ -68,6 +68,11 @@ import {
   startBridge,
 } from './helpers/trackerBridgeReplay.mjs'
 import {
+  groupDerivedPitches,
+  planDerivedPitchEvidenceUpdates,
+} from '../scripts/ingest_player_tracking.mjs'
+import { indexCharactersByName } from '../scripts/tracker_character_ids.mjs'
+import {
   markUnresolvedPlayResolved,
   operatorCorrectionFields,
 } from '../src/utils/trackerUnresolvedPlays.js'
@@ -98,8 +103,10 @@ const runs = {}
 
 before(async () => {
   runs.tournament = await replayRecording(world, 'tournament')
+  runs.tournamentScoredPitches = structuredClone(world.db.pitches)
   runs.tournamentIngest = await ingestRecording(world, 'tournament')
   runs.season = await replayRecording(world, 'season')
+  runs.seasonScoredPitches = structuredClone(world.db.season_pitches)
   runs.seasonIngest = await ingestRecording(world, 'season')
   writePipelineRowsForBrowser(world)
 }, { timeout: 300_000 })
@@ -523,12 +530,87 @@ for (const competitionType of ['tournament', 'season']) {
 
 // ── postgame tracking ingestion ────────────────────────────────────────────
 
+// The capture's pitches that cannot be restated onto a scored plate
+// appearance, and why. The tournament's one is Red Noki's top-5th trip (strike
+// 1, star swing, fair ball, bobble, run scores, "Plate appearance #3") that the
+// tracker never stated an outcome for, so the bridge refuses to score it (see
+// skippedPlateAppearances). Its two capture pitches have no PA to land on.
+// Every other capture pitch must join, pitch for pitch.
+const UNMATCHED_CAPTURE_PITCHES = {
+  tournament: {
+    warnings: ['capture pitch evidence left 1 plate-appearance group(s) unmatched; no batter-input fields were guessed for them'],
+    groups: [{ inning: 5, inning_half: 0, batter: 'Red Noki', batter_id: 25, pitches: 2 }],
+  },
+  season: { warnings: [], groups: [] },
+}
+
+const OFFICIAL_PITCH_FIELDS = [
+  'id', 'pa_id', 'pitch_number_pa', 'pitch_number_game', 'result',
+  'count_balls_before', 'count_strikes_before', 'count_balls_after', 'count_strikes_after',
+]
+
 for (const competitionType of ['tournament', 'season']) {
+  test(`${competitionType} capture pitches restate onto every scored pitch but the refused plate appearance's`, () => {
+    const tables = SCORING_TABLES[competitionType]
+    const want = UNMATCHED_CAPTURE_PITCHES[competitionType]
+    assert.deepEqual(runs[`${competitionType}Ingest`].warnings, want.warnings)
+
+    const derivedPitches = fs.readFileSync(`${RECORDINGS[competitionType].capture}.pitches.jsonl`, 'utf8')
+      .split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line))
+    const plan = planDerivedPitchEvidenceUpdates({
+      derivedPitches,
+      plateAppearances: world.db[tables.pas],
+      pitchRows: world.db[tables.pitches],
+      charactersByName: indexCharactersByName(world.db.characters),
+    })
+    assert.deepEqual(plan.unmatchedGroups, want.groups)
+    assert.deepEqual(plan.unmatchedPitches, [])
+    // Every scored pitch received its capture pitch, and every capture pitch
+    // outside the refused PA found one: nothing on either side is left over.
+    assert.equal(plan.updates.length, world.db[tables.pitches].length)
+    assert.equal(
+      plan.updates.length + want.groups.reduce((total, group) => total + group.pitches, 0),
+      derivedPitches.length,
+    )
+    const byId = new Map(world.db[tables.pitches].map((row) => [row.id, row]))
+    for (const update of plan.updates) {
+      const row = byId.get(update.id)
+      assert.equal(row.pa_id, update.pa_id)
+      assert.equal(row.pitch_number_pa, update.pitch_number_pa)
+    }
+    // Capture order agrees with the scorebook's counts, not only its numbering.
+    const joined = groupDerivedPitches(derivedPitches)
+      .filter((group) => !want.groups.some((skip) => skip.inning === group[0].inning
+        && skip.inning_half === group[0].inning_half && skip.batter === group[0].batter))
+      .flat()
+    assert.equal(joined.length, plan.updates.length)
+    joined.forEach((pitch, index) => {
+      const row = byId.get(plan.updates[index].id)
+      assert.deepEqual(
+        [row.count_balls_before, row.count_strikes_before],
+        [pitch.balls_before, pitch.strikes_before],
+        `pitch ${row.pitch_number_pa} of PA ${row.pa_id}`,
+      )
+    })
+  })
+
+  test(`${competitionType} evidence restatement leaves official pitch facts and star pitches alone`, () => {
+    const tables = SCORING_TABLES[competitionType]
+    const scored = runs[`${competitionType}ScoredPitches`]
+    const pick = (row) => Object.fromEntries(OFFICIAL_PITCH_FIELDS.map((field) => [field, row[field]]))
+    assert.deepEqual(world.db[tables.pitches].map(pick), scored.map(pick))
+    const now = new Map(world.db[tables.pitches].map((row) => [row.id, row]))
+    for (const row of scored.filter((pitch) => pitch.is_star_pitch === true)) {
+      assert.equal(now.get(row.id).is_star_pitch, true, `star pitch ${row.id} kept its flag`)
+    }
+  })
+
   test(`${competitionType} postgame capture ingests once and re-ingests as a no-op`, async () => {
     const want = expected[competitionType].ingestion
     const first = runs[`${competitionType}Ingest`]
-    assert.equal(first.warnings.length, 0, first.warnings.join('\n'))
+    assert.deepEqual(first.warnings, UNMATCHED_CAPTURE_PITCHES[competitionType].warnings)
     assert.equal(first.summary.status, 'ingested')
+    assert.equal(first.summary.pitchEvidenceRows, expected[competitionType].persisted.pitches)
     assert.equal(first.summary.plays, want.plays)
     assert.equal(first.summary.linkedPlays, want.linkedPlays)
     assert.equal(first.summary.fieldingOpportunities, want.fieldingOpportunities)
@@ -544,6 +626,7 @@ for (const competitionType of ['tournament', 'season']) {
     }
     const again = await ingestRecording(world, competitionType)
     assert.equal(again.summary.alreadyComplete, true)
+    assert.deepEqual(again.warnings, first.warnings)
     assert.deepEqual({
       plays: world.db.tracking_plays.length,
       fielding: world.db.fielding_opportunities.length,

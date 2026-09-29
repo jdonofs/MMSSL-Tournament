@@ -22,7 +22,7 @@
       "plateAppearanceLines": 77,
       "runLines": 18,
       "matchupLines": 83,
-      "_audit": "83 pitcher-vs-batter headers: 78 real plate appearances, 4 headers the tracker repeated with no play under them, and 1 play (Red Noki, bottom 5th) whose outcome the tracker never stated."
+      "_audit": "83 pitcher-vs-batter headers: 78 real plate appearances, 4 headers the tracker repeated with no play under them, and 1 play (Red Noki, top 5th) whose outcome the tracker never stated."
     },
     "game": {
       "status": "complete",
@@ -34,15 +34,15 @@
     },
     "persisted": {
       "plateAppearances": 78,
-      "pitches": 104,
+      "pitches": 106,
       "runs": 17,
       "pitchingStints": 6,
       "gameFielders": 26,
       "lineups": 18,
       "oddsRows": 42,
-      "_audit_plateAppearances": "77 - 1 + 2 = 78. The tracker printed 77 'Plate appearance #' lines. One of those trips (Red Noki, bottom 5th) has no stated outcome, so the bridge refuses to score it. Two more trips the tracker never printed a line for at all (Wario, bottom 3rd; Green Paratroopa, bottom 7th) are in the log as complete plays — batter announced, ball hit, batter put out — and are recorded. The 83 pitcher-vs-batter headers are 78 written plate appearances plus 5 refusals: those four repeated headers with no play under them, and Red Noki's.",
+      "_audit_plateAppearances": "77 - 1 + 2 = 78. The tracker printed 77 'Plate appearance #' lines. One of those trips (Red Noki, top 5th) has no stated outcome, so the bridge refuses to score it. Two more trips the tracker never printed a line for at all (Wario, bottom 3rd; Green Paratroopa, bottom 7th) are in the log as complete plays — batter announced, ball hit, batter put out — and are recorded. The 83 pitcher-vs-batter headers are 78 written plate appearances plus 5 refusals: those four repeated headers with no play under them, and Red Noki's.",
       "_audit_runs": "17 rows against 18 'recorded a run!' lines. The eighteenth belongs to the Red Noki plate appearance the bridge refuses to score, and a run row cannot exist without its plate appearance. The scoreboard total is unaffected: the game row still reads 6-12.",
-      "_audit_pitches": "The tracker's own workbook totals 106 pitches (51 + 55). Its per-pitcher pitch and strike columns are internally inconsistent (its 'Strikes' column reads 2 of 25 for Luigi), so the exact total is not treated as an oracle; what is checked is that every persisted pitch is unique on (pa_id, pitch_number_pa) and that the per-pitcher totals are within one of the workbook's."
+      "_audit_pitches": "The tracker's own workbook totals 106 pitches (51 + 55). Its per-pitcher pitch and strike columns are internally inconsistent (its 'Strikes' column reads 2 of 25 for Luigi), so its per-pitcher split is not treated as an oracle. The total is: 106 persisted rows equal the workbook's 106 and the 60 Hz capture's 108 pitches less the 2 thrown in the refused Red Noki plate appearance (top 5th). Every row is unique on (pa_id, pitch_number_pa). Before 2026-09-28 the bridge wrote 104: it dropped each strikeout's third strike (the log prints 'Strike 3.' then the strikeout, never 'Count: x-3') and scored Red Pianta's fair-then-foul first pitch (bottom 6th) as two rows while losing the fly ball that followed."
     },
     "skippedPlateAppearances": 5,
     "batting": {
@@ -106,13 +106,13 @@
     },
     "persisted": {
       "plateAppearances": 77,
-      "pitches": 109,
+      "pitches": 110,
       "runs": 14,
       "pitchingStints": 6,
       "gameFielders": 26,
       "lineups": 18,
       "oddsRows": 42,
-      "_audit": "77 matches the tracker's own 77 'Plate appearance' lines exactly, and 14 run rows match its 14 'recorded a run!' lines and the 6 + 8 final."
+      "_audit": "77 matches the tracker's own 77 'Plate appearance' lines exactly, and 14 run rows match its 14 'recorded a run!' lines and the 6 + 8 final. 110 pitch rows equal the workbook's Pitching total (110) and the 60 Hz capture's 110 pitches. Before 2026-09-28 the bridge wrote 109: two strikeout third strikes missing, and fair-then-foul first pitches for Baby Luigi (bottom 1st) and Blue Noki (top 3rd) each scored as an in_play row beside the foul (Baby Luigi's liner that followed got no row; Blue Noki's grounder added a third)."
     },
     "skippedPlateAppearances": 4,
     "batting": {

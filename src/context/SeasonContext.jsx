@@ -15,47 +15,83 @@ import {
 const SeasonContext = createContext(null)
 const STORAGE_KEY = 'sluggers-selected-season'
 
-function replaceRowsIfChanged(setter, rows) {
-  setter((current) => (JSON.stringify(current) === JSON.stringify(rows) ? current : rows))
-}
-
 export function SeasonProvider({ children }) {
   const realtimeEnabled = useRealtimeEnabled()
   const [allSeasons, setAllSeasons] = useState([])
-  const [seasonTeams, setSeasonTeams] = useState([])
-  const [schedule, setSchedule] = useState([])
-  const [seasonBettingLedger, setSeasonBettingLedger] = useState([])
-  const [players, setPlayers] = useState([])
+  const [snapshot, setSnapshot] = useState(null)
   const [selectedSeasonId, setSelectedSeasonId] = useState(() => readLocalStorageItem(STORAGE_KEY))
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const selectedSeasonIdRef = useRef(selectedSeasonId)
-  // Tracks which season ID was last fully loaded by refreshSeasons so the
-  // selectedSeasonId effect below can skip re-fetching when refreshSeasons
-  // already did the load, but fire when the user switches via the navbar.
+  const snapshotRef = useRef(null)
+  const requestRef = useRef(0)
+  const sliceRequestsRef = useRef({ teams: 0, schedule: 0, ledger: 0 })
+  const sliceRevisionsRef = useRef({ teams: 0, schedule: 0, ledger: 0 })
+  const mountedRef = useRef(false)
+  // Skip the selection effect when refreshSeasons has already started its load,
+  // but run it when the user switches via the navbar.
   // Seeded with the same initial value as selectedSeasonId (not '') — on a fresh
   // page load with a previously-stored season in localStorage, the effect below
   // runs on mount before refreshSeasons' own fetch resolves and sets this ref,
   // so without seeding it here both fire the same 4 queries in parallel on every load.
   const lastRefreshedSeasonIdRef = useRef(selectedSeasonId)
 
-  // Memoized so its identity stays stable across renders — it's a dependency of
-  // SeasonGameSessionProvider's `gameSession` memo, and an unstable reference
-  // there caused Scorebook's full-season reload effect to re-fire on every
-  // realtime tick (i.e. on every single pitch, since scoring writes to
-  // season_schedule), not just on genuine season changes.
+  const selectSeason = useCallback((value) => {
+    const next = String(typeof value === 'function' ? value(selectedSeasonIdRef.current) : value || '')
+    if (next === selectedSeasonIdRef.current) return
+    selectedSeasonIdRef.current = next
+    requestRef.current += 1
+    setError(null)
+    setLoading(snapshotRef.current?.id !== next)
+    setSelectedSeasonId(next)
+  }, [])
+
+  const loadSeason = useCallback(async (seasonId, request, sliceRevisions) => {
+    const results = await Promise.all([
+      fetchAllRows(() => supabase.from('season_teams').select('*').eq('season_id', seasonId).order('created_at')),
+      fetchAllRows(() => supabase.from('season_schedule').select('*').eq('season_id', seasonId).order('round_number')),
+      fetchAllRows(() => supabase.from('season_betting_ledger').select('*').eq('season_id', seasonId).order('created_at')),
+      fetchAllRows(() => supabase.from('players').select('id, name, color').order('name')),
+    ])
+    for (const result of results) if (result.error) throw result.error
+    if (!mountedRef.current || requestRef.current !== request || selectedSeasonIdRef.current !== seasonId) return
+    const previous = snapshotRef.current?.id === seasonId ? snapshotRef.current : null
+    const keepRows = (key, rows) => previous && JSON.stringify(previous[key]) === JSON.stringify(rows) ? previous[key] : rows
+    const next = {
+      id: seasonId,
+      teams: keepRows('teams', previous && sliceRevisionsRef.current.teams !== sliceRevisions.teams ? previous.teams : results[0].data || []),
+      schedule: keepRows('schedule', previous && sliceRevisionsRef.current.schedule !== sliceRevisions.schedule ? previous.schedule : results[1].data || []),
+      ledger: keepRows('ledger', previous && sliceRevisionsRef.current.ledger !== sliceRevisions.ledger ? previous.ledger : results[2].data || []),
+      players: keepRows('players', results[3].data || []),
+    }
+    const stableSnapshot = previous && next.teams === previous.teams && next.schedule === previous.schedule
+      && next.ledger === previous.ledger && next.players === previous.players ? previous : next
+    snapshotRef.current = stableSnapshot
+    for (const slice of ['teams', 'schedule', 'ledger']) sliceRevisionsRef.current[slice] += 1
+    setSnapshot(stableSnapshot)
+    setError(null)
+    setLoading(false)
+  }, [])
+
+  // The scorebook depends on this callback's stable identity. Recreating it on
+  // every realtime render would reload the scorebook after each pitch.
   const refreshSeasons = useCallback(async (preferredSeasonId, options = {}) => {
     const { silent = false } = options
-    if (!silent) setLoading(true)
+    const request = ++requestRef.current
+    const selectionAtStart = selectedSeasonIdRef.current
+    const preferredId = preferredSeasonId ? String(preferredSeasonId) : ''
+    if (!silent && !snapshotRef.current) setLoading(true)
+    if (!silent) setError(null)
+
+    try {
 
     const { data: seasonsData, error: seasonsError } = await supabase
       .from('seasons')
       .select('*')
       .order('created_at', { ascending: false })
 
-    if (seasonsError) {
-      if (!silent) setLoading(false)
-      throw seasonsError
-    }
+    if (seasonsError) throw seasonsError
+    if (!mountedRef.current || requestRef.current !== request || selectedSeasonIdRef.current !== selectionAtStart) return seasonsData || []
 
     const seasons = (seasonsData || []).map((season) => ({
       ...season,
@@ -66,45 +102,45 @@ export function SeasonProvider({ children }) {
         DEFAULT_MERCY_RULE_DIFFERENTIAL,
       ),
     }))
-    setAllSeasons(seasons)
-
-    const preferredId = preferredSeasonId ? String(preferredSeasonId) : ''
     const current = preferredId || selectedSeasonIdRef.current
     const hasSelection = seasons.some((season) => String(season.id) === current)
     const nextSelection = hasSelection ? current : String(seasons[0]?.id || '')
+    if (nextSelection !== selectedSeasonIdRef.current) {
+      selectedSeasonIdRef.current = nextSelection
+      setSelectedSeasonId(nextSelection)
+    }
     lastRefreshedSeasonIdRef.current = nextSelection
-    setSelectedSeasonId(nextSelection)
+    if (snapshotRef.current?.id !== nextSelection) setLoading(true)
 
     if (!nextSelection) {
-      setSeasonTeams([])
-      setSchedule([])
-      setSeasonBettingLedger([])
-      if (!silent) setLoading(false)
+      snapshotRef.current = { id: '', teams: [], schedule: [], ledger: [], players: [] }
+      setSnapshot(snapshotRef.current)
+      setAllSeasons((current) => JSON.stringify(current) === JSON.stringify(seasons) ? current : seasons)
+      setError(null)
+      setLoading(false)
       return seasons
     }
-
-    const [{ data: teamsData }, { data: scheduleData }, { data: bettingLedgerData }, { data: playersData }] = await Promise.all([
-      fetchAllRows(() => supabase.from('season_teams').select('*').eq('season_id', nextSelection).order('created_at')),
-      fetchAllRows(() => supabase.from('season_schedule').select('*').eq('season_id', nextSelection).order('round_number')),
-      fetchAllRows(() => supabase.from('season_betting_ledger').select('*').eq('season_id', nextSelection).order('created_at')),
-      fetchAllRows(() => supabase.from('players').select('id, name, color').order('name')),
-    ])
-
-    setSeasonTeams(teamsData || [])
-    setSchedule(scheduleData || [])
-    setSeasonBettingLedger(bettingLedgerData || [])
-    setPlayers(playersData || [])
-    if (!silent) setLoading(false)
+    const sliceRevisions = { ...sliceRevisionsRef.current }
+    for (const slice of ['teams', 'schedule', 'ledger']) sliceRequestsRef.current[slice] += 1
+    await loadSeason(nextSelection, request, sliceRevisions)
+    if (mountedRef.current && requestRef.current === request) {
+      setAllSeasons((current) => JSON.stringify(current) === JSON.stringify(seasons) ? current : seasons)
+    }
     return seasons
-  }, [])
+    } catch (failure) {
+      if (mountedRef.current && requestRef.current === request) {
+        setError(failure?.message || 'Season data is unavailable.')
+        setLoading(false)
+      }
+      throw failure
+    }
+  }, [loadSeason])
 
   useEffect(() => {
-    refreshSeasons().catch(() => setLoading(false))
+    mountedRef.current = true
+    refreshSeasons().catch(() => {})
+    return () => { mountedRef.current = false; requestRef.current += 1 }
   }, [])
-
-  useEffect(() => {
-    selectedSeasonIdRef.current = selectedSeasonId
-  }, [selectedSeasonId])
 
   // When the user switches seasons via the navbar (setViewedSeason), refreshSeasons
   // is NOT called, so schedule/teams data stays stale. This effect detects that case
@@ -114,19 +150,15 @@ export function SeasonProvider({ children }) {
     if (!selectedSeasonId || lastRefreshedSeasonIdRef.current === selectedSeasonId) return
     lastRefreshedSeasonIdRef.current = selectedSeasonId
 
-    const reload = async () => {
-      const [{ data: teamsData }, { data: scheduleData }, { data: bettingLedgerData }, { data: playersData }] = await Promise.all([
-        fetchAllRows(() => supabase.from('season_teams').select('*').eq('season_id', selectedSeasonId).order('created_at')),
-        fetchAllRows(() => supabase.from('season_schedule').select('*').eq('season_id', selectedSeasonId).order('round_number')),
-        fetchAllRows(() => supabase.from('season_betting_ledger').select('*').eq('season_id', selectedSeasonId).order('created_at')),
-        fetchAllRows(() => supabase.from('players').select('id, name, color').order('name')),
-      ])
-      setSeasonTeams(teamsData || [])
-      setSchedule(scheduleData || [])
-      setSeasonBettingLedger(bettingLedgerData || [])
-      setPlayers(playersData || [])
-    }
-    reload().catch(() => {})
+    const request = ++requestRef.current
+    const sliceRevisions = { ...sliceRevisionsRef.current }
+    for (const slice of ['teams', 'schedule', 'ledger']) sliceRequestsRef.current[slice] += 1
+    loadSeason(selectedSeasonId, request, sliceRevisions).catch((failure) => {
+      if (mountedRef.current && requestRef.current === request && selectedSeasonIdRef.current === selectedSeasonId) {
+        setError(failure?.message || 'Season data is unavailable.')
+        setLoading(false)
+      }
+    })
   }, [selectedSeasonId])
 
   useEffect(() => {
@@ -159,19 +191,28 @@ export function SeasonProvider({ children }) {
     if (!realtimeEnabled || !selectedSeasonId) return undefined
 
     const dirtySlices = new Set()
+    let disposed = false
     const refreshDirtySlices = async () => {
       const slices = [...dirtySlices]
       dirtySlices.clear()
+      const request = requestRef.current
+      const sliceRequests = Object.fromEntries(slices.map((slice) => [slice, ++sliceRequestsRef.current[slice]]))
       const results = await Promise.all(slices.map(async (slice) => {
         if (slice === 'schedule') return [slice, await fetchAllRows(() => supabase.from('season_schedule').select('*').eq('season_id', selectedSeasonId).order('round_number'))]
         if (slice === 'teams') return [slice, await fetchAllRows(() => supabase.from('season_teams').select('*').eq('season_id', selectedSeasonId).order('created_at'))]
         return [slice, await fetchAllRows(() => supabase.from('season_betting_ledger').select('*').eq('season_id', selectedSeasonId).order('created_at'))]
       }))
+      if (disposed || !mountedRef.current || requestRef.current !== request || selectedSeasonIdRef.current !== selectedSeasonId) return
       for (const [slice, result] of results) {
         if (result.error) throw result.error
-        if (slice === 'schedule') replaceRowsIfChanged(setSchedule, result.data || [])
-        else if (slice === 'teams') replaceRowsIfChanged(setSeasonTeams, result.data || [])
-        else replaceRowsIfChanged(setSeasonBettingLedger, result.data || [])
+      }
+      for (const [slice, result] of results) {
+        if (sliceRequestsRef.current[slice] !== sliceRequests[slice] || snapshotRef.current?.id !== selectedSeasonId) continue
+        const key = slice === 'teams' ? 'teams' : slice === 'schedule' ? 'schedule' : 'ledger'
+        if (JSON.stringify(snapshotRef.current[key]) === JSON.stringify(result.data || [])) continue
+        snapshotRef.current = { ...snapshotRef.current, [key]: result.data || [] }
+        sliceRevisionsRef.current[slice] += 1
+        setSnapshot(snapshotRef.current)
       }
     }
     const refreshCoordinator = createRefreshCoordinator({
@@ -179,6 +220,11 @@ export function SeasonProvider({ children }) {
       delayMs: 150,
       maxWaitMs: 750,
       isPaused: () => document.visibilityState === 'hidden',
+      onError: (failure) => {
+        if (!disposed && mountedRef.current && selectedSeasonIdRef.current === selectedSeasonId) {
+          setError(failure?.message || 'Season data is unavailable.')
+        }
+      },
     })
     const invalidate = (slice) => {
       dirtySlices.add(slice)
@@ -218,12 +264,19 @@ export function SeasonProvider({ children }) {
     window.addEventListener('online', handleOnline)
 
     return () => {
+      disposed = true
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('online', handleOnline)
       refreshCoordinator.dispose()
       supabase.removeChannel(channel)
     }
   }, [realtimeEnabled, selectedSeasonId])
+
+  const visibleSnapshot = snapshot?.id === selectedSeasonId ? snapshot : null
+  const seasonTeams = visibleSnapshot?.teams || []
+  const schedule = visibleSnapshot?.schedule || []
+  const seasonBettingLedger = visibleSnapshot?.ledger || []
+  const players = visibleSnapshot?.players || []
 
   const viewedSeason = allSeasons.find((season) => String(season.id) === String(selectedSeasonId)) || null
   const activeSeason = allSeasons.find((season) => ['active', 'playoffs'].includes(season.status)) || null
@@ -261,15 +314,18 @@ export function SeasonProvider({ children }) {
     allSeasons,
     activeSeason,
     viewedSeason,
-    setViewedSeason: (season) => setSelectedSeasonId(season ? String(season.id) : ''),
+    setViewedSeason: (season) => selectSeason(season ? String(season.id) : ''),
     currentSeason,
     selectedSeasonId,
-    setSelectedSeasonId,
+    setSelectedSeasonId: selectSeason,
     refreshSeasons,
     loading,
+    error,
+    available: Boolean(visibleSnapshot),
     standings,
     schedule,
     seasonTeams,
+    seasonBettingLedger,
     players,
     seasonPlayersById,
     tradeDeadlinePassed,
@@ -282,9 +338,12 @@ export function SeasonProvider({ children }) {
     currentSeason,
     selectedSeasonId,
     loading,
+    error,
+    visibleSnapshot,
     standings,
     schedule,
     seasonTeams,
+    seasonBettingLedger,
     players,
     seasonPlayersById,
     tradeDeadlinePassed,

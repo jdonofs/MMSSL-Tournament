@@ -10,11 +10,7 @@ import {
   normalizeMercyRuleDifferential,
   normalizeRegulationInnings,
 } from '../utils/gameRules'
-import {
-  completeSeasonGameLifecycle,
-  reopenSeasonGameLifecycle,
-  resolveSeasonScorebookGameId,
-} from '../utils/seasonPlayoffs'
+import { resolveSeasonScorebookGameId } from '../utils/seasonPlayoffs'
 
 const SEASON_TABLES = {
   games: 'season_schedule',
@@ -216,21 +212,12 @@ export default function SeasonGameSessionProvider({ children }) {
       return rosterData || []
     },
     getLineupKey: (playerId) => `season-lineup-${currentSeason?.id}-${playerId}`,
-    async onGameComplete({ selectedGame, scores }) {
-      if (!selectedGame || !currentSeason?.id) return
-      try {
-        await completeSeasonGameLifecycle({ supabase, season: currentSeason, selectedGame, scores })
-      } finally {
-        await refreshSeasons(currentSeason.id).catch(() => {})
-      }
-    },
-    async onGameReopen({ selectedGame }) {
-      if (!selectedGame || !currentSeason?.id) return
-      try {
-        await reopenSeasonGameLifecycle({ supabase, season: currentSeason, selectedGame })
-      } finally {
-        await refreshSeasons(currentSeason.id).catch(() => {})
-      }
+    // Standings and playoff advancement are done by the scorebook's lifecycle
+    // module from the game row's own season_id (not whichever season is
+    // selected here). This only brings the season context up to date after.
+    async onLifecycleSettled() {
+      if (!currentSeason?.id) return
+      await refreshSeasons(currentSeason.id).catch(() => {})
     },
   }), [
     gameId,

@@ -461,11 +461,38 @@ export async function resolveGameBets(gameId, winningSide, totalRuns, pitcherKTo
     await rollbackSettlement(updates, resolvedConfig)
     throw ledgerErr
   }
-  await runPostGameCalibration(gameId, resolvedConfig)
+  // Calibration appends rows and moves the engine weights, so it belongs to the
+  // pass that graded the bets. A retry that only reconciled the ledger (or found
+  // nothing to do) must not count the same game a second time.
+  if (updates.length) await runPostGameCalibration(gameId, resolvedConfig)
   return updates
 }
 
 const REVERSIBLE_BET_TYPES = ['moneyline', 'run_line', 'over_under', 'first_inning_run', 'k_prop', 'hr_prop', 'hit_prop']
+// first_inning_run is the one market graded while a game is still being played.
+const COMPLETION_ONLY_BET_TYPES = REVERSIBLE_BET_TYPES.filter((type) => type !== 'first_inning_run')
+
+// What a finished reopen would still have to reverse on a game that is no
+// longer complete: a market only completion grades that still reads settled,
+// or a settled ledger row held by a bet that is open again. Either one means a
+// reopen stopped partway. A settled first-inning bet is ordinary live play and
+// is not reported.
+export async function findUnreversedCompletionBets(gameId, config = {}) {
+  const resolvedConfig = buildResolutionConfig(config)
+  const { data, error } = await resolvedConfig.supabaseClient
+    .from(resolvedConfig.betsTable)
+    .select('*')
+    .eq('game_id', gameId)
+    .in('bet_type', REVERSIBLE_BET_TYPES)
+    .in('status', SETTLEABLE_STATUSES)
+  if (error) throw error
+  const bets = data || []
+  const settled = bets.filter((bet) => COMPLETION_ONLY_BET_TYPES.includes(bet.bet_type)
+    && RESOLVED_STATUSES.includes(bet.status))
+  const openIds = bets.filter((bet) => bet.status === 'open' || bet.status === 'pending').map((bet) => bet.id)
+  const orphanedRows = await loadSettledLedgerRows(openIds, resolvedConfig)
+  return { settled, orphanedRows }
+}
 
 async function loadSettledLedgerRows(betIds, config) {
   if (!betIds.length) return []

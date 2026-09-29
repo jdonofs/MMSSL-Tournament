@@ -21,6 +21,7 @@
 // deliberately a separate, read-only smoke check.
 
 import assert from 'node:assert/strict'
+import net from 'node:net'
 import path from 'node:path'
 import test, { after, before } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -41,6 +42,14 @@ let baseUrl
 let buildRawValueRows
 
 before(async () => {
+  const port = await new Promise((resolve, reject) => {
+    const socket = net.createServer()
+    socket.once('error', reject)
+    socket.listen(0, '127.0.0.1', () => {
+      const selectedPort = socket.address().port
+      socket.close(() => resolve(selectedPort))
+    })
+  })
   // Two Vite servers, because they are rooted differently. `loader` is rooted
   // at the repo and only loads the row builder into THIS process --
   // measuredAttributes reaches characterAnalysis, which imports JSON through
@@ -53,7 +62,7 @@ before(async () => {
     root: fixtureRoot,
     logLevel: 'error',
     plugins: [scoutingFixturePlugin(), react()],
-    server: { port: 0, host: '127.0.0.1', fs: { allow: [repoRoot] } },
+    server: { port, strictPort: true, host: '127.0.0.1', fs: { allow: [repoRoot] } },
     optimizeDeps: { include: [] },
   })
   await server.listen()

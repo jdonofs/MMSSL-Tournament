@@ -594,29 +594,51 @@ async function claimPlayoffTransition(supabase, seasonId) {
 // conditional season update is the exactly-once claim for two clients that
 // finish the same last regular-season game. If seeding then fails partway, a
 // later callback with the refreshed `playoffs` season repairs missing stages.
+//
+// `requirePersistedCompletion` is for callers that have already written the
+// final row (the scorebook, the tracker bridge, completion recovery). The row
+// is read rather than rewritten: its score is the authoritative one, and a
+// late or repeated call must not put `completed` back on a game someone has
+// since reopened. That case is refused with `code: 'game_not_complete'`.
 export async function completeSeasonGameLifecycle({
   supabase,
   season,
   selectedGame,
   scores,
+  requirePersistedCompletion = false,
 } = {}) {
   if (!season?.id || !selectedGame?.id) return null
 
-  const awayScore = Number(scores?.a || 0)
-  const homeScore = Number(scores?.b || 0)
-  const winnerTeamId = awayScore === homeScore
-    ? null
-    : (awayScore > homeScore ? selectedGame.away_team_id : selectedGame.home_team_id)
-  const { error: completionError } = await supabase
-    .from('season_schedule')
-    .update({
-      status: 'completed',
-      winner_team_id: winnerTeamId,
-      away_score: awayScore,
-      home_score: homeScore,
-    })
-    .eq('id', selectedGame.id)
-  if (completionError) throw completionError
+  if (requirePersistedCompletion) {
+    const { data: persisted, error: readError } = await supabase
+      .from('season_schedule')
+      .select('*')
+      .eq('id', selectedGame.id)
+      .maybeSingle()
+    if (readError) throw readError
+    if (persisted?.status !== 'completed') {
+      const error = new Error(`season game ${selectedGame.id} is ${persisted?.status || 'missing'}, not completed; standings were not advanced`)
+      error.code = 'game_not_complete'
+      throw error
+    }
+    selectedGame = { ...selectedGame, ...persisted }
+  } else {
+    const awayScore = Number(scores?.a || 0)
+    const homeScore = Number(scores?.b || 0)
+    const winnerTeamId = awayScore === homeScore
+      ? null
+      : (awayScore > homeScore ? selectedGame.away_team_id : selectedGame.home_team_id)
+    const { error: completionError } = await supabase
+      .from('season_schedule')
+      .update({
+        status: 'completed',
+        winner_team_id: winnerTeamId,
+        away_score: awayScore,
+        home_score: homeScore,
+      })
+      .eq('id', selectedGame.id)
+    if (completionError) throw completionError
+  }
 
   const state = await loadSeasonLifecycleState(supabase, season.id)
   const standings = buildSeasonStandings(state.seasonTeams, state.schedule, state.bettingLedger)
@@ -655,8 +677,26 @@ export async function reopenSeasonGameLifecycle({
   supabase,
   season,
   selectedGame,
+  requirePersistedReopen = false,
 } = {}) {
   if (!season?.id || !selectedGame?.id) return null
+
+  // The mirror of requirePersistedCompletion: a late reopen pass must not tear
+  // down a bracket for a game that has been completed again since.
+  if (requirePersistedReopen) {
+    const { data: persisted, error: readError } = await supabase
+      .from('season_schedule')
+      .select('*')
+      .eq('id', selectedGame.id)
+      .maybeSingle()
+    if (readError) throw readError
+    if (!persisted || persisted.status === 'completed') {
+      const error = new Error(`season game ${selectedGame.id} is ${persisted?.status || 'missing'}; the reopen was not applied to standings`)
+      error.code = 'game_complete'
+      throw error
+    }
+    selectedGame = { ...selectedGame, ...persisted }
+  }
 
   const state = await loadSeasonLifecycleState(supabase, season.id)
   const standings = buildSeasonStandings(state.seasonTeams, state.schedule, state.bettingLedger)

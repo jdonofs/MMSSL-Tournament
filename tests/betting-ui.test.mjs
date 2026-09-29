@@ -11,6 +11,7 @@
 // balance against concurrent clients.
 
 import assert from 'node:assert/strict'
+import net from 'node:net'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -30,17 +31,24 @@ let browser = null
 let baseUrl = ''
 
 test.before(async () => {
+  const port = await new Promise((resolve, reject) => {
+    const socket = net.createServer()
+    socket.once('error', reject)
+    socket.listen(0, '127.0.0.1', () => {
+      const selectedPort = socket.address().port
+      socket.close(() => resolve(selectedPort))
+    })
+  })
   server = await createServer({
     configFile: false,
     root: fixtureRoot,
     logLevel: 'error',
     plugins: [bettingFixturePlugin(), react()],
-    server: { port: 0, host: '127.0.0.1', fs: { allow: [repoRoot] } },
+    server: { port, strictPort: true, host: '127.0.0.1', fs: { allow: [repoRoot] } },
     optimizeDeps: { include: [] },
   })
   await server.listen()
-  const { port } = server.httpServer.address()
-  baseUrl = `http://127.0.0.1:${port}/`
+  baseUrl = `http://127.0.0.1:${server.httpServer.address().port}/`
   browser = await chromium.launch()
 })
 

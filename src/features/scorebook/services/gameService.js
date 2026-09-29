@@ -23,7 +23,7 @@ export async function updatePitchingStint({ tables, stintId, patch }) {
 }
 
 export async function clearPitchingStintDecisions({ tables, stintIds }) {
-  return supabase.from(tables.pitchingStints).update({ win: false, loss: false }).in('id', stintIds)
+  return supabase.from(tables.pitchingStints).update({ win: false, loss: false, save: false }).in('id', stintIds)
 }
 
 export async function insertPitchingStint({ tables, row }) {

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import useRealtimeEnabled from '../hooks/useRealtimeEnabled'
 import { DEFAULT_REGULATION_INNINGS, normalizeRegulationInnings } from '../utils/gameRules'
@@ -14,20 +14,33 @@ export function TournamentProvider({ children }) {
     () => readLocalStorageItem(STORAGE_KEY),
   )
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [hasLoaded, setHasLoaded] = useState(false)
+  const hasLoadedRef = useRef(false)
   const selectedTournamentIdRef = useRef(selectedTournamentId)
+  const requestRef = useRef(0)
+  const mountedRef = useRef(false)
 
-  const refreshTournaments = async (preferredTournamentId, options = {}) => {
-    const { silent = false } = options
-    if (!silent) setLoading(true)
+  const selectTournament = useCallback((value) => {
+    const next = String(typeof value === 'function' ? value(selectedTournamentIdRef.current) : value || '')
+    if (next === selectedTournamentIdRef.current) return
+    selectedTournamentIdRef.current = next
+    requestRef.current += 1
+    setSelectedTournamentId(next)
+    if (!hasLoadedRef.current) refreshTournaments(next).catch(() => {})
+  }, [])
+
+  const refreshTournaments = useCallback(async (preferredTournamentId) => {
+    const request = ++requestRef.current
+    const selectionAtStart = selectedTournamentIdRef.current
+    try {
     const { data, error } = await supabase
       .from('tournaments')
       .select('*')
       .order('tournament_number', { ascending: false })
 
-    if (error) {
-      if (!silent) setLoading(false)
-      throw error
-    }
+    if (error) throw error
+    if (!mountedRef.current || requestRef.current !== request || selectedTournamentIdRef.current !== selectionAtStart) return data || []
 
     const next = (data || []).map((tournament) => ({
       ...tournament,
@@ -39,18 +52,27 @@ export function TournamentProvider({ children }) {
     const current = preferredId || selectedTournamentIdRef.current
     const hasSelection = next.some(t => String(t.id) === current)
     const nextSelection = hasSelection ? current : String(next[0]?.id || '')
+    selectedTournamentIdRef.current = nextSelection
     setSelectedTournamentId(nextSelection)
-    if (!silent) setLoading(false)
+    setError(null)
+    hasLoadedRef.current = true
+    setHasLoaded(true)
+    setLoading(false)
     return next
-  }
-
-  useEffect(() => {
-    refreshTournaments().catch(() => setLoading(false))
+    } catch (failure) {
+      if (mountedRef.current && requestRef.current === request && selectedTournamentIdRef.current === selectionAtStart) {
+        setError(failure?.message || 'Tournament data is unavailable.')
+        setLoading(false)
+      }
+      throw failure
+    }
   }, [])
 
   useEffect(() => {
-    selectedTournamentIdRef.current = selectedTournamentId
-  }, [selectedTournamentId])
+    mountedRef.current = true
+    refreshTournaments().catch(() => {})
+    return () => { mountedRef.current = false; requestRef.current += 1 }
+  }, [])
 
   useEffect(() => {
     // Skipped on pages that don't need live updates (see useRealtimeEnabled) — an open realtime
@@ -89,7 +111,7 @@ export function TournamentProvider({ children }) {
   const currentTournament = viewedTournament
 
   const setViewedTournament = (tournament) => {
-    setSelectedTournamentId(tournament ? String(tournament.id) : '')
+    selectTournament(tournament ? String(tournament.id) : '')
   }
 
   const value = useMemo(
@@ -103,11 +125,13 @@ export function TournamentProvider({ children }) {
       tournaments,
       currentTournament,
       selectedTournamentId,
-      setSelectedTournamentId,
+      setSelectedTournamentId: selectTournament,
       refreshTournaments,
       loading,
+      error,
+      available: hasLoaded,
     }),
-    [tournaments, activeTournament, viewedTournament, currentTournament, loading, selectedTournamentId],
+    [tournaments, activeTournament, viewedTournament, currentTournament, loading, error, hasLoaded, selectedTournamentId],
   )
 
   return <TournamentContext.Provider value={value}>{children}</TournamentContext.Provider>

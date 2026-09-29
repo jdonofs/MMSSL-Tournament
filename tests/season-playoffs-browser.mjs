@@ -131,7 +131,7 @@ async function runViewport(browser, viewport, label) {
   await page.getByRole('heading', { name: 'Intercepted Reliability Season' }).waitFor()
   await page.getByText('Round 2-1', { exact: true }).click()
   await page.getByText('Stadium Setup', { exact: true }).waitFor()
-  const startButton = page.getByRole('button', { name: 'Start Game', exact: true })
+  const startButton = page.getByRole('button', { name: 'Open Game', exact: true })
   await startButton.waitFor()
   assert.equal(await startButton.isDisabled(), true)
   assert.match(await page.locator('.modal-card').innerText(), /Complete Round 1-2 first/)
