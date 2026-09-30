@@ -684,7 +684,14 @@ export default function Roster() {
   }, [draftPicks, selectedTeamId, charactersById])
 
   const canEditRoster = String(selectedTeamId) === String(player?.id) || isCommissioner || isScorekeeper
-  const canShowAutoButtons = canEditRoster
+  // 'ready' only once the viewed team's saved lineup has been read (or found
+  // absent). A failed read leaves it 'error' and nothing may be saved.
+  const [lineupLoadStatus, setLineupLoadStatus] = useState('loading')
+  const lineupLoadStatusRef = useRef('loading')
+  useEffect(() => { lineupLoadStatusRef.current = lineupLoadStatus }, [lineupLoadStatus])
+  const [lineupReloadNonce, setLineupReloadNonce] = useState(0)
+  const retryLineupLoad = useCallback(() => setLineupReloadNonce((current) => current + 1), [])
+  const canShowAutoButtons = canEditRoster && lineupLoadStatus === 'ready'
 
   // Tracks the most recently loaded/saved { lineupOrder, fieldingPositions } JSON
   // for the current team, so the autosave effect can skip redundant writes
@@ -748,13 +755,27 @@ export default function Roster() {
       setLineupOrder([])
       lastSyncedLineupRef.current = null
       lineupLoadKeyRef.current = null
+      setLineupLoadStatus('ready')
       return
     }
 
     const loadKey = `${selectedTournamentId}-${selectedTeamId}`
 
+    // A different team/tournament (or a retry after a failed read) starts from
+    // an empty editor, so the previous team's lineup is never shown as this
+    // one's. A same-team refresh keeps the lineup on screen until the read succeeds.
+    if (lineupLoadKeyRef.current !== loadKey) {
+      setFieldingPositions({})
+      setLineupOrder([])
+      setSelectedPlayer(null)
+      setSelectedLineupMoveId(null)
+      lastSyncedLineupRef.current = null
+      lineupLoadKeyRef.current = null
+      setLineupLoadStatus('loading')
+    }
+
     let cancelled = false
-    fetchTeamLineup({ ...TOURNAMENT_TEAM_LINEUPS, sourceId: selectedTournamentId, playerId: selectedTeamId }).then((saved) => {
+    fetchTeamLineup({ ...TOURNAMENT_TEAM_LINEUPS, sourceId: selectedTournamentId, playerId: selectedTeamId, throwOnError: true }).then((saved) => {
       if (cancelled) return
 
       const { lineupOrder: lineupOrderResult, fieldingPositions: fieldingPositionsResult } = reconcileSavedLineup(saved, teamRoster)
@@ -763,10 +784,17 @@ export default function Roster() {
       lineupLoadKeyRef.current = loadKey
       setFieldingPositions(fieldingPositionsResult)
       setLineupOrder(lineupOrderResult)
+      setLineupLoadStatus('ready')
+    }).catch((error) => {
+      if (cancelled) return
+      console.warn('[roster] saved lineup read failed', error)
+      // A failed same-team refresh keeps the last good lineup and any edits.
+      if (lineupLoadKeyRef.current === loadKey) return
+      setLineupLoadStatus('error')
     })
 
     return () => { cancelled = true }
-  }, [teamRoster, selectedTournamentId, selectedTeamId, reconcileSavedLineup])
+  }, [teamRoster, selectedTournamentId, selectedTeamId, reconcileSavedLineup, lineupReloadNonce])
 
   // Lineup order + fielding positions are saved explicitly via the Save
   // button (handleSaveLineup) rather than autosaved, to avoid races with
@@ -782,6 +810,9 @@ export default function Roster() {
 
   const handleSaveLineup = useCallback(async () => {
     if (!selectedTournamentId || !selectedTeamId) return
+    if (lineupLoadKeyRef.current !== `${selectedTournamentId}-${selectedTeamId}`) {
+      throw new Error('The saved lineup has not loaded; nothing was saved.')
+    }
     const payload = JSON.stringify({ lineupOrder, fieldingPositions })
     setLineupSaveStatus('saving')
     try {
@@ -829,6 +860,7 @@ export default function Roster() {
   // another device) for the currently viewed team.
   useEffect(() => {
     if (!selectedTournamentId || !selectedTeamId) return
+    let disposed = false
     const channel = supabase
       .channel(`team-lineup-${selectedTournamentId}-${selectedTeamId}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', {
@@ -847,6 +879,9 @@ export default function Roster() {
         // that never got explicitly re-saved to team_lineups.
         const { lineupOrder, fieldingPositions } = reconcileSavedLineup(saved, teamRosterRef.current)
         lastSyncedLineupRef.current = JSON.stringify({ lineupOrder, fieldingPositions })
+        // The row itself is a trustworthy read, so it also ends a failed load.
+        lineupLoadKeyRef.current = `${selectedTournamentId}-${selectedTeamId}`
+        setLineupLoadStatus('ready')
         setLineupOrder(lineupOrder)
         setFieldingPositions(fieldingPositions)
       })
@@ -861,9 +896,15 @@ export default function Roster() {
       // what makes browsers pick a tab first when reclaiming memory from inactive tabs. The
       // visibilitychange handler below already re-syncs immediately the moment the tab is shown.
       if (document.hidden) return
+      if (lineupLoadStatusRef.current === 'error') {
+        retryLineupLoad()
+        return
+      }
+      if (lineupLoadStatusRef.current !== 'ready') return
       if (isLineupDirtyRef.current) return
-      fetchTeamLineup({ ...TOURNAMENT_TEAM_LINEUPS, sourceId: selectedTournamentId, playerId: selectedTeamId }).then((saved) => {
-        if (!saved) return
+      fetchTeamLineup({ ...TOURNAMENT_TEAM_LINEUPS, sourceId: selectedTournamentId, playerId: selectedTeamId, throwOnError: true }).then((saved) => {
+        // A read that resolves after a team switch belongs to the old team.
+        if (disposed || !saved) return
         if (isLineupDirtyRef.current) return
         const { lineupOrder, fieldingPositions } = reconcileSavedLineup(saved, teamRosterRef.current)
         const payload = JSON.stringify({ lineupOrder, fieldingPositions })
@@ -871,6 +912,9 @@ export default function Roster() {
         lastSyncedLineupRef.current = payload
         setLineupOrder(lineupOrder)
         setFieldingPositions(fieldingPositions)
+      }).catch((error) => {
+        // Keep the lineup on screen; the next visibility/online event retries.
+        if (!disposed) console.warn('[roster] saved lineup refresh failed', error)
       })
     }
     const handleVisibility = () => {
@@ -881,11 +925,12 @@ export default function Roster() {
     window.addEventListener('online', handleOnline)
 
     return () => {
+      disposed = true
       supabase.removeChannel(channel)
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('online', handleOnline)
     }
-  }, [selectedTournamentId, selectedTeamId, reconcileSavedLineup])
+  }, [selectedTournamentId, selectedTeamId, reconcileSavedLineup, retryLineupLoad])
 
   const rosterNames = useMemo(() => teamRoster.map(c => c.chemistryName || c.name), [teamRoster])
   const rosterCharacterMetaById = useMemo(() => Object.fromEntries(teamRoster.map(c => [c.id, c])), [teamRoster])
@@ -1320,7 +1365,14 @@ export default function Roster() {
                 <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>Auto setup requires exactly 9 active players</div>
               ) : null}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {lineupOrder.length === 0 ? (
+                {teamRoster.length > 0 && lineupLoadStatus !== 'ready' ? (
+                  <div style={{ padding: 12, textAlign: 'center', color: lineupLoadStatus === 'error' ? '#F87171' : '#64748B', fontSize: 12 }}>
+                    {lineupLoadStatus === 'error' ? 'Saved lineup failed to load.' : 'Loading saved lineup…'}
+                    {lineupLoadStatus === 'error' && !canEditRoster ? (
+                      <button className="ghost-button" type="button" onClick={retryLineupLoad} style={{ marginLeft: 8 }}>Retry</button>
+                    ) : null}
+                  </div>
+                ) : lineupOrder.length === 0 ? (
                   <div style={{ padding: 12, textAlign: 'center', color: '#64748B', fontSize: 12 }}>No active players on this roster yet.</div>
                 ) : (
                   lineupOrder.map((charId, index) => {
@@ -1378,13 +1430,13 @@ export default function Roster() {
                 fieldingAssignMode={false}
                 selectedForFielding={null}
                 onAssignPosition={() => {}}
-                editable={canEditRoster}
+                editable={canEditRoster && lineupLoadStatus === 'ready'}
                 chemistryHighlightIds={chemistryHighlightIds}
               />
             </div>
           </div>
           {canEditRoster ? (
-            <SaveLineupBar isDirty={isLineupDirty} status={lineupSaveStatus} onSave={handleSaveLineup} />
+            <SaveLineupBar isDirty={isLineupDirty} status={lineupSaveStatus} onSave={() => handleSaveLineup().catch(() => {})} loadStatus={lineupLoadStatus} onRetryLoad={retryLineupLoad} />
           ) : null}
         </div>
       ) : null}

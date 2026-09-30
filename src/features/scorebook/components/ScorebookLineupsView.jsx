@@ -14,6 +14,7 @@ function LineupTeamCard({ team, isNarrowViewport, state, actions }) {
     selectedLineupMoveId,
     lineupDirty,
     lineupSaveStatus,
+    lineupLoadStatus,
   } = state
   const {
     handleDropOnLineupSlot,
@@ -23,6 +24,7 @@ function LineupTeamCard({ team, isNarrowViewport, state, actions }) {
     setFieldingPositionsForTeam,
     setSelectedFieldingPlayerForTeam,
     handleSaveLineupTeam,
+    retryLineupLoad,
   } = actions
   const teamName = team === 'A' ? teamAName : teamBName
   const draft = lineupDrafts[team]
@@ -32,6 +34,33 @@ function LineupTeamCard({ team, isNarrowViewport, state, actions }) {
   const selectedFieldingCharId = selectedFieldingPlayer[team]
   const chemistryHighlightIds = buildChemistryHighlightSet(selectedFieldingCharId || null, rosterCharsArray)
   const positionByCharId = Object.fromEntries(Object.entries(draft.fielding).map(([fieldId, charId]) => [charId, fieldId]))
+
+  const loadStatus = lineupLoadStatus[team]
+  // Save errors are reported by the editor (toast + bar); swallow the
+  // rejection here so the click handler never raises a page error.
+  const saveBar = (
+    <SaveLineupBar
+      isDirty={lineupDirty[team]}
+      status={lineupSaveStatus[team]}
+      onSave={() => handleSaveLineupTeam(team).catch(() => {})}
+      label={`Save Team ${team} Lineup`}
+      loadStatus={loadStatus}
+      onRetryLoad={retryLineupLoad}
+    />
+  )
+
+  // Without this game's own lineup rows the draft is a fallback, not the
+  // lineup, so show nothing editable until the seed has read the saved one.
+  if (loadStatus !== 'ready') {
+    return (
+      <SectionCard title={teamName} subtitle="Batting order & fielding positions">
+        <div style={{ padding: 12, textAlign: 'center', color: C.muted, fontSize: 12 }}>
+          {loadStatus === 'error' ? 'Game lineup not set — saved lineups could not be read.' : 'Setting game lineup…'}
+        </div>
+        {saveBar}
+      </SectionCard>
+    )
+  }
 
   return (
     <SectionCard title={teamName} subtitle="Batting order & fielding positions">
@@ -89,7 +118,7 @@ function LineupTeamCard({ team, isNarrowViewport, state, actions }) {
           portraitScale={0.85}
         />
       </div>
-      <SaveLineupBar isDirty={lineupDirty[team]} status={lineupSaveStatus[team]} onSave={() => handleSaveLineupTeam(team)} label={`Save Team ${team} Lineup`} />
+      {saveBar}
     </SectionCard>
   )
 }

@@ -20,6 +20,9 @@ export default function UnsavedChangesPrompt({ blocker, onSave, onDiscard, messa
     try {
       await onSave()
       blocker.proceed()
+    } catch {
+      // The editor reports the save error. Keep the dialog and edits in place
+      // for retry without rejecting the button's event handler.
     } finally {
       setSaving(false)
     }

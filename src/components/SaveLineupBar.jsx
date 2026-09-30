@@ -6,9 +6,58 @@ const COLORS = {
 
 // Prominent, sticky save control for lineup/fielding editors. Shown whenever
 // the section is editable; the button itself is only enabled while dirty.
-export default function SaveLineupBar({ isDirty, status = 'idle', onSave, label = 'Save Lineup' }) {
+// Until the saved lineup has been read (`loadStatus`), nothing on screen is
+// saved, so the bar says so and offers a retry instead of "All changes saved".
+export default function SaveLineupBar({ isDirty, status = 'idle', onSave, label = 'Save Lineup', loadStatus = 'ready', onRetryLoad }) {
   const isSaving = status === 'saving'
   const isError = status === 'error'
+  const isLoading = loadStatus === 'loading'
+  const isLoadError = loadStatus === 'error'
+
+  if (isLoading || isLoadError) {
+    return (
+      <div
+        role={isLoadError ? 'alert' : 'status'}
+        style={{
+          position: 'sticky',
+          bottom: 0,
+          zIndex: 20,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginTop: 12,
+          padding: '10px 14px',
+          borderRadius: 12,
+          border: `2px solid ${isLoadError ? COLORS.red : COLORS.border}`,
+          background: COLORS.card,
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 700, color: isLoadError ? COLORS.red : COLORS.muted }}>
+          {isLoadError ? 'Saved lineup failed to load — nothing can be saved until it does' : 'Loading saved lineup…'}
+        </span>
+        {isLoadError ? (
+          <button
+            type="button"
+            onClick={onRetryLoad}
+            style={{
+              minWidth: 140,
+              padding: '10px 20px',
+              borderRadius: 10,
+              border: 'none',
+              fontSize: 14,
+              fontWeight: 800,
+              color: '#FFFFFF',
+              background: COLORS.red,
+              cursor: 'pointer',
+            }}
+          >
+            Retry Load
+          </button>
+        ) : null}
+      </div>
+    )
+  }
 
   let buttonLabel = label
   if (isSaving) buttonLabel = 'Saving…'

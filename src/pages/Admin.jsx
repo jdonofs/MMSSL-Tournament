@@ -299,10 +299,6 @@ function EditSeasonModal({
   const [form, setForm] = useState(() => buildSeasonEditForm(season))
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    setForm(buildSeasonEditForm(season))
-  }, [season])
-
   if (!season) return null
 
   const regularSeasonGames = (schedule || []).filter((game) => !game.stage)
@@ -783,31 +779,37 @@ export default function Admin() {
     try {
       // Every table goes through fetchAllRows — a plain select() silently caps at
       // 1000 rows, which once shipped truncated backups with no error.
-      const results = await Promise.all([
-        fetchAllRows(() => supabase.from('seasons').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('players').select('*').order('name')),
-        fetchAllRows(() => supabase.from('characters').select('*').order('name')),
+      const backupTables = [
+        ['seasons', 'created_at'],
+        ['players', 'name'],
+        ['characters', 'name'],
         // draft_picks and the two inning_scores tables have no created_at column —
         // ordering by it made these three exports fail (400) in every past backup.
-        fetchAllRows(() => supabase.from('draft_picks').select('*')),
-        fetchAllRows(() => supabase.from('season_teams').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('season_schedule').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('season_roster').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('season_lineups').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('season_plate_appearances').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('season_pitching_stints').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('season_pitches').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('season_game_fielders').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('season_runs_scored').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('season_inning_scores').select('*')),
-        fetchAllRows(() => supabase.from('games').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('plate_appearances').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('pitching_stints').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('pitches').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('runs_scored').select('*').order('created_at')),
-        fetchAllRows(() => supabase.from('inning_scores').select('*')),
-        fetchAllRows(() => supabase.from('game_fielders').select('*').order('created_at')),
-      ])
+        ['draft_picks'],
+        ['season_teams', 'created_at'],
+        ['season_schedule', 'created_at'],
+        ['season_roster', 'created_at'],
+        ['season_lineups', 'created_at'],
+        ['season_plate_appearances', 'created_at'],
+        ['season_pitching_stints', 'created_at'],
+        ['season_pitches', 'created_at'],
+        ['season_game_fielders', 'created_at'],
+        ['season_runs_scored', 'created_at'],
+        ['season_inning_scores'],
+        ['games', 'created_at'],
+        ['plate_appearances', 'created_at'],
+        ['pitching_stints', 'created_at'],
+        ['pitches', 'created_at'],
+        ['runs_scored', 'created_at'],
+        ['inning_scores'],
+        ['game_fielders', 'created_at'],
+      ]
+      const results = await Promise.all(backupTables.map(([table, orderBy]) => (
+        fetchAllRows(() => {
+          const query = supabase.from(table).select('*')
+          return orderBy ? query.order(orderBy) : query
+        })
+      )))
 
       const [
         { data: seasonsData },
@@ -833,14 +835,13 @@ export default function Admin() {
         { data: tournamentFieldersData },
       ] = results
 
-      const failedTables = results.map((r, i) => r.error ? i : null).filter(i => i !== null)
-      if (failedTables.length) {
-        pushToast({ title: 'Backup incomplete', message: `${failedTables.length} table(s) failed to export — the downloaded file may be missing data.`, type: 'error' })
-      }
+      const failedTables = results.flatMap((result, index) => result.error ? [backupTables[index][0]] : [])
 
       const backup = {
         exportedAt: new Date().toISOString(),
         version: 1,
+        incomplete: failedTables.length > 0,
+        failedTables,
         seasons: seasonsData || [],
         players: playersData || [],
         characters: charactersData || [],
@@ -875,7 +876,11 @@ export default function Admin() {
       a.download = `sluggers-backup-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
-      pushToast({ title: 'Backup downloaded', message: 'All stats saved to your device.', type: 'success' })
+      if (failedTables.length) {
+        pushToast({ title: 'Backup incomplete', message: `The downloaded file is incomplete. Failed tables: ${failedTables.join(', ')}. Retry the backup to include them.`, type: 'error' })
+      } else {
+        pushToast({ title: 'Backup downloaded', message: 'All stats saved to your device.', type: 'success' })
+      }
     } catch (error) {
       pushToast({ title: 'Backup failed', message: error.message, type: 'error' })
     } finally {
@@ -1489,15 +1494,18 @@ export default function Admin() {
 
       </div>
 
-      <EditSeasonModal
-        season={editingSeason ? activeSeason : null}
-        allSeasons={allSeasons}
-        schedule={schedule}
-        seasonTeams={seasonTeams}
-        onClose={() => setEditingSeason(false)}
-        onSaved={handleSeasonSaved}
-        pushToast={pushToast}
-      />
+      {editingSeason && activeSeason ? (
+        <EditSeasonModal
+          key={activeSeason.id}
+          season={activeSeason}
+          allSeasons={allSeasons}
+          schedule={schedule}
+          seasonTeams={seasonTeams}
+          onClose={() => setEditingSeason(false)}
+          onSaved={handleSeasonSaved}
+          pushToast={pushToast}
+        />
+      ) : null}
     </div>
   )
 }

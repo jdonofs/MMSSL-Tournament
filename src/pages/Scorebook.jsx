@@ -1339,6 +1339,8 @@ export default function Scorebook() {
     selectedFieldingPlayer,
     lineupSaveStatus,
     lineupDirty,
+    lineupLoadStatus,
+    retryLineupLoad,
     changePitcherRef,
     handleLineupDragStart,
     handleLineupNumberClick,
@@ -4673,6 +4675,7 @@ export default function Scorebook() {
         selectedLineupMoveId,
         lineupDirty,
         lineupSaveStatus,
+        lineupLoadStatus,
       }}
       actions={{
         handleDropOnLineupSlot,
@@ -4682,6 +4685,7 @@ export default function Scorebook() {
         setFieldingPositionsForTeam,
         setSelectedFieldingPlayerForTeam,
         handleSaveLineupTeam,
+        retryLineupLoad,
       }}
     />
   )

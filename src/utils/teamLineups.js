@@ -18,7 +18,10 @@ export function swapLineupSlot(lineupOrder, sourceCharacterId, targetIndex) {
 
 // Fetches the saved lineup order + fielding positions for a team.
 // Returns null if no row exists yet (caller should fall back to defaults).
-export async function fetchTeamLineup({ table, idField, sourceId, playerId }) {
+// A failed read also returns null unless `throwOnError` is set. Any caller
+// that writes a lineup built from the result must set it: falling back to
+// defaults after a failed read overwrites the stored lineup with a guess.
+export async function fetchTeamLineup({ table, idField, sourceId, playerId, throwOnError = false }) {
   if (!sourceId || !playerId) return null
   const { data, error } = await supabase
     .from(table)
@@ -26,6 +29,7 @@ export async function fetchTeamLineup({ table, idField, sourceId, playerId }) {
     .eq(idField, sourceId)
     .eq('player_id', playerId)
     .maybeSingle()
+  if (error && throwOnError) throw error
   if (error || !data) return null
   return {
     lineupOrder: Array.isArray(data.lineup_order) ? data.lineup_order : [],
@@ -33,7 +37,8 @@ export async function fetchTeamLineup({ table, idField, sourceId, playerId }) {
   }
 }
 
-// Upserts the lineup order + fielding positions for a team.
+// Upserts the lineup order + fielding positions for a team. Throws on a failed
+// write: both roster pages mark the lineup saved only if this resolves.
 export async function upsertTeamLineup({ table, idField, sourceId, playerId, lineupOrder, fieldingPositions }) {
   if (!sourceId || !playerId) return { error: null }
   const { error } = await supabase
@@ -45,5 +50,6 @@ export async function upsertTeamLineup({ table, idField, sourceId, playerId, lin
       fielding_positions: fieldingPositions,
       updated_at: new Date().toISOString(),
     }, { onConflict: `${idField},player_id` })
-  return { error }
+  if (error) throw error
+  return { error: null }
 }

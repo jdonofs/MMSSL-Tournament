@@ -77,6 +77,30 @@ export default function useLineupEditor({
   const changePitcherRef = useRef(null)
   const isSyncingLineupsRef = useRef(false)
   const lastSyncedLineupSignatureRef = useRef(null)
+  const [lineupSeedRetry, setLineupSeedRetry] = useState(0)
+  const lineupSeedRetryTimerRef = useRef(null)
+  const lineupSeedFailedGameRef = useRef(null)
+  const [lineupSeedErrorGameId, setLineupSeedErrorGameId] = useState(null)
+  // The game the editor is showing now (null once unmounted). An awaited seed
+  // read compares against it so a response for a game the user has left
+  // writes nothing.
+  const activeLineupGameIdRef = useRef(null)
+  useEffect(() => {
+    activeLineupGameIdRef.current = selectedGame?.id
+    return () => { activeLineupGameIdRef.current = null }
+  }, [selectedGame?.id])
+
+  // Until this game has its own lineup rows, the draft is only a fallback
+  // (roster order or a snapshot that may have failed to load), and saving it
+  // would write fielders with no batting order. The auto-seed below creates
+  // the rows once the saved lineups have actually been read.
+  const lineupLoadStatus = useMemo(() => {
+    const status = (rows) => {
+      if (rows.length) return 'ready'
+      return lineupSeedErrorGameId != null && String(lineupSeedErrorGameId) === String(selectedGame?.id) ? 'error' : 'loading'
+    }
+    return { A: status(teamALineup), B: status(teamBLineup) }
+  }, [teamALineup, teamBLineup, lineupSeedErrorGameId, selectedGame?.id])
   
   const savedTeamLineupsByPlayerId = useMemo(() => Object.fromEntries(
     savedTeamLineups.map((row) => [String(row.player_id), row]),
@@ -223,11 +247,16 @@ export default function useLineupEditor({
   // Applies a lineup order + fielding assignment for `team` to the live
   // lineups/game_fielders projection for this specific game. The saved
   // team_lineups snapshot only seeds pregame state and is not rewritten here.
+  // Resolves true only when every write succeeded.
   const applyLineupToGame = useCallback(async (team, order, fielding) => {
-    if (!selectedGame) return
+    if (!selectedGame) return false
     const teamId = team === 'A' ? teamAId : teamBId
     const playerId = team === 'A' ? selectedGame.team_a_player_id : selectedGame.team_b_player_id
     const lineupRows = team === 'A' ? teamALineup : teamBLineup
+    if (!lineupRows.length) {
+      pushToast({ title: 'Lineup not saved', message: "This game's lineup has not loaded yet.", type: 'error' })
+      return false
+    }
   
     const lineupUpdates = order
       .map((characterId, i) => {
@@ -242,12 +271,12 @@ export default function useLineupEditor({
     const failed = results.find((r) => r.error)
     if (failed) {
       pushToast({ title: 'Lineup save failed', message: failed.error.message, type: 'error' })
-      return
+      return false
     }
     const noRowsUpdated = results.find((r) => !r.data || r.data.length === 0)
     if (noRowsUpdated) {
       pushToast({ title: 'Lineup save failed', message: 'No lineup rows were updated. You may not have permission to edit this lineup.', type: 'error' })
-      return
+      return false
     }
   
     // Only touch rows for positions actually present in this `fielding`
@@ -275,7 +304,7 @@ export default function useLineupEditor({
       })
       if (error) {
         pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
-        return
+        return false
       }
     }
     if (toDelete.length) {
@@ -285,7 +314,7 @@ export default function useLineupEditor({
       })
       if (error) {
         pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
-        return
+        return false
       }
     }
   
@@ -309,7 +338,7 @@ export default function useLineupEditor({
       })
       if (error) {
         pushToast({ title: 'Lineup save failed', message: error.message, type: 'error' })
-        return
+        return false
       }
       insertedFielderRows = data || newFielderRows.map(addSourceFields)
     }
@@ -344,6 +373,7 @@ export default function useLineupEditor({
     if (newPitcherCharId && offense?.pitchingPlayerId === playerId && newPitcherCharId !== Number(currentPitcherStint?.character_id)) {
       await changePitcherRef.current?.(playerId, newPitcherCharId)
     }
+    return true
   }, [selectedGame, teamAId, teamBId, teamALineup, teamBLineup, scorebookTables.lineups, scorebookTables.gameFielders, gameFielderRows, gamePAs, currentInning, playersById, charactersById, addSourceFields, pushToast, offense, currentPitcherStint])
   
   const saveTeamLineup = useCallback((team) => {
@@ -474,7 +504,9 @@ export default function useLineupEditor({
   const handleSaveLineupTeam = useCallback(async (team) => {
     setLineupSaveStatus((current) => ({ ...current, [team]: 'saving' }))
     try {
-      await saveTeamLineup(team)
+      // A refused or failed save keeps the draft dirty and rejects, so
+      // Save & Leave stays on the page.
+      if (!(await saveTeamLineup(team))) throw new Error('Lineup not saved')
       markLineupDirty(team, false)
       setLineupSaveStatus((current) => ({ ...current, [team]: 'saved' }))
     } catch (err) {
@@ -502,10 +534,37 @@ export default function useLineupEditor({
     isSyncingLineupsRef.current = true
     try {
       const teamLineupsTable = isSeasonGame ? SEASON_TEAM_LINEUPS : TOURNAMENT_TEAM_LINEUPS
-      const [savedTeamA, savedTeamB] = await Promise.all([
-        fetchTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId: selectedGame.team_a_player_id }),
-        fetchTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId: selectedGame.team_b_player_id }),
-      ])
+      let savedTeamA
+      let savedTeamB
+      try {
+        ;[savedTeamA, savedTeamB] = await Promise.all([
+          fetchTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId: selectedGame.team_a_player_id, throwOnError: true }),
+          fetchTeamLineup({ ...teamLineupsTable, sourceId: gameSession?.sourceId, playerId: selectedGame.team_b_player_id, throwOnError: true }),
+        ])
+      } catch (error) {
+        // A failed read is not a missing row: seeding roster order now would
+        // write a guessed lineup over the saved one. Write nothing and retry.
+        if (activeLineupGameIdRef.current !== selectedGame.id) {
+          setLineupSeedRetry((current) => current + 1)
+          return
+        }
+        setLineupSeedErrorGameId(selectedGame.id)
+        if (lineupSeedFailedGameRef.current !== selectedGame.id) {
+          lineupSeedFailedGameRef.current = selectedGame.id
+          pushToast({ title: 'Saved lineups unavailable', message: `${error?.message || 'Read failed'}. The game lineup will be set once they load.`, type: 'error' })
+        }
+        clearTimeout(lineupSeedRetryTimerRef.current)
+        lineupSeedRetryTimerRef.current = setTimeout(() => setLineupSeedRetry((current) => current + 1), 5000)
+        return
+      }
+      // The user switched games while this read was in flight. That game's
+      // own seed was skipped by isSyncingLineupsRef, so run it now.
+      if (activeLineupGameIdRef.current !== selectedGame.id) {
+        setLineupSeedRetry((current) => current + 1)
+        return
+      }
+      lineupSeedFailedGameRef.current = null
+      setLineupSeedErrorGameId(null)
       const buildRows = (roster, playerId, saved) => {
         let picks = roster.filter(p => p.character_id)
         if (saved && Array.isArray(saved.lineupOrder) && saved.lineupOrder.length) {
@@ -622,6 +681,8 @@ export default function useLineupEditor({
   
   useEffect(() => {
     lastSyncedLineupSignatureRef.current = null
+    lineupSeedFailedGameRef.current = null
+    return () => clearTimeout(lineupSeedRetryTimerRef.current)
   }, [selectedGame?.id])
   
   useEffect(() => {
@@ -630,8 +691,14 @@ export default function useLineupEditor({
     const total = teamRosters.teamA.length + teamRosters.teamB.length
     if (total === 0) return
     syncGameLineupsFromRoster()
-  }, [canEditScorebook, selectedGame?.id, teamRosters.teamA.length, teamRosters.teamB.length, gameLineups.length, gamePAs.length, gameFielderRows.length, syncGameLineupsFromRoster])
+  }, [canEditScorebook, selectedGame?.id, teamRosters.teamA.length, teamRosters.teamB.length, gameLineups.length, gamePAs.length, gameFielderRows.length, syncGameLineupsFromRoster, lineupSeedRetry])
   
+  const retryLineupLoad = useCallback(() => {
+    clearTimeout(lineupSeedRetryTimerRef.current)
+    setLineupSeedErrorGameId(null)
+    setLineupSeedRetry((current) => current + 1)
+  }, [])
+
   const discardLineupChanges = useCallback(() => {
     lineupDirtyRef.current = { A: false, B: false }
     setLineupDirty({ A: false, B: false })
@@ -647,6 +714,8 @@ export default function useLineupEditor({
     selectedFieldingPlayer,
     lineupSaveStatus,
     lineupDirty,
+    lineupLoadStatus,
+    retryLineupLoad,
     changePitcherRef,
     handleLineupDragStart,
     handleLineupNumberClick,

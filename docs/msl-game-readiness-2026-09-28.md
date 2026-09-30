@@ -1,8 +1,12 @@
 # MSL 1 game-readiness review — September 28, 2026
 
-The first work should make season data and game finalization dependable. Both have reproduced defects that can disrupt a session even while the underlying scoring tests pass. Keep new metrics, visual redesigns, and broad refactors behind these repairs.
+**Current verdict: Ready for the next MSL 1 session.** The readiness push is closed. The findings and verification below preserve the work that established this result; they are not new assignments.
+
+The release follow-up confirmed commit `4e63f2e` (`Bug fixes`) is on local `main` with `origin/main` aligned. Comparing the 41 recorded candidate hashes found only the readiness report and the documented browser viewport override changed; product code matches the tested candidate. A fresh read of the deployed public assets returned `app-B3Dxl2-1.js` and `ScorebookRoute-DNwMj6UE.js`, with `Finish completion steps` present. The user reports pushing the files and playing a test game successfully. The physical test is user-confirmed; no fresh capture/database audit was performed in this closure check. Combined with the 1,441 passing tests and prior release verification, no known material readiness blocker remains. No further coding assignment is warranted without a newly observed problem.
 
 ## Current status and stopping rule
+
+**September 29 optional smoke pass: closed.** S1–S6 and O1–O5 are accounted for in [the smoke checklist](msl-optional-smoke-2026-09-29.md). The combined local candidate fixes an Admin form race, misleading lineup-save success, and the two follow-ups for incomplete-backup reporting and handled save failures. Build, 64 scorebook tests, 64 persistence tests, and focused desktop/mobile browser checks pass. No new session blocker or further coding assignment remains. These additional fixes are not yet committed/deployed; shipping them is the only remaining action from the optional pass. The deployed version and successful physical test described above remain the evidence for the original readiness verdict.
 
 User clarification: this is a finite game-readiness push. An available agent is not a reason to invent an assignment. The queue below records the original review; it is not a requirement to implement every possible improvement.
 
@@ -15,7 +19,7 @@ Only assign further work for (a) a reproduced defect that materially affects the
 
 ## Release check result — 2026-09-28 (final)
 
-**Verdict: Code work complete; awaiting these specific checks/actions.** No coding assignments remain. [Prompt](prompts/msl-ready-02-opus-release-check.md). Logs: `tmp/msl-readiness-20260928/release-check/`.
+**Original release-check verdict: Code work complete; awaiting deployment and a physical test. Both have since been closed as recorded above.** No coding assignments remain. [Prompt](prompts/msl-ready-02-opus-release-check.md). Logs: `tmp/msl-readiness-20260928/release-check/`. The table below records evidence at the time of that check; its deployment/physical statuses are historical.
 
 **Handoff closure:** the coordinating review checked the saved combined-test, build, mobile recovery and next-game logs and compared all 41 recorded candidate-file hashes. Only this report and the documented browser viewport override differ; the product code matches the tested candidate. Do not issue another coding prompt merely because an agent is available. The remaining deployment and physical check below are the release actions, not a new bug-fixing backlog.
 
@@ -53,9 +57,11 @@ Only assign further work for (a) a reproduced defect that materially affects the
 - The rehearsal ran against intercepted Supabase and an intercepted launcher. The real login, live writes and emulator were deliberately not exercised.
 - The one historical unresolved Red Noki PA in the acceptance capture remains correctly reported.
 
-**Remaining actions (the user's, not coding work)**
-1. Commit and push the candidate so Vercel deploys it. Then confirm `msl-tournament.vercel.app` serves a `ScorebookRoute` chunk containing "Finish completion steps". No migration is needed.
-2. Run one short physical check before the MSL game: a TEST-season game (not MSL Season 1) launched from the deployed site through Dolphin. Confirm the startup record shows `readers_ready` with capture recording, a few PAs score, End Game completes with no recovery banner, and `tracking_sessions` shows an active `ingested` version.
+**Release actions — closed**
+1. Candidate committed and pushed; the deployed `ScorebookRoute` now contains "Finish completion steps". No migration was needed.
+2. User reports a successful test game after pushing. This supplies the physical-use confirmation; the prior suggested capture/session-level checks were not independently rerun by the coordinating review.
+
+No outstanding readiness assignments remain. Keep the tested setup for the session and reopen work only for a concrete new issue.
 
 ---
 

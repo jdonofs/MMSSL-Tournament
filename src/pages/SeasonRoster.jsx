@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, ArrowRightLeft, Clock3, Plus, Users2, X } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { fetchAllRows } from '../utils/fetchAllRows'
+import { createRefreshCoordinator } from '../utils/refreshCoordinator'
 import { useAuth } from '../context/AuthContext'
 import { useSeason } from '../context/SeasonContext'
 import { useTournament } from '../context/TournamentContext'
@@ -644,6 +645,13 @@ export default function SeasonRoster() {
   const processingWaiversRef = useRef(false)
   const lastSyncedLineupRef = useRef(null)
   const lineupLoadKeyRef = useRef(null)
+  // 'ready' only once the viewed team's saved lineup has been read (or found
+  // absent). A failed read leaves it 'error' and nothing may be saved.
+  const [lineupLoadStatus, setLineupLoadStatus] = useState('loading')
+  const lineupLoadStatusRef = useRef('loading')
+  useEffect(() => { lineupLoadStatusRef.current = lineupLoadStatus }, [lineupLoadStatus])
+  const [lineupReloadNonce, setLineupReloadNonce] = useState(0)
+  const retryLineupLoad = useCallback(() => setLineupReloadNonce((current) => current + 1), [])
 
   const loadRosterDataSeqRef = useRef(0)
 
@@ -708,13 +716,9 @@ export default function SeasonRoster() {
   // Bulk per-game history (every character, every tournament/season) so every row in the
   // roster/free-agent lists gets a real history-adjusted OVR, not just the opened card.
   useEffect(() => {
+    let disposed = false
     const load = async () => {
-      const [
-        { data: paData }, { data: gData }, { data: seasonPaData },
-        { data: pitchData }, { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData },
-        { data: seasonTeamsData }, { data: charData },
-        { data: gamePitchesData }, { data: seasonGamePitchesData },
-      ] = await Promise.all([
+      const results = await Promise.all([
         fetchAllRows(() => supabase.from('plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,is_error,error_character,error_position,hit_location,defensive_team_id,inning')),
         fetchAllRows(() => supabase.from('games').select('id,tournament_id')),
         fetchAllRows(() => supabase.from('season_plate_appearances').select('game_id,character_id,player_id,result,run_scored,rbi,season_id,is_error,error_character,error_position,hit_location,defensive_team_id,inning')),
@@ -727,6 +731,17 @@ export default function SeasonRoster() {
         fetchAllRows(() => supabase.from('pitches').select('game_id,pitcher_id')),
         fetchAllRows(() => supabase.from('season_pitches').select('game_id,pitcher_id')),
       ])
+      if (disposed) return
+      // A failed read keeps the history already on screen; the next change,
+      // reconnect or return to the tab tries again.
+      const failed = results.find((result) => result.error)
+      if (failed) throw failed.error
+      const [
+        { data: paData }, { data: gData }, { data: seasonPaData },
+        { data: pitchData }, { data: seasonPitchData }, { data: fieldersData }, { data: seasonFieldersData },
+        { data: seasonTeamsData }, { data: charData },
+        { data: gamePitchesData }, { data: seasonGamePitchesData },
+      ] = results
       // A pitching_stints row is created the moment a pitcher takes the mound (Scorebook's
       // mound-assignment bookkeeping), before they've necessarily thrown a pitch — if pulled again
       // without facing a batter, that stint sits at 0 IP forever but would still count as a "game"
@@ -747,21 +762,42 @@ export default function SeasonRoster() {
       setAllSeasonGameFielders(seasonFieldersData || [])
       setAllSeasonTeams(seasonTeamsData || [])
     }
-    load().catch(() => {})
+    // Every pitch and plate appearance fires several of the events below. Each
+    // would otherwise start its own full reload, so they share one coordinator:
+    // a burst becomes one load, events during a load become one trailing load,
+    // and a hidden tab waits until it is visible again.
+    const refreshCoordinator = createRefreshCoordinator({
+      run: load,
+      isPaused: () => document.visibilityState === 'hidden',
+      onError: (error) => console.warn('[roster] history refresh failed', error),
+    })
+    const refresh = () => refreshCoordinator.request()
+    refreshCoordinator.request({ immediate: true })
     const channel = supabase
       .channel(`season-roster-history-${Math.random().toString(36).slice(2)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitches' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitches' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plate_appearances' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_plate_appearances' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitching_stints' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitching_stints' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pitches' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_pitches' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_fielders' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_game_fielders' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'season_teams' }, refresh)
       .subscribe()
-    return () => supabase.removeChannel(channel)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshCoordinator.resume()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('online', refresh)
+    return () => {
+      disposed = true
+      refreshCoordinator.dispose()
+      supabase.removeChannel(channel)
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('online', refresh)
+    }
   }, [])
 
   // Computed once from the broadest available pool so every history call below judges games
@@ -891,7 +927,7 @@ export default function SeasonRoster() {
   const isViewingOwnTeam = String(viewedTeam?.id || '') === String(myTeam?.id || '')
   const isCommissioner = Boolean(player?.is_commissioner)
   const canEditRoster = isViewingOwnTeam || isCommissioner || isScorekeeper
-  const canShowAutoButtons = canEditRoster
+  const canShowAutoButtons = canEditRoster && lineupLoadStatus === 'ready'
   // The Rosters tab always shows the currently-selected team (viewedTeam)
   const lineupTeam = viewedTeam || myTeam || null
   const lineupRoster = activeRosterByTeamId[String(lineupTeam?.id)] || []
@@ -1108,13 +1144,27 @@ export default function SeasonRoster() {
       setSelectedLineupMoveId(null)
       lastSyncedLineupRef.current = null
       lineupLoadKeyRef.current = null
+      setLineupLoadStatus('ready')
       return
     }
 
     const loadKey = `${currentSeason.id}-${viewedPlayerId}`
 
+    // A different team (or a retry after a failed read) starts from an empty
+    // editor, so the previous team's lineup is never shown as this one's. A
+    // same-team refresh keeps the lineup on screen until the read succeeds.
+    if (lineupLoadKeyRef.current !== loadKey) {
+      setFieldingPositions({})
+      setLineupOrder([])
+      setSelectedPlayer(null)
+      setSelectedLineupMoveId(null)
+      lastSyncedLineupRef.current = null
+      lineupLoadKeyRef.current = null
+      setLineupLoadStatus('loading')
+    }
+
     let cancelled = false
-    fetchTeamLineup({ ...SEASON_TEAM_LINEUPS, sourceId: currentSeason.id, playerId: viewedPlayerId }).then((saved) => {
+    fetchTeamLineup({ ...SEASON_TEAM_LINEUPS, sourceId: currentSeason.id, playerId: viewedPlayerId, throwOnError: true }).then((saved) => {
       if (cancelled) return
 
       const { lineupOrder: lineupOrderResult, fieldingPositions: savedPositions } = reconcileSavedLineup(saved, viewedRosterCharacters)
@@ -1123,10 +1173,17 @@ export default function SeasonRoster() {
       lineupLoadKeyRef.current = loadKey
       setLineupOrder(lineupOrderResult)
       setFieldingPositions(savedPositions)
+      setLineupLoadStatus('ready')
+    }).catch((error) => {
+      if (cancelled) return
+      console.warn('[roster] saved lineup read failed', error)
+      // A failed same-team refresh keeps the last good lineup and any edits.
+      if (lineupLoadKeyRef.current === loadKey) return
+      setLineupLoadStatus('error')
     })
 
     return () => { cancelled = true }
-  }, [currentSeason?.id, viewedPlayerId, viewedRosterCharacters, reconcileSavedLineup])
+  }, [currentSeason?.id, viewedPlayerId, viewedRosterCharacters, reconcileSavedLineup, lineupReloadNonce])
 
   // Lineup order + fielding positions are saved explicitly via the Save
   // button (handleSaveLineup) rather than autosaved, to avoid races with
@@ -1142,6 +1199,9 @@ export default function SeasonRoster() {
 
   const handleSaveLineup = useCallback(async () => {
     if (!currentSeason?.id || !viewedPlayerId) return
+    if (lineupLoadKeyRef.current !== `${currentSeason.id}-${viewedPlayerId}`) {
+      throw new Error('The saved lineup has not loaded; nothing was saved.')
+    }
     const payload = JSON.stringify({ lineupOrder, fieldingPositions })
     setLineupSaveStatus('saving')
     try {
@@ -1181,6 +1241,7 @@ export default function SeasonRoster() {
   // another device) for the currently viewed team.
   useEffect(() => {
     if (!currentSeason?.id || !viewedPlayerId) return
+    let disposed = false
     const channel = supabase
       .channel(`season-team-lineup-${currentSeason.id}-${viewedPlayerId}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', {
@@ -1199,6 +1260,9 @@ export default function SeasonRoster() {
         // that never got explicitly re-saved to season_team_lineups.
         const { lineupOrder, fieldingPositions } = reconcileSavedLineup(saved, viewedRosterCharactersRef.current)
         lastSyncedLineupRef.current = JSON.stringify({ lineupOrder, fieldingPositions })
+        // The row itself is a trustworthy read, so it also ends a failed load.
+        lineupLoadKeyRef.current = `${currentSeason.id}-${viewedPlayerId}`
+        setLineupLoadStatus('ready')
         setLineupOrder(lineupOrder)
         setFieldingPositions(fieldingPositions)
       })
@@ -1211,9 +1275,15 @@ export default function SeasonRoster() {
       // pattern for why (keeps the tab from looking "always active" to the browser's memory
       // manager). The visibilitychange handler below re-syncs immediately once shown again.
       if (document.hidden) return
+      if (lineupLoadStatusRef.current === 'error') {
+        retryLineupLoad()
+        return
+      }
+      if (lineupLoadStatusRef.current !== 'ready') return
       if (isLineupDirtyRef.current) return
-      fetchTeamLineup({ ...SEASON_TEAM_LINEUPS, sourceId: currentSeason.id, playerId: viewedPlayerId }).then((saved) => {
-        if (!saved) return
+      fetchTeamLineup({ ...SEASON_TEAM_LINEUPS, sourceId: currentSeason.id, playerId: viewedPlayerId, throwOnError: true }).then((saved) => {
+        // A read that resolves after a team switch belongs to the old team.
+        if (disposed || !saved) return
         if (isLineupDirtyRef.current) return
         const { lineupOrder, fieldingPositions } = reconcileSavedLineup(saved, viewedRosterCharactersRef.current)
         const payload = JSON.stringify({ lineupOrder, fieldingPositions })
@@ -1221,6 +1291,9 @@ export default function SeasonRoster() {
         lastSyncedLineupRef.current = payload
         setLineupOrder(lineupOrder)
         setFieldingPositions(fieldingPositions)
+      }).catch((error) => {
+        // Keep the lineup on screen; the next visibility/online event retries.
+        if (!disposed) console.warn('[roster] saved lineup refresh failed', error)
       })
     }
     const handleVisibility = () => {
@@ -1231,11 +1304,12 @@ export default function SeasonRoster() {
     window.addEventListener('online', handleOnline)
 
     return () => {
+      disposed = true
       supabase.removeChannel(channel)
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('online', handleOnline)
     }
-  }, [currentSeason?.id, viewedPlayerId, reconcileSavedLineup])
+  }, [currentSeason?.id, viewedPlayerId, reconcileSavedLineup, retryLineupLoad])
 
   const handleDragStartRoster = (characterId) => (event) => {
     if (!canEditRoster) return
@@ -1814,6 +1888,13 @@ export default function SeasonRoster() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {lineupCharacters.length === 0 ? (
                     <div style={{ padding: 12, textAlign: 'center', color: '#64748B', fontSize: 12 }}>No active players on this roster yet.</div>
+                  ) : lineupLoadStatus !== 'ready' ? (
+                    <div style={{ padding: 12, textAlign: 'center', color: lineupLoadStatus === 'error' ? '#F87171' : '#64748B', fontSize: 12 }}>
+                      {lineupLoadStatus === 'error' ? 'Saved lineup failed to load.' : 'Loading saved lineup…'}
+                      {lineupLoadStatus === 'error' && !canEditRoster ? (
+                        <button className="ghost-button" type="button" onClick={retryLineupLoad} style={{ marginLeft: 8 }}>Retry</button>
+                      ) : null}
+                    </div>
                   ) : (
                     lineupOrder.map((charId, index) => {
                       const character = lineupCharactersById[charId]
@@ -1868,14 +1949,14 @@ export default function SeasonRoster() {
                   fieldingAssignMode={false}
                   selectedForFielding={null}
                   onAssignPosition={() => {}}
-                  editable={canEditRoster}
+                  editable={canEditRoster && lineupLoadStatus === 'ready'}
                   chemistryHighlightIds={fieldingChemistryHighlightIds}
                 />
 
               </div>
             </div>
             {canEditRoster ? (
-              <SaveLineupBar isDirty={isLineupDirty} status={lineupSaveStatus} onSave={handleSaveLineup} />
+              <SaveLineupBar isDirty={isLineupDirty} status={lineupSaveStatus} onSave={() => handleSaveLineup().catch(() => {})} loadStatus={lineupLoadStatus} onRetryLoad={retryLineupLoad} />
             ) : null}
         </div>
       ) : null}
